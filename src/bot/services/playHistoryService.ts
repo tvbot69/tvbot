@@ -47,6 +47,18 @@ export class PlayHistoryService {
     return this.playRepository.getRecentEntityPlaycounts(userId, artistName, null, trackName);
   }
 
+  public async getArtistTotalPlays(userId: number, artistName: string): Promise<number> {
+    return this.playRepository.getEntityTotalPlaycount(userId, artistName);
+  }
+
+  public async getAlbumTotalPlays(userId: number, artistName: string, albumName: string): Promise<number> {
+    return this.playRepository.getEntityTotalPlaycount(userId, artistName, albumName);
+  }
+
+  public async getTrackTotalPlays(userId: number, artistName: string, trackName: string): Promise<number> {
+    return this.playRepository.getEntityTotalPlaycount(userId, artistName, null, trackName);
+  }
+
   public async getDiscoveryDates(
     userId: number,
     artistName: string,

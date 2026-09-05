@@ -10,7 +10,7 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 export const getOrdinal = (n: number): string => {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
-  return n.toLocaleString('en-US') + (s[(v - 20) % 10] ?? s[v] ?? s[0] ?? 'th');
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0] ?? 'th'}`;
 };
 
 export const getArtistUrl = (artist: string): string =>
@@ -31,12 +31,12 @@ export class PlaycountBuilders {
     monthPlays: number,
   ): ResponseModel {
     const playWord = userPlaycount === 1 ? 'play' : 'plays';
-    let reply = `**${userTitle}** has **${userPlaycount.toLocaleString('en-US')}** ${playWord} for **${artistName}**`;
+    let reply = `**${userTitle}** has **${userPlaycount}** ${playWord} for **${artistName}**`;
 
     if (monthPlays > 0) {
       const weekWord = weekPlays === 1 ? 'play' : 'plays';
       const monthWord = monthPlays === 1 ? 'play' : 'plays';
-      reply += `\n-# *${weekPlays.toLocaleString('en-US')} ${weekWord} last week — ${monthPlays.toLocaleString('en-US')} ${monthWord} last month*`;
+      reply += `\n-# *${weekPlays} ${weekWord} last week — ${monthPlays} ${monthWord} last month*`;
     }
 
     return new ResponseModel().setContent(reply);
@@ -51,12 +51,12 @@ export class PlaycountBuilders {
     monthPlays: number,
   ): ResponseModel {
     const playWord = userPlaycount === 1 ? 'play' : 'plays';
-    let reply = `**${userTitle}** has **${userPlaycount.toLocaleString('en-US')}** ${playWord} for **${albumName}** by **${artistName}**`;
+    let reply = `**${userTitle}** has **${userPlaycount}** ${playWord} for **${albumName}** by **${artistName}**`;
 
     if (monthPlays > 0) {
       const weekWord = weekPlays === 1 ? 'play' : 'plays';
       const monthWord = monthPlays === 1 ? 'play' : 'plays';
-      reply += `\n-# *${weekPlays.toLocaleString('en-US')} ${weekWord} last week — ${monthPlays.toLocaleString('en-US')} ${monthWord} last month*`;
+      reply += `\n-# *${weekPlays} ${weekWord} last week — ${monthPlays} ${monthWord} last month*`;
     }
 
     return new ResponseModel().setContent(reply);
@@ -71,12 +71,12 @@ export class PlaycountBuilders {
     monthPlays: number,
   ): ResponseModel {
     const playWord = userPlaycount === 1 ? 'play' : 'plays';
-    let reply = `**${userTitle}** has **${userPlaycount.toLocaleString('en-US')}** ${playWord} for **${trackName}** by **${artistName}**`;
+    let reply = `**${userTitle}** has **${userPlaycount}** ${playWord} for **${trackName}** by **${artistName}**`;
 
     if (monthPlays > 0) {
       const weekWord = weekPlays === 1 ? 'play' : 'plays';
       const monthWord = monthPlays === 1 ? 'play' : 'plays';
-      reply += `\n-# *${weekPlays.toLocaleString('en-US')} ${weekWord} last week — ${monthPlays.toLocaleString('en-US')} ${monthWord} last month*`;
+      reply += `\n-# *${weekPlays} ${weekWord} last week — ${monthPlays} ${monthWord} last month*`;
     }
 
     return new ResponseModel().setContent(reply);
@@ -90,8 +90,8 @@ export class PlaycountBuilders {
   ): ResponseModel {
     const scrobbleWord = count === 1 ? 'scrobble' : 'scrobbles';
     const reply = isAllTime
-      ? `**${userTitle}** has \`${count.toLocaleString('en-US')}\` total ${scrobbleWord}`
-      : `**${userTitle}** has \`${count.toLocaleString('en-US')}\` ${scrobbleWord} in the ${periodDescription ?? 'selected period'}`;
+      ? `**${userTitle}** has \`${count}\` total ${scrobbleWord}`
+      : `**${userTitle}** has \`${count}\` ${scrobbleWord} in the ${periodDescription ?? 'selected period'}`;
 
     return new ResponseModel().setContent(reply);
   }
@@ -160,18 +160,20 @@ export class PlaycountBuilders {
     res.embed.setTitle(`${ordinal} scrobble from ${userDisplayName}`);
 
     const trackLink = `[${trackName}](${getTrackUrl(artistName, trackName)})`;
-    const artistLink = `[${artistName}](${getArtistUrl(artistName)})`;
-    let desc = `**${trackLink}** by **${artistLink}**`;
+    let desc = `### ${trackLink}\n**${artistName}**`;
+    if (albumName && albumName.trim().length > 0) {
+      desc += ` • *${albumName}*`;
+    }
 
     if (timePlayed) {
       const unixTime = Math.floor(timePlayed.getTime() / 1000);
-      desc += `\nDate played: **<t:${unixTime}:D>**`;
+      desc += `\n\nDate played: **<t:${unixTime}:D>**`;
 
       const year = timePlayed.getUTCFullYear();
-      const month = timePlayed.getUTCMonth() + 1;
-      const day = timePlayed.getUTCDate();
+      const month = String(timePlayed.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(timePlayed.getUTCDate()).padStart(2, '0');
       const dateString = `${year}-${month}-${day}`;
-      res.embed.setURL(`https://www.last.fm/user/${encodeURIComponent(lastFmUsername)}/library?from=${dateString}&to=${dateString}`);
+      res.embed.setURL(`https://last.fm/user/${encodeURIComponent(lastFmUsername)}/library?from=${dateString}&to=${dateString}`);
     }
 
     res.embed.setDescription(desc);

@@ -53,7 +53,7 @@ describe('PlaycountBuilders and SettingService', () => {
       );
       expect(response.content).toBeDefined();
       expect(response.content).toContain('User123');
-      expect(response.content).toContain('**1,500** plays');
+      expect(response.content).toContain('**1500** plays');
       expect(response.content).toContain('25 plays last week');
       expect(response.content).toContain('100 plays last month');
     });
@@ -90,7 +90,7 @@ describe('PlaycountBuilders and SettingService', () => {
 
     it('builds plays response for all-time and period', () => {
       const allTime = PlaycountBuilders.buildPlaysResponse('User123', 50000, true, 'Alltime');
-      expect(allTime.content).toContain('`50,000` total scrobbles');
+      expect(allTime.content).toContain('`50000` total scrobbles');
 
       const weekly = PlaycountBuilders.buildPlaysResponse('User123', 250, false, 'Weekly');
       expect(weekly.content).toContain('`250` scrobbles in the Weekly');
@@ -129,8 +129,10 @@ describe('PlaycountBuilders and SettingService', () => {
         1,
       );
       const json = response.embed.toJSON();
-      expect(json.title).toContain('10,000th scrobble');
-      expect(json.description).toContain('Karma Police');
+      expect(json.title).toBe('10000th scrobble from User123');
+      expect(json.description).toContain('### [Karma Police]');
+      expect(json.description).toContain('**Radiohead** • *OK Computer*');
+      expect(json.thumbnail?.url).toBe('https://example.com/cover.png');
       expect(response.buildComponents().length).toBeGreaterThan(0);
     });
 

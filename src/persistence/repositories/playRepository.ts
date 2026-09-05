@@ -393,7 +393,8 @@ export class PlayRepository implements IPlayRepository {
     trackName?: string | null,
   ): Promise<{ week: number; month: number }> {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date();
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
 
     const conditions: string[] = [
       'user_id = $1',
@@ -450,6 +451,28 @@ export class PlayRepository implements IPlayRepository {
       };
     }
     return { week: 0, month: 0 };
+  }
+
+  public async getEntityTotalPlaycount(
+    userId: number,
+    artistName: string,
+    albumName?: string | null,
+    trackName?: string | null,
+  ): Promise<number> {
+    try {
+      const whereClause: Record<string, unknown> = {
+        userId,
+        artistName: { equals: artistName, mode: 'insensitive' },
+      };
+      if (albumName) whereClause.albumName = { equals: albumName, mode: 'insensitive' };
+      if (trackName) whereClause.trackName = { equals: trackName, mode: 'insensitive' };
+
+      return await this.prisma.userPlay.count({
+        where: whereClause,
+      });
+    } catch {
+      return 0;
+    }
   }
 
   public async getEntityFirstPlay(

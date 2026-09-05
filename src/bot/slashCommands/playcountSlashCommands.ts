@@ -218,10 +218,24 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       ? await this.playHistoryService.getRecentArtistPlaycounts(target.targetUser.userId, artistSearch.artistName)
       : { week: 0, month: 0 };
 
+    let totalPlays = artistSearch.userPlaycount ?? 0;
+    if (totalPlays === 0 && target.targetUser.userId > 0) {
+      const dbTotal = await this.playHistoryService.getArtistTotalPlays(
+        target.targetUser.userId,
+        artistSearch.artistName,
+      );
+      if (dbTotal > totalPlays) {
+        totalPlays = dbTotal;
+      }
+    }
+    if (playcounts.month > totalPlays) {
+      totalPlays = playcounts.month;
+    }
+
     return PlaycountBuilders.buildArtistPlaysResponse(
       target.displayName,
       artistSearch.artistName,
-      artistSearch.userPlaycount ?? 0,
+      totalPlays,
       playcounts.week,
       playcounts.month,
     );
@@ -244,11 +258,26 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       ? await this.playHistoryService.getRecentAlbumPlaycounts(target.targetUser.userId, albumSearch.artistName, albumSearch.albumName)
       : { week: 0, month: 0 };
 
+    let totalPlays = albumSearch.userPlaycount ?? 0;
+    if (totalPlays === 0 && target.targetUser.userId > 0) {
+      const dbTotal = await this.playHistoryService.getAlbumTotalPlays(
+        target.targetUser.userId,
+        albumSearch.artistName,
+        albumSearch.albumName,
+      );
+      if (dbTotal > totalPlays) {
+        totalPlays = dbTotal;
+      }
+    }
+    if (playcounts.month > totalPlays) {
+      totalPlays = playcounts.month;
+    }
+
     return PlaycountBuilders.buildAlbumPlaysResponse(
       target.displayName,
       albumSearch.artistName,
       albumSearch.albumName,
-      albumSearch.userPlaycount ?? 0,
+      totalPlays,
       playcounts.week,
       playcounts.month,
     );
@@ -271,11 +300,26 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       ? await this.playHistoryService.getRecentTrackPlaycounts(target.targetUser.userId, trackSearch.artistName, trackSearch.trackName)
       : { week: 0, month: 0 };
 
+    let totalPlays = trackSearch.userPlaycount ?? 0;
+    if (totalPlays === 0 && target.targetUser.userId > 0) {
+      const dbTotal = await this.playHistoryService.getTrackTotalPlays(
+        target.targetUser.userId,
+        trackSearch.artistName,
+        trackSearch.trackName,
+      );
+      if (dbTotal > totalPlays) {
+        totalPlays = dbTotal;
+      }
+    }
+    if (playcounts.month > totalPlays) {
+      totalPlays = playcounts.month;
+    }
+
     return PlaycountBuilders.buildTrackPlaysResponse(
       target.displayName,
       trackSearch.artistName,
       trackSearch.trackName,
-      trackSearch.userPlaycount ?? 0,
+      totalPlays,
       playcounts.week,
       playcounts.month,
     );

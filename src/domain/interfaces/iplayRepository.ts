@@ -77,6 +77,13 @@ export interface IPlayRepository {
     trackName?: string | null,
   ): Promise<{ week: number; month: number }>;
 
+  getEntityTotalPlaycount(
+    userId: number,
+    artistName: string,
+    albumName?: string | null,
+    trackName?: string | null,
+  ): Promise<number>;
+
   getEntityFirstPlay(
     userId: number,
     artistName: string,

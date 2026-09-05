@@ -22,11 +22,17 @@ export class TrackConverter {
 
   public static convertRecentTrack(track: RecentTrackLfm): RecentTrack {
     const artistName =
-      typeof track.artist === 'string' ? track.artist : track.artist['#text'];
+      typeof track.artist === 'string'
+        ? track.artist
+        : (track.artist as any)?.name ?? (track.artist as any)?.['#text'] ?? '';
     const artistMbid =
-      typeof track.artist === 'string' ? undefined : track.artist.mbid || undefined;
+      typeof track.artist === 'string'
+        ? undefined
+        : track.artist.mbid || (track.artist as any)?.mbid || undefined;
     const albumName =
-      typeof track.album === 'string' ? track.album : track.album?.['#text'];
+      typeof track.album === 'string'
+        ? track.album
+        : (track.album as any)?.name ?? (track.album as any)?.['#text'] ?? '';
 
     return {
       name: track.name,
