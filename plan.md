@@ -32,18 +32,17 @@ Each item: `fmbot` → `tvbot` files + DB + builder.
 - **fmbot:** `PlayCommands.cs: discoverydate dd` + `lastlistened ll` → `PlayService.GetArtistFirstPlayDate` / `GetTrackLastPlayed`
 - **tvbot:** Full 1:1 parity implemented in `PlayHistoryService.getDiscoveryDates` and `PlayHistoryService.getLastListenedDates` with 30-day relative timestamp styles (`f` vs `D`) and sub-links.
 
-### 4. `search` `sr` (library search, not music)
+### 4. `search` `sr` (library search, not music) - [x] COMPLETED
 - **fmbot:** `PlayCommands.cs: search sr/find` → `PlayBuilders.SearchAsync` cached `prisma` `SearchUserTracks/Albums/Artists/Plays` + `Fergun Paginator` tabs `Tracks/Albums/Artists/Plays`
-- **tvbot gap:** `search` currently is music Lavalink, not library.
-- **Build:** `src/bot/services/librarySearchService.ts` (`SearchUserTracks/Albums/Artists` via `prisma.$queryRaw` trigram), `src/bot/builders/searchBuilders.ts` (4 tabs, `#[rank]`), `src/bot/textCommands/lastfm/searchCommands.ts` `search/sr` + slash `search`, `src/bot/interactions/searchInteractions.ts` tab switching
+- **tvbot:** Full 1:1 parity implemented in `src/bot/services/librarySearchService.ts`, `src/bot/builders/librarySearchBuilders.ts`, `src/bot/interactions/librarySearchInteractions.ts`, `src/bot/textCommands/lastfm/librarySearchCommands.ts`, and `src/bot/slashCommands/librarySearchSlashCommands.ts`.
 
-### 5. `profile` / `stats` / `user`
+### 5. `profile` / `stats` / `user` - [x] COMPLETED
 - **fmbot:** `UserCommands.cs: profile/stats/user` → `UserBuilder.ProfileAsync` (playcount, registered, country, recent top)
-- **Build:** `src/bot/builders/profileBuilders.ts` + `src/bot/slashCommands/profileSlashCommands.ts`
+- **tvbot:** Full 1:1 parity implemented in `src/bot/services/profileService.ts`, `src/bot/builders/profileBuilders.ts` (with interactive History breakdown button), `src/bot/interactions/profileInteractions.ts`, `src/bot/textCommands/lastfm/profileCommands.ts`, and `src/bot/slashCommands/profileSlashCommands.ts`.
 
-### 6. `streak` `str` / `streaks` `strs`
+### 6. `streak` `str` / `streaks` `strs` - [x] COMPLETED
 - **fmbot:** `PlayCommands.cs: streak str` + `streaks` → `PlayService.GetStreak` + `UserStreak` DB (`streak_id, user_id, artist_name, start, end, count`)
-- **Build:** Add `prisma/schema.prisma` `model UserStreak`, `src/bot/services/streakService.ts`, `src/bot/builders/streakBuilders.ts`
+- **tvbot:** Full 1:1 parity implemented in `src/bot/services/streakService.ts`, `src/bot/builders/streakBuilders.ts`, `src/bot/textCommands/lastfm/streakCommands.ts`, and `src/bot/slashCommands/streakSlashCommands.ts`.
 
 ---
 

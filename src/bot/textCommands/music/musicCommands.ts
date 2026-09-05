@@ -38,8 +38,8 @@ export class MusicCommands implements ITextCommandModule {
         executeAsync: (ctx, args) => this.playAsync(ctx, args),
       },
       {
-        name: 'search',
-        aliases: ['find'],
+        name: 'musicsearch',
+        aliases: ['msr'],
         executeAsync: (ctx, args) => this.searchAsync(ctx, args),
       },
       {

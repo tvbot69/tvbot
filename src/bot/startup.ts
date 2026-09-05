@@ -149,6 +149,17 @@ import { PlayHistoryService } from './services/playHistoryService';
 import { PlaycountCommands } from './textCommands/lastfm/playcountCommands';
 import { PlaycountSlashCommands } from './slashCommands/playcountSlashCommands';
 import { PlaycountInteractions } from './interactions/playcountInteractions';
+import { ProfileService } from './services/profileService';
+import { ProfileInteractions } from './interactions/profileInteractions';
+import { ProfileCommands } from './textCommands/lastfm/profileCommands';
+import { ProfileSlashCommands } from './slashCommands/profileSlashCommands';
+import { StreakService } from './services/streakService';
+import { StreakCommands } from './textCommands/lastfm/streakCommands';
+import { StreakSlashCommands } from './slashCommands/streakSlashCommands';
+import { LibrarySearchService } from './services/librarySearchService';
+import { LibrarySearchInteractions } from './interactions/librarySearchInteractions';
+import { LibrarySearchCommands } from './textCommands/lastfm/librarySearchCommands';
+import { LibrarySearchSlashCommands } from './slashCommands/librarySearchSlashCommands';
 
 const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -664,6 +675,34 @@ const configureContainer = (): void => {
   container.registerInstance(PlaycountInteractions, playcountInteractions);
   container.registerInstance(PlaycountCommands, playcountCommands);
   container.registerInstance(PlaycountSlashCommands, playcountSlashCommands);
+
+  const profileService = new ProfileService(lastFmRepository, friendsRepository);
+  const profileInteractions = new ProfileInteractions(userService, profileService, colorService);
+  const profileCommands = new ProfileCommands(userService, profileService, colorService);
+  const profileSlashCommands = new ProfileSlashCommands(userService, profileService, colorService);
+
+  container.registerInstance(ProfileService, profileService);
+  container.registerInstance(ProfileInteractions, profileInteractions);
+  container.registerInstance(ProfileCommands, profileCommands);
+  container.registerInstance(ProfileSlashCommands, profileSlashCommands);
+
+  const streakService = new StreakService(lastFmRepository);
+  const streakCommands = new StreakCommands(userService, streakService, colorService);
+  const streakSlashCommands = new StreakSlashCommands(userService, streakService, colorService);
+
+  container.registerInstance(StreakService, streakService);
+  container.registerInstance(StreakCommands, streakCommands);
+  container.registerInstance(StreakSlashCommands, streakSlashCommands);
+
+  const librarySearchService = new LibrarySearchService();
+  const librarySearchInteractions = new LibrarySearchInteractions(librarySearchService, colorService);
+  const librarySearchCommands = new LibrarySearchCommands(userService, librarySearchService, colorService);
+  const librarySearchSlashCommands = new LibrarySearchSlashCommands(userService, librarySearchService, colorService);
+
+  container.registerInstance(LibrarySearchService, librarySearchService);
+  container.registerInstance(LibrarySearchInteractions, librarySearchInteractions);
+  container.registerInstance(LibrarySearchCommands, librarySearchCommands);
+  container.registerInstance(LibrarySearchSlashCommands, librarySearchSlashCommands);
 
   const musicHandler = new MusicHandler(client, moonlinkManager, queueService, colorService, voiceChannelStatusService);
   container.registerInstance(MusicHandler, musicHandler);

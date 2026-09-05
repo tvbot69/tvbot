@@ -19,6 +19,9 @@ import { TasteCommands } from './lastfm/tasteCommands';
 import { CrownCommands } from './guild/crownCommands';
 import { FootballCommands } from './football/footballCommands';
 import { PlaycountCommands } from './lastfm/playcountCommands';
+import { ProfileCommands } from './lastfm/profileCommands';
+import { StreakCommands } from './lastfm/streakCommands';
+import { LibrarySearchCommands } from './lastfm/librarySearchCommands';
 
 let commandCache: Map<string, TextCommandDefinition> | null = null;
 
@@ -26,6 +29,9 @@ const buildCommands = (): Map<string, TextCommandDefinition> => {
   const modules = [
     container.resolve(PlayCommands),
     container.resolve(PlaycountCommands),
+    container.resolve(ProfileCommands),
+    container.resolve(StreakCommands),
+    container.resolve(LibrarySearchCommands),
     container.resolve(StaticCommands),
     container.resolve(ChartCommands),
     container.resolve(LoginCommands),

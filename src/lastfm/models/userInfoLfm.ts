@@ -8,5 +8,8 @@ export interface UserInfoResponseLfm {
     country?: string;
     registered: { unixtime: string };
     playcount: string;
+    artist_count?: string;
+    album_count?: string;
+    track_count?: string;
   };
 }

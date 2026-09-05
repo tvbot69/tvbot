@@ -35,6 +35,8 @@ import { RecentInteractions } from '@bot/interactions/recentInteractions';
 import { CrownInteractions } from '@bot/interactions/crownInteractions';
 import { FootballInteractions } from '@bot/interactions/footballInteractions';
 import { PlaycountInteractions } from '@bot/interactions/playcountInteractions';
+import { ProfileInteractions } from '@bot/interactions/profileInteractions';
+import { LibrarySearchInteractions } from '@bot/interactions/librarySearchInteractions';
 import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
 import { tryHandleModal } from '@bot/interactions';
@@ -64,6 +66,8 @@ export class InteractionHandler {
   private readonly crownInteractions: CrownInteractions;
   private readonly footballInteractions: FootballInteractions;
   private readonly playcountInteractions: PlaycountInteractions;
+  private readonly profileInteractions: ProfileInteractions;
+  private readonly librarySearchInteractions: LibrarySearchInteractions;
 
   constructor() {
     this.client = container.resolve(Client);
@@ -90,6 +94,8 @@ export class InteractionHandler {
     this.crownInteractions = container.resolve(CrownInteractions);
     this.footballInteractions = container.resolve(FootballInteractions);
     this.playcountInteractions = container.resolve(PlaycountInteractions);
+    this.profileInteractions = container.resolve(ProfileInteractions);
+    this.librarySearchInteractions = container.resolve(LibrarySearchInteractions);
 
     this.client.on(Events.InteractionCreate, (interaction) => {
       void this.onInteractionCreated(interaction);
@@ -203,6 +209,20 @@ export class InteractionHandler {
         }
         if (interaction.customId.startsWith('milestone:reroll:')) {
           await this.playcountInteractions.handleButton(interaction);
+          return;
+        }
+        if (
+          interaction.customId.startsWith('profile:history:') ||
+          interaction.customId.startsWith('profile:view:')
+        ) {
+          await this.profileInteractions.handleButton(interaction);
+          return;
+        }
+        if (
+          interaction.customId.startsWith('search:page:') ||
+          interaction.customId.startsWith('search:tab:')
+        ) {
+          await this.librarySearchInteractions.handleButton(interaction);
           return;
         }
       }

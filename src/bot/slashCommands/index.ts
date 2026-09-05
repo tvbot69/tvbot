@@ -20,6 +20,9 @@ import { TasteSlashCommands } from './tasteSlashCommands';
 import { CrownSlashCommands } from './crownSlashCommands';
 import { FootballSlashCommands } from './footballSlashCommands';
 import { PlaycountSlashCommands } from './playcountSlashCommands';
+import { ProfileSlashCommands } from './profileSlashCommands';
+import { StreakSlashCommands } from './streakSlashCommands';
+import { LibrarySearchSlashCommands } from './librarySearchSlashCommands';
 
 let commandCache: Map<string, SlashCommandDefinition> | null = null;
 
@@ -27,6 +30,9 @@ const buildCommands = (): Map<string, SlashCommandDefinition> => {
   const modules = [
     container.resolve(UserSlashCommands),
     container.resolve(PlaycountSlashCommands),
+    container.resolve(ProfileSlashCommands),
+    container.resolve(StreakSlashCommands),
+    container.resolve(LibrarySearchSlashCommands),
     container.resolve(StaticSlashCommands),
     container.resolve(ChartSlashCommands),
     container.resolve(LoginSlashCommands),

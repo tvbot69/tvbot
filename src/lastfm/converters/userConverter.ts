@@ -14,6 +14,9 @@ export class UserConverter {
         : undefined,
       country: user.country && user.country !== 'None' ? user.country : undefined,
       imageUrl: TrackConverter.pickLargestImage(user.image),
+      artistCount: user.artist_count ? Number(user.artist_count) : undefined,
+      albumCount: user.album_count ? Number(user.album_count) : undefined,
+      trackCount: user.track_count ? Number(user.track_count) : undefined,
     };
   }
 }
