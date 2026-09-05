@@ -43,12 +43,18 @@ export class ColorService {
       return undefined;
     }
     const cacheKey = `accent-color:guild:${guildId}`;
-    const cached = await this.cache.get<number | null>(cacheKey);
+    const cached = await this.cache.get<number | string>(cacheKey);
     if (cached !== null && cached !== undefined) {
-      return cached;
-    }
-    if (cached === null) {
-      return undefined;
+      if (cached === 'none' || cached === -1) {
+        return undefined;
+      }
+      if (typeof cached === 'number') {
+        return cached;
+      }
+      const parsed = parseInt(String(cached), 10);
+      if (!isNaN(parsed)) {
+        return parsed;
+      }
     }
 
     const guild = await this.guildRepository.getGuild(guildId);
@@ -57,7 +63,7 @@ export class ColorService {
       return guild.accentColor;
     }
 
-    await this.cache.set(cacheKey, null, COLOR_CACHE_TTL_SECONDS);
+    await this.cache.set(cacheKey, 'none', COLOR_CACHE_TTL_SECONDS);
     return undefined;
   }
 
@@ -67,13 +73,18 @@ export class ColorService {
     }
 
     const cacheKey = `accent-color:user:${discordUserId}`;
-    const cached = await this.cache.get<number | null>(cacheKey);
+    const cached = await this.cache.get<number | string>(cacheKey);
     if (cached !== null && cached !== undefined) {
-      return cached;
-    }
-    if (cached === null) {
-      // Explicitly cached as having no custom color (default blank embed)
-      return undefined;
+      if (cached === 'none' || cached === -1) {
+        return undefined;
+      }
+      if (typeof cached === 'number') {
+        return cached;
+      }
+      const parsed = parseInt(String(cached), 10);
+      if (!isNaN(parsed)) {
+        return parsed;
+      }
     }
 
     // Check if user has a custom color or LastFmRed configured in database
@@ -95,7 +106,7 @@ export class ColorService {
     }
 
     // Default: no custom color set -> blank color embed
-    await this.cache.set(cacheKey, null, COLOR_CACHE_TTL_SECONDS);
+    await this.cache.set(cacheKey, 'none', COLOR_CACHE_TTL_SECONDS);
     return undefined;
   }
 
@@ -109,7 +120,7 @@ export class ColorService {
     if (color !== null) {
       await this.cache.set(cacheKey, color, COLOR_CACHE_TTL_SECONDS);
     } else {
-      await this.cache.set(cacheKey, null, COLOR_CACHE_TTL_SECONDS);
+      await this.cache.set(cacheKey, 'none', COLOR_CACHE_TTL_SECONDS);
     }
   }
 
