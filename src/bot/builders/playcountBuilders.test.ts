@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { PlaycountBuilders } from './playcountBuilders';
 import { SettingService } from '@bot/services/settingService';
@@ -169,6 +170,43 @@ describe('PlaycountBuilders and SettingService', () => {
       expect(json.description).toContain('Radiohead');
       expect(json.description).toContain('Kid A');
       expect(json.description).toContain('Everything In Its Right Place');
+    });
+  });
+
+  describe('Text Command alias definitions', () => {
+    it('ensures ap is exclusive to artistplays and not autoplay', async () => {
+      const { PlaycountCommands } = await import('@bot/textCommands/lastfm/playcountCommands');
+      const { MusicCommands } = await import('@bot/textCommands/music/musicCommands');
+      const { FootballCommands } = await import('@bot/textCommands/football/footballCommands');
+
+      // Check playcount commands define ap and m
+      const pc = new PlaycountCommands(
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+      );
+      const apDef = pc.commands.find((c) => c.name === 'artistplays');
+      expect(apDef?.aliases).toContain('ap');
+
+      const mDef = pc.commands.find((c) => c.name === 'milestone');
+      expect(mDef?.aliases).toContain('m');
+      expect(mDef?.aliases).toContain('ms');
+
+      // Check music commands no longer hijack ap
+      const mc = new MusicCommands({} as any, {} as any);
+      const autoDef = mc.commands.find((c) => c.name === 'autoplay');
+      expect(autoDef?.aliases).not.toContain('ap');
+      expect(autoDef?.aliases).toContain('auto');
+
+      // Check football commands no longer hijack m
+      const fc = new FootballCommands({} as any);
+      const matchDef = fc.commands.find((c) => c.name === 'matches');
+      expect(matchDef?.aliases).not.toContain('m');
     });
   });
 });

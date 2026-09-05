@@ -6,7 +6,7 @@
 
 [![Discord.js](https://img.shields.io/badge/Discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.js.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-149%2F149_passing-4caf50?style=flat-square)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-150%2F150_passing-4caf50?style=flat-square)](https://vitest.dev/)
 
 </div>
 

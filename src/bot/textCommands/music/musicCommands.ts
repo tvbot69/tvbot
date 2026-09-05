@@ -121,7 +121,7 @@ export class MusicCommands implements ITextCommandModule {
       },
       {
         name: 'autoplay',
-        aliases: ['ap'],
+        aliases: ['auto'],
         executeAsync: (ctx, args) => this.autoplayAsync(ctx, args),
       },
       {

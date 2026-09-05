@@ -12,7 +12,7 @@ export class FootballCommands implements ITextCommandModule {
     this.commands = [
       {
         name: 'matches',
-        aliases: ['football', 'm', 'fixture', 'fixtures', 'match'],
+        aliases: ['football', 'fixture', 'fixtures', 'match'],
         executeAsync: (ctx, args) => this.matchesAsync(ctx, args),
       },
     ];
