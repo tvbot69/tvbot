@@ -260,89 +260,64 @@ export class GuildRankingService {
     const gId = BigInt(guildId);
     let items: GuildRankingItem[] = [];
 
-    if (settings.chartTimePeriod === 'alltime') {
-      const orderBy =
-        settings.orderType === OrderType.Playcount
-          ? Prisma.sql`"totalPlaycount" DESC, "listenerCount" DESC`
-          : Prisma.sql`"listenerCount" DESC, "totalPlaycount" DESC`;
+    const orderBy =
+      settings.orderType === OrderType.Playcount
+        ? Prisma.sql`"totalPlaycount" DESC, "listenerCount" DESC`
+        : Prisma.sql`"listenerCount" DESC, "totalPlaycount" DESC`;
 
+    if (settings.chartTimePeriod === 'alltime') {
       const raw = await this.prisma.$queryRaw<
         Array<{
           artistName: string;
-          artistId: number;
           totalPlaycount: number;
           listenerCount: number;
         }>
       >`
-        SELECT a.name AS "artistName",
-               agg.artist_id AS "artistId",
-               agg."totalPlaycount",
-               agg."listenerCount"
-        FROM (
-            SELECT ua.artist_id,
-                   SUM(ua.playcount)::int AS "totalPlaycount",
-                   COUNT(DISTINCT ua.user_id)::int AS "listenerCount"
-            FROM user_artists ua
-            INNER JOIN guild_users gu ON gu.user_id = ua.user_id
-            WHERE gu.guild_id = ${gId}
-              AND ua.artist_id IS NOT NULL
-              AND NOT gu.who_knows_banned
-            GROUP BY ua.artist_id
-            ORDER BY ${orderBy}
-            LIMIT 120
-        ) agg
-        INNER JOIN artists a ON a.artist_id = agg.artist_id
-        ORDER BY ${orderBy};
+        SELECT ua.name AS "artistName",
+               SUM(ua.playcount)::int AS "totalPlaycount",
+               COUNT(DISTINCT ua.user_id)::int AS "listenerCount"
+        FROM user_artists ua
+        INNER JOIN guild_users gu ON gu.user_id = ua.user_id
+        WHERE gu.guild_id = ${gId}
+          AND ua.name IS NOT NULL AND ua.name != ''
+          AND NOT gu.who_knows_banned
+        GROUP BY ua.name
+        ORDER BY ${orderBy}
+        LIMIT 120;
       `;
 
       items = raw.map((r) => ({
         name: r.artistName,
         totalPlaycount: Number(r.totalPlaycount),
         listenerCount: Number(r.listenerCount),
-        id: Number(r.artistId),
       }));
     } else {
-      const orderBy =
-        settings.orderType === OrderType.Playcount
-          ? Prisma.sql`"totalPlaycount" DESC, "listenerCount" DESC`
-          : Prisma.sql`"listenerCount" DESC, "totalPlaycount" DESC`;
-
       const raw = await this.prisma.$queryRaw<
         Array<{
           artistName: string;
-          artistId: number;
           totalPlaycount: number;
           listenerCount: number;
         }>
       >`
-        SELECT a.name AS "artistName",
-               agg.artist_id AS "artistId",
-               agg."totalPlaycount",
-               agg."listenerCount"
-        FROM (
-            SELECT up.artist_id,
-                   COUNT(*)::int AS "totalPlaycount",
-                   COUNT(DISTINCT up.user_id)::int AS "listenerCount"
-            FROM user_plays up
-            INNER JOIN guild_users gu ON gu.user_id = up.user_id
-            WHERE gu.guild_id = ${gId}
-              AND up.time_played >= ${settings.startDateTime}
-              ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
-              AND up.artist_id IS NOT NULL
-              AND NOT gu.who_knows_banned
-            GROUP BY up.artist_id
-            ORDER BY ${orderBy}
-            LIMIT 120
-        ) agg
-        INNER JOIN artists a ON a.artist_id = agg.artist_id
-        ORDER BY ${orderBy};
+        SELECT up.artist_name AS "artistName",
+               COUNT(*)::int AS "totalPlaycount",
+               COUNT(DISTINCT up.user_id)::int AS "listenerCount"
+        FROM user_plays up
+        INNER JOIN guild_users gu ON gu.user_id = up.user_id
+        WHERE gu.guild_id = ${gId}
+          AND up.time_played >= ${settings.startDateTime}
+          ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
+          AND up.artist_name IS NOT NULL AND up.artist_name != ''
+          AND NOT gu.who_knows_banned
+        GROUP BY up.artist_name
+        ORDER BY ${orderBy}
+        LIMIT 120;
       `;
 
       items = raw.map((r) => ({
         name: r.artistName,
         totalPlaycount: Number(r.totalPlaycount),
         listenerCount: Number(r.listenerCount),
-        id: Number(r.artistId),
       }));
     }
 
@@ -380,26 +355,19 @@ export class GuildRankingService {
       >`
         SELECT a.name AS "artistName",
                al.name AS "albumName",
-               agg.album_id AS "albumId",
-               agg."totalPlaycount",
-               agg."listenerCount"
-        FROM (
-            SELECT ub.album_id,
-                   SUM(ub.playcount)::int AS "totalPlaycount",
-                   COUNT(DISTINCT ub.user_id)::int AS "listenerCount"
-            FROM user_albums ub
-            INNER JOIN guild_users gu ON gu.user_id = ub.user_id
-            ${filter ? Prisma.sql`INNER JOIN albums al_f ON al_f.album_id = ub.album_id INNER JOIN artists a_f ON a_f.artist_id = al_f.artist_id AND LOWER(a_f.name) = LOWER(${filter})` : Prisma.empty}
-            WHERE gu.guild_id = ${gId}
-              AND ub.album_id IS NOT NULL
-              AND NOT gu.who_knows_banned
-            GROUP BY ub.album_id
-            ORDER BY ${orderBy}
-            LIMIT 120
-        ) agg
-        INNER JOIN albums al ON al.album_id = agg.album_id
+               ub.album_id AS "albumId",
+               SUM(ub.playcount)::int AS "totalPlaycount",
+               COUNT(DISTINCT ub.user_id)::int AS "listenerCount"
+        FROM user_albums ub
+        INNER JOIN guild_users gu ON gu.user_id = ub.user_id
+        INNER JOIN albums al ON al.album_id = ub.album_id
         INNER JOIN artists a ON a.artist_id = al.artist_id
-        ORDER BY ${orderBy};
+        WHERE gu.guild_id = ${gId}
+          AND NOT gu.who_knows_banned
+          ${filter ? Prisma.sql`AND LOWER(a.name) = LOWER(${filter})` : Prisma.empty}
+        GROUP BY a.name, al.name, ub.album_id
+        ORDER BY ${orderBy}
+        LIMIT 120;
       `;
 
       items = raw.map((r) => ({
@@ -414,35 +382,25 @@ export class GuildRankingService {
         Array<{
           artistName: string;
           albumName: string;
-          albumId: number;
           totalPlaycount: number;
           listenerCount: number;
         }>
       >`
-        SELECT a.name AS "artistName",
-               al.name AS "albumName",
-               agg.album_id AS "albumId",
-               agg."totalPlaycount",
-               agg."listenerCount"
-        FROM (
-            SELECT up.album_id,
-                   COUNT(*)::int AS "totalPlaycount",
-                   COUNT(DISTINCT up.user_id)::int AS "listenerCount"
-            FROM user_plays up
-            INNER JOIN guild_users gu ON gu.user_id = up.user_id
-            WHERE gu.guild_id = ${gId}
-              AND up.time_played >= ${settings.startDateTime}
-              ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
-              AND up.album_id IS NOT NULL
-              AND NOT gu.who_knows_banned
-              ${filter ? Prisma.sql`AND LOWER(up.artist_name) = LOWER(${filter})` : Prisma.empty}
-            GROUP BY up.album_id
-            ORDER BY ${orderBy}
-            LIMIT 120
-        ) agg
-        INNER JOIN albums al ON al.album_id = agg.album_id
-        INNER JOIN artists a ON a.artist_id = al.artist_id
-        ORDER BY ${orderBy};
+        SELECT up.artist_name AS "artistName",
+               up.album_name AS "albumName",
+               COUNT(*)::int AS "totalPlaycount",
+               COUNT(DISTINCT up.user_id)::int AS "listenerCount"
+        FROM user_plays up
+        INNER JOIN guild_users gu ON gu.user_id = up.user_id
+        WHERE gu.guild_id = ${gId}
+          AND up.time_played >= ${settings.startDateTime}
+          ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
+          AND up.album_name IS NOT NULL AND up.album_name != ''
+          AND NOT gu.who_knows_banned
+          ${filter ? Prisma.sql`AND LOWER(up.artist_name) = LOWER(${filter})` : Prisma.empty}
+        GROUP BY up.artist_name, up.album_name
+        ORDER BY ${orderBy}
+        LIMIT 120;
       `;
 
       items = raw.map((r) => ({
@@ -450,7 +408,6 @@ export class GuildRankingService {
         secondaryName: r.artistName,
         totalPlaycount: Number(r.totalPlaycount),
         listenerCount: Number(r.listenerCount),
-        id: Number(r.albumId),
       }));
     }
 
@@ -488,26 +445,19 @@ export class GuildRankingService {
       >`
         SELECT a.name AS "artistName",
                t.name AS "trackName",
-               agg.track_id AS "trackId",
-               agg."totalPlaycount",
-               agg."listenerCount"
-        FROM (
-            SELECT ut.track_id,
-                   SUM(ut.playcount)::int AS "totalPlaycount",
-                   COUNT(DISTINCT ut.user_id)::int AS "listenerCount"
-            FROM user_tracks ut
-            INNER JOIN guild_users gu ON gu.user_id = ut.user_id
-            ${filter ? Prisma.sql`INNER JOIN tracks t_f ON t_f.track_id = ut.track_id INNER JOIN artists a_f ON a_f.artist_id = t_f.artist_id AND LOWER(a_f.name) = LOWER(${filter})` : Prisma.empty}
-            WHERE gu.guild_id = ${gId}
-              AND ut.track_id IS NOT NULL
-              AND NOT gu.who_knows_banned
-            GROUP BY ut.track_id
-            ORDER BY ${orderBy}
-            LIMIT 120
-        ) agg
-        INNER JOIN tracks t ON t.track_id = agg.track_id
+               ut.track_id AS "trackId",
+               SUM(ut.playcount)::int AS "totalPlaycount",
+               COUNT(DISTINCT ut.user_id)::int AS "listenerCount"
+        FROM user_tracks ut
+        INNER JOIN guild_users gu ON gu.user_id = ut.user_id
+        INNER JOIN tracks t ON t.track_id = ut.track_id
         INNER JOIN artists a ON a.artist_id = t.artist_id
-        ORDER BY ${orderBy};
+        WHERE gu.guild_id = ${gId}
+          AND NOT gu.who_knows_banned
+          ${filter ? Prisma.sql`AND LOWER(a.name) = LOWER(${filter})` : Prisma.empty}
+        GROUP BY a.name, t.name, ut.track_id
+        ORDER BY ${orderBy}
+        LIMIT 120;
       `;
 
       items = raw.map((r) => ({
@@ -522,35 +472,25 @@ export class GuildRankingService {
         Array<{
           artistName: string;
           trackName: string;
-          trackId: number;
           totalPlaycount: number;
           listenerCount: number;
         }>
       >`
-        SELECT a.name AS "artistName",
-               t.name AS "trackName",
-               agg.track_id AS "trackId",
-               agg."totalPlaycount",
-               agg."listenerCount"
-        FROM (
-            SELECT up.track_id,
-                   COUNT(*)::int AS "totalPlaycount",
-                   COUNT(DISTINCT up.user_id)::int AS "listenerCount"
-            FROM user_plays up
-            INNER JOIN guild_users gu ON gu.user_id = up.user_id
-            WHERE gu.guild_id = ${gId}
-              AND up.time_played >= ${settings.startDateTime}
-              ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
-              AND up.track_id IS NOT NULL
-              AND NOT gu.who_knows_banned
-              ${filter ? Prisma.sql`AND LOWER(up.artist_name) = LOWER(${filter})` : Prisma.empty}
-            GROUP BY up.track_id
-            ORDER BY ${orderBy}
-            LIMIT 120
-        ) agg
-        INNER JOIN tracks t ON t.track_id = agg.track_id
-        INNER JOIN artists a ON a.artist_id = t.artist_id
-        ORDER BY ${orderBy};
+        SELECT up.artist_name AS "artistName",
+               up.track_name AS "trackName",
+               COUNT(*)::int AS "totalPlaycount",
+               COUNT(DISTINCT up.user_id)::int AS "listenerCount"
+        FROM user_plays up
+        INNER JOIN guild_users gu ON gu.user_id = up.user_id
+        WHERE gu.guild_id = ${gId}
+          AND up.time_played >= ${settings.startDateTime}
+          ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
+          AND up.track_name IS NOT NULL AND up.track_name != ''
+          AND NOT gu.who_knows_banned
+          ${filter ? Prisma.sql`AND LOWER(up.artist_name) = LOWER(${filter})` : Prisma.empty}
+        GROUP BY up.artist_name, up.track_name
+        ORDER BY ${orderBy}
+        LIMIT 120;
       `;
 
       items = raw.map((r) => ({
@@ -558,7 +498,6 @@ export class GuildRankingService {
         secondaryName: r.artistName,
         totalPlaycount: Number(r.totalPlaycount),
         listenerCount: Number(r.listenerCount),
-        id: Number(r.trackId),
       }));
     }
 
@@ -595,9 +534,9 @@ export class GuildRankingService {
                COUNT(DISTINCT ua.user_id)::int AS "listenerCount"
         FROM user_artists ua
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
-        INNER JOIN artist_genres ag ON ag.artist_id = ua.artist_id
+        INNER JOIN artists a ON UPPER(a.name) = UPPER(ua.name)
+        INNER JOIN artist_genres ag ON ag.artist_id = a.artist_id
         WHERE gu.guild_id = ${gId}
-          AND ua.artist_id IS NOT NULL
           AND NOT gu.who_knows_banned
         GROUP BY ag.name
         ORDER BY ${orderBy}
@@ -617,26 +556,18 @@ export class GuildRankingService {
           listenerCount: number;
         }>
       >`
-        SELECT genre_name AS "genreName",
-               SUM(user_plays)::int AS "totalPlaycount",
-               COUNT(*)::int AS "listenerCount"
-        FROM (
-            SELECT ag.name AS genre_name, agg.user_id, SUM(agg.plays) AS user_plays
-            FROM (
-                SELECT up.artist_id, up.user_id, COUNT(*) AS plays
-                FROM user_plays up
-                INNER JOIN guild_users gu ON gu.user_id = up.user_id
-                WHERE gu.guild_id = ${gId}
-                  AND up.time_played >= ${settings.startDateTime}
-                  ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
-                  AND up.artist_id IS NOT NULL
-                  AND NOT gu.who_knows_banned
-                GROUP BY up.artist_id, up.user_id
-            ) agg
-            INNER JOIN artist_genres ag ON ag.artist_id = agg.artist_id
-            GROUP BY ag.name, agg.user_id
-        ) genre_users
-        GROUP BY genre_name
+        SELECT ag.name AS "genreName",
+               COUNT(*)::int AS "totalPlaycount",
+               COUNT(DISTINCT up.user_id)::int AS "listenerCount"
+        FROM user_plays up
+        INNER JOIN guild_users gu ON gu.user_id = up.user_id
+        INNER JOIN artists a ON UPPER(a.name) = UPPER(up.artist_name)
+        INNER JOIN artist_genres ag ON ag.artist_id = a.artist_id
+        WHERE gu.guild_id = ${gId}
+          AND up.time_played >= ${settings.startDateTime}
+          ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
+          AND NOT gu.who_knows_banned
+        GROUP BY ag.name
         ORDER BY ${orderBy}
         LIMIT 120;
       `;
