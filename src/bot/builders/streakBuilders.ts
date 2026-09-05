@@ -15,7 +15,7 @@ export class StreakBuilders {
   ): ResponseModel {
     const res = new ResponseModel(accentColor ?? undefined);
     const container = new ContainerBuilder();
-    if (accentColor) {
+    if (accentColor !== undefined && accentColor !== null) {
       container.setAccentColor(accentColor);
     }
 

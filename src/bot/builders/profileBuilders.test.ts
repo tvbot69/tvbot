@@ -75,4 +75,37 @@ describe('ProfileBuilders', () => {
     expect(desc).toContain('**`2026`** - **33,008** plays - **80d 5h**');
     expect(response.componentsV2Container).toBeDefined();
   });
+
+  it('leaves accent color undefined/blank when no custom color is set', () => {
+    const response = ProfileBuilders.buildProfileResponse({
+      userDisplayName: 'Moha',
+      lastFmUser: mockLfmUser,
+      accentColor: undefined,
+    });
+
+    expect(response.embed.data.color).toBeUndefined();
+    const containerJson = (response.componentsV2Container as any).toJSON();
+    expect(containerJson.accent_color).toBeUndefined();
+  });
+
+  it('formats " All" years entry matching fmbot 1:1', () => {
+    const response = ProfileBuilders.buildProfileHistoryResponse({
+      userDisplayName: 'Moha',
+      lastFmUser: mockLfmUser,
+      registeredUnix: 1577836800,
+      accentColor: undefined,
+      months: [
+        { monthName: 'September', playCount: 767, timeString: '1 day, 20 hours' },
+      ],
+      years: [
+        { year: ' All', playCount: 33008, timeString: '80 days, 5 hours' },
+        { year: '2026', playCount: 33008, timeString: '80 days, 5 hours' },
+      ],
+    });
+
+    const desc = response.embed.data.description ?? '';
+    expect(desc).toContain('**` All`** - **33,008** plays - **80 days, 5 hours**');
+    expect(desc).toContain('**`2026`** - **33,008** plays - **80 days, 5 hours**');
+    expect(desc).toContain('**`September`** - **767** plays - **1 day, 20 hours**');
+  });
 });

@@ -99,11 +99,9 @@ export class ProfileBuilders {
     }
 
     if (artistCount && artistCount > 0) {
-      if (albumCount && trackCount) {
-        const albumsPerArtist = (Math.round((albumCount / artistCount) * 10) / 10).toFixed(1);
-        const tracksPerArtist = (Math.round((trackCount / artistCount) * 10) / 10).toFixed(1);
-        statLines.push(`Average of **${albumsPerArtist}** albums and **${tracksPerArtist}** tracks per artist`);
-      }
+      const albumsPerArtist = (Math.round(((albumCount ?? 0) / artistCount) * 10) / 10).toFixed(1);
+      const tracksPerArtist = (Math.round(((trackCount ?? 0) / artistCount) * 10) / 10).toFixed(1);
+      statLines.push(`Average of **${albumsPerArtist}** albums and **${tracksPerArtist}** tracks per artist`);
     }
 
     if (stats.top10ArtistsScrobbles && stats.top10ArtistsScrobbles > 0 && lastFmUser.playCount > 0) {
@@ -130,7 +128,7 @@ export class ProfileBuilders {
 
     // ComponentsV2 layout
     const container = new ContainerBuilder();
-    if (accentColor) {
+    if (accentColor !== undefined && accentColor !== null) {
       container.setAccentColor(accentColor);
     }
 
@@ -214,7 +212,7 @@ export class ProfileBuilders {
     );
 
     const container = new ContainerBuilder();
-    if (accentColor) {
+    if (accentColor !== undefined && accentColor !== null) {
       container.setAccentColor(accentColor);
     }
 

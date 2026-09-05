@@ -42,11 +42,13 @@ export class ProfileCommands implements ITextCommandModule {
     const cleanOptions = rawOptions.trim();
 
     if (cleanOptions.length > 0) {
-      // Check for @mention
+      // Check for @mention or raw Discord ID snowflake
       const mentionMatch = cleanOptions.match(/<@!?(\d+)>/);
-      if (mentionMatch) {
-        const mentionedDiscordId = mentionMatch[1]!;
-        const mentioned = await this.userService.getUserByDiscordId(mentionedDiscordId);
+      const isDiscordSnowflake = !mentionMatch && /^\d{17,20}$/.test(cleanOptions);
+      const discordUserId = mentionMatch ? mentionMatch[1] : (isDiscordSnowflake ? cleanOptions : null);
+
+      if (discordUserId) {
+        const mentioned = await this.userService.getUserByDiscordId(discordUserId);
         if (!mentioned) {
           return GenericEmbedService.buildCommandErrorResponse(
             CommandResponse.WrongInput,
@@ -57,7 +59,7 @@ export class ProfileCommands implements ITextCommandModule {
         displayName = mentioned.userNameLastFm;
         if (context.guild) {
           try {
-            const member = await context.guild.members.fetch(mentionedDiscordId);
+            const member = await context.guild.members.fetch(discordUserId);
             if (member) displayName = member.displayName;
           } catch {
             displayName = mentioned.userNameLastFm;

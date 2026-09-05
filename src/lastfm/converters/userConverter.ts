@@ -5,6 +5,10 @@ import { TrackConverter } from './recentTrackConverter';
 export class UserConverter {
   public static convertUserInfo(response: UserInfoResponseLfm): LastFmUser {
     const user = response.user;
+    let imageUrl = TrackConverter.pickLargestImage(user.image);
+    if (imageUrl) {
+      imageUrl = imageUrl.replace('/u/300x300/', '/u/');
+    }
     return {
       name: user.name,
       realName: user.realname || undefined,
@@ -13,7 +17,7 @@ export class UserConverter {
         ? new Date(Number(user.registered.unixtime) * 1000)
         : undefined,
       country: user.country && user.country !== 'None' ? user.country : undefined,
-      imageUrl: TrackConverter.pickLargestImage(user.image),
+      imageUrl,
       artistCount: user.artist_count ? Number(user.artist_count) : undefined,
       albumCount: user.album_count ? Number(user.album_count) : undefined,
       trackCount: user.track_count ? Number(user.track_count) : undefined,

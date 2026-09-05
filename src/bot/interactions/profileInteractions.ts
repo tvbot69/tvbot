@@ -73,10 +73,17 @@ export class ProfileInteractions {
       }
 
       const response = ProfileBuilders.buildProfileHistoryResponse(historyStats, callerDiscordId);
-      await interaction.update({
-        embeds: response.embed ? [response.embed] : [],
-        components: response.buildComponents(),
-      });
+      if (response.isComponentsV2) {
+        await interaction.update({
+          components: [response.componentsV2Container as any],
+          flags: MessageFlags.IsComponentsV2,
+        });
+      } else {
+        await interaction.update({
+          embeds: response.embed ? [response.embed] : [],
+          components: response.buildComponents(),
+        });
+      }
     } else {
       const profileStats = await this.profileService.getProfileStats(
         displayName,
@@ -89,10 +96,17 @@ export class ProfileInteractions {
       }
 
       const response = ProfileBuilders.buildProfileResponse(profileStats, callerDiscordId);
-      await interaction.update({
-        embeds: response.embed ? [response.embed] : [],
-        components: response.buildComponents(),
-      });
+      if (response.isComponentsV2) {
+        await interaction.update({
+          components: [response.componentsV2Container as any],
+          flags: MessageFlags.IsComponentsV2,
+        });
+      } else {
+        await interaction.update({
+          embeds: response.embed ? [response.embed] : [],
+          components: response.buildComponents(),
+        });
+      }
     }
   }
 }

@@ -6,16 +6,30 @@ import { TimePeriod } from '@domain/enums/timePeriod';
 import type { ProfileStats, ProfileHistoryStats, MonthHistoryEntry, YearHistoryEntry } from '@bot/builders/profileBuilders';
 import { prisma } from '@persistence/prismaClient';
 
-function formatListeningTime(seconds: number): string {
+function formatLongListeningTime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
 
-  const parts: string[] = [];
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
-  return parts.join(' ');
+  if (days >= 1) {
+    const dayStr = days === 1 ? '1 day' : `${days} days`;
+    if (hours > 0) {
+      const hourStr = hours === 1 ? '1 hour' : `${hours} hours`;
+      return `${dayStr}, ${hourStr}`;
+    }
+    return dayStr;
+  }
+
+  if (hours >= 1) {
+    const hourStr = hours === 1 ? '1 hour' : `${hours} hours`;
+    if (minutes > 0) {
+      const minStr = minutes === 1 ? '1 minute' : `${minutes} minutes`;
+      return `${hourStr}, ${minStr}`;
+    }
+    return hourStr;
+  }
+
+  return minutes === 1 ? '1 minute' : `${minutes} minutes`;
 }
 
 @injectable()
@@ -36,17 +50,54 @@ export class ProfileService {
     }
 
     let top10ArtistsScrobbles = 0;
-    try {
-      const topArtists = await this.lastfmRepo.getTopArtists(
-        targetUser.userNameLastFm,
-        TimePeriod.AllTime,
-        10,
-      );
-      if (topArtists && topArtists.length > 0) {
-        top10ArtistsScrobbles = topArtists.reduce((acc, a) => acc + (a.playcount ?? 0), 0);
+    if (targetUser.userId > 0) {
+      try {
+        const dbTop = await prisma.userArtist.findMany({
+          where: { userId: targetUser.userId },
+          orderBy: { playcount: 'desc' },
+          take: 10,
+          select: { playcount: true },
+        });
+        if (dbTop && dbTop.length > 0) {
+          top10ArtistsScrobbles = dbTop.reduce((acc, a) => acc + (a.playcount ?? 0), 0);
+        }
+      } catch {
+        top10ArtistsScrobbles = 0;
       }
-    } catch {
-      top10ArtistsScrobbles = 0;
+    }
+
+    if (top10ArtistsScrobbles === 0) {
+      try {
+        const topArtists = await this.lastfmRepo.getTopArtists(
+          targetUser.userNameLastFm,
+          TimePeriod.AllTime,
+          10,
+        );
+        if (topArtists && topArtists.length > 0) {
+          top10ArtistsScrobbles = topArtists.reduce((acc, a) => acc + (a.playcount ?? 0), 0);
+        }
+      } catch {
+        top10ArtistsScrobbles = 0;
+      }
+    }
+
+    let differentTracksCount = lastFmUser.trackCount;
+    let differentAlbumsCount = lastFmUser.albumCount;
+    let differentArtistsCount = lastFmUser.artistCount;
+
+    if (targetUser.userId > 0 && (!differentTracksCount || !differentAlbumsCount || !differentArtistsCount)) {
+      try {
+        const [arCount, alCount, trCount] = await Promise.all([
+          differentArtistsCount ? Promise.resolve(differentArtistsCount) : prisma.userArtist.count({ where: { userId: targetUser.userId } }),
+          differentAlbumsCount ? Promise.resolve(differentAlbumsCount) : prisma.userAlbum.count({ where: { userId: targetUser.userId } }),
+          differentTracksCount ? Promise.resolve(differentTracksCount) : prisma.userTrack.count({ where: { userId: targetUser.userId } }),
+        ]);
+        differentArtistsCount = arCount || undefined;
+        differentAlbumsCount = alCount || undefined;
+        differentTracksCount = trCount || undefined;
+      } catch {
+        // Fallback to Last.fm counts
+      }
     }
 
     let friendsCount: number | undefined;
@@ -62,6 +113,9 @@ export class ProfileService {
       userDisplayName,
       lastFmUser,
       user: targetUser,
+      differentTracksCount,
+      differentAlbumsCount,
+      differentArtistsCount,
       top10ArtistsScrobbles,
       friendsCount,
       accentColor,
@@ -106,13 +160,13 @@ export class ProfileService {
 
         for (const row of monthRows) {
           const d = new Date(row.month_date);
-          const monthName = `${monthNames[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+          const monthName = monthNames[d.getUTCMonth()] ?? '';
           const count = Number(row.play_count);
           const totalSeconds = row.total_ms > 0n ? Number(row.total_ms / 1000n) : count * 210;
           months.push({
             monthName,
             playCount: count,
-            timeString: formatListeningTime(totalSeconds),
+            timeString: formatLongListeningTime(totalSeconds),
           });
         }
 
@@ -127,16 +181,32 @@ export class ProfileService {
           ORDER BY year_date DESC
         `;
 
-        for (const row of yearRows) {
-          const d = new Date(row.year_date);
-          const year = d.getUTCFullYear().toString();
-          const count = Number(row.play_count);
-          const totalSeconds = row.total_ms > 0n ? Number(row.total_ms / 1000n) : count * 210;
-          years.push({
-            year,
-            playCount: count,
-            timeString: formatListeningTime(totalSeconds),
-          });
+        if (yearRows.length > 0) {
+          const totalPlays = yearRows.reduce((acc, r) => acc + Number(r.play_count), 0);
+          const totalMs = yearRows.reduce(
+            (acc, r) => acc + (r.total_ms > 0n ? r.total_ms : BigInt(Number(r.play_count) * 210 * 1000)),
+            0n,
+          );
+          const totalSeconds = Number(totalMs / 1000n);
+          if (totalPlays > 0) {
+            years.push({
+              year: ' All',
+              playCount: totalPlays,
+              timeString: formatLongListeningTime(totalSeconds),
+            });
+          }
+
+          for (const row of yearRows) {
+            const d = new Date(row.year_date);
+            const year = d.getUTCFullYear().toString();
+            const count = Number(row.play_count);
+            const totalSeconds = row.total_ms > 0n ? Number(row.total_ms / 1000n) : count * 210;
+            years.push({
+              year,
+              playCount: count,
+              timeString: formatLongListeningTime(totalSeconds),
+            });
+          }
         }
       } catch {
         // Ignored, fallback to empty history
