@@ -160,6 +160,10 @@ import { LibrarySearchService } from './services/librarySearchService';
 import { LibrarySearchInteractions } from './interactions/librarySearchInteractions';
 import { LibrarySearchCommands } from './textCommands/lastfm/librarySearchCommands';
 import { LibrarySearchSlashCommands } from './slashCommands/librarySearchSlashCommands';
+import { GuildRankingService } from './services/guildRankingService';
+import { ServerInteractions } from './interactions/serverInteractions';
+import { ServerCommands } from './textCommands/guild/serverCommands';
+import { ServerSlashCommands } from './slashCommands/serverSlashCommands';
 
 const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -703,6 +707,16 @@ const configureContainer = (): void => {
   container.registerInstance(LibrarySearchInteractions, librarySearchInteractions);
   container.registerInstance(LibrarySearchCommands, librarySearchCommands);
   container.registerInstance(LibrarySearchSlashCommands, librarySearchSlashCommands);
+
+  const guildRankingService = new GuildRankingService(prisma);
+  const serverInteractions = new ServerInteractions(guildRankingService, colorService);
+  const serverCommands = new ServerCommands(guildRankingService, colorService);
+  const serverSlashCommands = new ServerSlashCommands(guildRankingService, colorService);
+
+  container.registerInstance(GuildRankingService, guildRankingService);
+  container.registerInstance(ServerInteractions, serverInteractions);
+  container.registerInstance(ServerCommands, serverCommands);
+  container.registerInstance(ServerSlashCommands, serverSlashCommands);
 
   const musicHandler = new MusicHandler(client, moonlinkManager, queueService, colorService, voiceChannelStatusService);
   container.registerInstance(MusicHandler, musicHandler);

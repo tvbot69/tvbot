@@ -37,6 +37,7 @@ import { FootballInteractions } from '@bot/interactions/footballInteractions';
 import { PlaycountInteractions } from '@bot/interactions/playcountInteractions';
 import { ProfileInteractions } from '@bot/interactions/profileInteractions';
 import { LibrarySearchInteractions } from '@bot/interactions/librarySearchInteractions';
+import { ServerInteractions } from '@bot/interactions/serverInteractions';
 import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
 import { tryHandleModal } from '@bot/interactions';
@@ -68,6 +69,7 @@ export class InteractionHandler {
   private readonly playcountInteractions: PlaycountInteractions;
   private readonly profileInteractions: ProfileInteractions;
   private readonly librarySearchInteractions: LibrarySearchInteractions;
+  private readonly serverInteractions: ServerInteractions;
 
   constructor() {
     this.client = container.resolve(Client);
@@ -96,6 +98,7 @@ export class InteractionHandler {
     this.playcountInteractions = container.resolve(PlaycountInteractions);
     this.profileInteractions = container.resolve(ProfileInteractions);
     this.librarySearchInteractions = container.resolve(LibrarySearchInteractions);
+    this.serverInteractions = container.resolve(ServerInteractions);
 
     this.client.on(Events.InteractionCreate, (interaction) => {
       void this.onInteractionCreated(interaction);
@@ -223,6 +226,10 @@ export class InteractionHandler {
           interaction.customId.startsWith('search:tab:')
         ) {
           await this.librarySearchInteractions.handleButton(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('server:page:')) {
+          await this.serverInteractions.handleButton(interaction);
           return;
         }
       }

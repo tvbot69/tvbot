@@ -22,6 +22,7 @@ import { PlaycountCommands } from './lastfm/playcountCommands';
 import { ProfileCommands } from './lastfm/profileCommands';
 import { StreakCommands } from './lastfm/streakCommands';
 import { LibrarySearchCommands } from './lastfm/librarySearchCommands';
+import { ServerCommands } from './guild/serverCommands';
 
 let commandCache: Map<string, TextCommandDefinition> | null = null;
 
@@ -32,6 +33,7 @@ const buildCommands = (): Map<string, TextCommandDefinition> => {
     container.resolve(ProfileCommands),
     container.resolve(StreakCommands),
     container.resolve(LibrarySearchCommands),
+    container.resolve(ServerCommands),
     container.resolve(StaticCommands),
     container.resolve(ChartCommands),
     container.resolve(LoginCommands),

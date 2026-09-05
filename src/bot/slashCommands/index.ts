@@ -23,6 +23,7 @@ import { PlaycountSlashCommands } from './playcountSlashCommands';
 import { ProfileSlashCommands } from './profileSlashCommands';
 import { StreakSlashCommands } from './streakSlashCommands';
 import { LibrarySearchSlashCommands } from './librarySearchSlashCommands';
+import { ServerSlashCommands } from './serverSlashCommands';
 
 let commandCache: Map<string, SlashCommandDefinition> | null = null;
 
@@ -33,6 +34,7 @@ const buildCommands = (): Map<string, SlashCommandDefinition> => {
     container.resolve(ProfileSlashCommands),
     container.resolve(StreakSlashCommands),
     container.resolve(LibrarySearchSlashCommands),
+    container.resolve(ServerSlashCommands),
     container.resolve(StaticSlashCommands),
     container.resolve(ChartSlashCommands),
     container.resolve(LoginSlashCommands),
