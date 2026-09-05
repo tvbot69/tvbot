@@ -263,7 +263,8 @@ export class InteractionHandler {
     void this.trackActivity(interaction);
 
     const context = ContextModel.fromInteraction(interaction);
-    context.accentColor = await this.colorService.getAccentColorAsync(context.discordUserId);
+    context.accentColor = await this.colorService.getAccentColorAsync(context.discordUserId)
+      ?? (context.guildId ? await this.colorService.getAccentColorAsync(context.guildId) : undefined);
 
     let typingInterval: NodeJS.Timeout | null = null;
     if (!command.ephemeral && interaction.channel && 'sendTyping' in interaction.channel) {

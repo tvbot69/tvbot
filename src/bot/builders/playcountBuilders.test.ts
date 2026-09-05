@@ -123,7 +123,7 @@ describe('PlaycountBuilders and SettingService', () => {
         'Karma Police',
         new Date('2026-01-01T00:00:00Z'),
         'https://example.com/cover.png',
-        null,
+        0xa6006c,
         true,
         1,
         1,
@@ -133,6 +133,7 @@ describe('PlaycountBuilders and SettingService', () => {
       expect(json.description).toContain('### [Karma Police]');
       expect(json.description).toContain('**Radiohead** • *OK Computer*');
       expect(json.thumbnail?.url).toBe('https://example.com/cover.png');
+      expect(json.color).toBe(0xa6006c);
       expect(response.buildComponents().length).toBeGreaterThan(0);
     });
 
@@ -183,6 +184,7 @@ describe('PlaycountBuilders and SettingService', () => {
 
       // Check playcount commands define ap and m
       const pc = new PlaycountCommands(
+        {} as any,
         {} as any,
         {} as any,
         {} as any,

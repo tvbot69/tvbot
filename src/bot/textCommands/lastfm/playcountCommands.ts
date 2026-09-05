@@ -11,6 +11,7 @@ import { ArtistsService } from '@bot/services/artistsService';
 import { AlbumService } from '@bot/services/albumService';
 import { TrackService } from '@bot/services/trackService';
 import { ArtworkService } from '@bot/services/artworkService';
+import { ColorService } from '@bot/services/colorService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
@@ -36,6 +37,7 @@ export class PlaycountCommands implements ITextCommandModule {
     @inject(TrackService) private readonly trackService: TrackService,
     @inject(ArtworkService) private readonly artworkService: ArtworkService,
     @inject('ILastfmRepository') private readonly lastfmRepository: ILastfmRepository,
+    @inject(ColorService) private readonly colorService: ColorService,
   ) {
     this.commands = [
       {
@@ -386,6 +388,11 @@ export class PlaycountCommands implements ITextCommandModule {
 
     const callerUser = await this.userService.getUserByDiscordId(context.discordUserId);
 
+    const targetDiscordId = target.targetUser.discordUserId;
+    const accentColor = targetDiscordId
+      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
+      : context.accentColor;
+
     return PlaycountBuilders.buildMilestoneResponse(
       target.displayName,
       target.targetUser.userNameLastFm,
@@ -395,7 +402,7 @@ export class PlaycountCommands implements ITextCommandModule {
       milestonePlay.name,
       milestonePlay.timePlayed,
       albumCoverUrl,
-      null,
+      accentColor,
       milestoneParse.isRandom,
       target.targetUser.userId,
       callerUser?.userId,
@@ -422,6 +429,11 @@ export class PlaycountCommands implements ITextCommandModule {
       trackSearch.trackName,
     );
 
+    const targetDiscordId = target.targetUser.discordUserId;
+    const accentColor = targetDiscordId
+      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
+      : context.accentColor;
+
     const hasSearch = target.cleanSearchValue.length > 0;
     return PlaycountBuilders.buildDiscoveryDateResponse(
       target.displayName,
@@ -433,6 +445,7 @@ export class PlaycountCommands implements ITextCommandModule {
       dates.albumFirstPlayDate,
       dates.trackFirstPlayDate,
       hasSearch,
+      accentColor,
     );
   }
 
@@ -456,6 +469,11 @@ export class PlaycountCommands implements ITextCommandModule {
       trackSearch.trackName,
     );
 
+    const targetDiscordId = target.targetUser.discordUserId;
+    const accentColor = targetDiscordId
+      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
+      : context.accentColor;
+
     const hasSearch = target.cleanSearchValue.length > 0;
     return PlaycountBuilders.buildLastListenedDateResponse(
       target.displayName,
@@ -467,6 +485,7 @@ export class PlaycountCommands implements ITextCommandModule {
       dates.albumLastPlayDate,
       dates.trackLastPlayDate,
       hasSearch,
+      accentColor,
     );
   }
 }

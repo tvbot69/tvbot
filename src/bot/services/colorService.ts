@@ -2,6 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import { CacheService } from './cacheService';
 import { FmSettingService } from './fmSettingService';
 import { UserRepository } from '@persistence/repositories/userRepository';
+import type { IGuildRepository } from '@domain/interfaces/iguildRepository';
 import { FmAccentColor } from '@domain/enums/fmAccentColor';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
@@ -12,19 +13,52 @@ export class ColorService {
   private readonly userRepository: UserRepository;
   private readonly fmSettingService: FmSettingService;
   private readonly cache: CacheService;
+  private readonly guildRepository?: IGuildRepository;
 
   constructor(
     @inject(UserRepository) userRepository: UserRepository,
     @inject(FmSettingService) fmSettingService: FmSettingService,
     @inject(CacheService) cache: CacheService,
+    @inject('IGuildRepository') guildRepository?: IGuildRepository,
   ) {
     this.userRepository = userRepository;
     this.fmSettingService = fmSettingService;
     this.cache = cache;
+    this.guildRepository = guildRepository;
   }
 
   public async getAccentColorAsync(targetId?: string | null): Promise<number | undefined> {
-    return this.getUserAccentColorAsync(targetId);
+    if (!targetId) {
+      return undefined;
+    }
+    const userColor = await this.getUserAccentColorAsync(targetId);
+    if (userColor !== undefined) {
+      return userColor;
+    }
+    return this.getGuildAccentColorAsync(targetId);
+  }
+
+  public async getGuildAccentColorAsync(guildId?: string | null): Promise<number | undefined> {
+    if (!guildId || !this.guildRepository) {
+      return undefined;
+    }
+    const cacheKey = `accent-color:guild:${guildId}`;
+    const cached = await this.cache.get<number | null>(cacheKey);
+    if (cached !== null && cached !== undefined) {
+      return cached;
+    }
+    if (cached === null) {
+      return undefined;
+    }
+
+    const guild = await this.guildRepository.getGuild(guildId);
+    if (guild?.accentColor) {
+      await this.cache.set(cacheKey, guild.accentColor, COLOR_CACHE_TTL_SECONDS);
+      return guild.accentColor;
+    }
+
+    await this.cache.set(cacheKey, null, COLOR_CACHE_TTL_SECONDS);
+    return undefined;
   }
 
   public async getUserAccentColorAsync(discordUserId?: string | null): Promise<number | undefined> {

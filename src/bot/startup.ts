@@ -306,7 +306,7 @@ const configureContainer = (): void => {
     prisma,
   );
   const fmSettingService = new FmSettingService(userFmSettingRepository, cache);
-  const colorService = new ColorService(userRepository, fmSettingService, cache);
+  const colorService = new ColorService(userRepository, fmSettingService, cache, guildRepository);
 
   const indexService = new IndexService(
     userIndexQueue,
@@ -646,6 +646,7 @@ const configureContainer = (): void => {
     trackService,
     artworkService,
     lastFmRepository,
+    colorService,
   );
   const playcountSlashCommands = new PlaycountSlashCommands(
     userService,
@@ -656,6 +657,7 @@ const configureContainer = (): void => {
     trackService,
     artworkService,
     lastFmRepository,
+    colorService,
   );
 
   container.registerInstance(PlayHistoryService, playHistoryService);

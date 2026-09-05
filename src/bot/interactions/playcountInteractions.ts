@@ -70,7 +70,8 @@ export class PlaycountInteractions {
         albumCoverUrl = await this.artworkService.getTrackCoverUrl(milestonePlay.name, milestonePlay.artistName);
       }
 
-      const accentColor = await this.colorService.getAccentColorAsync(interaction.guildId);
+      const accentColor = await this.colorService.getAccentColorAsync(targetUser.discordUserId || interaction.user.id)
+        ?? (interaction.guildId ? await this.colorService.getAccentColorAsync(interaction.guildId) : undefined);
 
       const member = interaction.guild?.members.cache.get(targetUser.discordUserId);
       const targetDisplayName = member?.displayName ?? targetUser.userNameLastFm;

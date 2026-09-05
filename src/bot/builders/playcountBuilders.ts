@@ -154,7 +154,7 @@ export class PlaycountBuilders {
     targetUserId?: number,
     callerUserId?: number,
   ): ResponseModel {
-    const res = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
+    const res = new ResponseModel(accentColor ?? undefined);
     const ordinal = getOrdinal(milestoneAmount);
 
     res.embed.setTitle(`${ordinal} scrobble from ${userDisplayName}`);
@@ -208,7 +208,7 @@ export class PlaycountBuilders {
     hasSearchValue: boolean,
     accentColor?: number | null,
   ): ResponseModel {
-    const res = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorBlue);
+    const res = new ResponseModel(accentColor ?? undefined);
 
     const noResult = hasSearchValue ? 'No plays yet' : 'Just now';
 
@@ -247,7 +247,7 @@ export class PlaycountBuilders {
     hasSearchValue: boolean,
     accentColor?: number | null,
   ): ResponseModel {
-    const res = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorBlue);
+    const res = new ResponseModel(accentColor ?? undefined);
 
     const noResult = hasSearchValue ? 'No plays yet' : 'First time';
 
