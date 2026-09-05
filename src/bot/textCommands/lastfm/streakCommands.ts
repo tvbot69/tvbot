@@ -102,7 +102,11 @@ export class StreakCommands implements ITextCommandModule {
       ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
       : context.accentColor;
 
-    const streak = await this.streakService.getCurrentStreak(targetUser.userId, targetUser.userNameLastFm);
+    const streak = await this.streakService.getCurrentStreak(
+      targetUser.userId,
+      targetUser.userNameLastFm,
+      targetUser.sessionKey,
+    );
     return StreakBuilders.buildStreakResponse(displayName, targetUser.userNameLastFm, streak, accentColor);
   }
 }

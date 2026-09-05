@@ -40,8 +40,18 @@ export class StreakService {
     @inject('ILastfmRepository') private readonly lastfmRepo: ILastfmRepository,
   ) {}
 
-  public async getCurrentStreak(userId: number, userNameLastFm: string): Promise<StreakModel | null> {
-    const recentTracks = await this.lastfmRepo.getUserRecentTracks(userNameLastFm, 50, 1);
+  public async getCurrentStreak(
+    userId: number,
+    userNameLastFm: string,
+    sessionKey?: string | null,
+  ): Promise<StreakModel | null> {
+    const recentTracks = await this.lastfmRepo.getUserRecentTracks(
+      userNameLastFm,
+      50,
+      1,
+      undefined,
+      sessionKey ?? undefined,
+    );
     if (!recentTracks || recentTracks.length === 0) {
       return null;
     }

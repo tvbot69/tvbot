@@ -90,9 +90,8 @@ export class LibrarySearchInteractions {
       accentColor,
     });
 
-    await interaction.update({
-      embeds: response.embed ? [response.embed] : [],
-      components: response.buildComponents(),
-    });
+    await interaction.update(
+      response.toMessagePayload() as Parameters<typeof interaction.update>[0],
+    );
   }
 }
