@@ -18,12 +18,14 @@ import { ArtistCommands } from './lastfm/artistCommands';
 import { TasteCommands } from './lastfm/tasteCommands';
 import { CrownCommands } from './guild/crownCommands';
 import { FootballCommands } from './football/footballCommands';
+import { PlaycountCommands } from './lastfm/playcountCommands';
 
 let commandCache: Map<string, TextCommandDefinition> | null = null;
 
 const buildCommands = (): Map<string, TextCommandDefinition> => {
   const modules = [
     container.resolve(PlayCommands),
+    container.resolve(PlaycountCommands),
     container.resolve(StaticCommands),
     container.resolve(ChartCommands),
     container.resolve(LoginCommands),

@@ -175,4 +175,119 @@ export class SettingService {
       redirectsEnabled,
     };
   }
+
+  public static getGoalAmount(
+    extraOptions?: string | null,
+    currentPlaycount: number = 0,
+  ): number {
+    let goalAmount = 100;
+    let ownGoalSet = false;
+
+    if (extraOptions) {
+      const options = extraOptions
+        .replace(/[()*`,. ]/g, '')
+        .split(/\s+/);
+
+      for (const option of options) {
+        const lower = option.toLowerCase();
+        if (lower.endsWith('k')) {
+          const num = parseInt(lower.replace('k', ''), 10);
+          if (!isNaN(num)) {
+            const kResult = num * 1000;
+            if (kResult > currentPlaycount) {
+              goalAmount = kResult;
+              ownGoalSet = true;
+              break;
+            }
+          }
+        } else {
+          const result = parseInt(option, 10);
+          if (!isNaN(result) && result > currentPlaycount) {
+            goalAmount = result;
+            ownGoalSet = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!ownGoalSet) {
+      for (const breakPoint of PlayCountBreakPoints) {
+        if (currentPlaycount < breakPoint) {
+          goalAmount = breakPoint;
+          break;
+        }
+      }
+    }
+
+    if (goalAmount > 10000000) {
+      goalAmount = 10000000;
+    }
+
+    return goalAmount;
+  }
+
+  public static getMilestoneAmount(
+    extraOptions?: string | null,
+    currentPlaycount: number = 0,
+  ): { amount: number; isRandom: boolean } {
+    let goalAmount = 100;
+    let ownGoalSet = false;
+    let isRandom = false;
+
+    if (extraOptions) {
+      const options = extraOptions
+        .replace(/[()*`,. ]/g, '')
+        .split(/\s+/);
+
+      for (const option of options) {
+        const lower = option.toLowerCase();
+        if (lower.endsWith('k')) {
+          const num = parseInt(lower.replace('k', ''), 10);
+          if (!isNaN(num)) {
+            const kResult = num * 1000;
+            if (kResult < currentPlaycount) {
+              goalAmount = kResult;
+              ownGoalSet = true;
+              break;
+            }
+          }
+        } else if (lower.includes('random') || lower.includes('rnd')) {
+          goalAmount = Math.floor(Math.random() * Math.max(1, currentPlaycount)) + 1;
+          ownGoalSet = true;
+          isRandom = true;
+          break;
+        } else {
+          const result = parseInt(option, 10);
+          if (!isNaN(result) && result < currentPlaycount) {
+            goalAmount = result;
+            ownGoalSet = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!ownGoalSet) {
+      const descBreakPoints = [...PlayCountBreakPoints].reverse();
+      for (const breakPoint of descBreakPoints) {
+        if (currentPlaycount > breakPoint) {
+          goalAmount = breakPoint;
+          break;
+        }
+      }
+    }
+
+    if (goalAmount < 1) {
+      goalAmount = 1;
+    }
+
+    return { amount: goalAmount, isRandom };
+  }
 }
+
+export const PlayCountBreakPoints = [
+  50, 100, 250, 420, 500, 1000, 1337, 2500, 5000, 10000, 25000, 50000, 100000,
+  150000, 200000, 250000, 300000, 350000, 400000, 450000, 500000, 600000, 700000,
+  800000, 900000, 1000000, 1500000, 2000000, 2500000, 5000000, 10000000,
+];

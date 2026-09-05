@@ -68,5 +68,39 @@ export interface IPlayRepository {
   applyArtistDeltas(userId: number, deltas: Array<{ name: string; artistId: number; delta: number }>): Promise<void>;
   applyAlbumDeltas(userId: number, deltas: Array<{ name: string; artistId: number; albumId: number; delta: number }>): Promise<void>;
   applyTrackDeltas(userId: number, deltas: Array<{ name: string; artistId: number; trackId: number; delta: number }>): Promise<void>;
+
+  /** Play history queries for artistplays/albumplays/trackplays and discoverydate/lastlistened */
+  getRecentEntityPlaycounts(
+    userId: number,
+    artistName: string,
+    albumName?: string | null,
+    trackName?: string | null,
+  ): Promise<{ week: number; month: number }>;
+
+  getEntityFirstPlay(
+    userId: number,
+    artistName: string,
+  ): Promise<{ timePlayed: Date; albumName: string | null; trackName: string | null } | null>;
+
+  getEntityFirstPlayDate(
+    userId: number,
+    artistName: string,
+    albumName?: string | null,
+    trackName?: string | null,
+  ): Promise<Date | null>;
+
+  getEntityLastPlay(
+    userId: number,
+    artistName: string,
+    cutoff: Date,
+  ): Promise<{ timePlayed: Date; albumName: string | null; trackName: string | null } | null>;
+
+  getEntityLastPlayDate(
+    userId: number,
+    artistName: string,
+    cutoff: Date,
+    albumName?: string | null,
+    trackName?: string | null,
+  ): Promise<Date | null>;
 }
 

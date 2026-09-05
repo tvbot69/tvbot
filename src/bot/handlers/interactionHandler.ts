@@ -34,6 +34,7 @@ import { TasteInteractions } from '@bot/interactions/tasteInteractions';
 import { RecentInteractions } from '@bot/interactions/recentInteractions';
 import { CrownInteractions } from '@bot/interactions/crownInteractions';
 import { FootballInteractions } from '@bot/interactions/footballInteractions';
+import { PlaycountInteractions } from '@bot/interactions/playcountInteractions';
 import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
 import { tryHandleModal } from '@bot/interactions';
@@ -62,6 +63,7 @@ export class InteractionHandler {
   private readonly recentInteractions: RecentInteractions;
   private readonly crownInteractions: CrownInteractions;
   private readonly footballInteractions: FootballInteractions;
+  private readonly playcountInteractions: PlaycountInteractions;
 
   constructor() {
     this.client = container.resolve(Client);
@@ -87,6 +89,7 @@ export class InteractionHandler {
     this.recentInteractions = container.resolve(RecentInteractions);
     this.crownInteractions = container.resolve(CrownInteractions);
     this.footballInteractions = container.resolve(FootballInteractions);
+    this.playcountInteractions = container.resolve(PlaycountInteractions);
 
     this.client.on(Events.InteractionCreate, (interaction) => {
       void this.onInteractionCreated(interaction);
@@ -196,6 +199,10 @@ export class InteractionHandler {
         }
         if (interaction.customId.startsWith('fb:')) {
           await this.footballInteractions.handleButton(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('milestone:reroll:')) {
+          await this.playcountInteractions.handleButton(interaction);
           return;
         }
       }

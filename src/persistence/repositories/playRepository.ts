@@ -385,4 +385,144 @@ export class PlayRepository implements IPlayRepository {
       }
     }
   }
+
+  public async getRecentEntityPlaycounts(
+    userId: number,
+    artistName: string,
+    albumName?: string | null,
+    trackName?: string | null,
+  ): Promise<{ week: number; month: number }> {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const conditions: string[] = [
+      'user_id = $1',
+      'time_played >= $2',
+      'LOWER(artist_name) = LOWER($3)',
+    ];
+    const params: unknown[] = [userId, monthAgo, artistName];
+
+    if (albumName) {
+      params.push(albumName);
+      conditions.push(`LOWER(album_name) = LOWER($${params.length})`);
+    }
+    if (trackName) {
+      params.push(trackName);
+      conditions.push(`LOWER(track_name) = LOWER($${params.length})`);
+    }
+
+    params.push(weekAgo);
+    const weekParamIndex = params.length;
+
+    const sql = `
+      SELECT
+        (COUNT(*) FILTER (WHERE time_played >= $${weekParamIndex}))::int AS week,
+        COUNT(*)::int AS month
+      FROM user_plays
+      WHERE ${conditions.join(' AND ')}
+    `;
+
+    try {
+      const result = await this.prisma.$queryRawUnsafe<Array<{ week: number; month: number }>>(sql, ...params);
+      if (result && result.length > 0) {
+        return {
+          week: Number(result[0]?.week ?? 0),
+          month: Number(result[0]?.month ?? 0),
+        };
+      }
+    } catch {
+      // Fallback in case of raw query issues
+      const whereClause: Record<string, unknown> = {
+        userId,
+        timePlayed: { gte: monthAgo },
+        artistName: { equals: artistName, mode: 'insensitive' },
+      };
+      if (albumName) whereClause.albumName = { equals: albumName, mode: 'insensitive' };
+      if (trackName) whereClause.trackName = { equals: trackName, mode: 'insensitive' };
+
+      const plays = await this.prisma.userPlay.findMany({
+        where: whereClause,
+        select: { timePlayed: true },
+      });
+      return {
+        week: plays.filter((p) => p.timePlayed >= weekAgo).length,
+        month: plays.length,
+      };
+    }
+    return { week: 0, month: 0 };
+  }
+
+  public async getEntityFirstPlay(
+    userId: number,
+    artistName: string,
+  ): Promise<{ timePlayed: Date; albumName: string | null; trackName: string | null } | null> {
+    return this.prisma.userPlay.findFirst({
+      where: {
+        userId,
+        artistName: { equals: artistName, mode: 'insensitive' },
+      },
+      orderBy: { timePlayed: 'asc' },
+      select: { timePlayed: true, albumName: true, trackName: true },
+    });
+  }
+
+  public async getEntityFirstPlayDate(
+    userId: number,
+    artistName: string,
+    albumName?: string | null,
+    trackName?: string | null,
+  ): Promise<Date | null> {
+    const where: Record<string, unknown> = {
+      userId,
+      artistName: { equals: artistName, mode: 'insensitive' },
+    };
+    if (albumName) where.albumName = { equals: albumName, mode: 'insensitive' };
+    if (trackName) where.trackName = { equals: trackName, mode: 'insensitive' };
+
+    const play = await this.prisma.userPlay.findFirst({
+      where,
+      orderBy: { timePlayed: 'asc' },
+      select: { timePlayed: true },
+    });
+    return play?.timePlayed ?? null;
+  }
+
+  public async getEntityLastPlay(
+    userId: number,
+    artistName: string,
+    cutoff: Date,
+  ): Promise<{ timePlayed: Date; albumName: string | null; trackName: string | null } | null> {
+    return this.prisma.userPlay.findFirst({
+      where: {
+        userId,
+        timePlayed: { lt: cutoff },
+        artistName: { equals: artistName, mode: 'insensitive' },
+      },
+      orderBy: { timePlayed: 'desc' },
+      select: { timePlayed: true, albumName: true, trackName: true },
+    });
+  }
+
+  public async getEntityLastPlayDate(
+    userId: number,
+    artistName: string,
+    cutoff: Date,
+    albumName?: string | null,
+    trackName?: string | null,
+  ): Promise<Date | null> {
+    const where: Record<string, unknown> = {
+      userId,
+      timePlayed: { lt: cutoff },
+      artistName: { equals: artistName, mode: 'insensitive' },
+    };
+    if (albumName) where.albumName = { equals: albumName, mode: 'insensitive' };
+    if (trackName) where.trackName = { equals: trackName, mode: 'insensitive' };
+
+    const play = await this.prisma.userPlay.findFirst({
+      where,
+      orderBy: { timePlayed: 'desc' },
+      select: { timePlayed: true },
+    });
+    return play?.timePlayed ?? null;
+  }
 }

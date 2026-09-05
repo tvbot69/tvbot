@@ -20,24 +20,17 @@
 
 Each item: `fmbot` → `tvbot` files + DB + builder.
 
-### 1. `artistplays` `ap` / `albumplays` `abp` / `trackplays` `tp`
+### 1. `artistplays` `ap` / `albumplays` `abp` / `trackplays` `tp` - [x] COMPLETED
 - **fmbot:** `ArtistCommands.cs:167` `artistplays ap` / `AlbumCommands.cs:67` `albumplays abp` / `TrackCommands.cs:76` `trackplays tp` → `ArtistBuilders.ArtistPlaysAsync` + `PlayService.GetRecentArtist/Album/TrackPlaycounts` + `GetArtist/Album/TrackPlayHistory` (graph) + `CorrectUser*Playcount`
-- **tvbot gap:** Service exists (`artistsService`, `albumService`, `trackService` + `playRepository`) but no command. `taste` already has `playcount` logic.
-- **Build:**
-  - `src/bot/services/playHistoryService.ts` (new) — queries `user_plays` `count` + `groupBy` for `week/month` + `playHistory: {monthPlays, firstPlay, lastPlay, dailyPlays: Map<string,int>}`
-  - `src/bot/builders/playcountBuilders.ts` — embed `**[Artist](url)** — *X plays*` + `Week: Y Month: Z` + `graph` via `GraphService` (reuse `taste` graph) + footer `listeningTime`
-  - `src/bot/textCommands/lastfm/playcountCommands.ts` `artistplays ap`, `albumplays abp`, `trackplays tp` (aliases as fmbot) → `artistName|album|track` split ` | ` or now-playing fallback
-  - `src/bot/slashCommands/playcountSlashCommands.ts` `/artistplays` etc. `/trackplays` already partially exists? Actually `tasteSlashCommands` has `toptracks`, add new
-  - `src/bot/startup.ts` register + `slashCommands/index.ts` + `textCommands/index.ts` + `handlers/interactionHandler.ts` if needed
+- **tvbot:** Full 1:1 parity implemented in `src/bot/services/playHistoryService.ts`, `src/bot/builders/playcountBuilders.ts`, `src/bot/textCommands/lastfm/playcountCommands.ts`, and `src/bot/slashCommands/playcountSlashCommands.ts`.
 
-### 2. `plays` `p` / `pace` `pc` / `milestone` `m`
-- **fmbot:** `PlayCommands.cs: plays p/scrobles, pace pc, milestone m/ms` → `PlayBuilders.PaceAsync` (goal projection), `MileStoneAsync` (scrobble `5123`), `PlaysAsync` (time-period count via `user.getInfo` `totalPlayCount` + `GetScrobbleCountFromDate`)
-- **tvbot gap:** `taste` hard-codes `two-year`, no `plays` count, no `milestone`.
-- **Build:** `src/bot/services/playCountService.ts` → `getScrobbleCount(userName, timeFrom)` via `LastFmRepository.getUserInfo` + `prisma.userPlay.count(where timePlayed gte)`, `src/bot/builders/milestoneBuilders.ts` + `paceBuilders.ts`
+### 2. `plays` `p` / `pace` `pc` / `milestone` `m` - [x] COMPLETED
+- **fmbot:** `PlayCommands.cs: plays p/scrobbles, pace pc, milestone m/ms` → `PlayBuilders.PaceAsync` (goal projection), `MileStoneAsync` (scrobble `5123`), `PlaysAsync` (time-period count via `user.getInfo` `totalPlayCount` + `GetScrobbleCountFromDate`)
+- **tvbot:** Full 1:1 parity implemented in `SettingService.getGoalAmount`, `SettingService.getMilestoneAmount` (with `rnd`/`random` and reroll buttons `milestone:reroll:`), `PlaycountBuilders.buildPaceResponse`, and `PlayHistoryService.getMilestoneScrobble`.
 
-### 3. `discoverydate` `dd` / `lastlistened` `ll`
-- **fmbot:** `PlayCommands.cs: discvoerydate dd` + `lastlistened ll` → `PlayService.GetArtistFirstPlayDate` / `GetTrackLastPlayed`
-- **Build:** `src/bot/services/playHistoryService.ts` same as #1, add `getFirstPlay(userId, artist)` / `getLastPlayed(userId, artist, track)` via `prisma.userPlay.findFirst(orderBy timePlayed asc/desc)`
+### 3. `discoverydate` `dd` / `lastlistened` `ll` - [x] COMPLETED
+- **fmbot:** `PlayCommands.cs: discoverydate dd` + `lastlistened ll` → `PlayService.GetArtistFirstPlayDate` / `GetTrackLastPlayed`
+- **tvbot:** Full 1:1 parity implemented in `PlayHistoryService.getDiscoveryDates` and `PlayHistoryService.getLastListenedDates` with 30-day relative timestamp styles (`f` vs `D`) and sub-links.
 
 ### 4. `search` `sr` (library search, not music)
 - **fmbot:** `PlayCommands.cs: search sr/find` → `PlayBuilders.SearchAsync` cached `prisma` `SearchUserTracks/Albums/Artists/Plays` + `Fergun Paginator` tabs `Tracks/Albums/Artists/Plays`

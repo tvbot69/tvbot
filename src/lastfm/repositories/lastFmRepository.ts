@@ -557,4 +557,80 @@ export class LastFmRepository implements ILastfmRepository {
       return [];
     }
   }
+
+  public async getScrobbleCountFromDate(
+    userName: string,
+    from?: number | null,
+    sessionKey?: string | null,
+    to?: number | null,
+  ): Promise<number | null> {
+    try {
+      const params: Record<string, string> = {
+        user: userName,
+        limit: '1',
+        extended: '1',
+      };
+      if (sessionKey) {
+        params.sk = sessionKey;
+      }
+      if (from != null) {
+        params.from = String(from);
+      }
+      if (to != null) {
+        params.to = String(to);
+      }
+
+      const response = sessionKey
+        ? await this.api.callSigned<RecentTracksResponseLfm>('user.getrecenttracks', params, 'GET')
+        : await this.api.call<RecentTracksResponseLfm>('user.getrecenttracks', params);
+
+      const totalAttr = response?.recenttracks?.['@attr']?.total;
+      if (totalAttr !== undefined) {
+        return parseInt(totalAttr, 10);
+      }
+      return null;
+    } catch (err) {
+      Logger.warn({ err: String(err).slice(0, 120) }, `getScrobbleCountFromDate failed for ${userName}`);
+      return null;
+    }
+  }
+
+  public async getMilestoneScrobble(
+    userName: string,
+    sessionKey: string | null,
+    totalScrobbles: number,
+    milestone: number,
+  ): Promise<RecentTrack | null> {
+    try {
+      const pageNumber = totalScrobbles - milestone + 1;
+      if (pageNumber < 1) {
+        return null;
+      }
+
+      const params: Record<string, string> = {
+        user: userName,
+        limit: '1',
+        extended: '1',
+        page: String(pageNumber),
+      };
+      if (sessionKey) {
+        params.sk = sessionKey;
+      }
+
+      const response = sessionKey
+        ? await this.api.callSigned<RecentTracksResponseLfm>('user.getrecenttracks', params, 'GET')
+        : await this.api.call<RecentTracksResponseLfm>('user.getrecenttracks', params);
+
+      const tracks = response?.recenttracks?.track;
+      if (!tracks) return null;
+      const trackArray = Array.isArray(tracks) ? tracks : [tracks];
+      const nonNowPlaying = trackArray.find((t) => !t['@attr']?.nowplaying);
+      if (!nonNowPlaying) return null;
+
+      return TrackConverter.convertRecentTrack(nonNowPlaying);
+    } catch (err) {
+      Logger.warn({ err: String(err).slice(0, 120) }, `getMilestoneScrobble failed for ${userName}`);
+      return null;
+    }
+  }
 }

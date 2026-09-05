@@ -145,6 +145,10 @@ import { FootballService } from './services/football/footballService';
 import { FootballInteractions } from './interactions/footballInteractions';
 import { FootballCommands } from './textCommands/football/footballCommands';
 import { FootballSlashCommands } from './slashCommands/footballSlashCommands';
+import { PlayHistoryService } from './services/playHistoryService';
+import { PlaycountCommands } from './textCommands/lastfm/playcountCommands';
+import { PlaycountSlashCommands } from './slashCommands/playcountSlashCommands';
+import { PlaycountInteractions } from './interactions/playcountInteractions';
 
 const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -630,6 +634,34 @@ const configureContainer = (): void => {
   container.registerInstance(FootballInteractions, footballInteractions);
   container.registerInstance(FootballCommands, footballCommands);
   container.registerInstance(FootballSlashCommands, footballSlashCommands);
+
+  const playHistoryService = new PlayHistoryService(playRepository, lastFmRepository);
+  const playcountInteractions = new PlaycountInteractions(userService, playHistoryService, artworkService, colorService, lastFmRepository);
+  const playcountCommands = new PlaycountCommands(
+    userService,
+    settingService,
+    playHistoryService,
+    artistsService,
+    albumService,
+    trackService,
+    artworkService,
+    lastFmRepository,
+  );
+  const playcountSlashCommands = new PlaycountSlashCommands(
+    userService,
+    settingService,
+    playHistoryService,
+    artistsService,
+    albumService,
+    trackService,
+    artworkService,
+    lastFmRepository,
+  );
+
+  container.registerInstance(PlayHistoryService, playHistoryService);
+  container.registerInstance(PlaycountInteractions, playcountInteractions);
+  container.registerInstance(PlaycountCommands, playcountCommands);
+  container.registerInstance(PlaycountSlashCommands, playcountSlashCommands);
 
   const musicHandler = new MusicHandler(client, moonlinkManager, queueService, colorService, voiceChannelStatusService);
   container.registerInstance(MusicHandler, musicHandler);

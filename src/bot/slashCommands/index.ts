@@ -19,12 +19,14 @@ import { ArtistSlashCommands } from './artistSlashCommands';
 import { TasteSlashCommands } from './tasteSlashCommands';
 import { CrownSlashCommands } from './crownSlashCommands';
 import { FootballSlashCommands } from './footballSlashCommands';
+import { PlaycountSlashCommands } from './playcountSlashCommands';
 
 let commandCache: Map<string, SlashCommandDefinition> | null = null;
 
 const buildCommands = (): Map<string, SlashCommandDefinition> => {
   const modules = [
     container.resolve(UserSlashCommands),
+    container.resolve(PlaycountSlashCommands),
     container.resolve(StaticSlashCommands),
     container.resolve(ChartSlashCommands),
     container.resolve(LoginSlashCommands),
