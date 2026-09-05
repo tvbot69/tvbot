@@ -1,0 +1,332 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum privacy_level {
+  Default
+  Hide
+}
+
+enum user_type {
+  User
+  Contributor
+  Admin
+  Owner
+}
+
+enum data_source {
+  LastFm
+  SpotifyImport
+  AppleMusicImport
+}
+
+model User {
+  userId          Int          @id @default(autoincrement()) @map("user_id")
+  userNameLastFm  String       @unique @map("user_name_last_fm") @db.VarChar(255)
+  discordUserId   BigInt       @unique @map("discord_user_id")
+  registeredOn    DateTime     @default(now()) @map("registered_on") @db.Timestamptz(6)
+  registeredLastFm DateTime?   @map("registered_last_fm") @db.Timestamptz(6)
+  sessionKey      String?      @map("session_key") @db.VarChar(100)
+  userType        user_type    @default(User) @map("user_type")
+  dataSource      data_source  @default(LastFm) @map("data_source")
+  timeZone        String?      @map("time_zone") @db.VarChar(50)
+  numberFormat    String?      @map("number_format") @db.VarChar(10)
+  lastUsed        DateTime?    @map("last_used") @db.Timestamptz(6)
+  dmChannelId     BigInt?      @map("dm_channel_id")
+  privacyLevel    privacy_level @default(Default) @map("privacy_level")
+  lastUpdate      DateTime?    @map("last_update") @db.Timestamptz(6)
+  lastIndexed     DateTime?    @map("last_indexed") @db.Timestamptz(6)
+  totalPlayCount  Int?         @map("total_play_count")
+  lastScrobbleUpdate DateTime? @map("last_scrobble_update") @db.Timestamptz(6)
+
+  guildUsers        GuildUser[]
+  friends           Friend[]    @relation("UserFriends")
+  friendedBy        Friend[]    @relation("FriendedByUsers")
+  plays             UserPlay[]
+  topArtists        UserArtist[]
+  topAlbums         UserAlbum[]
+  topTracks         UserTrack[]
+  fmSetting         UserFmSetting?
+  userCrowns        UserCrown[]
+
+  @@index([lastUpdate])
+  @@map("users")
+}
+
+model UserFmSetting {
+  userId                Int       @id @map("user_id")
+  embedType             Int       @default(0) @map("embed_type")
+  footerOptions         BigInt    @default(16) @map("footer_options")
+  buttons               BigInt    @default(0) @map("buttons")
+  accentColor           Int?      @map("accent_color")
+  customColor           String?   @map("custom_color") @db.VarChar(7)
+  smallTextType         Int?      @map("small_text_type")
+  privateButtonResponse Boolean?  @map("private_button_response")
+  modified              DateTime? @map("modified") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@map("user_fm_settings")
+}
+
+model Guild {
+  guildId          BigInt   @id @map("guild_id")
+  guildName        String   @map("guild_name") @db.VarChar(100)
+  prefix           String?  @db.VarChar(10)
+  guildCreatedOn   DateTime @default(now()) @map("guild_created_on") @db.Timestamptz(6)
+  lastCommand      DateTime? @map("last_command") @db.Timestamptz(6)
+  commandsDisabled Boolean  @default(false) @map("commands_disabled")
+  emotesDisabled   Boolean  @default(false) @map("emotes_disabled")
+  accentColor      Int?     @map("accent_color")
+  fmEmbedType      Int?     @map("fm_embed_type")
+  crownsDisabled                 Boolean  @default(false) @map("crowns_disabled")
+  crownsMinimumPlaycountThreshold Int?     @default(30) @map("crowns_minimum_playcount_threshold")
+  crownsActivityThresholdDays    Int?     @map("crowns_activity_threshold_days")
+  crownRoles                     BigInt[] @default([]) @map("crown_roles")
+
+  guildUsers       GuildUser[]
+  channels         Channel[]
+  disabledCommands GuildDisabledCommand[]
+  userCrowns       UserCrown[]
+
+  @@map("guilds")
+}
+
+model Channel {
+  channelId           BigInt  @id @map("channel_id")
+  guildId             BigInt  @map("guild_id")
+  toggledCommands     String[] @map("toggled_commands")
+  whoKnowsWhitelisted Boolean @default(false) @map("who_knows_whitelisted")
+  fmEmbedType         Int?     @map("fm_embed_type")
+
+  guild Guild @relation(fields: [guildId], references: [guildId])
+
+  @@index([guildId])
+  @@map("channels")
+}
+
+model GuildDisabledCommand {
+  guildId     BigInt @map("guild_id")
+  commandName String @map("command_name") @db.VarChar(50)
+
+  guild Guild @relation(fields: [guildId], references: [guildId])
+
+  @@id([guildId, commandName])
+  @@index([commandName])
+  @@map("guild_disabled_commands")
+}
+
+model Artist {
+  artistId Int    @id @default(autoincrement()) @map("artist_id")
+  name     String
+  mbid     String? @map("mbid") @db.VarChar(36)
+  countryCode String? @map("country_code") @db.VarChar(2)
+  lastFmUrl String? @map("last_fm_url") @db.VarChar(500)
+  imageUrl String? @map("image_url") @db.VarChar(500)
+  popularity Int?
+  createdAt DateTime @default(now()) @map("created_on") @db.Timestamptz(6)
+
+  spotifyImageUrl  String?   @map("spotify_image_url") @db.VarChar(500)
+  spotifyImageDate DateTime? @map("spotify_image_date") @db.Timestamptz(6)
+  deezerArtistId   BigInt?   @map("deezer_artist_id")
+  deezerImageUrl   String?   @map("deezer_image_url") @db.VarChar(500)
+  appleMusicUrl    String?   @map("apple_music_url") @db.VarChar(500)
+
+  userArtists UserArtist[]
+  albums      Album[]
+  tracks      Track[]
+  genres      ArtistGenre[]
+
+  @@unique([name])
+  @@map("artists")
+}
+
+model ArtistGenre {
+  id       Int    @id @default(autoincrement()) @map("id")
+  artistId Int    @map("artist_id")
+  name     String @db.VarChar(100) @map("name")
+
+  artist Artist @relation(fields: [artistId], references: [artistId], onDelete: Cascade)
+
+  @@unique([artistId, name])
+  @@index([artistId])
+  @@map("artist_genres")
+}
+
+model Album {
+  albumId  Int    @id @default(autoincrement()) @map("album_id")
+  artistId Int    @map("artist_id")
+  name     String
+  mbid     String? @map("mbid") @db.VarChar(36)
+  imageUrl String? @map("image_url") @db.VarChar(500)
+  lastFmImageUrl String? @map("lastfm_image_url") @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_on") @db.Timestamptz(6)
+
+  spotifyImageUrl  String?   @map("spotify_image_url") @db.VarChar(500)
+  spotifyImageDate DateTime? @map("spotify_image_date") @db.Timestamptz(6)
+  deezerAlbumId    BigInt?   @map("deezer_album_id")
+  deezerImageUrl   String?   @map("deezer_image_url") @db.VarChar(500)
+  releaseDate      DateTime?  @map("release_date") @db.Date
+  releaseDatePrecision String? @map("release_date_precision") @db.VarChar(20)
+  spotifyAlbumType String?   @map("spotify_album_type") @db.VarChar(20)
+
+  artist     Artist       @relation(fields: [artistId], references: [artistId])
+  userAlbums UserAlbum[]
+
+  @@unique([artistId, name])
+  @@map("albums")
+}
+
+model Track {
+  trackId  Int    @id @default(autoincrement()) @map("track_id")
+  artistId Int    @map("artist_id")
+  name     String
+  mbid     String? @map("mbid") @db.VarChar(36)
+  imageUrl String? @map("image_url") @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_on") @db.Timestamptz(6)
+
+  spotifyImageUrl  String?   @map("spotify_image_url") @db.VarChar(500)
+  spotifyImageDate DateTime? @map("spotify_image_date") @db.Timestamptz(6)
+
+  artist     Artist       @relation(fields: [artistId], references: [artistId])
+  userTracks UserTrack[]
+
+  @@unique([artistId, name])
+  @@map("tracks")
+}
+
+model UserPlay {
+  userPlayId BigInt   @id @default(autoincrement()) @map("user_play_id")
+  userId     Int      @map("user_id")
+  artistId   Int?     @map("artist_id")
+  albumId    Int?     @map("album_id")
+  trackId    Int?     @map("track_id")
+  artistName String   @map("artist_name")
+  albumName  String?  @map("album_name")
+  trackName  String?  @map("track_name")
+  timePlayed DateTime @map("time_played") @db.Timestamptz(3)
+  msPlayed   Int?     @map("ms_played")
+  playSource PlaySource? @map("play_source")
+
+  user User @relation(fields: [userId], references: [userId])
+
+  @@index([userId, timePlayed])
+  @@index([userId, artistId])
+  @@index([timePlayed])
+  @@index([userId, playSource])
+  @@map("user_plays")
+}
+
+enum PlaySource {
+  LastFm
+  SpotifyImport
+  AppleMusicImport
+}
+
+model UserArtist {
+  userId    Int    @map("user_id")
+  artistId  Int    @map("artist_id")
+  name      String
+  playcount Int
+
+  user   User   @relation(fields: [userId], references: [userId])
+  artist Artist @relation(fields: [artistId], references: [artistId])
+
+  @@id([userId, artistId])
+  @@index([userId, playcount])
+  @@index([artistId])
+  @@index([name])
+  @@map("user_artists")
+}
+
+model UserAlbum {
+  userId    Int    @map("user_id")
+  albumId   Int    @map("album_id")
+  name      String
+  playcount Int
+
+  user   User   @relation(fields: [userId], references: [userId])
+  album  Album  @relation(fields: [albumId], references: [albumId])
+
+  @@id([userId, albumId])
+  @@index([userId, playcount])
+  @@index([albumId])
+  @@index([name])
+  @@map("user_albums")
+}
+
+model UserTrack {
+  userId    Int    @map("user_id")
+  trackId   Int    @map("track_id")
+  name      String
+  playcount Int
+
+  user   User   @relation(fields: [userId], references: [userId])
+  track  Track  @relation(fields: [trackId], references: [trackId])
+
+  @@id([userId, trackId])
+  @@index([userId, playcount])
+  @@index([trackId])
+  @@index([name])
+  @@map("user_tracks")
+}
+
+model GuildUser {
+  guildId             BigInt @map("guild_id")
+  userId              Int    @map("user_id")
+  whoKnowsWhitelisted Boolean @default(false) @map("who_knows_whitelisted")
+  whoKnowsBanned      Boolean @default(false) @map("who_knows_banned")
+  blockedFromCrowns   Boolean @default(false) @map("blocked_from_crowns")
+
+  guild Guild @relation(fields: [guildId], references: [guildId])
+  user  User  @relation(fields: [userId], references: [userId])
+
+  @@id([guildId, userId])
+  @@index([userId])
+  @@map("guild_users")
+}
+
+model Friend {
+  friendId       Int       @id @default(autoincrement()) @map("friend_id")
+  userId         Int       @map("user_id")
+  lastFmUserName String    @map("last_fm_user_name") @db.VarChar(255)
+  friendUserId   Int?      @map("friend_user_id")
+  lastFmFriend   Boolean   @default(false) @map("last_fm_friend")
+  friendType     Int       @default(1) @map("friend_type")
+  created        DateTime? @default(now()) @map("created") @db.Timestamptz(6)
+  modified       DateTime? @updatedAt @map("modified") @db.Timestamptz(6)
+
+  user           User      @relation("UserFriends", fields: [userId], references: [userId], onDelete: Cascade)
+  friendUser     User?     @relation("FriendedByUsers", fields: [friendUserId], references: [userId], onDelete: SetNull)
+
+  @@unique([userId, lastFmUserName])
+  @@index([userId])
+  @@index([friendUserId])
+  @@map("friends")
+}
+
+model UserCrown {
+  crownId          Int      @id @default(autoincrement()) @map("crown_id")
+  guildId          BigInt   @map("guild_id")
+  userId           Int      @map("user_id")
+  artistName       String   @map("artist_name") @db.VarChar(255)
+  currentPlaycount Int      @map("current_playcount")
+  startPlaycount   Int      @map("start_playcount")
+  created          DateTime @default(now()) @map("created") @db.Timestamptz(6)
+  modified         DateTime @default(now()) @map("modified") @db.Timestamptz(6)
+  active           Boolean  @default(true) @map("active")
+  seededCrown      Boolean  @default(false) @map("seeded_crown")
+
+  guild            Guild    @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  user             User     @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([guildId, artistName])
+  @@index([guildId, active])
+  @@index([userId])
+  @@map("user_crowns")
+}

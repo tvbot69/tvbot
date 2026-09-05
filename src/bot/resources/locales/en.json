@@ -1,0 +1,15 @@
+{
+  "errors": {
+    "notRegistered": "You have not connected your Last.fm account yet. Use `/register` first.",
+    "generic": "Something went wrong while executing that command.",
+    "noScrobbles": "No scrobbles found on your Last.fm profile.",
+    "wrongInput": "Please provide a valid Last.fm username.",
+    "userNotFound": "Could not find a Last.fm user named **{{username}}**."
+  },
+  "shared": {
+    "disabledCommandChannel": "This command is toggled off in this channel.",
+    "disabledCommandGuild": "This command has been disabled in this server by the staff.",
+    "disabledChannel": "Bot commands are disabled in this channel.",
+    "registerSuccess": "Your Last.fm username has been set to **{{username}}**."
+  }
+}

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    {{fontCss}}
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000000;
+      font-family: {{fontFamily}};
+      display: inline-block;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .container {
+      padding: {{padding}}px;
+      background: #000000;
+    }
+
+    .title {
+      color: #f2f2f2;
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      text-align: center;
+      letter-spacing: -0.2px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat({{columns}}, {{size}}px);
+      grid-auto-rows: {{size}}px;
+      gap: {{gap}}px;
+    }
+
+    .cell {
+      width: {{size}}px;
+      height: {{size}}px;
+      overflow: hidden;
+      position: relative;
+      background: #121214;
+    }
+
+    .cell img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .cell .label {
+      position: absolute;
+      left: 50%;
+      bottom: {{labelBottomOffset}}px;
+      transform: translateX(-50%);
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      max-width: calc(100% - 10px);
+      padding: {{labelPaddingY}}px {{labelPaddingX}}px;
+      border-radius: 4px;
+      line-height: 1.18;
+      pointer-events: none;
+      box-sizing: border-box;
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+    }
+
+    .cell .label.theme-dark {
+      background-color: rgba(0, 0, 0, 0.55);
+      color: #ffffff;
+    }
+
+    .cell .label.theme-light {
+      background-color: rgba(255, 255, 255, 0.55);
+      color: #000000;
+    }
+
+    .cell .label .top-text {
+      font-size: {{topFontSize}}px;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      display: block;
+    }
+
+    .cell .label .bottom-text {
+      font-size: {{bottomFontSize}}px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      display: block;
+      margin-top: 1px;
+    }
+
+    .cell .fallback {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #a0a0aa;
+      font-size: {{sizeFallbackText}}px;
+      line-height: 1.25;
+      padding: 10px;
+      word-break: break-word;
+      background: linear-gradient(135deg, #1c1c20 0%, #121215 100%);
+    }
+
+    .cell .fallback .fallback-artist {
+      font-weight: 700;
+      color: #e4e4e7;
+      margin-bottom: 2px;
+    }
+
+    .cell .fallback .fallback-album {
+      font-weight: 500;
+      color: #a1a1aa;
+      font-size: 0.9em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    {{titleHtml}}
+    <div class="grid">{{cells}}</div>
+  </div>
+
+  <script>
+    function analyzeImageBrightness(img) {
+      try {
+        const canvas = document.createElement('canvas');
+        const w = 40;
+        const h = 40;
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return 0;
+
+        ctx.drawImage(img, 0, 0, w, h);
+        const startY = Math.floor(h * 0.75);
+        const imgData = ctx.getImageData(0, startY, w, h - startY).data;
+
+        let totalR = 0, totalG = 0, totalB = 0, count = 0;
+        for (let i = 0; i < imgData.length; i += 4) {
+          if (imgData[i + 3] < 10) continue;
+          totalR += imgData[i];
+          totalG += imgData[i + 1];
+          totalB += imgData[i + 2];
+          count++;
+        }
+
+        if (count === 0) return 0;
+        const avgR = totalR / count;
+        const avgG = totalG / count;
+        const avgB = totalB / count;
+
+        return Math.sqrt(avgR * avgR * 0.299 + avgG * avgG * 0.587 + avgB * avgB * 0.114);
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    function processAllCellThemes() {
+      const cells = document.querySelectorAll('.cell');
+      cells.forEach((cell) => {
+        const img = cell.querySelector('img');
+        const label = cell.querySelector('.label');
+        if (!img || !label) return;
+
+        if (img.complete && img.naturalWidth > 0) {
+          const brightness = analyzeImageBrightness(img);
+          if (brightness > 130) {
+            label.className = 'label theme-light';
+          } else {
+            label.className = 'label theme-dark';
+          }
+        }
+      });
+    }
+
+    window.processAllCellThemes = processAllCellThemes;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      processAllCellThemes();
+      const images = document.querySelectorAll('.cell img');
+      images.forEach((img) => {
+        if (!img.complete) {
+          img.addEventListener('load', processAllCellThemes);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

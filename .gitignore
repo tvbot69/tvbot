@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Production build
+dist/
+
+# Environment files and credentials (NEVER commit secrets!)
+.env
+.env.*
+!.env.example
+
+# Local backups and external repos
+backup/
+fmbot-dev/
+
+# Local cache, browser data, and scratch scripts
+scratch/
+.gemini/
+.opencode/
+.moonlink/
+.puppeteer/
+.run/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Test coverage
+coverage/
+
+# OS-specific
+.DS_Store
+Thumbs.db
