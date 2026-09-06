@@ -64,13 +64,26 @@ export class ServerInteractions {
     }
 
     const parts = customId.split(':');
-    // server:page:{type}:{cacheKey}:{page}:{callerDiscordUserId}
-    if (parts.length < 6) return;
+    let rankingType: ServerRankingType;
+    let cacheKey: string;
+    let pageNum: number;
+    let callerDiscordUserId: string;
 
-    const rankingType = parts[2] as ServerRankingType;
-    const cacheKey = parts[3]!;
-    const pageNum = parseInt(parts[4]!, 10);
-    const callerDiscordUserId = parts[5]!;
+    if (parts.length >= 7) {
+      // server:page:{action}:{type}:{cacheKey}:{page}:{callerDiscordUserId}
+      rankingType = parts[3] as ServerRankingType;
+      cacheKey = parts[4]!;
+      pageNum = parseInt(parts[5]!, 10);
+      callerDiscordUserId = parts[6]!;
+    } else if (parts.length === 6) {
+      // server:page:{type}:{cacheKey}:{page}:{callerDiscordUserId}
+      rankingType = parts[2] as ServerRankingType;
+      cacheKey = parts[3]!;
+      pageNum = parseInt(parts[4]!, 10);
+      callerDiscordUserId = parts[5]!;
+    } else {
+      return;
+    }
 
     if (interaction.user.id !== callerDiscordUserId) {
       await interaction.reply({

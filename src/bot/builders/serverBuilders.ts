@@ -213,22 +213,22 @@ export class ServerBuilders {
 
       row.addComponents(
         new ButtonBuilder()
-          .setCustomId(`server:page:${type}:${cacheKey}:0:${callerDiscordUserId}`)
+          .setCustomId(`server:page:first:${type}:${cacheKey}:0:${callerDiscordUserId}`)
           .setLabel('⏮')
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(currentPageClamped === 0),
         new ButtonBuilder()
-          .setCustomId(`server:page:${type}:${cacheKey}:${currentPageClamped - 1}:${callerDiscordUserId}`)
+          .setCustomId(`server:page:prev:${type}:${cacheKey}:${Math.max(0, currentPageClamped - 1)}:${callerDiscordUserId}`)
           .setLabel('◀')
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(currentPageClamped === 0),
         new ButtonBuilder()
-          .setCustomId(`server:page:${type}:${cacheKey}:${currentPageClamped + 1}:${callerDiscordUserId}`)
+          .setCustomId(`server:page:next:${type}:${cacheKey}:${Math.min(totalPages - 1, currentPageClamped + 1)}:${callerDiscordUserId}`)
           .setLabel('▶')
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(currentPageClamped >= totalPages - 1),
         new ButtonBuilder()
-          .setCustomId(`server:page:${type}:${cacheKey}:${totalPages - 1}:${callerDiscordUserId}`)
+          .setCustomId(`server:page:last:${type}:${cacheKey}:${totalPages - 1}:${callerDiscordUserId}`)
           .setLabel('⏭')
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(currentPageClamped >= totalPages - 1),
