@@ -76,105 +76,121 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       {
         data: new SlashCommandBuilder()
           .setName('whoknows')
-          .setDescription('Check who knows an artist in this server')
-          .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
-          .addIntegerOption((opt) =>
-            opt
-              .setName('mode')
-              .setDescription('Response layout')
-              .addChoices(
-                { name: 'Embed (Default)', value: WhoKnowsMode.Default },
-                { name: 'Pagination', value: WhoKnowsMode.Pagination },
-              ),
+          .setDescription('Check who knows music in this server')
+          .addSubcommand((sub) =>
+            sub
+              .setName('artist')
+              .setDescription('Check who knows an artist in this server')
+              .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('mode')
+                  .setDescription('Response layout')
+                  .addChoices(
+                    { name: 'Embed (Default)', value: WhoKnowsMode.Default },
+                    { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                  ),
+              )
+              .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
           )
-          .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
-        executeAsync: (context) => this.whoKnowsArtistAsync(context),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('wktrack')
-          .setDescription('Check who knows a track in this server')
-          .addStringOption((opt) => opt.setName('track').setDescription('Track name (or Artist | Track)').setRequired(false))
-          .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
-          .addIntegerOption((opt) =>
-            opt
-              .setName('mode')
-              .setDescription('Response layout')
-              .addChoices(
-                { name: 'Embed (Default)', value: WhoKnowsMode.Default },
-                { name: 'Pagination', value: WhoKnowsMode.Pagination },
-              ),
+          .addSubcommand((sub) =>
+            sub
+              .setName('track')
+              .setDescription('Check who knows a track in this server')
+              .addStringOption((opt) => opt.setName('track').setDescription('Track name (or Artist | Track)').setRequired(false))
+              .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('mode')
+                  .setDescription('Response layout')
+                  .addChoices(
+                    { name: 'Embed (Default)', value: WhoKnowsMode.Default },
+                    { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                  ),
+              )
+              .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
           )
-          .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
-        executeAsync: (context) => this.whoKnowsTrackAsync(context),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('wkalbum')
-          .setDescription('Check who knows an album in this server')
-          .addStringOption((opt) => opt.setName('album').setDescription('Album name (or Artist | Album)').setRequired(false))
-          .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
-          .addIntegerOption((opt) =>
-            opt
-              .setName('mode')
-              .setDescription('Response layout')
-              .addChoices(
-                { name: 'Embed (Default)', value: WhoKnowsMode.Default },
-                { name: 'Pagination', value: WhoKnowsMode.Pagination },
-              ),
-          )
-          .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
-        executeAsync: (context) => this.whoKnowsAlbumAsync(context),
+          .addSubcommand((sub) =>
+            sub
+              .setName('album')
+              .setDescription('Check who knows an album in this server')
+              .addStringOption((opt) => opt.setName('album').setDescription('Album name (or Artist | Album)').setRequired(false))
+              .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('mode')
+                  .setDescription('Response layout')
+                  .addChoices(
+                    { name: 'Embed (Default)', value: WhoKnowsMode.Default },
+                    { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                  ),
+              )
+              .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
+          ),
+        executeAsync: (context) => {
+          const sub = context.interaction?.options.getSubcommand() || 'artist';
+          if (sub === 'track') return this.whoKnowsTrackAsync(context);
+          if (sub === 'album') return this.whoKnowsAlbumAsync(context);
+          return this.whoKnowsArtistAsync(context);
+        },
       },
       {
         data: new SlashCommandBuilder()
           .setName('friendswhoknow')
-          .setDescription('Check which friends know an artist')
-          .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
-          .addIntegerOption((opt) =>
-            opt
-              .setName('mode')
-              .setDescription('Response layout')
-              .addChoices(
-                { name: 'Embed (Default)', value: WhoKnowsMode.Default },
-                { name: 'Pagination', value: WhoKnowsMode.Pagination },
+          .setDescription('Check which friends know music')
+          .addSubcommand((sub) =>
+            sub
+              .setName('artist')
+              .setDescription('Check which friends know an artist')
+              .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('mode')
+                  .setDescription('Response layout')
+                  .addChoices(
+                    { name: 'Embed (Default)', value: WhoKnowsMode.Default },
+                    { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                  ),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('track')
+              .setDescription('Check which friends know a track')
+              .addStringOption((opt) => opt.setName('track').setDescription('Track name').setRequired(false))
+              .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('mode')
+                  .setDescription('Response layout')
+                  .addChoices(
+                    { name: 'Embed (Default)', value: WhoKnowsMode.Default },
+                    { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                  ),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('album')
+              .setDescription('Check which friends know an album')
+              .addStringOption((opt) => opt.setName('album').setDescription('Album name').setRequired(false))
+              .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('mode')
+                  .setDescription('Response layout')
+                  .addChoices(
+                    { name: 'Embed (Default)', value: WhoKnowsMode.Default },
+                    { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                  ),
               ),
           ),
-        executeAsync: (context) => this.friendsWhoKnowArtistAsync(context),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('fwktrack')
-          .setDescription('Check which friends know a track')
-          .addStringOption((opt) => opt.setName('track').setDescription('Track name').setRequired(false))
-          .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
-          .addIntegerOption((opt) =>
-            opt
-              .setName('mode')
-              .setDescription('Response layout')
-              .addChoices(
-                { name: 'Embed (Default)', value: WhoKnowsMode.Default },
-                { name: 'Pagination', value: WhoKnowsMode.Pagination },
-              ),
-          ),
-        executeAsync: (context) => this.friendsWhoKnowTrackAsync(context),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('fwkalbum')
-          .setDescription('Check which friends know an album')
-          .addStringOption((opt) => opt.setName('album').setDescription('Album name').setRequired(false))
-          .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
-          .addIntegerOption((opt) =>
-            opt
-              .setName('mode')
-              .setDescription('Response layout')
-              .addChoices(
-                { name: 'Embed (Default)', value: WhoKnowsMode.Default },
-                { name: 'Pagination', value: WhoKnowsMode.Pagination },
-              ),
-          ),
-        executeAsync: (context) => this.friendsWhoKnowAlbumAsync(context),
+        executeAsync: (context) => {
+          const sub = context.interaction?.options.getSubcommand() || 'artist';
+          if (sub === 'track') return this.friendsWhoKnowTrackAsync(context);
+          if (sub === 'album') return this.friendsWhoKnowAlbumAsync(context);
+          return this.friendsWhoKnowArtistAsync(context);
+        },
       },
     ];
   }

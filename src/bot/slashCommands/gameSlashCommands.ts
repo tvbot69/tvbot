@@ -61,30 +61,6 @@ export class GameSlashCommands implements ISlashCommandModule {
           ),
         executeAsync: (ctx) => this.handleGameCommand(ctx),
       },
-      {
-        data: new SlashCommandBuilder()
-          .setName('jumble')
-          .setDescription('Play the artist anagram scramble game')
-          .addBooleanOption((opt) =>
-            opt
-              .setName('stats')
-              .setDescription('Show your personal game statistics instead of starting a game')
-              .setRequired(false),
-          ),
-        executeAsync: (ctx) => this.handleJumbleCommand(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('pixel')
-          .setDescription('Play the album cover pixelation guessing game')
-          .addBooleanOption((opt) =>
-            opt
-              .setName('stats')
-              .setDescription('Show your personal game statistics instead of starting a game')
-              .setRequired(false),
-          ),
-        executeAsync: (ctx) => this.handlePixelCommand(ctx),
-      },
     ];
   }
 

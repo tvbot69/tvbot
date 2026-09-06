@@ -63,17 +63,14 @@ export class UserSlashCommands implements ISlashCommandModule {
             { name: 'Text Full', value: String(FmEmbedType.TextFull) },
             { name: 'Text Mini', value: String(FmEmbedType.TextMini) },
             { name: 'Text One Line', value: String(FmEmbedType.TextOneLine) },
-          )),
-        executeAsync: (context) => this.fmAsync(context),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('recent')
-          .setDescription('Shows you or someone else\'s recent tracks')
-          .addUserOption(o => o.setName('user').setDescription('Discord user to show').setRequired(false))
-          .addStringOption(o => o.setName('username').setDescription('Last.fm username').setRequired(false))
-          .addIntegerOption(o => o.setName('page').setDescription('Page number').setRequired(false)),
-        executeAsync: (context) => this.recentAsync(context),
+          ))
+          .addIntegerOption(o => o.setName('page').setDescription('Page number of recent tracks (optional)').setRequired(false)),
+        executeAsync: (context) => {
+          if (context.interaction?.options.getInteger('page')) {
+            return this.recentAsync(context);
+          }
+          return this.fmAsync(context);
+        },
       },
       {
         data: new SlashCommandBuilder().setName('fmmode').setDescription('Customize your .fm appearance'),

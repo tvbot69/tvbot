@@ -44,14 +44,19 @@ export class ImportSlashCommands implements ISlashCommandModule {
                 { name: '🍏 Apple Music Guide', value: 'apple' },
                 { name: '📥 Universal Overview', value: 'all' },
               ),
+          )
+          .addBooleanOption((opt) =>
+            opt
+              .setName('reset')
+              .setDescription('Reset and clear your imported scrobbles cache')
+              .setRequired(false),
           ),
-        executeAsync: (ctx) => this.importSlashAsync(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('importmodify')
-          .setDescription('Manage or reset your imported streaming scrobbles'),
-        executeAsync: (ctx) => this.modifyImportSlashAsync(ctx),
+        executeAsync: (ctx) => {
+          if (ctx.interaction?.options.getBoolean('reset')) {
+            return this.modifyImportSlashAsync(ctx);
+          }
+          return this.importSlashAsync(ctx);
+        },
       },
     ];
   }

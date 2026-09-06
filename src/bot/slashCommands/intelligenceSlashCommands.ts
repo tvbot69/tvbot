@@ -122,44 +122,50 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
       },
       {
         data: new SlashCommandBuilder()
-          .setName('love')
-          .setDescription('Love a track on Last.fm')
-          .addStringOption((opt) =>
-            opt.setName('track').setDescription('Track name (leave empty for current playing)').setRequired(false),
-          )
-          .addStringOption((opt) =>
-            opt.setName('artist').setDescription('Artist name').setRequired(false),
-          ),
-        executeAsync: (context) => {
-          const track = context.interaction?.options.getString('track') ?? '';
-          const artist = context.interaction?.options.getString('artist') ?? '';
-          return this.loveSlashAsync(context, track, artist);
-        },
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('unlove')
-          .setDescription('Remove a track from your loved tracks on Last.fm')
-          .addStringOption((opt) =>
-            opt.setName('track').setDescription('Track name (leave empty for current playing)').setRequired(false),
-          )
-          .addStringOption((opt) =>
-            opt.setName('artist').setDescription('Artist name').setRequired(false),
-          ),
-        executeAsync: (context) => {
-          const track = context.interaction?.options.getString('track') ?? '';
-          const artist = context.interaction?.options.getString('artist') ?? '';
-          return this.unloveSlashAsync(context, track, artist);
-        },
-      },
-      {
-        data: new SlashCommandBuilder()
           .setName('loved')
-          .setDescription('Show loved tracks on Last.fm')
-          .addUserOption((opt) =>
-            opt.setName('user').setDescription('Target user (defaults to you)').setRequired(false),
+          .setDescription('Manage and view loved tracks on Last.fm')
+          .addSubcommand((sub) =>
+            sub
+              .setName('list')
+              .setDescription('Show loved tracks on Last.fm')
+              .addUserOption((opt) =>
+                opt.setName('user').setDescription('Target user (defaults to you)').setRequired(false),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('add')
+              .setDescription('Love a track on Last.fm')
+              .addStringOption((opt) =>
+                opt.setName('track').setDescription('Track name (leave empty for current playing)').setRequired(false),
+              )
+              .addStringOption((opt) =>
+                opt.setName('artist').setDescription('Artist name').setRequired(false),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('remove')
+              .setDescription('Remove a track from your loved tracks on Last.fm')
+              .addStringOption((opt) =>
+                opt.setName('track').setDescription('Track name (leave empty for current playing)').setRequired(false),
+              )
+              .addStringOption((opt) =>
+                opt.setName('artist').setDescription('Artist name').setRequired(false),
+              ),
           ),
         executeAsync: (context) => {
+          const sub = context.interaction?.options.getSubcommand() || 'list';
+          if (sub === 'add') {
+            const track = context.interaction?.options.getString('track') ?? '';
+            const artist = context.interaction?.options.getString('artist') ?? '';
+            return this.loveSlashAsync(context, track, artist);
+          }
+          if (sub === 'remove') {
+            const track = context.interaction?.options.getString('track') ?? '';
+            const artist = context.interaction?.options.getString('artist') ?? '';
+            return this.unloveSlashAsync(context, track, artist);
+          }
           const targetUser = context.interaction?.options.getUser('user');
           return this.lovedSlashAsync(context, targetUser?.id);
         },

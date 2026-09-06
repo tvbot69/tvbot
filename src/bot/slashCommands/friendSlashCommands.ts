@@ -28,23 +28,33 @@ export class FriendSlashCommands implements ISlashCommandModule {
     this.commands = [
       {
         data: new SlashCommandBuilder()
-          .setName('friendsfm')
-          .setDescription('Shows what your friends are currently listening to'),
-        executeAsync: (context) => this.friendsFmAsync(context),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('addfriend')
-          .setDescription('Add a user to your friends list')
-          .addStringOption((opt) => opt.setName('username').setDescription('Last.fm username or Discord mention').setRequired(true)),
-        executeAsync: (context) => this.addFriendAsync(context),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('removefriend')
-          .setDescription('Remove a user from your friends list')
-          .addStringOption((opt) => opt.setName('username').setDescription('Last.fm username or Discord mention').setRequired(true)),
-        executeAsync: (context) => this.removeFriendAsync(context),
+          .setName('friends')
+          .setDescription('Manage your Last.fm friends list and view what friends are listening to')
+          .addSubcommand((sub) =>
+            sub.setName('list').setDescription('Shows what your friends are currently listening to'),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('add')
+              .setDescription('Add a user to your friends list')
+              .addStringOption((opt) =>
+                opt.setName('username').setDescription('Last.fm username or Discord mention').setRequired(true),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('remove')
+              .setDescription('Remove a user from your friends list')
+              .addStringOption((opt) =>
+                opt.setName('username').setDescription('Last.fm username or Discord mention').setRequired(true),
+              ),
+          ),
+        executeAsync: (context) => {
+          const sub = context.interaction?.options.getSubcommand() || 'list';
+          if (sub === 'add') return this.addFriendAsync(context);
+          if (sub === 'remove') return this.removeFriendAsync(context);
+          return this.friendsFmAsync(context);
+        },
       },
     ];
   }

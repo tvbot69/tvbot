@@ -30,29 +30,37 @@ export class StreamingSlashCommands implements ISlashCommandModule {
       {
         data: new SlashCommandBuilder()
           .setName('spotify')
-          .setDescription('Search for a track on Spotify or share your current playing track')
-          .addStringOption((opt) =>
-            opt.setName('query').setDescription('Song name or artist').setRequired(false),
+          .setDescription('Search Spotify catalog or share your current playing music')
+          .addSubcommand((sub) =>
+            sub
+              .setName('track')
+              .setDescription('Search for a track on Spotify or share your currently playing track')
+              .addStringOption((opt) =>
+                opt.setName('query').setDescription('Song name or artist').setRequired(false),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('album')
+              .setDescription('Search for an album on Spotify')
+              .addStringOption((opt) =>
+                opt.setName('query').setDescription('Album name or artist').setRequired(true),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('artist')
+              .setDescription('Search for an artist on Spotify')
+              .addStringOption((opt) =>
+                opt.setName('query').setDescription('Artist name').setRequired(true),
+              ),
           ),
-        executeAsync: (ctx) => this.spotifyTrackSlashAsync(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('spotifyalbum')
-          .setDescription('Search for an album on Spotify')
-          .addStringOption((opt) =>
-            opt.setName('query').setDescription('Album name or artist').setRequired(true),
-          ),
-        executeAsync: (ctx) => this.spotifyAlbumSlashAsync(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('spotifyartist')
-          .setDescription('Search for an artist on Spotify')
-          .addStringOption((opt) =>
-            opt.setName('query').setDescription('Artist name').setRequired(true),
-          ),
-        executeAsync: (ctx) => this.spotifyArtistSlashAsync(ctx),
+        executeAsync: (ctx) => {
+          const sub = ctx.interaction?.options.getSubcommand() || 'track';
+          if (sub === 'album') return this.spotifyAlbumSlashAsync(ctx);
+          if (sub === 'artist') return this.spotifyArtistSlashAsync(ctx);
+          return this.spotifyTrackSlashAsync(ctx);
+        },
       },
       {
         data: new SlashCommandBuilder()

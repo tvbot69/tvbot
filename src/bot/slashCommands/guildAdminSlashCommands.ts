@@ -45,31 +45,38 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
       },
       {
         data: new SlashCommandBuilder()
-          .setName('block')
-          .setDescription('Block a member from Crowns and WhoKnows leaderboards in this server')
-          .addUserOption((opt) => opt.setName('user').setDescription('User to block').setRequired(true))
+          .setName('blocklist')
+          .setDescription('Manage or view users blocked from Crowns and WhoKnows leaderboards in this server')
+          .addSubcommand((sub) =>
+            sub
+              .setName('add')
+              .setDescription('Block a member from Crowns and WhoKnows leaderboards')
+              .addUserOption((opt) => opt.setName('user').setDescription('User to block').setRequired(true)),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('remove')
+              .setDescription('Unblock a member from Crowns and WhoKnows leaderboards')
+              .addUserOption((opt) => opt.setName('user').setDescription('User to unblock').setRequired(true)),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('list')
+              .setDescription('List all users blocked from Crowns and WhoKnows in this server'),
+          )
           .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
         executeAsync: (ctx) => {
-          const user = ctx.interaction?.options.getUser('user', true);
-          return this.setBlockSlashAsync(ctx, user?.id ?? '', true);
+          const sub = ctx.interaction?.options.getSubcommand() || 'list';
+          if (sub === 'add') {
+            const user = ctx.interaction?.options.getUser('user', true);
+            return this.setBlockSlashAsync(ctx, user?.id ?? '', true);
+          }
+          if (sub === 'remove') {
+            const user = ctx.interaction?.options.getUser('user', true);
+            return this.setBlockSlashAsync(ctx, user?.id ?? '', false);
+          }
+          return this.blockedUsersSlashAsync(ctx);
         },
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('unblock')
-          .setDescription('Unblock a member from Crowns and WhoKnows leaderboards in this server')
-          .addUserOption((opt) => opt.setName('user').setDescription('User to unblock').setRequired(true))
-          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
-        executeAsync: (ctx) => {
-          const user = ctx.interaction?.options.getUser('user', true);
-          return this.setBlockSlashAsync(ctx, user?.id ?? '', false);
-        },
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('blockedusers')
-          .setDescription('List all users blocked from Crowns and WhoKnows in this server'),
-        executeAsync: (ctx) => this.blockedUsersSlashAsync(ctx),
       },
       {
         data: new SlashCommandBuilder()

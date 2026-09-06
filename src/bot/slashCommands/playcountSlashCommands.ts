@@ -39,64 +39,58 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
     this.commands = [
       {
         data: new SlashCommandBuilder()
-          .setName('artistplays')
-          .setDescription("Shows playcount for current artist or the one you're searching for.")
-          .addStringOption((opt) =>
-            opt.setName('artist').setDescription('Artist name').setRequired(false),
-          )
-          .addUserOption((opt) =>
-            opt.setName('user').setDescription('User to check plays for').setRequired(false),
-          ),
-        executeAsync: (context) => {
-          const artist = context.interaction?.options.getString('artist');
-          const targetUser = context.interaction?.options.getUser('user');
-          return this.artistPlaysSlashAsync(context, artist, targetUser?.id);
-        },
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('albumplays')
-          .setDescription("Shows playcount for current album or the one you're searching for.")
-          .addStringOption((opt) =>
-            opt.setName('album').setDescription('Album name (or Artist | Album)').setRequired(false),
-          )
-          .addUserOption((opt) =>
-            opt.setName('user').setDescription('User to check plays for').setRequired(false),
-          ),
-        executeAsync: (context) => {
-          const album = context.interaction?.options.getString('album');
-          const targetUser = context.interaction?.options.getUser('user');
-          return this.albumPlaysSlashAsync(context, album, targetUser?.id);
-        },
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('trackplays')
-          .setDescription("Shows playcount for current track or the one you're searching for.")
-          .addStringOption((opt) =>
-            opt.setName('track').setDescription('Track name (or Artist | Track)').setRequired(false),
-          )
-          .addUserOption((opt) =>
-            opt.setName('user').setDescription('User to check plays for').setRequired(false),
-          ),
-        executeAsync: (context) => {
-          const track = context.interaction?.options.getString('track');
-          const targetUser = context.interaction?.options.getUser('user');
-          return this.trackPlaysSlashAsync(context, track, targetUser?.id);
-        },
-      },
-      {
-        data: new SlashCommandBuilder()
           .setName('plays')
-          .setDescription('Shows your total scrobble count for a specific time period.')
-          .addStringOption((opt) =>
-            opt.setName('period').setDescription('Time period (e.g. weekly, monthly, yearly, alltime)').setRequired(false),
+          .setDescription('Shows playcounts for user, artist, album, or track')
+          .addSubcommand((sub) =>
+            sub
+              .setName('total')
+              .setDescription('Shows your total scrobble count for a specific time period')
+              .addStringOption((opt) =>
+                opt.setName('period').setDescription('Time period (e.g. weekly, monthly, yearly, alltime)').setRequired(false),
+              )
+              .addUserOption((opt) =>
+                opt.setName('user').setDescription('User to check scrobbles for').setRequired(false),
+              ),
           )
-          .addUserOption((opt) =>
-            opt.setName('user').setDescription('User to check scrobbles for').setRequired(false),
+          .addSubcommand((sub) =>
+            sub
+              .setName('artist')
+              .setDescription('Shows playcount for an artist')
+              .addStringOption((opt) => opt.setName('artist').setDescription('Artist name').setRequired(false))
+              .addUserOption((opt) => opt.setName('user').setDescription('User to check plays for').setRequired(false)),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('album')
+              .setDescription('Shows playcount for an album')
+              .addStringOption((opt) => opt.setName('album').setDescription('Album name (or Artist | Album)').setRequired(false))
+              .addUserOption((opt) => opt.setName('user').setDescription('User to check plays for').setRequired(false)),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('track')
+              .setDescription('Shows playcount for a track')
+              .addStringOption((opt) => opt.setName('track').setDescription('Track name (or Artist | Track)').setRequired(false))
+              .addUserOption((opt) => opt.setName('user').setDescription('User to check plays for').setRequired(false)),
           ),
         executeAsync: (context) => {
-          const period = context.interaction?.options.getString('period');
+          const sub = context.interaction?.options.getSubcommand() || 'total';
+          if (sub === 'artist') {
+            const artist = context.interaction?.options.getString('artist') ?? undefined;
+            const targetUser = context.interaction?.options.getUser('user');
+            return this.artistPlaysSlashAsync(context, artist, targetUser?.id);
+          }
+          if (sub === 'album') {
+            const album = context.interaction?.options.getString('album') ?? undefined;
+            const targetUser = context.interaction?.options.getUser('user');
+            return this.albumPlaysSlashAsync(context, album, targetUser?.id);
+          }
+          if (sub === 'track') {
+            const track = context.interaction?.options.getString('track') ?? undefined;
+            const targetUser = context.interaction?.options.getUser('user');
+            return this.trackPlaysSlashAsync(context, track, targetUser?.id);
+          }
+          const period = context.interaction?.options.getString('period') ?? undefined;
           const targetUser = context.interaction?.options.getUser('user');
           return this.playsSlashAsync(context, period, targetUser?.id);
         },
@@ -109,15 +103,22 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
             opt.setName('goal').setDescription('Goal amount (e.g. 10000, 50k)').setRequired(false),
           )
           .addStringOption((opt) =>
+            opt.setName('artist').setDescription('Artist name for artist-specific pace (optional)').setRequired(false),
+          )
+          .addStringOption((opt) =>
             opt.setName('period').setDescription('Time period (e.g. weekly, monthly, alltime)').setRequired(false),
           )
           .addUserOption((opt) =>
             opt.setName('user').setDescription('User to check pace for').setRequired(false),
           ),
         executeAsync: (context) => {
+          const artist = context.interaction?.options.getString('artist');
           const goal = context.interaction?.options.getString('goal');
           const period = context.interaction?.options.getString('period');
           const targetUser = context.interaction?.options.getUser('user');
+          if (artist) {
+            return this.artistPaceSlashAsync(context, artist, goal, targetUser?.id);
+          }
           return this.paceSlashAsync(context, goal, period, targetUser?.id);
         },
       },
@@ -167,26 +168,6 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
           const query = context.interaction?.options.getString('query');
           const targetUser = context.interaction?.options.getUser('user');
           return this.lastListenedSlashAsync(context, query, targetUser?.id);
-        },
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('artistpace')
-          .setDescription('Estimated date when you or someone will reach a playcount goal on an artist.')
-          .addStringOption((opt) =>
-            opt.setName('artist').setDescription('Artist name').setRequired(false),
-          )
-          .addStringOption((opt) =>
-            opt.setName('goal').setDescription('Goal amount (e.g. 500, 1000, 5k)').setRequired(false),
-          )
-          .addUserOption((opt) =>
-            opt.setName('user').setDescription('Target user').setRequired(false),
-          ),
-        executeAsync: (context) => {
-          const artist = context.interaction?.options.getString('artist');
-          const goal = context.interaction?.options.getString('goal');
-          const targetUser = context.interaction?.options.getUser('user');
-          return this.artistPaceSlashAsync(context, artist, goal, targetUser?.id);
         },
       },
       {
