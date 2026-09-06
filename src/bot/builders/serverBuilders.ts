@@ -17,12 +17,12 @@ import {
 } from '@bot/services/guildRankingService';
 
 export const BillboardEmotes = {
-  fiveOrMoreUp: '<:five_or_more_up:912380324841918504>',
-  oneToFiveUp: '<:one_to_five_up:912085138232442920>',
-  samePosition: '<:same_position:912374491752046592>',
-  oneToFiveDown: '<:one_to_five_down:912085138245029888>',
-  fiveOrMoreDown: '<:five_or_more_down:912380324753838140>',
-  new: '<:new:912087988001980446>',
+  fiveOrMoreUp: '<:five_or_more_up:1545948477807132692>',
+  oneToFiveUp: '<:one_to_five_up:1545948422643912795>',
+  samePosition: '<:same_pose:1545948359133626458>',
+  oneToFiveDown: '<:one_to_five_down:1545948554160373831>',
+  fiveOrMoreDown: '<:five_or_more_down:1545948315890225213>',
+  new: '<:new:1545948649555496960>',
 };
 
 export type ServerRankingType = 'artists' | 'albums' | 'tracks' | 'genres';
