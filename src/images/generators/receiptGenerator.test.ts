@@ -50,6 +50,7 @@ describe('ReceiptGenerator', () => {
     expect(capturedHtml).toContain('ORDER #1337');
     expect(capturedHtml).toContain('AUTH CODE: 987654');
     expect(capturedHtml).toContain('CARD #: **** **** **** 2026');
+    expect(capturedHtml).toContain('tvbot receipt');
     expect(capturedHtml).toContain('Thank you for using tvbot - Enjoy the music!');
   });
 });

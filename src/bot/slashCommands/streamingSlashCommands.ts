@@ -101,7 +101,13 @@ export class StreamingSlashCommands implements ISlashCommandModule {
     }
 
     try {
-      const recents = await this.lastFmRepository.getUserRecentTracks(user.userNameLastFm, 2, 1);
+      const recents = await this.lastFmRepository.getUserRecentTracks(
+        user.userNameLastFm,
+        2,
+        1,
+        undefined,
+        user.sessionKey ?? undefined,
+      );
       if (!recents || recents.length === 0 || !recents[0]) {
         return {
           errorResponse: GenericEmbedService.buildCommandErrorResponse(

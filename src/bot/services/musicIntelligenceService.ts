@@ -374,22 +374,6 @@ export class MusicIntelligenceService {
       targetArtistMap.set(a.name.toLowerCase(), a.playcount);
     }
 
-    let targetGenres: string[] = [];
-    if (this.genreService && targetArtistsRaw.length > 0) {
-      const topG = await this.genreService.getTopGenresForTopArtists(
-        targetArtistsRaw.map((a) => ({ name: a.name, playcount: a.playcount })),
-      ).catch(() => []);
-      targetGenres = topG.map((g) => g.genreName.toLowerCase());
-    }
-
-    let targetCountries: string[] = [];
-    if (this.countryService && targetArtistsRaw.length > 0) {
-      const topC = await this.countryService.getTopCountriesForTopArtists(
-        targetArtistsRaw.map((a) => ({ name: a.name, playcount: a.playcount })),
-      ).catch(() => []);
-      targetCountries = topC.map((c) => c.countryCode.toLowerCase());
-    }
-
     const otherUserIds = guildUsers.map((gu) => gu.userId);
     const otherArtistsRaw = await this.db.userArtist.findMany({
       where: {
@@ -398,6 +382,89 @@ export class MusicIntelligenceService {
       orderBy: { playcount: 'desc' },
       select: { userId: true, name: true, playcount: true },
     }).catch(() => []);
+
+    const allArtistNames = [...new Set([
+      ...targetArtistsRaw.map((a) => a.name.toLowerCase().trim()),
+      ...otherArtistsRaw.map((a) => a.name.toLowerCase().trim()),
+    ])];
+
+    let dbArtists: any[] = [];
+    if (allArtistNames.length > 0 && this.db.artist?.findMany) {
+      try {
+        const res = await this.db.artist.findMany({
+          where: {
+            name: { in: allArtistNames, mode: 'insensitive' },
+          },
+          select: {
+            name: true,
+            countryCode: true,
+            genres: {
+              select: { name: true },
+            },
+          },
+        });
+        if (Array.isArray(res)) dbArtists = res;
+      } catch {
+        dbArtists = [];
+      }
+    }
+
+    const artistGenreMap = new Map<string, string[]>();
+    const artistCountryMap = new Map<string, string>();
+
+    for (const a of dbArtists) {
+      const k = a.name.toLowerCase().trim();
+      if (a.genres && a.genres.length > 0) {
+        artistGenreMap.set(k, a.genres.map((g: { name: string }) => g.name.toLowerCase()));
+      }
+      if (a.countryCode) {
+        artistCountryMap.set(k, a.countryCode.toLowerCase());
+      }
+    }
+
+    if (this.countryService?.getSeedCountry) {
+      for (const name of allArtistNames) {
+        if (!artistCountryMap.has(name)) {
+          const seed = this.countryService.getSeedCountry(name);
+          if (seed) {
+            artistCountryMap.set(name, seed.toLowerCase());
+          }
+        }
+      }
+    }
+
+    const getTopGenres = (artists: Array<{ name: string; playcount: number }>): string[] => {
+      const genreTotals = new Map<string, number>();
+      for (const a of artists) {
+        const genres = artistGenreMap.get(a.name.toLowerCase().trim());
+        if (genres) {
+          for (const g of genres) {
+            genreTotals.set(g, (genreTotals.get(g) ?? 0) + a.playcount);
+          }
+        }
+      }
+      return Array.from(genreTotals.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 100)
+        .map(([g]) => g);
+    };
+
+    const getTopCountries = (artists: Array<{ name: string; playcount: number }>): string[] => {
+      const countryTotals = new Map<string, number>();
+      for (const a of artists) {
+        const c = artistCountryMap.get(a.name.toLowerCase().trim());
+        if (c) {
+          countryTotals.set(c, (countryTotals.get(c) ?? 0) + a.playcount);
+        }
+      }
+      return Array.from(countryTotals.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 50)
+        .map(([c]) => c);
+    };
+
+    const targetGenres = getTopGenres(targetArtistsRaw);
+    const targetCountries = getTopCountries(targetArtistsRaw);
 
     const userArtistsByUser = new Map<number, Array<{ name: string; playcount: number }>>();
     for (const a of otherArtistsRaw) {
@@ -430,25 +497,23 @@ export class MusicIntelligenceService {
         ? Math.min(100, Math.round((sharedArtists.length / denominator) * 100))
         : 0;
 
+      const uGenres = getTopGenres(uArtists);
       let genreScore = 0;
-      if (this.genreService && uArtists.length > 0 && targetGenres.length > 0) {
-        const uG = await this.genreService.getTopGenresForTopArtists(uArtists).catch(() => []);
-        const uGenreNames = uG.map((g) => g.genreName.toLowerCase());
-        const commonGenres = uGenreNames.filter((g) => targetGenres.includes(g));
+      if (targetGenres.length > 0 && uGenres.length > 0) {
+        const commonGenres = uGenres.filter((g) => targetGenres.includes(g));
         genreScore = Math.min(
           100,
-          Math.round((commonGenres.length / Math.max(1, Math.min(targetGenres.length, uGenreNames.length))) * 100),
+          Math.round((commonGenres.length / Math.max(1, Math.min(targetGenres.length, uGenres.length))) * 100),
         );
       }
 
+      const uCountries = getTopCountries(uArtists);
       let countryScore = 0;
-      if (this.countryService && uArtists.length > 0 && targetCountries.length > 0) {
-        const uC = await this.countryService.getTopCountriesForTopArtists(uArtists).catch(() => []);
-        const uCountryCodes = uC.map((c) => c.countryCode.toLowerCase());
-        const commonCountries = uCountryCodes.filter((c) => targetCountries.includes(c));
+      if (targetCountries.length > 0 && uCountries.length > 0) {
+        const commonCountries = uCountries.filter((c) => targetCountries.includes(c));
         countryScore = Math.min(
           100,
-          Math.round((commonCountries.length / Math.max(1, Math.min(targetCountries.length, uCountryCodes.length))) * 100),
+          Math.round((commonCountries.length / Math.max(1, Math.min(targetCountries.length, uCountries.length))) * 100),
         );
       }
 

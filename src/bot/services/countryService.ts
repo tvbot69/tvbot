@@ -40,7 +40,11 @@ export interface WhoKnowsCountryItem {
 export class CountryService {
   public readonly countries: CountryInfo[] = [];
   private readonly countryCodeMap = new Map<string, CountryInfo>();
-  private readonly seedArtistCountryMap = new Map<string, string>();
+  public readonly seedArtistCountryMap = new Map<string, string>();
+
+  public getSeedCountry(artistName: string): string | undefined {
+    return this.seedArtistCountryMap.get(artistName.toLowerCase().trim());
+  }
 
   constructor(
     @inject(PrismaClient) private readonly prisma: PrismaClient,

@@ -6,6 +6,8 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  MediaGalleryBuilder,
+  MediaGalleryItemBuilder,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -27,6 +29,8 @@ export class IntelligenceBuilders {
     items: ListeningGapItem[];
     page?: number;
     pageSize?: number;
+    callerDiscordId?: string;
+    targetDiscordId?: string;
     accentColor?: number | null;
   }): ResponseModel {
     const page = Math.max(1, params.page ?? 1);
@@ -74,8 +78,34 @@ export class IntelligenceBuilders {
       if (totalPages > 1) {
         container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
         container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`-# Page ${page} of ${totalPages} • Total: ${params.items.length} gaps`),
+          new TextDisplayBuilder().setContent(`-# Page ${page}/${totalPages} • Total: ${params.items.length} gaps`),
         );
+
+        const callerId = params.callerDiscordId ?? '0';
+        const targetId = params.targetDiscordId ?? '0';
+        const paginatorRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`gaps-page:first:${callerId}:${targetId}:${params.entityType}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page <= 1)
+            .setEmoji({ id: '883825508633182208', name: 'pages_first' } as any),
+          new ButtonBuilder()
+            .setCustomId(`gaps-page:prev:${callerId}:${targetId}:${params.entityType}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page <= 1)
+            .setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any),
+          new ButtonBuilder()
+            .setCustomId(`gaps-page:next:${callerId}:${targetId}:${params.entityType}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page >= totalPages)
+            .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any),
+          new ButtonBuilder()
+            .setCustomId(`gaps-page:last:${callerId}:${targetId}:${params.entityType}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page >= totalPages)
+            .setEmoji({ id: '883825508482183258', name: 'pages_last' } as any),
+        );
+        container.addActionRowComponents(paginatorRow);
       }
     }
 
@@ -92,6 +122,8 @@ export class IntelligenceBuilders {
     items: DiscoveryItem[];
     page?: number;
     pageSize?: number;
+    callerDiscordId?: string;
+    targetDiscordId?: string;
     accentColor?: number | null;
   }): ResponseModel {
     const page = Math.max(1, params.page ?? 1);
@@ -130,9 +162,35 @@ export class IntelligenceBuilders {
         container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
         container.addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            `-# Page ${page} of ${totalPages} • Total: ${params.items.length} discovered artists`,
+            `-# Page ${page}/${totalPages} • Total: ${params.items.length} discovered artists`,
           ),
         );
+
+        const callerId = params.callerDiscordId ?? '0';
+        const targetId = params.targetDiscordId ?? '0';
+        const paginatorRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`discoveries-page:first:${callerId}:${targetId}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page <= 1)
+            .setEmoji({ id: '883825508633182208', name: 'pages_first' } as any),
+          new ButtonBuilder()
+            .setCustomId(`discoveries-page:prev:${callerId}:${targetId}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page <= 1)
+            .setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any),
+          new ButtonBuilder()
+            .setCustomId(`discoveries-page:next:${callerId}:${targetId}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page >= totalPages)
+            .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any),
+          new ButtonBuilder()
+            .setCustomId(`discoveries-page:last:${callerId}:${targetId}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page >= totalPages)
+            .setEmoji({ id: '883825508482183258', name: 'pages_last' } as any),
+        );
+        container.addActionRowComponents(paginatorRow);
       }
     }
 
@@ -144,6 +202,7 @@ export class IntelligenceBuilders {
 
   public static buildIcebergResponse(params: {
     data: IcebergData;
+    imageBuffer?: Buffer | null;
     accentColor?: number | null;
   }): ResponseModel {
     const { data } = params;
@@ -154,33 +213,40 @@ export class IntelligenceBuilders {
     const titleText = `### 🧊 Taste Iceberg for [${data.displayName}](${userUrl}) (${data.timePeriodDescription})\n-# Tier classification of your top ${data.totalArtists} artists by popularity`;
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
-    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-
-    const tierSections: string[] = [];
-
-    for (const tier of data.tiers) {
-      if (tier.artists.length === 0) continue;
-      const topArtistsStr = tier.artists
-        .slice(0, 8)
-        .map((a) => `[${a.name}](https://www.last.fm/music/${encodeURIComponent(a.name)})`)
-        .join(', ');
-      const extraCount = tier.artists.length > 8 ? ` *+${tier.artists.length - 8} more*` : '';
-
-      tierSections.push(
-        `**${tier.emoji} Tier ${tier.tierNumber}: ${tier.name}** (${tier.artists.length} artists)\n> ${topArtistsStr}${extraCount}`,
-      );
-    }
-
-    if (tierSections.length === 0) {
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('*No artists found to classify in the selected time period.*'),
-      );
-    } else {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(tierSections.join('\n\n')));
-    }
 
     const response = new ResponseModel(params.accentColor ?? DiscordConstants.LastFmColorRed);
     response.commandResponse = CommandResponse.Ok;
+
+    if (params.imageBuffer) {
+      const mediaGallery = new MediaGalleryBuilder().addItems(
+        new MediaGalleryItemBuilder().setURL('attachment://iceberg.png'),
+      );
+      container.addMediaGalleryComponents(mediaGallery);
+      response.setFile(params.imageBuffer, 'iceberg.png', 'Your taste iceberg');
+    } else {
+      container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+      const tierSections: string[] = [];
+      for (const tier of data.tiers) {
+        if (tier.artists.length === 0) continue;
+        const topArtistsStr = tier.artists
+          .slice(0, 8)
+          .map((a) => `[${a.name}](https://www.last.fm/music/${encodeURIComponent(a.name)})`)
+          .join(', ');
+        const extraCount = tier.artists.length > 8 ? ` *+${tier.artists.length - 8} more*` : '';
+        tierSections.push(
+          `**${tier.emoji} Tier ${tier.tierNumber}: ${tier.name}** (${tier.artists.length} artists)\n> ${topArtistsStr}${extraCount}`,
+        );
+      }
+
+      if (tierSections.length === 0) {
+        container.addTextDisplayComponents(
+          new TextDisplayBuilder().setContent('*No artists found to classify in the selected time period.*'),
+        );
+      } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(tierSections.join('\n\n')));
+      }
+    }
+
     response.setComponentsV2Container(container);
     return response;
   }
@@ -189,11 +255,13 @@ export class IntelligenceBuilders {
     data: AffinityData;
     page?: number;
     pageSize?: number;
+    callerDiscordId?: string;
+    targetDiscordId?: string;
     accentColor?: number | null;
   }): ResponseModel {
     const { data } = params;
     const page = Math.max(1, params.page ?? 1);
-    const pageSize = params.pageSize ?? 10;
+    const pageSize = params.pageSize ?? 12;
     const totalPages = Math.max(1, Math.ceil(data.neighbors.length / pageSize));
     const startIndex = (page - 1) * pageSize;
     const currentItems = data.neighbors.slice(startIndex, startIndex + pageSize);
@@ -201,9 +269,7 @@ export class IntelligenceBuilders {
     const container = new ContainerBuilder();
     container.setAccentColor(params.accentColor ?? DiscordConstants.LastFmColorRed);
 
-    const userUrl = `https://www.last.fm/user/${encodeURIComponent(data.userNameLastFm)}`;
-    const titleText = `### 🫂 Server Soulmates for [${data.userDisplayName}](${userUrl}) in ${data.guildName}\n-# Music taste similarity based on top artists, genres, and countries`;
-
+    const titleText = `### Server neighbors for ${data.userDisplayName}`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
@@ -214,26 +280,51 @@ export class IntelligenceBuilders {
         ),
       );
     } else {
-      const lines = currentItems.map((n, idx) => {
-        const rank = startIndex + idx + 1;
-        const targetUrl = `https://www.last.fm/user/${encodeURIComponent(n.userNameLastFm)}`;
-        const userLink = `**[${n.userNameLastFm}](${targetUrl})** (<@${n.discordUserId}>)`;
-        const commonStr = n.sharedArtists.length > 0 ? ` • Common: ${n.sharedArtists.join(', ')}` : '';
+      const lines = currentItems.map((n) => {
+        const targetUrl = `https://last.fm/user/${encodeURIComponent(n.userNameLastFm)}`;
+        const nameLabel = n.displayName || n.userNameLastFm;
         return (
-          `**${rank}. ${n.totalPercentage}%** — ${userLink}\n` +
-          `-# \`${n.artistPercentage}%\` artists · \`${n.genrePercentage}%\` genres · \`${n.countryPercentage}%\` countries${commonStr}`
+          `**${n.totalPercentage}%** — **[${nameLabel}](${targetUrl})** — ` +
+          `\`${n.artistPercentage}%\` artists, \`${n.genrePercentage}%\` genres, \`${n.countryPercentage}%\` countries`
         );
       });
 
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n\n')));
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+
+      const totalMembers = data.totalGuildUsers || data.neighbors.length;
+      container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `-# Page ${page}/${totalPages} - ${totalMembers} tvbot members in this server`,
+        ),
+      );
 
       if (totalPages > 1) {
-        container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-        container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(
-            `-# Page ${page} of ${totalPages} • Total: ${data.neighbors.length} members compared`,
-          ),
+        const callerId = params.callerDiscordId ?? '0';
+        const targetId = params.targetDiscordId ?? '0';
+        const paginatorRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`affinity-page:first:${callerId}:${targetId}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page <= 1)
+            .setEmoji({ id: '883825508633182208', name: 'pages_first' } as any),
+          new ButtonBuilder()
+            .setCustomId(`affinity-page:prev:${callerId}:${targetId}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page <= 1)
+            .setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any),
+          new ButtonBuilder()
+            .setCustomId(`affinity-page:next:${callerId}:${targetId}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page >= totalPages)
+            .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any),
+          new ButtonBuilder()
+            .setCustomId(`affinity-page:last:${callerId}:${targetId}:${page}:${totalPages}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page >= totalPages)
+            .setEmoji({ id: '883825508482183258', name: 'pages_last' } as any),
         );
+        container.addActionRowComponents(paginatorRow);
       }
     }
 

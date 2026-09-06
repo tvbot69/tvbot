@@ -115,10 +115,40 @@ export class SpotifySearchApi {
 
   public async searchAndGetFullAlbum(albumName: string, artistName: string): Promise<SpotifySearchAlbum | null> {
     try {
-      const results = await this.searchAlbums(`${albumName} ${artistName}`, 5);
-      const match = results.find(
-        (r) => r.name.toLowerCase() === albumName.toLowerCase(),
-      ) ?? results[0];
+      let results: SpotifySearchAlbum[] = [];
+      try {
+        results = await this.searchAlbums(`album:"${albumName}" artist:"${artistName}"`, 5);
+      } catch {
+        results = [];
+      }
+      if (results.length === 0) {
+        results = await this.searchAlbums(`${albumName} ${artistName}`, 5);
+      }
+      if (results.length === 0) return null;
+
+      const cleanArtist = SpotifySearchApi.clean(artistName);
+      const cleanAlbum = SpotifySearchApi.clean(albumName);
+
+      const scored = results.map((r, idx) => {
+        const rAlbum = SpotifySearchApi.clean(r.name);
+        const hasMatchingArtist = r.artists?.some((a) => {
+          const aName = SpotifySearchApi.clean(a.name);
+          return aName === cleanArtist || aName.includes(cleanArtist) || cleanArtist.includes(aName);
+        });
+
+        let score = 0;
+        if (hasMatchingArtist) score += 3000;
+        if (rAlbum === cleanAlbum) score += 2000;
+        else if (rAlbum.includes(cleanAlbum) || cleanAlbum.includes(rAlbum)) score += 800;
+        score += (10 - idx) * 10;
+        return { album: r, score, hasMatchingArtist };
+      });
+
+      const matching = scored.filter((s) => s.hasMatchingArtist);
+      const pool = matching.length > 0 ? matching : scored;
+      pool.sort((a, b) => b.score - a.score);
+
+      const match = pool[0]?.album;
       if (!match) return null;
       return this.getFullAlbum(match.id);
     } catch {

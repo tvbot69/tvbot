@@ -695,23 +695,69 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
     const target = await this.resolveTarget(context, targetDiscordUserId);
     if ('commandResponse' in target) return target;
 
-    const timeSettings = this.settingService.getTimePeriod(periodStr ?? '');
+    const rawSearch = periodStr?.trim() ?? '';
+    const PERIOD_TOKENS = new Set([
+      'weekly', 'week', 'w', '7d',
+      'quarterly', 'quarter', 'q', '3m', '90d',
+      'halfyearly', 'half-yearly', 'hy', '6m', '180d',
+      'monthly', 'month', 'm', '1m', '30d',
+      'twoyears', '2y', '730d',
+      'yearly', 'year', 'y', '12m', '365d', '1y',
+      'overall', 'alltime', 'all-time', 'all', 'a', 'o', 'at',
+    ]);
+    const hasExplicitPeriod = rawSearch.length > 0 && rawSearch
+      .toLowerCase()
+      .split(/\s+/)
+      .some((word) => PERIOD_TOKENS.has(word));
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonthNum = now.getMonth() + 1;
+    const currentMonthName = now.toLocaleString('en-US', { month: 'long' });
+    const lastDay = new Date(currentYear, currentMonthNum, 0).getDate();
+
+    let timePeriod: TimePeriod;
+    let periodDesc: string;
+    let fromTimestamp: number | null = null;
+    let tracksUrl: string;
+
+    if (!hasExplicitPeriod) {
+      timePeriod = TimePeriod.Monthly;
+      periodDesc = currentMonthName;
+      fromTimestamp = Math.floor(new Date(currentYear, currentMonthNum - 1, 1).getTime() / 1000);
+      tracksUrl = `https://last.fm/user/${encodeURIComponent(target.targetUser.userNameLastFm)}/library/tracks?from=${currentYear}-${currentMonthNum}-01&to=${currentYear}-${currentMonthNum}-${lastDay}`;
+    } else {
+      const timeSettings = this.settingService.getTimePeriod(rawSearch);
+      timePeriod = timeSettings.timePeriod;
+      periodDesc = timeSettings.description;
+      if (timeSettings.startDateTime) {
+        fromTimestamp = Math.floor(timeSettings.startDateTime.getTime() / 1000);
+      }
+      if (timeSettings.startDateTime && timeSettings.endDateTime) {
+        const sY = timeSettings.startDateTime.getFullYear();
+        const sM = timeSettings.startDateTime.getMonth() + 1;
+        const sD = timeSettings.startDateTime.getDate();
+        const eY = timeSettings.endDateTime.getFullYear();
+        const eM = timeSettings.endDateTime.getMonth() + 1;
+        const eD = timeSettings.endDateTime.getDate();
+        tracksUrl = `https://last.fm/user/${encodeURIComponent(target.targetUser.userNameLastFm)}/library/tracks?from=${sY}-${sM}-${sD}&to=${eY}-${eM}-${eD}`;
+      } else {
+        tracksUrl = `https://last.fm/user/${encodeURIComponent(target.targetUser.userNameLastFm)}/library/tracks`;
+      }
+    }
+
     const topTracksResult = await this.lastfmRepository.getTopTracks(
       target.targetUser.userNameLastFm,
-      timeSettings.timePeriod,
+      timePeriod,
       12,
     );
 
     if (!topTracksResult || topTracksResult.length === 0) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NotFound,
-        `Sorry, you or the user you're searching for don't have any top tracks in the ${timeSettings.description} time period.`,
+        `Sorry, you or the user you're searching for don't have any top tracks in the ${periodDesc} time period.`,
       );
     }
-
-    const fromTimestamp = timeSettings.startDateTime
-      ? Math.floor(timeSettings.startDateTime.getTime() / 1000)
-      : null;
 
     const totalScrobbles = await this.playHistoryService.getScrobbleCountFromDate(
       target.targetUser.userNameLastFm,
@@ -735,11 +781,11 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
     const buffer = await this.receiptGenerator.generateReceipt({
       userNameLastFm: target.targetUser.userNameLastFm,
       displayName: target.displayName,
-      periodDescription: timeSettings.description,
+      periodDescription: periodDesc,
       tracks: receiptTracks,
       totalPlays: totalScrobbles ?? receiptTracks.reduce((acc, c) => acc + c.userPlaycount, 0),
       totalTracks: receiptTracks.length,
-      year: timeSettings.endDateTime ? timeSettings.endDateTime.getFullYear() : undefined,
+      year: currentYear,
     });
 
     const targetDiscordId = target.targetUser.discordUserId;
@@ -750,7 +796,8 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
     return ReceiptBuilders.buildReceiptResponse({
       displayName: target.displayName,
       userNameLastFm: target.targetUser.userNameLastFm,
-      periodDescription: timeSettings.description,
+      periodDescription: periodDesc,
+      tracksUrl,
       imageBuffer: buffer,
       accentColor,
     });

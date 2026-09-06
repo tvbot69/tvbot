@@ -16,16 +16,18 @@ export class ReceiptBuilders {
     userNameLastFm: string;
     periodDescription: string;
     imageBuffer: Buffer;
+    tracksUrl?: string;
     accentColor?: number | null;
   }): ResponseModel {
     const container = new ContainerBuilder();
     container.setAccentColor(params.accentColor ?? DiscordConstants.LastFmColorRed);
 
-    const userUrl = `https://www.last.fm/user/${encodeURIComponent(params.userNameLastFm)}/library/tracks`;
-    const titleText = `### 🧾 Top ${params.periodDescription} tracks for [${params.displayName}](${userUrl})`;
+    const userUrl =
+      params.tracksUrl ??
+      `https://last.fm/user/${encodeURIComponent(params.userNameLastFm)}/library/tracks`;
+    const titleText = `**[Top ${params.periodDescription} tracks](${userUrl}) for ${params.displayName}**`;
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
-    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
     const mediaGallery = new MediaGalleryBuilder().addItems(
       new MediaGalleryItemBuilder().setURL('attachment://receipt.png'),

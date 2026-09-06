@@ -148,13 +148,26 @@ export class AlbumService {
       const [artistPart, albumPart] = trimmed.split(' | ');
       searchArtist = (artistPart ?? '').trim();
       searchAlbum = (albumPart ?? '').trim();
+    } else if (trimmed.includes(' - ')) {
+      const [artistPart, ...rest] = trimmed.split(' - ');
+      searchArtist = (artistPart ?? '').trim();
+      searchAlbum = rest.join(' - ').trim();
+    } else if (/\s+by\s+/i.test(trimmed)) {
+      const [albumPart, artistPart] = trimmed.split(/\s+by\s+/i);
+      searchArtist = (artistPart ?? '').trim();
+      searchAlbum = (albumPart ?? '').trim();
     } else {
       const matches = await this.lastfmRepository.searchAlbums(trimmed);
       if (matches.length === 0) {
         return null;
       }
-      searchArtist = matches[0]!.artistName;
-      searchAlbum = matches[0]!.name;
+      // If user typed e.g. "future future", pick candidate matching artist words
+      const lower = trimmed.toLowerCase();
+      const best = matches.find((m) =>
+        lower.includes(m.artistName.toLowerCase()) && lower.includes(m.name.toLowerCase()),
+      ) ?? matches[0]!;
+      searchArtist = best.artistName;
+      searchAlbum = best.name;
     }
 
     if (!searchArtist || !searchAlbum) {

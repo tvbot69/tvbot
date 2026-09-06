@@ -29,7 +29,6 @@ import { GameCommands } from './lastfm/gameCommands';
 import { IntelligenceCommands } from './lastfm/intelligenceCommands';
 import { GuildAdminCommands } from './guild/guildAdminCommands';
 import { UserHubCommands } from './user/userHubCommands';
-import { DiscogsCommands } from './thirdParty/discogsCommands';
 import { ImportCommands } from './thirdParty/importCommands';
 import { StreamingCommands } from './thirdParty/streamingCommands';
 
@@ -49,7 +48,6 @@ const buildCommands = (): Map<string, TextCommandDefinition> => {
     container.resolve(IntelligenceCommands),
     container.resolve(GuildAdminCommands),
     container.resolve(UserHubCommands),
-    container.resolve(DiscogsCommands),
     container.resolve(ImportCommands),
     container.resolve(StreamingCommands),
     container.resolve(StaticCommands),

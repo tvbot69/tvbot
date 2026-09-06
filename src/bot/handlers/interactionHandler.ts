@@ -42,6 +42,7 @@ import { GenreInteractions } from '@bot/interactions/genreInteractions';
 import { CountryInteractions } from '@bot/interactions/countryInteractions';
 import { GameInteractions } from '@bot/interactions/gameInteractions';
 import { UserHubInteractions } from '@bot/interactions/userHubInteractions';
+import { IntelligenceInteractions } from '@bot/interactions/intelligenceInteractions';
 import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
 import { tryHandleModal } from '@bot/interactions';
@@ -78,6 +79,7 @@ export class InteractionHandler {
   private readonly countryInteractions: CountryInteractions;
   private readonly gameInteractions: GameInteractions;
   private readonly userHubInteractions: UserHubInteractions;
+  private readonly intelligenceInteractions: IntelligenceInteractions;
 
   constructor() {
     this.client = container.resolve(Client);
@@ -111,6 +113,7 @@ export class InteractionHandler {
     this.countryInteractions = container.resolve(CountryInteractions);
     this.gameInteractions = container.resolve(GameInteractions);
     this.userHubInteractions = container.resolve(UserHubInteractions);
+    this.intelligenceInteractions = container.resolve(IntelligenceInteractions);
 
     this.client.on(Events.InteractionCreate, (interaction) => {
       void this.onInteractionCreated(interaction);
@@ -224,6 +227,14 @@ export class InteractionHandler {
         }
         if (interaction.customId.startsWith('fb:')) {
           await this.footballInteractions.handleButton(interaction);
+          return;
+        }
+        if (
+          interaction.customId.startsWith('affinity-page:') ||
+          interaction.customId.startsWith('discoveries-page:') ||
+          interaction.customId.startsWith('gaps-page:')
+        ) {
+          await this.intelligenceInteractions.handleButton(interaction);
           return;
         }
         if (interaction.customId.startsWith('milestone:reroll:')) {

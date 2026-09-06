@@ -30,7 +30,6 @@ import { GameSlashCommands } from './gameSlashCommands';
 import { IntelligenceSlashCommands } from './intelligenceSlashCommands';
 import { GuildAdminSlashCommands } from './guildAdminSlashCommands';
 import { UserHubSlashCommands } from './userHubSlashCommands';
-import { DiscogsSlashCommands } from './discogsSlashCommands';
 import { ImportSlashCommands } from './importSlashCommands';
 import { StreamingSlashCommands } from './streamingSlashCommands';
 
@@ -50,7 +49,6 @@ const buildCommands = (): Map<string, SlashCommandDefinition> => {
     container.resolve(IntelligenceSlashCommands),
     container.resolve(GuildAdminSlashCommands),
     container.resolve(UserHubSlashCommands),
-    container.resolve(DiscogsSlashCommands),
     container.resolve(ImportSlashCommands),
     container.resolve(StreamingSlashCommands),
     container.resolve(StaticSlashCommands),

@@ -23,6 +23,9 @@ interface TargetResolution {
   cleanSearchValue: string;
 }
 
+import { IcebergGenerator } from '@images/generators/icebergGenerator';
+import { Logger } from '@domain/logger';
+
 @injectable()
 export class IntelligenceCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -33,6 +36,7 @@ export class IntelligenceCommands implements ITextCommandModule {
     @inject(LastFmRepository) private readonly lastfmRepository: LastFmRepository,
     @inject(MusicIntelligenceService) private readonly intelligenceService: MusicIntelligenceService,
     @inject(ColorService) private readonly colorService?: ColorService,
+    @inject(IcebergGenerator) private readonly icebergGenerator?: IcebergGenerator,
   ) {
     this.commands = [
       {
@@ -179,6 +183,8 @@ export class IntelligenceCommands implements ITextCommandModule {
       userNameLastFm: target.targetUser.userNameLastFm,
       entityType,
       items,
+      callerDiscordId: context.discordUserId,
+      targetDiscordId,
       accentColor,
     });
   }
@@ -207,6 +213,8 @@ export class IntelligenceCommands implements ITextCommandModule {
       userNameLastFm: target.targetUser.userNameLastFm,
       periodDescription: periodDesc,
       items,
+      callerDiscordId: context.discordUserId,
+      targetDiscordId,
       accentColor,
     });
   }
@@ -243,6 +251,15 @@ export class IntelligenceCommands implements ITextCommandModule {
       timeSettings.description,
     );
 
+    let imageBuffer: Buffer | null = null;
+    if (this.icebergGenerator) {
+      try {
+        imageBuffer = await this.icebergGenerator.generateIceberg(icebergData);
+      } catch (err) {
+        Logger.warn({ err }, 'Failed to generate iceberg image');
+      }
+    }
+
     const targetDiscordId = target.targetUser.discordUserId.toString();
     const accentColor = targetDiscordId && targetDiscordId !== '0'
       ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
@@ -250,6 +267,7 @@ export class IntelligenceCommands implements ITextCommandModule {
 
     return IntelligenceBuilders.buildIcebergResponse({
       data: icebergData,
+      imageBuffer,
       accentColor,
     });
   }
@@ -285,6 +303,8 @@ export class IntelligenceCommands implements ITextCommandModule {
 
     return IntelligenceBuilders.buildAffinityResponse({
       data: affinityData,
+      callerDiscordId: context.discordUserId,
+      targetDiscordId,
       accentColor,
     });
   }

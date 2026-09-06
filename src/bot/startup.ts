@@ -189,11 +189,10 @@ import { ShortcutService } from './services/shortcutService';
 import { UserHubInteractions } from './interactions/userHubInteractions';
 import { UserHubCommands } from './textCommands/user/userHubCommands';
 import { UserHubSlashCommands } from './slashCommands/userHubSlashCommands';
-import { DiscogsService } from './services/discogsService';
+import { IcebergGenerator } from '../images/generators/icebergGenerator';
+import { IntelligenceInteractions } from './interactions/intelligenceInteractions';
 import { ImportService } from './services/importService';
 import { AppleMusicService } from './services/appleMusicService';
-import { DiscogsCommands } from './textCommands/thirdParty/discogsCommands';
-import { DiscogsSlashCommands } from './slashCommands/discogsSlashCommands';
 import { ImportCommands } from './textCommands/thirdParty/importCommands';
 import { ImportSlashCommands } from './slashCommands/importSlashCommands';
 import { StreamingCommands } from './textCommands/thirdParty/streamingCommands';
@@ -791,12 +790,15 @@ const configureContainer = (): void => {
     genreService,
     countryService,
   );
+  const icebergGenerator = new IcebergGenerator(puppeteerService);
+  const intelligenceInteractions = new IntelligenceInteractions(musicIntelligenceService, userService, colorService);
   const intelligenceCommands = new IntelligenceCommands(
     userService,
     settingService,
     lastFmRepository,
     musicIntelligenceService,
     colorService,
+    icebergGenerator,
   );
   const intelligenceSlashCommands = new IntelligenceSlashCommands(
     userService,
@@ -804,8 +806,11 @@ const configureContainer = (): void => {
     lastFmRepository,
     musicIntelligenceService,
     colorService,
+    icebergGenerator,
   );
 
+  container.registerInstance(IcebergGenerator, icebergGenerator);
+  container.registerInstance(IntelligenceInteractions, intelligenceInteractions);
   container.registerInstance(MusicIntelligenceService, musicIntelligenceService);
   container.registerInstance(IntelligenceCommands, intelligenceCommands);
   container.registerInstance(IntelligenceSlashCommands, intelligenceSlashCommands);
@@ -852,22 +857,16 @@ const configureContainer = (): void => {
   container.registerInstance(UserHubCommands, userHubCommands);
   container.registerInstance(UserHubSlashCommands, userHubSlashCommands);
 
-  const discogsService = new DiscogsService();
   const importService = new ImportService(prisma);
   const appleMusicService = new AppleMusicService();
 
-  const discogsCommands = new DiscogsCommands(userService, discogsService, prefixService, lastFmRepository, colorService);
-  const discogsSlashCommands = new DiscogsSlashCommands(userService, discogsService, prefixService, lastFmRepository, colorService);
   const importCommands = new ImportCommands(userService, importService, prefixService, colorService);
   const importSlashCommands = new ImportSlashCommands(userService, importService, prefixService, colorService);
   const streamingCommands = new StreamingCommands(userService, spotifySearchApi, appleMusicService, prefixService, lastFmRepository, colorService);
   const streamingSlashCommands = new StreamingSlashCommands(userService, spotifySearchApi, appleMusicService, prefixService, lastFmRepository, colorService);
 
-  container.registerInstance(DiscogsService, discogsService);
   container.registerInstance(ImportService, importService);
   container.registerInstance(AppleMusicService, appleMusicService);
-  container.registerInstance(DiscogsCommands, discogsCommands);
-  container.registerInstance(DiscogsSlashCommands, discogsSlashCommands);
   container.registerInstance(ImportCommands, importCommands);
   container.registerInstance(ImportSlashCommands, importSlashCommands);
   container.registerInstance(StreamingCommands, streamingCommands);

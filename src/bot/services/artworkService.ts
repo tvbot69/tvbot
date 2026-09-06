@@ -42,6 +42,22 @@ const pickLargest = (
   return [...images].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url;
 };
 
+export const normalizeArtistKey = (s: string): string =>
+  s.toLowerCase()
+    .replace(/\$/g, 's')
+    .replace(/\+/g, 't')
+    .replace(/&/g, 'and')
+    .replace(/[^\p{L}\p{N}]/gu, '');
+
+export const matchesArtistName = (candidate: string, target: string): boolean => {
+  if (candidate.toLowerCase() === target.toLowerCase()) return true;
+  const nc = normalizeArtistKey(candidate);
+  const nt = normalizeArtistKey(target);
+  if (nc.length > 0 && nc === nt) return true;
+  if (nc.length > 3 && nt.length > 3 && (nc.includes(nt) || nt.includes(nc))) return true;
+  return false;
+};
+
 interface ProviderAttempt {
   source: string;
 }
@@ -112,12 +128,31 @@ export class ArtworkService {
 
     if (!result) {
       try {
-        let albums = await this.spotifyApi.searchAlbums(`${cleanAlbum} ${artistName}`);
-        let url = pickLargest(albums[0]?.images);
+        let albums: any[] = [];
+        try {
+          albums = await this.spotifyApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`);
+        } catch {
+          albums = [];
+        }
+        if (albums.length === 0) {
+          albums = await this.spotifyApi.searchAlbums(`${cleanAlbum} ${artistName}`);
+        }
+
+        let match = albums.find((a) =>
+          a.artists?.some((art: any) => matchesArtistName(art.name, artistName)),
+        );
+        if (!match && albums[0] && matchesArtistName(albums[0].artists?.[0]?.name ?? '', artistName)) {
+          match = albums[0];
+        }
+
+        let url = pickLargest(match?.images);
         if (!url && cleanAlbum !== `${cleanAlbum} ${artistName}`) {
           // Retry with album-only query for Arabic / transliteration mismatches
-          albums = await this.spotifyApi.searchAlbums(cleanAlbum);
-          url = pickLargest(albums[0]?.images);
+          const retryAlbums = await this.spotifyApi.searchAlbums(cleanAlbum);
+          const retryMatch = retryAlbums.find((a) =>
+            a.artists?.some((art: any) => matchesArtistName(art.name, artistName)),
+          );
+          url = pickLargest(retryMatch?.images ?? retryAlbums[0]?.images);
         }
         if (url && isValidImageUrl(url)) {
           result = url;
@@ -132,19 +167,37 @@ export class ArtworkService {
 
     if (!result) {
       try {
-        let albums = await this.deezerApi.searchAlbums(`${cleanAlbum} ${artistName}`);
-        let first = albums[0];
-        let url = first?.cover_xl ?? first?.cover_big;
+        let albums: any[] = [];
+        try {
+          albums = await this.deezerApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`);
+        } catch {
+          albums = [];
+        }
+        if (albums.length === 0) {
+          albums = await this.deezerApi.searchAlbums(`${cleanAlbum} ${artistName}`);
+        }
+
+        let match = albums.find((a) =>
+          a.artist?.name ? matchesArtistName(a.artist.name, artistName) : false,
+        );
+        if (!match && albums[0] && albums[0].artist?.name && matchesArtistName(albums[0].artist.name, artistName)) {
+          match = albums[0];
+        }
+
+        let url = match?.cover_xl ?? match?.cover_big;
         if (!url || !isValidImageUrl(url)) {
           // Retry album-only — Deezer is strongest for Arabic catalog
-          albums = await this.deezerApi.searchAlbums(cleanAlbum);
-          first = albums[0];
-          url = first?.cover_xl ?? first?.cover_big;
+          const retryAlbums = await this.deezerApi.searchAlbums(cleanAlbum);
+          const retryMatch = retryAlbums.find((a) =>
+            a.artist?.name ? matchesArtistName(a.artist.name, artistName) : false,
+          );
+          url = retryMatch?.cover_xl ?? retryMatch?.cover_big ?? retryAlbums[0]?.cover_xl;
+          match = retryMatch ?? retryAlbums[0];
         }
-        if (url && first && isValidImageUrl(url)) {
+        if (url && match && isValidImageUrl(url)) {
           result = url;
           if (existing) {
-            await this.albumRepository.setDeezerImage(existing.albumId, first.id, url);
+            await this.albumRepository.setDeezerImage(existing.albumId, match.id, url);
           }
         }
       } catch (err) {
@@ -239,22 +292,6 @@ export class ArtworkService {
     if (!result && existing?.imageUrl && isValidImageUrl(existing.imageUrl)) {
       result = existing.imageUrl;
     }
-
-const normalizeArtistKey = (s: string): string =>
-  s.toLowerCase()
-    .replace(/\$/g, 's')
-    .replace(/\+/g, 't')
-    .replace(/&/g, 'and')
-    .replace(/[^\p{L}\p{N}]/gu, '');
-
-const matchesArtistName = (candidate: string, target: string): boolean => {
-  if (candidate.toLowerCase() === target.toLowerCase()) return true;
-  const nc = normalizeArtistKey(candidate);
-  const nt = normalizeArtistKey(target);
-  if (nc.length > 0 && nc === nt) return true;
-  if (nc.length > 3 && nt.length > 3 && (nc.includes(nt) || nt.includes(nc))) return true;
-  return false;
-};
 
     if (!result) {
       try {
