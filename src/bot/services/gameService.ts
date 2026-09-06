@@ -29,6 +29,7 @@ export interface JumbleSession {
   winnerDiscordId?: string;
   winnerName?: string;
   messageId?: string;
+  collector?: { stop: (reason?: string) => void };
 }
 
 export interface UserGameStats {
@@ -279,6 +280,13 @@ else img.onload = render;
 
     session.timeoutHandle = setTimeout(async () => {
       if (!session.ended) {
+        if (session.collector && typeof session.collector.stop === 'function') {
+          try {
+            session.collector.stop('time');
+          } catch {
+            // ignore
+          }
+        }
         session.ended = true;
         session.dateEnded = new Date();
         this.activeSessionsByChannel.delete(session.channelId);
@@ -293,6 +301,13 @@ else img.onload = render;
     return session;
   }
 
+  public setCollector(sessionId: string, collector: { stop: (reason?: string) => void }): void {
+    const session = this.activeSessionsById.get(sessionId);
+    if (session) {
+      session.collector = collector;
+    }
+  }
+
   public checkAnswer(
     channelId: string,
     userDiscordId: string,
@@ -304,6 +319,13 @@ else img.onload = render;
 
     if (GameService.answerIsRight(session.correctAnswer, messageContent)) {
       if (session.timeoutHandle) clearTimeout(session.timeoutHandle);
+      if (session.collector && typeof session.collector.stop === 'function') {
+        try {
+          session.collector.stop('won');
+        } catch {
+          // ignore
+        }
+      }
       session.ended = true;
       session.dateEnded = new Date();
       session.winnerDiscordId = userDiscordId;
@@ -354,6 +376,13 @@ else img.onload = render;
     if (!session || session.ended) return undefined;
 
     if (session.timeoutHandle) clearTimeout(session.timeoutHandle);
+    if (session.collector && typeof session.collector.stop === 'function') {
+      try {
+        session.collector.stop('given_up');
+      } catch {
+        // ignore
+      }
+    }
     session.ended = true;
     session.dateEnded = new Date();
 
@@ -367,6 +396,13 @@ else img.onload = render;
     const session = this.activeSessionsById.get(sessionId);
     if (session) {
       if (session.timeoutHandle) clearTimeout(session.timeoutHandle);
+      if (session.collector && typeof session.collector.stop === 'function') {
+        try {
+          session.collector.stop('ended');
+        } catch {
+          // ignore
+        }
+      }
       session.ended = true;
       session.dateEnded = new Date();
       this.activeSessionsByChannel.delete(session.channelId);

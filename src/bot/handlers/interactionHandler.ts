@@ -417,13 +417,7 @@ export class InteractionHandler {
         allowedMentions,
       };
       if (response.hasFile()) {
-        payload.files = [
-          {
-            attachment: response.fileBuffer,
-            name: response.fileName,
-            description: response.fileDescription,
-          },
-        ];
+        payload.files = response.getFiles();
       }
     } else {
       // Support plain content + button responses (trackdetails voice preview) — must send content not embed
@@ -438,13 +432,7 @@ export class InteractionHandler {
       if (!payload.content && response._textContent) payload.content = response._textContent;
       if (!hasEmbed && payload.content) delete payload.embeds;
       if (response.hasFile()) {
-        payload.files = [
-          {
-            attachment: response.fileBuffer,
-            name: response.fileName,
-            description: response.fileDescription,
-          },
-        ];
+        payload.files = response.getFiles();
       }
     }
     try {

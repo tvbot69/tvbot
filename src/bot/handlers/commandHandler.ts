@@ -71,6 +71,24 @@ export class CommandHandler {
       if (message.guildId) {
         const active = this.gameService.getActiveGame(message.channelId);
         if (active && !active.ended) {
+          const cleanText = message.content.trim().toLowerCase();
+          if (cleanText === 'give up' || cleanText === 'giveup' || cleanText === 'quit') {
+            const ended = this.gameService.giveUp(active.sessionId);
+            if (ended) {
+              const accentColor = await this.colorService.getAccentColorAsync(message.author.id)
+                ?? (message.guildId ? await this.colorService.getAccentColorAsync(message.guildId) : undefined);
+              const giveUpResp = GameBuilders.buildGameGiveUpResponse(ended, accentColor);
+              if (giveUpResp.componentsV2Container && message.channel.isTextBased() && 'send' in message.channel) {
+                await (message.channel as unknown as { send: (msg: Record<string, unknown>) => Promise<unknown> }).send({
+                  components: [giveUpResp.componentsV2Container],
+                  flags: MessageFlags.IsComponentsV2,
+                  allowedMentions: { parse: [] },
+                }).catch(() => undefined);
+              }
+              return;
+            }
+          }
+
           const authorName = message.member?.displayName ?? message.author.username;
           const result = this.gameService.checkAnswer(
             message.channelId,
@@ -133,12 +151,18 @@ export class CommandHandler {
     context.accentColor = await this.colorService.getAccentColorAsync(context.discordUserId)
       ?? (context.guildId ? await this.colorService.getAccentColorAsync(context.guildId) : undefined);
 
-    let typingInterval: NodeJS.Timeout | null = null;
+    const typingInterval = message.channel.isTextBased() && 'sendTyping' in message.channel
+      ? setInterval(() => {
+          (message.channel as unknown as { sendTyping: () => Promise<void> })
+            .sendTyping()
+            .catch(() => undefined);
+        }, 8000)
+      : null;
+
     if (message.channel.isTextBased() && 'sendTyping' in message.channel) {
-      void message.channel.sendTyping().catch(() => undefined);
-      typingInterval = setInterval(() => {
-        void (message.channel as unknown as { sendTyping?: () => Promise<void> }).sendTyping?.().catch(() => undefined);
-      }, 7000);
+      await (message.channel as unknown as { sendTyping: () => Promise<void> })
+        .sendTyping()
+        .catch(() => undefined);
     }
 
     const startTime = Date.now();
@@ -165,6 +189,9 @@ export class CommandHandler {
           flags: MessageFlags.IsComponentsV2,
           allowedMentions,
         };
+        if (response.hasFile()) {
+          payload.files = response.getFiles();
+        }
       } else {
         const hasEmbed = response.hasEmbed();
         payload = {
@@ -176,13 +203,7 @@ export class CommandHandler {
         if (!payload.content && response._textContent) payload.content = response._textContent;
         if (!hasEmbed && payload.content) delete payload.embeds;
         if (response.hasFile()) {
-          payload.files = [
-            {
-              attachment: response.fileBuffer,
-              name: response.fileName,
-              description: response.fileDescription,
-            },
-          ];
+          payload.files = response.getFiles();
         }
       }
       // fmbot posts command output as a regular channel message, not as a Discord

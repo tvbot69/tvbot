@@ -22,6 +22,7 @@ export class ResponseModel {
   public fileBuffer?: Buffer;
   public fileName?: string;
   public fileDescription?: string;
+  public files: Array<{ attachment: Buffer | string; name?: string; description?: string }> = [];
   public componentsV2Container?: ContainerBuilder;
   public content?: string;
   public _textContent?: string;
@@ -53,11 +54,32 @@ export class ResponseModel {
     this.fileBuffer = buffer;
     this.fileName = name;
     this.fileDescription = description;
+    this.files = [{ attachment: buffer, name, description }];
+    return this;
+  }
+
+  public addFile(attachment: Buffer | string, name?: string, description?: string): this {
+    this.files.push({ attachment, name, description });
+    if (!this.fileBuffer && Buffer.isBuffer(attachment)) {
+      this.fileBuffer = attachment;
+      this.fileName = name;
+      this.fileDescription = description;
+    }
     return this;
   }
 
   public hasFile(): boolean {
-    return this.fileBuffer !== undefined && this.fileName !== undefined;
+    return this.files.length > 0 || (this.fileBuffer !== undefined && this.fileName !== undefined);
+  }
+
+  public getFiles(): Array<{ attachment: Buffer | string; name?: string; description?: string }> {
+    if (this.files.length > 0) {
+      return this.files;
+    }
+    if (this.fileBuffer && this.fileName) {
+      return [{ attachment: this.fileBuffer, name: this.fileName, description: this.fileDescription }];
+    }
+    return [];
   }
 
   public setAuthor(name: string, iconUrl?: string, url?: string): this {
@@ -130,13 +152,7 @@ export class ResponseModel {
         flags: MessageFlags.IsComponentsV2,
       };
       if (this.hasFile()) {
-        payload.files = [
-          {
-            attachment: this.fileBuffer,
-            name: this.fileName,
-            description: this.fileDescription,
-          },
-        ];
+        payload.files = this.getFiles();
       }
       return payload;
     }
@@ -150,13 +166,7 @@ export class ResponseModel {
     if (!payload.content && this._textContent) payload.content = this._textContent;
     if (!hasEmbed && payload.content) delete payload.embeds;
     if (this.hasFile()) {
-      payload.files = [
-        {
-          attachment: this.fileBuffer,
-          name: this.fileName,
-          description: this.fileDescription,
-        },
-      ];
+      payload.files = this.getFiles();
     }
     return payload;
   }

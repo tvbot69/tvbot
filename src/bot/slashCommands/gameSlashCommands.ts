@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { inject, injectable } from 'tsyringe';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
@@ -156,6 +156,7 @@ export class GameSlashCommands implements ISlashCommandModule {
           if (expiredResp.componentsV2Container) {
             await (channel as any).send({
               components: [expiredResp.componentsV2Container as any],
+              flags: MessageFlags.IsComponentsV2,
             });
           }
         }
@@ -174,6 +175,50 @@ export class GameSlashCommands implements ISlashCommandModule {
       artistName,
       onExpire,
     });
+
+    if (context.channel && 'createMessageCollector' in context.channel) {
+      const collector = (context.channel as any).createMessageCollector({
+        filter: (m: any) => !m.author?.bot,
+        time: GameService.JumbleSecondsToGuess * 1000,
+      });
+
+      collector.on('collect', async (msg: any) => {
+        const text = msg.content?.trim();
+        if (!text) return;
+        if (text.toLowerCase() === 'give up' || text.toLowerCase() === 'giveup' || text.toLowerCase() === 'quit') {
+          collector.stop('given_up');
+          const ended = this.gameService.giveUp(session.sessionId);
+          if (ended) {
+            const giveUpResp = GameBuilders.buildGameGiveUpResponse(ended, accentColor);
+            if (giveUpResp.componentsV2Container && 'send' in msg.channel) {
+              await msg.channel.send({
+                components: [giveUpResp.componentsV2Container],
+                flags: MessageFlags.IsComponentsV2,
+              }).catch(() => undefined);
+            }
+          }
+          return;
+        }
+
+        const authorName = msg.member?.displayName ?? msg.author.username;
+        const result = this.gameService.checkAnswer(context.channelId, msg.author.id, authorName, text);
+        if (result.isCorrect && result.session) {
+          collector.stop('won');
+          await msg.react('✅').catch(() => undefined);
+          const userColor = await this.colorService?.getAccentColorAsync(msg.author.id) ?? accentColor;
+          const stats = this.gameService.getUserStats(msg.author.id);
+          const wonResp = GameBuilders.buildGameWonResponse(result.session, result.timeSeconds ?? 0, stats, userColor);
+          if (wonResp.componentsV2Container && 'send' in msg.channel) {
+            await msg.channel.send({
+              components: [wonResp.componentsV2Container],
+              flags: MessageFlags.IsComponentsV2,
+            }).catch(() => undefined);
+          }
+        }
+      });
+
+      this.gameService.setCollector(session.sessionId, collector);
+    }
 
     return GameBuilders.buildJumbleStartResponse(session, accentColor);
   }
@@ -248,6 +293,7 @@ export class GameSlashCommands implements ISlashCommandModule {
           if (expiredResp.componentsV2Container) {
             await (channel as any).send({
               components: [expiredResp.componentsV2Container as any],
+              flags: MessageFlags.IsComponentsV2,
             });
           }
         }
@@ -268,6 +314,50 @@ export class GameSlashCommands implements ISlashCommandModule {
       coverUrl,
       onExpire,
     });
+
+    if (context.channel && 'createMessageCollector' in context.channel) {
+      const collector = (context.channel as any).createMessageCollector({
+        filter: (m: any) => !m.author?.bot,
+        time: GameService.PixelationSecondsToGuess * 1000,
+      });
+
+      collector.on('collect', async (msg: any) => {
+        const text = msg.content?.trim();
+        if (!text) return;
+        if (text.toLowerCase() === 'give up' || text.toLowerCase() === 'giveup' || text.toLowerCase() === 'quit') {
+          collector.stop('given_up');
+          const ended = this.gameService.giveUp(session.sessionId);
+          if (ended) {
+            const giveUpResp = GameBuilders.buildGameGiveUpResponse(ended, accentColor);
+            if (giveUpResp.componentsV2Container && 'send' in msg.channel) {
+              await msg.channel.send({
+                components: [giveUpResp.componentsV2Container],
+                flags: MessageFlags.IsComponentsV2,
+              }).catch(() => undefined);
+            }
+          }
+          return;
+        }
+
+        const authorName = msg.member?.displayName ?? msg.author.username;
+        const result = this.gameService.checkAnswer(context.channelId, msg.author.id, authorName, text);
+        if (result.isCorrect && result.session) {
+          collector.stop('won');
+          await msg.react('✅').catch(() => undefined);
+          const userColor = await this.colorService?.getAccentColorAsync(msg.author.id) ?? accentColor;
+          const stats = this.gameService.getUserStats(msg.author.id);
+          const wonResp = GameBuilders.buildGameWonResponse(result.session, result.timeSeconds ?? 0, stats, userColor);
+          if (wonResp.componentsV2Container && 'send' in msg.channel) {
+            await msg.channel.send({
+              components: [wonResp.componentsV2Container],
+              flags: MessageFlags.IsComponentsV2,
+            }).catch(() => undefined);
+          }
+        }
+      });
+
+      this.gameService.setCollector(session.sessionId, collector);
+    }
 
     return GameBuilders.buildPixelStartResponse(session, pixelatedBuffer, accentColor);
   }

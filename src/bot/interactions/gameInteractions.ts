@@ -46,6 +46,7 @@ export class GameInteractions {
       if (response.componentsV2Container) {
         await interaction.update({
           components: [response.componentsV2Container as any],
+          flags: MessageFlags.IsComponentsV2,
           files: [],
         });
       }
@@ -66,6 +67,7 @@ export class GameInteractions {
       if (response.componentsV2Container) {
         await interaction.update({
           components: [response.componentsV2Container as any],
+          flags: MessageFlags.IsComponentsV2,
         });
       }
       return;
@@ -92,6 +94,7 @@ export class GameInteractions {
           await interaction.editReply({
             files: [{ attachment: enhancedBuffer, name: 'pixel-cover.png' }],
             components: [response.componentsV2Container as any],
+            flags: MessageFlags.IsComponentsV2,
           });
         }
         return;
@@ -101,6 +104,7 @@ export class GameInteractions {
       if (response.componentsV2Container) {
         await interaction.update({
           components: [response.componentsV2Container as any],
+          flags: MessageFlags.IsComponentsV2,
         });
       }
     }

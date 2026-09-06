@@ -126,7 +126,7 @@ describe('GameService', () => {
       expect(stats.streak).toBe(1);
     });
 
-    it('handles give up action', () => {
+    it('handles give up action and stops active collector', () => {
       const onExpire = vi.fn();
       const session = gameService.startGame({
         channelId: 'channel-456',
@@ -139,10 +139,35 @@ describe('GameService', () => {
         onExpire,
       });
 
+      const mockCollector = { stop: vi.fn() };
+      gameService.setCollector(session.sessionId, mockCollector);
+
       const ended = gameService.giveUp(session.sessionId);
       expect(ended).toBeDefined();
       expect(ended?.ended).toBe(true);
       expect(gameService.getActiveGame('channel-456')).toBeUndefined();
+      expect(mockCollector.stop).toHaveBeenCalledWith('given_up');
+    });
+
+    it('stops active collector on correct answer', () => {
+      const onExpire = vi.fn();
+      const session = gameService.startGame({
+        channelId: 'channel-win',
+        guildId: 'guild-123',
+        starterUserId: 'testuser',
+        starterDiscordId: 'user-456',
+        type: 'artist',
+        correctAnswer: 'Daft Punk',
+        artistName: 'Daft Punk',
+        onExpire,
+      });
+
+      const mockCollector = { stop: vi.fn() };
+      gameService.setCollector(session.sessionId, mockCollector);
+
+      const result = gameService.checkAnswer('channel-win', 'user-1', 'Alice', 'Daft Punk');
+      expect(result.isCorrect).toBe(true);
+      expect(mockCollector.stop).toHaveBeenCalledWith('won');
     });
 
     it('provides hints and reshuffles', () => {

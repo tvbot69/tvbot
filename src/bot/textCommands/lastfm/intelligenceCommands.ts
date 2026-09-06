@@ -67,8 +67,13 @@ export class IntelligenceCommands implements ITextCommandModule {
       },
       {
         name: 'love',
-        aliases: ['l', 'heart', 'favorite'],
-        executeAsync: (ctx, args) => this.loveAsync(ctx, args?.join(' ') ?? ''),
+        aliases: ['heart', 'favorite'],
+        executeAsync: (ctx, args) => {
+          if (args && args.length > 0 && args[0]?.toLowerCase() === 'list') {
+            return this.lovedAsync(ctx, args.slice(1).join(' '));
+          }
+          return this.loveAsync(ctx, args?.join(' ') ?? '');
+        },
       },
       {
         name: 'unlove',
