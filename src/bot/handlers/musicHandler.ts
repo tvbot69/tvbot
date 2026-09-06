@@ -6,6 +6,7 @@ import { QueueService } from '@bot/services/music/queueService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import type { ColorService } from '@bot/services/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
+import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import { mapMoonlinkTrack } from '@domain/models/music/musicTrack';
 
 export class MusicHandler {
@@ -14,6 +15,7 @@ export class MusicHandler {
   private readonly queueService: QueueService;
   private readonly colorService?: ColorService;
   private readonly voiceChannelStatusService?: VoiceChannelStatusService;
+  private readonly botScrobblingService?: BotScrobblingService;
   private readonly emptyChannelTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly updateIntervals = new Map<string, NodeJS.Timeout>();
 
@@ -23,12 +25,14 @@ export class MusicHandler {
     queueService: QueueService,
     colorService?: ColorService,
     voiceChannelStatusService?: VoiceChannelStatusService,
+    botScrobblingService?: BotScrobblingService,
   ) {
     this.client = client;
     this.moonlinkManager = moonlinkManager;
     this.queueService = queueService;
     this.colorService = colorService;
     this.voiceChannelStatusService = voiceChannelStatusService;
+    this.botScrobblingService = botScrobblingService;
 
     this.registerMoonlinkEvents();
     this.registerDiscordEvents();
@@ -117,6 +121,18 @@ export class MusicHandler {
         );
       }
 
+      // Record voice track for bot scrobbling
+      if (player.voiceChannelId && this.botScrobblingService) {
+        this.botScrobblingService.recordTrackStart({
+          guildId: player.guildId,
+          voiceChannelId: player.voiceChannelId,
+          title: currentTrack.title,
+          artist: currentTrack.author,
+          durationMs: currentTrack.duration,
+          startedAt: Date.now(),
+        });
+      }
+
       // Auto-post interactive Now Playing controller card
       if (!player.textChannelId) return;
       try {
@@ -168,6 +184,10 @@ export class MusicHandler {
         `[Music] Track ended in guild ${player.guildId}: "${track.title}" (reason: ${reason})`,
       );
       this.stopProgressUpdater(player.guildId);
+
+      if (player.voiceChannelId && this.botScrobblingService) {
+        void this.botScrobblingService.handleTrackEnd(this.client, player.guildId, player.voiceChannelId);
+      }
     });
 
     manager.on('trackStuck', (player: Player, track: Track, threshold: number) => {

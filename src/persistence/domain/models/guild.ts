@@ -9,4 +9,8 @@ export interface Guild {
   accentColor?: number;
   fmEmbedType?: number | null;
   whoKnowsActivityThreshold?: number;
+  crownsDisabled?: boolean;
+  crownsMinimumPlaycountThreshold?: number | null;
+  crownsActivityThresholdDays?: number | null;
+  crownRoles?: string[];
 }

@@ -24,6 +24,15 @@ import { ProfileSlashCommands } from './profileSlashCommands';
 import { StreakSlashCommands } from './streakSlashCommands';
 import { LibrarySearchSlashCommands } from './librarySearchSlashCommands';
 import { ServerSlashCommands } from './serverSlashCommands';
+import { GenreSlashCommands } from './genreSlashCommands';
+import { CountrySlashCommands } from './countrySlashCommands';
+import { GameSlashCommands } from './gameSlashCommands';
+import { IntelligenceSlashCommands } from './intelligenceSlashCommands';
+import { GuildAdminSlashCommands } from './guildAdminSlashCommands';
+import { UserHubSlashCommands } from './userHubSlashCommands';
+import { DiscogsSlashCommands } from './discogsSlashCommands';
+import { ImportSlashCommands } from './importSlashCommands';
+import { StreamingSlashCommands } from './streamingSlashCommands';
 
 let commandCache: Map<string, SlashCommandDefinition> | null = null;
 
@@ -35,6 +44,15 @@ const buildCommands = (): Map<string, SlashCommandDefinition> => {
     container.resolve(StreakSlashCommands),
     container.resolve(LibrarySearchSlashCommands),
     container.resolve(ServerSlashCommands),
+    container.resolve(GenreSlashCommands),
+    container.resolve(CountrySlashCommands),
+    container.resolve(GameSlashCommands),
+    container.resolve(IntelligenceSlashCommands),
+    container.resolve(GuildAdminSlashCommands),
+    container.resolve(UserHubSlashCommands),
+    container.resolve(DiscogsSlashCommands),
+    container.resolve(ImportSlashCommands),
+    container.resolve(StreamingSlashCommands),
     container.resolve(StaticSlashCommands),
     container.resolve(ChartSlashCommands),
     container.resolve(LoginSlashCommands),

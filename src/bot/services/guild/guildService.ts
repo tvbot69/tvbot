@@ -53,6 +53,21 @@ export class GuildService {
     await this.cache.delete(this.cacheKey(guildId));
   }
 
+  public async setCrownsThreshold(guildId: string, threshold: number): Promise<void> {
+    await this.guildRepository.setCrownsThreshold(guildId, threshold);
+    await this.cache.delete(this.cacheKey(guildId));
+  }
+
+  public async setCrownsActivityThreshold(guildId: string, days: number | null): Promise<void> {
+    await this.guildRepository.setCrownsActivityThreshold(guildId, days);
+    await this.cache.delete(this.cacheKey(guildId));
+  }
+
+  public async setCrownsDisabled(guildId: string, disabled: boolean): Promise<void> {
+    await this.guildRepository.setCrownsDisabled(guildId, disabled);
+    await this.cache.delete(this.cacheKey(guildId));
+  }
+
   public async trackLastCommand(guildId: string): Promise<void> {
     const throttleKey = `lastcmd:${guildId}`;
     const existing = await this.cache.get<string>(throttleKey);

@@ -65,5 +65,18 @@ export class GuildUserRepository implements IGuildUserRepository {
       whoKnowsBanned: r.whoKnowsBanned,
     }));
   }
+
+  public async setBlockStatus(guildId: string, userId: number, blocked: boolean): Promise<void> {
+    await this.prisma.guildUser.updateMany({
+      where: {
+        guildId: BigInt(guildId),
+        userId: userId,
+      },
+      data: {
+        whoKnowsBanned: blocked,
+        blockedFromCrowns: blocked,
+      },
+    });
+  }
 }
 

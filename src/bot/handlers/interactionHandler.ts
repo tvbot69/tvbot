@@ -38,6 +38,10 @@ import { PlaycountInteractions } from '@bot/interactions/playcountInteractions';
 import { ProfileInteractions } from '@bot/interactions/profileInteractions';
 import { LibrarySearchInteractions } from '@bot/interactions/librarySearchInteractions';
 import { ServerInteractions } from '@bot/interactions/serverInteractions';
+import { GenreInteractions } from '@bot/interactions/genreInteractions';
+import { CountryInteractions } from '@bot/interactions/countryInteractions';
+import { GameInteractions } from '@bot/interactions/gameInteractions';
+import { UserHubInteractions } from '@bot/interactions/userHubInteractions';
 import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
 import { tryHandleModal } from '@bot/interactions';
@@ -70,6 +74,10 @@ export class InteractionHandler {
   private readonly profileInteractions: ProfileInteractions;
   private readonly librarySearchInteractions: LibrarySearchInteractions;
   private readonly serverInteractions: ServerInteractions;
+  private readonly genreInteractions: GenreInteractions;
+  private readonly countryInteractions: CountryInteractions;
+  private readonly gameInteractions: GameInteractions;
+  private readonly userHubInteractions: UserHubInteractions;
 
   constructor() {
     this.client = container.resolve(Client);
@@ -99,6 +107,10 @@ export class InteractionHandler {
     this.profileInteractions = container.resolve(ProfileInteractions);
     this.librarySearchInteractions = container.resolve(LibrarySearchInteractions);
     this.serverInteractions = container.resolve(ServerInteractions);
+    this.genreInteractions = container.resolve(GenreInteractions);
+    this.countryInteractions = container.resolve(CountryInteractions);
+    this.gameInteractions = container.resolve(GameInteractions);
+    this.userHubInteractions = container.resolve(UserHubInteractions);
 
     this.client.on(Events.InteractionCreate, (interaction) => {
       void this.onInteractionCreated(interaction);
@@ -136,6 +148,10 @@ export class InteractionHandler {
         }
         if (interaction.customId.startsWith('fb:')) {
           await this.footballInteractions.handleSelectMenu(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('country:theme:')) {
+          await this.countryInteractions.handleStringSelect(interaction);
           return;
         }
       }
@@ -230,6 +246,22 @@ export class InteractionHandler {
         }
         if (interaction.customId.startsWith('server:page:')) {
           await this.serverInteractions.handleButton(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('genre:')) {
+          await this.genreInteractions.handleButton(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('country:')) {
+          await this.countryInteractions.handleButton(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('game:')) {
+          await this.gameInteractions.handleButton(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('userhub:')) {
+          await this.userHubInteractions.handleButton(interaction);
           return;
         }
       }

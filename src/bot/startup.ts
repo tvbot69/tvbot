@@ -164,6 +164,40 @@ import { GuildRankingService } from './services/guildRankingService';
 import { ServerInteractions } from './interactions/serverInteractions';
 import { ServerCommands } from './textCommands/guild/serverCommands';
 import { ServerSlashCommands } from './slashCommands/serverSlashCommands';
+import { GenreInteractions } from './interactions/genreInteractions';
+import { GenreCommands } from './textCommands/lastfm/genreCommands';
+import { GenreSlashCommands } from './slashCommands/genreSlashCommands';
+import { WorldMapGenerator } from '@images/generators/worldMapGenerator';
+import { ReceiptGenerator } from '@images/generators/receiptGenerator';
+import { CountryInteractions } from './interactions/countryInteractions';
+import { CountryCommands } from './textCommands/lastfm/countryCommands';
+import { CountrySlashCommands } from './slashCommands/countrySlashCommands';
+import { GameService } from './services/gameService';
+import { GameInteractions } from './interactions/gameInteractions';
+import { GameCommands } from './textCommands/lastfm/gameCommands';
+import { GameSlashCommands } from './slashCommands/gameSlashCommands';
+import { MusicIntelligenceService } from './services/musicIntelligenceService';
+import { IntelligenceCommands } from './textCommands/lastfm/intelligenceCommands';
+import { IntelligenceSlashCommands } from './slashCommands/intelligenceSlashCommands';
+import { GuildAdminService } from './services/guildAdminService';
+import { GuildAdminCommands } from './textCommands/guild/guildAdminCommands';
+import { GuildAdminSlashCommands } from './slashCommands/guildAdminSlashCommands';
+import { AiJudgeService } from './services/aiJudgeService';
+import { BotScrobblingService } from './services/music/botScrobblingService';
+import { FeaturedService } from './services/featuredService';
+import { ShortcutService } from './services/shortcutService';
+import { UserHubInteractions } from './interactions/userHubInteractions';
+import { UserHubCommands } from './textCommands/user/userHubCommands';
+import { UserHubSlashCommands } from './slashCommands/userHubSlashCommands';
+import { DiscogsService } from './services/discogsService';
+import { ImportService } from './services/importService';
+import { AppleMusicService } from './services/appleMusicService';
+import { DiscogsCommands } from './textCommands/thirdParty/discogsCommands';
+import { DiscogsSlashCommands } from './slashCommands/discogsSlashCommands';
+import { ImportCommands } from './textCommands/thirdParty/importCommands';
+import { ImportSlashCommands } from './slashCommands/importSlashCommands';
+import { StreamingCommands } from './textCommands/thirdParty/streamingCommands';
+import { StreamingSlashCommands } from './slashCommands/streamingSlashCommands';
 
 const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -255,7 +289,7 @@ const configureContainer = (): void => {
     channelRepository,
   );
 
-  const genreService = new GenreService(cache, artistGenreRepository, artistRepository, lastFmRepository);
+  const genreService = new GenreService(cache, artistGenreRepository, artistRepository, lastFmRepository, prisma);
   const friendsService = new FriendsService(friendsRepository, userRepository);
   const crownRepository = new CrownRepository(prisma);
   const crownService = new CrownService(crownRepository, userService);
@@ -650,7 +684,8 @@ const configureContainer = (): void => {
   container.registerInstance(FootballCommands, footballCommands);
   container.registerInstance(FootballSlashCommands, footballSlashCommands);
 
-  const playHistoryService = new PlayHistoryService(playRepository, lastFmRepository);
+  const playHistoryService = new PlayHistoryService(playRepository, lastFmRepository, prisma, genreService, countryService);
+  const receiptGenerator = new ReceiptGenerator(puppeteerService);
   const playcountInteractions = new PlaycountInteractions(userService, playHistoryService, artworkService, colorService, lastFmRepository);
   const playcountCommands = new PlaycountCommands(
     userService,
@@ -662,6 +697,7 @@ const configureContainer = (): void => {
     artworkService,
     lastFmRepository,
     colorService,
+    receiptGenerator,
   );
   const playcountSlashCommands = new PlaycountSlashCommands(
     userService,
@@ -673,8 +709,10 @@ const configureContainer = (): void => {
     artworkService,
     lastFmRepository,
     colorService,
+    receiptGenerator,
   );
 
+  container.registerInstance(ReceiptGenerator, receiptGenerator);
   container.registerInstance(PlayHistoryService, playHistoryService);
   container.registerInstance(PlaycountInteractions, playcountInteractions);
   container.registerInstance(PlaycountCommands, playcountCommands);
@@ -718,7 +756,131 @@ const configureContainer = (): void => {
   container.registerInstance(ServerCommands, serverCommands);
   container.registerInstance(ServerSlashCommands, serverSlashCommands);
 
-  const musicHandler = new MusicHandler(client, moonlinkManager, queueService, colorService, voiceChannelStatusService);
+  const genreInteractions = new GenreInteractions(genreService, userService);
+  const genreCommands = new GenreCommands(userService, settingService, lastFmRepository, genreService, colorService);
+  const genreSlashCommands = new GenreSlashCommands(userService, settingService, lastFmRepository, genreService, colorService);
+
+  container.registerInstance(GenreService, genreService);
+  container.registerInstance(GenreInteractions, genreInteractions);
+  container.registerInstance(GenreCommands, genreCommands);
+  container.registerInstance(GenreSlashCommands, genreSlashCommands);
+
+  const worldMapGenerator = new WorldMapGenerator(puppeteerService);
+  const countryInteractions = new CountryInteractions(countryService, worldMapGenerator, userService);
+  const countryCommands = new CountryCommands(userService, settingService, lastFmRepository, countryService, worldMapGenerator, colorService);
+  const countrySlashCommands = new CountrySlashCommands(userService, settingService, lastFmRepository, countryService, worldMapGenerator, colorService);
+
+  container.registerInstance(WorldMapGenerator, worldMapGenerator);
+  container.registerInstance(CountryInteractions, countryInteractions);
+  container.registerInstance(CountryCommands, countryCommands);
+  container.registerInstance(CountrySlashCommands, countrySlashCommands);
+
+  const gameService = new GameService(puppeteerService);
+  const gameInteractions = new GameInteractions(gameService, colorService);
+  const gameCommands = new GameCommands(userService, lastFmRepository, gameService, colorService);
+  const gameSlashCommands = new GameSlashCommands(userService, lastFmRepository, gameService, colorService);
+
+  container.registerInstance(GameService, gameService);
+  container.registerInstance(GameInteractions, gameInteractions);
+  container.registerInstance(GameCommands, gameCommands);
+  container.registerInstance(GameSlashCommands, gameSlashCommands);
+
+  const musicIntelligenceService = new MusicIntelligenceService(
+    lastFmRepository,
+    prisma,
+    genreService,
+    countryService,
+  );
+  const intelligenceCommands = new IntelligenceCommands(
+    userService,
+    settingService,
+    lastFmRepository,
+    musicIntelligenceService,
+    colorService,
+  );
+  const intelligenceSlashCommands = new IntelligenceSlashCommands(
+    userService,
+    settingService,
+    lastFmRepository,
+    musicIntelligenceService,
+    colorService,
+  );
+
+  container.registerInstance(MusicIntelligenceService, musicIntelligenceService);
+  container.registerInstance(IntelligenceCommands, intelligenceCommands);
+  container.registerInstance(IntelligenceSlashCommands, intelligenceSlashCommands);
+
+  const guildAdminService = new GuildAdminService(guildUserRepository, userRepository, guildService, prisma);
+  const guildAdminCommands = new GuildAdminCommands(guildService, guildAdminService, userService, prefixService, colorService);
+  const guildAdminSlashCommands = new GuildAdminSlashCommands(guildService, guildAdminService, userService, prefixService, colorService);
+
+  container.registerInstance(GuildAdminService, guildAdminService);
+  container.registerInstance(GuildAdminCommands, guildAdminCommands);
+  container.registerInstance(GuildAdminSlashCommands, guildAdminSlashCommands);
+
+  const aiJudgeService = new AiJudgeService(lastFmRepository);
+  const botScrobblingService = new BotScrobblingService(lastFmRepository, userRepository);
+  const featuredService = new FeaturedService(lastFmRepository, prisma);
+  const shortcutService = new ShortcutService();
+  const userHubInteractions = new UserHubInteractions(aiJudgeService, botScrobblingService, userService, colorService);
+  const userHubCommands = new UserHubCommands(
+    userService,
+    aiJudgeService,
+    botScrobblingService,
+    featuredService,
+    shortcutService,
+    prefixService,
+    lastFmRepository,
+    colorService,
+  );
+  const userHubSlashCommands = new UserHubSlashCommands(
+    userService,
+    aiJudgeService,
+    botScrobblingService,
+    featuredService,
+    shortcutService,
+    prefixService,
+    lastFmRepository,
+    colorService,
+  );
+
+  container.registerInstance(AiJudgeService, aiJudgeService);
+  container.registerInstance(BotScrobblingService, botScrobblingService);
+  container.registerInstance(FeaturedService, featuredService);
+  container.registerInstance(ShortcutService, shortcutService);
+  container.registerInstance(UserHubInteractions, userHubInteractions);
+  container.registerInstance(UserHubCommands, userHubCommands);
+  container.registerInstance(UserHubSlashCommands, userHubSlashCommands);
+
+  const discogsService = new DiscogsService();
+  const importService = new ImportService(prisma);
+  const appleMusicService = new AppleMusicService();
+
+  const discogsCommands = new DiscogsCommands(userService, discogsService, prefixService, lastFmRepository, colorService);
+  const discogsSlashCommands = new DiscogsSlashCommands(userService, discogsService, prefixService, lastFmRepository, colorService);
+  const importCommands = new ImportCommands(userService, importService, prefixService, colorService);
+  const importSlashCommands = new ImportSlashCommands(userService, importService, prefixService, colorService);
+  const streamingCommands = new StreamingCommands(userService, spotifySearchApi, appleMusicService, prefixService, lastFmRepository, colorService);
+  const streamingSlashCommands = new StreamingSlashCommands(userService, spotifySearchApi, appleMusicService, prefixService, lastFmRepository, colorService);
+
+  container.registerInstance(DiscogsService, discogsService);
+  container.registerInstance(ImportService, importService);
+  container.registerInstance(AppleMusicService, appleMusicService);
+  container.registerInstance(DiscogsCommands, discogsCommands);
+  container.registerInstance(DiscogsSlashCommands, discogsSlashCommands);
+  container.registerInstance(ImportCommands, importCommands);
+  container.registerInstance(ImportSlashCommands, importSlashCommands);
+  container.registerInstance(StreamingCommands, streamingCommands);
+  container.registerInstance(StreamingSlashCommands, streamingSlashCommands);
+
+  const musicHandler = new MusicHandler(
+    client,
+    moonlinkManager,
+    queueService,
+    colorService,
+    voiceChannelStatusService,
+    botScrobblingService,
+  );
   container.registerInstance(MusicHandler, musicHandler);
 
   container.registerInstance(ClientLogHandler, new ClientLogHandler());

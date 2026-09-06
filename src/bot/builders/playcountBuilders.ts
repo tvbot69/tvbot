@@ -3,9 +3,15 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  ContainerBuilder,
+  TextDisplayBuilder,
+  SeparatorBuilder,
+  SeparatorSpacingSize,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
+import { CommandResponse } from '@domain/enums/commandResponse';
+import type { YearOverviewData, GuildLeaderboardEntry } from '@bot/services/playHistoryService';
 
 export const getOrdinal = (n: number): string => {
   const s = ['th', 'st', 'nd', 'rd'];
@@ -289,5 +295,172 @@ export class PlaycountBuilders {
     }
 
     return res;
+  }
+
+  public static buildArtistPaceResponse(params: {
+    callerMention: string;
+    displayName: string;
+    isDifferentUser: boolean;
+    artistName: string;
+    goalAmount: number;
+    allTimePlays: number;
+    periodPlays: number;
+    days: number;
+    accentColor?: number | null;
+  }): ResponseModel {
+    const res = new ResponseModel(params.accentColor ?? DiscordConstants.LastFmColorRed);
+    res.commandResponse = CommandResponse.Ok;
+    const avgPerDay = params.days > 0 ? params.periodPlays / params.days : 0;
+    const playsLeft = params.goalAmount - params.allTimePlays;
+
+    let content = '';
+    const determiner = params.isDifferentUser ? 'their' : 'your';
+
+    if (playsLeft <= 0) {
+      content = `${params.callerMention} ${params.isDifferentUser ? `**${params.displayName}** has` : 'You have'} already reached **${params.goalAmount.toLocaleString()}** plays on **${params.artistName}**! 🎉 (Current: **${params.allTimePlays.toLocaleString()}**)`;
+    } else if (avgPerDay <= 0) {
+      content = `${params.callerMention} No plays found on **${params.artistName}** in the last ${params.days} days to estimate pace.`;
+    } else {
+      const daysToAdd = playsLeft / avgPerDay;
+      const targetDate = new Date(Date.now() + daysToAdd * 86400 * 1000);
+      const unix = Math.floor(targetDate.getTime() / 1000);
+
+      const targetText = daysToAdd > 365 * 100
+        ? 'on a date beyond the year 9999! 🚀'
+        : `on **<t:${unix}:D>** (<t:${unix}:R>)`;
+
+      content = `${params.callerMention} My estimate is that ${params.isDifferentUser ? `**${params.displayName}**` : 'you'} will reach **${params.goalAmount.toLocaleString()}** plays on **${params.artistName}** ${targetText}.\n\n-# *Based on ${determiner} average of **${avgPerDay.toFixed(1)}** plays/day in the last ${params.days} days (${params.periodPlays.toLocaleString()} in period · ${params.allTimePlays.toLocaleString()} all-time)*`;
+    }
+
+    return res.setContent(content);
+  }
+
+  public static buildYearOverviewResponse(params: {
+    displayName: string;
+    userNameLastFm: string;
+    yearData: YearOverviewData;
+    accentColor?: number | null;
+  }): ResponseModel {
+    const { displayName, userNameLastFm, yearData, accentColor } = params;
+    const container = new ContainerBuilder();
+    container.setAccentColor(accentColor ?? DiscordConstants.LastFmColorRed);
+
+    const userUrl = `https://www.last.fm/user/${encodeURIComponent(userNameLastFm)}`;
+    const header = `### 📅 ${yearData.year} Year in Review for [${displayName}](${userUrl})`;
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(header));
+    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+
+    let yoyDiff = '';
+    if (yearData.previousTotalPlays && yearData.previousTotalPlays > 0) {
+      const diff = yearData.totalPlays - yearData.previousTotalPlays;
+      yoyDiff = ` (${diff >= 0 ? '📈 +' : '📉 -'}${Math.abs(diff).toLocaleString()} vs ${yearData.year - 1})`;
+    }
+
+    const summaryText =
+      `🎧 **Total Plays:** ${yearData.totalPlays.toLocaleString()}${yoyDiff}\n` +
+      `🎨 **Distinct Artists:** ${yearData.totalArtists.toLocaleString()}`;
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(summaryText));
+    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+
+    if (yearData.topArtists.length > 0) {
+      let artistsText = '**Top Artists:**\n';
+      yearData.topArtists.slice(0, 5).forEach((a, i) => {
+        artistsText += `${i + 1}. **[${a.name}](${getArtistUrl(a.name)})** — *${a.playcount.toLocaleString()} plays*\n`;
+      });
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(artistsText.trim()));
+    }
+
+    if (yearData.topAlbums.length > 0) {
+      let albumsText = '**Top Albums:**\n';
+      yearData.topAlbums.slice(0, 5).forEach((al, i) => {
+        albumsText += `${i + 1}. **[${al.albumName}](${getAlbumUrl(al.artistName, al.albumName)})** by ${al.artistName} — *${al.playcount.toLocaleString()} plays*\n`;
+      });
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(albumsText.trim()));
+    }
+
+    if (yearData.topTracks.length > 0) {
+      let tracksText = '**Top Tracks:**\n';
+      yearData.topTracks.slice(0, 5).forEach((t, i) => {
+        tracksText += `${i + 1}. **[${t.trackName}](${getTrackUrl(t.artistName, t.trackName)})** by ${t.artistName} — *${t.playcount.toLocaleString()} plays*\n`;
+      });
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(tracksText.trim()));
+    }
+
+    if (yearData.topGenres.length > 0 || yearData.topCountries.length > 0) {
+      let metaText = '';
+      if (yearData.topGenres.length > 0) {
+        metaText += `🏷️ **Top Genres:** ${yearData.topGenres.slice(0, 5).map(g => g.name).join(', ')}\n`;
+      }
+      if (yearData.topCountries.length > 0) {
+        metaText += `🌍 **Top Countries:** ${yearData.topCountries.slice(0, 5).map(c => `${c.countryName} (${c.playcount.toLocaleString()})`).join(', ')}`;
+      }
+      container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(metaText.trim()));
+    }
+
+    const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
+    response.commandResponse = CommandResponse.Ok;
+    response.setComponentsV2Container(container);
+    return response;
+  }
+
+  public static buildRecapResponse(params: {
+    displayName: string;
+    userNameLastFm: string;
+    yearData: YearOverviewData;
+    accentColor?: number | null;
+  }): ResponseModel {
+    return PlaycountBuilders.buildYearOverviewResponse(params);
+  }
+
+  public static buildLeaderboardResponse(params: {
+    guildName: string;
+    title: string;
+    unit: string;
+    entries: GuildLeaderboardEntry[];
+    pageIndex?: number;
+    accentColor?: number | null;
+  }): ResponseModel {
+    const { guildName, title, unit, entries, pageIndex = 0, accentColor } = params;
+    const container = new ContainerBuilder();
+    container.setAccentColor(accentColor ?? DiscordConstants.LastFmColorRed);
+
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`### 🏆 ${title} for ${guildName}`),
+    );
+    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+
+    if (entries.length === 0) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent('No members found with plays in this server yet.'),
+      );
+    } else {
+      const pageSize = 10;
+      const start = pageIndex * pageSize;
+      const pageEntries = entries.slice(start, start + pageSize);
+
+      let listText = '';
+      pageEntries.forEach((entry, idx) => {
+        const rank = start + idx + 1;
+        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `**${rank}.**`;
+        const display = entry.displayName || entry.userNameLastFm;
+        listText += `${medal} [${display}](https://www.last.fm/user/${encodeURIComponent(entry.userNameLastFm)}) — **${entry.value.toLocaleString()}** ${unit}\n`;
+      });
+
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(listText.trim()));
+
+      const totalPages = Math.ceil(entries.length / pageSize);
+      if (totalPages > 1) {
+        container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
+        container.addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(`-# Page ${pageIndex + 1} of ${totalPages} · ${entries.length} server members tracked`),
+        );
+      }
+    }
+
+    const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
+    response.commandResponse = CommandResponse.Ok;
+    response.setComponentsV2Container(container);
+    return response;
   }
 }

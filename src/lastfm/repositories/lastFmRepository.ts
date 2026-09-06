@@ -633,4 +633,127 @@ export class LastFmRepository implements ILastfmRepository {
       return null;
     }
   }
+
+  public async loveTrack(artist: string, track: string, sessionKey: string): Promise<boolean> {
+    try {
+      await this.api.callSigned<{ status?: string }>(
+        'track.love',
+        {
+          artist,
+          track,
+          sk: sessionKey,
+        },
+        'POST',
+      );
+      return true;
+    } catch (err) {
+      Logger.warn({ err: String(err).slice(0, 120) }, `loveTrack failed for ${artist} - ${track}`);
+      return false;
+    }
+  }
+
+  public async unloveTrack(artist: string, track: string, sessionKey: string): Promise<boolean> {
+    try {
+      await this.api.callSigned<{ status?: string }>(
+        'track.unlove',
+        {
+          artist,
+          track,
+          sk: sessionKey,
+        },
+        'POST',
+      );
+      return true;
+    } catch (err) {
+      Logger.warn({ err: String(err).slice(0, 120) }, `unloveTrack failed for ${artist} - ${track}`);
+      return false;
+    }
+  }
+
+  public async getLovedTracks(
+    userName: string,
+    limit: number = 20,
+    page: number = 1,
+    sessionKey?: string,
+  ): Promise<{ tracks: TopTrack[]; total: number }> {
+    try {
+      const params: Record<string, string> = {
+        user: userName,
+        limit: String(limit),
+        page: String(page),
+      };
+      if (sessionKey) {
+        params.sk = sessionKey;
+      }
+
+      interface LovedTrackLfm {
+        name: string;
+        mbid?: string;
+        url?: string;
+        date?: { uts: string; '#text': string };
+        artist: { name: string; mbid?: string; url?: string } | string;
+        image?: Array<{ '#text': string; size: string }>;
+      }
+
+      interface LovedTracksResponseLfm {
+        lovedtracks?: {
+          track?: LovedTrackLfm | LovedTrackLfm[];
+          '@attr'?: {
+            total?: string;
+            totalPages?: string;
+            page?: string;
+            perPage?: string;
+          };
+        };
+      }
+
+      const response = await this.api.call<LovedTracksResponseLfm>('user.getlovedtracks', params);
+      const trackData = response?.lovedtracks?.track;
+      const total = parseInt(response?.lovedtracks?.['@attr']?.total ?? '0', 10);
+      if (!trackData) {
+        return { tracks: [], total: 0 };
+      }
+
+      const rawTracks = Array.isArray(trackData) ? trackData : [trackData];
+      const tracks: TopTrack[] = rawTracks.map((t) => ({
+        name: t.name,
+        artistName: typeof t.artist === 'string' ? t.artist : (t.artist?.name ?? 'Unknown Artist'),
+        playcount: 1,
+        mbid: t.mbid,
+        url: t.url,
+        imageUrl: Array.isArray(t.image) ? (t.image[t.image.length - 1]?.['#text'] ?? undefined) : undefined,
+      }));
+
+      return { tracks, total };
+    } catch (err) {
+      Logger.warn({ err: String(err).slice(0, 120) }, `getLovedTracks failed for ${userName}`);
+      return { tracks: [], total: 0 };
+    }
+  }
+
+  public async scrobbleTrack(
+    artist: string,
+    track: string,
+    timestamp: number,
+    sessionKey: string,
+    album?: string,
+  ): Promise<boolean> {
+    try {
+      const params: Record<string, string> = {
+        artist,
+        track,
+        timestamp: String(timestamp),
+        sk: sessionKey,
+      };
+      if (album) {
+        params.album = album;
+      }
+
+      await this.api.callSigned<{ scrobbles?: unknown }>('track.scrobble', params, 'POST');
+      return true;
+    } catch (err) {
+      Logger.warn({ err: String(err).slice(0, 120) }, `scrobbleTrack failed for ${artist} - ${track}`);
+      return false;
+    }
+  }
 }

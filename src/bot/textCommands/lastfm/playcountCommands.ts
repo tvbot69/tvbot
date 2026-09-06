@@ -12,6 +12,8 @@ import { AlbumService } from '@bot/services/albumService';
 import { TrackService } from '@bot/services/trackService';
 import { ArtworkService } from '@bot/services/artworkService';
 import { ColorService } from '@bot/services/colorService';
+import { ReceiptGenerator } from '@images/generators/receiptGenerator';
+import { ReceiptBuilders } from '@bot/builders/receiptBuilders';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
@@ -38,6 +40,7 @@ export class PlaycountCommands implements ITextCommandModule {
     @inject(ArtworkService) private readonly artworkService: ArtworkService,
     @inject('ILastfmRepository') private readonly lastfmRepository: ILastfmRepository,
     @inject(ColorService) private readonly colorService: ColorService,
+    @inject(ReceiptGenerator) private readonly receiptGenerator?: ReceiptGenerator,
   ) {
     this.commands = [
       {
@@ -79,6 +82,36 @@ export class PlaycountCommands implements ITextCommandModule {
         name: 'lastlistened',
         aliases: ['last', 'll', 'lastlisten', 'lastplayed', 'lastheard'],
         executeAsync: (context, args) => this.lastListenedAsync(context, args?.join(' ') ?? ''),
+      },
+      {
+        name: 'artistpace',
+        aliases: ['apc', 'apace', 'artistpc'],
+        executeAsync: (context, args) => this.artistPaceAsync(context, args?.join(' ') ?? ''),
+      },
+      {
+        name: 'receipt',
+        aliases: ['rcpt', 'receiptify', 'reciept'],
+        executeAsync: (context, args) => this.receiptAsync(context, args?.join(' ') ?? ''),
+      },
+      {
+        name: 'year',
+        aliases: ['yr', 'lastyear', 'yearoverview', 'yearov', 'yov'],
+        executeAsync: (context, args) => this.yearAsync(context, args?.join(' ') ?? ''),
+      },
+      {
+        name: 'recap',
+        aliases: ['rcp', 'wrapped'],
+        executeAsync: (context, args) => this.recapAsync(context, args?.join(' ') ?? ''),
+      },
+      {
+        name: 'playleaderboard',
+        aliases: ['sblb', 'scrobblelb', 'scrobbleleaderboard'],
+        executeAsync: (context) => this.playLeaderboardAsync(context),
+      },
+      {
+        name: 'timeleaderboard',
+        aliases: ['playtimeleaderboard', 'listeningtimeleaderboard', 'ptlb', 'ltlb', 'tlb', 'sleepscrobblers'],
+        executeAsync: (context) => this.timeLeaderboardAsync(context),
       },
     ];
   }
@@ -487,5 +520,190 @@ export class PlaycountCommands implements ITextCommandModule {
       hasSearch,
       accentColor,
     );
+  }
+
+  private async artistPaceAsync(context: ContextModel, rawOptions: string): Promise<ResponseModel> {
+    const target = await this.resolveTarget(context, rawOptions);
+    if ('commandResponse' in target) return target;
+
+    const artistSearch = await this.artistsService.searchArtist(
+      target.cleanSearchValue,
+      target.targetUser,
+      context.guildId,
+    );
+    if (!artistSearch) {
+      return GenericEmbedService.buildNotFoundResponse('Could not find any artist to check pace.');
+    }
+
+    let allTimePlays = artistSearch.userPlaycount ?? 0;
+    if (allTimePlays === 0 && target.targetUser.userId > 0) {
+      const dbTotal = await this.playHistoryService.getArtistTotalPlays(
+        target.targetUser.userId,
+        artistSearch.artistName,
+      );
+      allTimePlays = dbTotal;
+    }
+
+    const goalAmount = SettingService.getGoalAmount(target.cleanSearchValue, allTimePlays);
+    const days = 30;
+    const periodPlays = await this.playHistoryService.getArtistPlaycountForDays(
+      target.targetUser.userId,
+      artistSearch.artistName,
+      days,
+    );
+
+    const targetDiscordId = target.targetUser.discordUserId;
+    const accentColor = targetDiscordId
+      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
+      : context.accentColor;
+
+    return PlaycountBuilders.buildArtistPaceResponse({
+      callerMention: `<@${context.discordUserId}>`,
+      displayName: target.displayName,
+      isDifferentUser: target.isDifferentUser,
+      artistName: artistSearch.artistName,
+      goalAmount,
+      allTimePlays,
+      periodPlays,
+      days,
+      accentColor,
+    });
+  }
+
+  private async receiptAsync(context: ContextModel, rawOptions: string): Promise<ResponseModel> {
+    const target = await this.resolveTarget(context, rawOptions);
+    if ('commandResponse' in target) return target;
+
+    const timeSettings = this.settingService.getTimePeriod(target.cleanSearchValue);
+    const topTracksResult = await this.lastfmRepository.getTopTracks(
+      target.targetUser.userNameLastFm,
+      timeSettings.timePeriod,
+      12,
+    );
+
+    if (!topTracksResult || topTracksResult.length === 0) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        `Sorry, you or the user you're searching for don't have any top tracks in the ${timeSettings.description} time period.`,
+      );
+    }
+
+    const fromTimestamp = timeSettings.startDateTime
+      ? Math.floor(timeSettings.startDateTime.getTime() / 1000)
+      : null;
+
+    const totalScrobbles = await this.playHistoryService.getScrobbleCountFromDate(
+      target.targetUser.userNameLastFm,
+      fromTimestamp,
+      target.targetUser.sessionKey ?? null,
+    );
+
+    const receiptTracks = topTracksResult.map((t) => ({
+      artistName: t.artistName,
+      trackName: t.name,
+      userPlaycount: t.playcount,
+    }));
+
+    if (!this.receiptGenerator) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        'Receipt generator is not available.',
+      );
+    }
+
+    const buffer = await this.receiptGenerator.generateReceipt({
+      userNameLastFm: target.targetUser.userNameLastFm,
+      displayName: target.displayName,
+      periodDescription: timeSettings.description,
+      tracks: receiptTracks,
+      totalPlays: totalScrobbles ?? receiptTracks.reduce((acc, c) => acc + c.userPlaycount, 0),
+      totalTracks: receiptTracks.length,
+      year: timeSettings.endDateTime ? timeSettings.endDateTime.getFullYear() : undefined,
+    });
+
+    const targetDiscordId = target.targetUser.discordUserId;
+    const accentColor = targetDiscordId
+      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
+      : context.accentColor;
+
+    return ReceiptBuilders.buildReceiptResponse({
+      displayName: target.displayName,
+      userNameLastFm: target.targetUser.userNameLastFm,
+      periodDescription: timeSettings.description,
+      imageBuffer: buffer,
+      accentColor,
+    });
+  }
+
+  private async yearAsync(context: ContextModel, rawOptions: string): Promise<ResponseModel> {
+    const target = await this.resolveTarget(context, rawOptions);
+    if ('commandResponse' in target) return target;
+
+    const match = target.cleanSearchValue.match(/\b(20\d\d|19\d\d)\b/);
+    const year = match ? parseInt(match[1]!, 10) : new Date().getFullYear();
+
+    const yearData = await this.playHistoryService.getYearOverview(target.targetUser.userId, year);
+    if (yearData.totalPlays === 0) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        `No plays found in **${year}** for ${target.displayName}.`,
+      );
+    }
+
+    const targetDiscordId = target.targetUser.discordUserId;
+    const accentColor = targetDiscordId
+      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
+      : context.accentColor;
+
+    return PlaycountBuilders.buildYearOverviewResponse({
+      displayName: target.displayName,
+      userNameLastFm: target.targetUser.userNameLastFm,
+      yearData,
+      accentColor,
+    });
+  }
+
+  private async recapAsync(context: ContextModel, rawOptions: string): Promise<ResponseModel> {
+    return this.yearAsync(context, rawOptions);
+  }
+
+  private async playLeaderboardAsync(context: ContextModel): Promise<ResponseModel> {
+    if (!context.guild) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'Server scrobbles leaderboard is only available inside a server.',
+      );
+    }
+
+    const entries = await this.playHistoryService.getGuildPlayLeaderboard(context.guild.id);
+    const accentColor = await this.colorService.getAccentColorAsync(context.guild.id);
+
+    return PlaycountBuilders.buildLeaderboardResponse({
+      guildName: context.guild.name,
+      title: 'Scrobbles Leaderboard',
+      unit: 'plays',
+      entries,
+      accentColor,
+    });
+  }
+
+  private async timeLeaderboardAsync(context: ContextModel): Promise<ResponseModel> {
+    if (!context.guild) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'Server listening time leaderboard is only available inside a server.',
+      );
+    }
+
+    const entries = await this.playHistoryService.getGuildTimeLeaderboard(context.guild.id);
+    const accentColor = await this.colorService.getAccentColorAsync(context.guild.id);
+
+    return PlaycountBuilders.buildLeaderboardResponse({
+      guildName: context.guild.name,
+      title: 'Listening Time Leaderboard',
+      unit: 'minutes',
+      entries,
+      accentColor,
+    });
   }
 }

@@ -47,6 +47,18 @@ export class ContextModel {
     return this.interaction?.guild ?? this.message?.guild ?? null;
   }
 
+  public get channelId(): string {
+    return this.interaction?.channelId ?? this.message?.channelId ?? '';
+  }
+
+  public get channel(): Message['channel'] | ChatInputCommandInteraction['channel'] | null {
+    return this.interaction?.channel ?? this.message?.channel ?? null;
+  }
+
+  public get discordDisplayName(): string {
+    return this.member?.displayName ?? this.interaction?.user.displayName ?? this.message?.author.displayName ?? '';
+  }
+
   public static fromInteraction(interaction: ChatInputCommandInteraction): ContextModel {
     const context = new ContextModel();
     context.interaction = interaction;

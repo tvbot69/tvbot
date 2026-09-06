@@ -212,5 +212,93 @@ describe('PlaycountBuilders and SettingService', () => {
       const matchDef = fc.commands.find((c) => c.name === 'matches');
       expect(matchDef?.aliases).not.toContain('m');
     });
+
+    it('verifies Phase 4 command aliases are defined in PlaycountCommands', async () => {
+      const { PlaycountCommands } = await import('@bot/textCommands/lastfm/playcountCommands');
+      const pc = new PlaycountCommands(
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+        {} as any,
+      );
+
+      const receiptDef = pc.commands.find((c) => c.name === 'receipt');
+      expect(receiptDef?.aliases).toContain('rcpt');
+      expect(receiptDef?.aliases).toContain('receiptify');
+
+      const apcDef = pc.commands.find((c) => c.name === 'artistpace');
+      expect(apcDef?.aliases).toContain('apc');
+
+      const yrDef = pc.commands.find((c) => c.name === 'year');
+      expect(yrDef?.aliases).toContain('yr');
+
+      const lbDef = pc.commands.find((c) => c.name === 'playleaderboard');
+      expect(lbDef?.aliases).toContain('sblb');
+
+      const tlbDef = pc.commands.find((c) => c.name === 'timeleaderboard');
+      expect(tlbDef?.aliases).toContain('tlb');
+    });
+  });
+
+  describe('Phase 4 Builders', () => {
+    it('builds artist pace projection response', () => {
+      const resp = PlaycountBuilders.buildArtistPaceResponse({
+        callerMention: '<@123>',
+        displayName: 'Alice',
+        isDifferentUser: false,
+        artistName: 'Radiohead',
+        goalAmount: 1000,
+        allTimePlays: 750,
+        periodPlays: 50,
+        days: 30,
+      });
+
+      expect(resp.content).toContain('Radiohead');
+      expect(resp.content).toContain('1,000');
+      expect(resp.content).toContain('estimate');
+    });
+
+    it('builds year overview response container', () => {
+      const resp = PlaycountBuilders.buildYearOverviewResponse({
+        displayName: 'Alice',
+        userNameLastFm: 'alice_fm',
+        yearData: {
+          year: 2025,
+          totalPlays: 15420,
+          totalArtists: 450,
+          topArtists: [{ name: 'Radiohead', playcount: 1200 }],
+          topTracks: [{ trackName: 'Creep', artistName: 'Radiohead', playcount: 150 }],
+          topAlbums: [{ albumName: 'OK Computer', artistName: 'Radiohead', playcount: 600 }],
+          topGenres: [{ name: 'Rock', playcount: 3500 }],
+          topCountries: [{ countryName: 'United Kingdom', countryCode: 'GB', playcount: 5000 }],
+          monthlyPlays: [1200, 1100, 1300, 1400, 1500, 1200, 1100, 1300, 1200, 1400, 1300, 1420],
+          previousTotalPlays: 12000,
+        },
+      });
+
+      expect(resp.isComponentsV2).toBe(true);
+      expect(resp.componentsV2Container).toBeDefined();
+    });
+
+    it('builds server leaderboard response container', () => {
+      const resp = PlaycountBuilders.buildLeaderboardResponse({
+        guildName: 'Music Club',
+        title: 'Scrobbles Leaderboard',
+        unit: 'plays',
+        entries: [
+          { discordUserId: '111', userNameLastFm: 'alice', displayName: 'Alice', value: 50000 },
+          { discordUserId: '222', userNameLastFm: 'bob', displayName: 'Bob', value: 35000 },
+          { discordUserId: '333', userNameLastFm: 'charlie', displayName: 'Charlie', value: 20000 },
+        ],
+      });
+
+      expect(resp.isComponentsV2).toBe(true);
+      expect(resp.componentsV2Container).toBeDefined();
+    });
   });
 });

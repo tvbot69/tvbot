@@ -20,5 +20,6 @@ export interface IGuildUserRepository {
   remove(guildId: string, userId: number): Promise<void>;
   getUserIdsForGuild(guildId: string): Promise<number[]>;
   getGuildUsers(guildId: string): Promise<FullGuildUserDetails[]>;
+  setBlockStatus(guildId: string, userId: number, blocked: boolean): Promise<void>;
 }
 

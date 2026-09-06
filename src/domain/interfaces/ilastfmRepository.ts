@@ -46,4 +46,8 @@ export interface ILastfmRepository {
   getUserFriends(userName: string, limit?: number, page?: number): Promise<LastFmUser[]>;
   getScrobbleCountFromDate(userName: string, from?: number | null, sessionKey?: string | null, to?: number | null): Promise<number | null>;
   getMilestoneScrobble(userName: string, sessionKey: string | null, totalScrobbles: number, milestone: number): Promise<RecentTrack | null>;
+  loveTrack(artist: string, track: string, sessionKey: string): Promise<boolean>;
+  unloveTrack(artist: string, track: string, sessionKey: string): Promise<boolean>;
+  getLovedTracks(userName: string, limit?: number, page?: number, sessionKey?: string): Promise<{ tracks: TopTrack[]; total: number }>;
+  scrobbleTrack(artist: string, track: string, timestamp: number, sessionKey: string, album?: string): Promise<boolean>;
 }

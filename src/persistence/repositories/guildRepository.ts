@@ -55,6 +55,27 @@ export class GuildRepository implements IGuildRepository {
     });
   }
 
+  public async setCrownsThreshold(guildId: string, threshold: number): Promise<void> {
+    await this.prisma.guild.update({
+      where: { guildId: BigInt(guildId) },
+      data: { crownsMinimumPlaycountThreshold: threshold },
+    });
+  }
+
+  public async setCrownsActivityThreshold(guildId: string, days: number | null): Promise<void> {
+    await this.prisma.guild.update({
+      where: { guildId: BigInt(guildId) },
+      data: { crownsActivityThresholdDays: days },
+    });
+  }
+
+  public async setCrownsDisabled(guildId: string, disabled: boolean): Promise<void> {
+    await this.prisma.guild.update({
+      where: { guildId: BigInt(guildId) },
+      data: { crownsDisabled: disabled },
+    });
+  }
+
   private map(entity: GuildEntity): Guild {
     return {
       guildId: entity.guildId.toString(),
@@ -66,6 +87,10 @@ export class GuildRepository implements IGuildRepository {
       lastCommand: entity.lastCommand ?? undefined,
       commandsDisabled: entity.commandsDisabled,
       emotesDisabled: entity.emotesDisabled,
+      crownsDisabled: entity.crownsDisabled,
+      crownsMinimumPlaycountThreshold: entity.crownsMinimumPlaycountThreshold,
+      crownsActivityThresholdDays: entity.crownsActivityThresholdDays,
+      crownRoles: entity.crownRoles?.map(r => r.toString()) ?? [],
     };
   }
 }

@@ -23,6 +23,15 @@ import { ProfileCommands } from './lastfm/profileCommands';
 import { StreakCommands } from './lastfm/streakCommands';
 import { LibrarySearchCommands } from './lastfm/librarySearchCommands';
 import { ServerCommands } from './guild/serverCommands';
+import { GenreCommands } from './lastfm/genreCommands';
+import { CountryCommands } from './lastfm/countryCommands';
+import { GameCommands } from './lastfm/gameCommands';
+import { IntelligenceCommands } from './lastfm/intelligenceCommands';
+import { GuildAdminCommands } from './guild/guildAdminCommands';
+import { UserHubCommands } from './user/userHubCommands';
+import { DiscogsCommands } from './thirdParty/discogsCommands';
+import { ImportCommands } from './thirdParty/importCommands';
+import { StreamingCommands } from './thirdParty/streamingCommands';
 
 let commandCache: Map<string, TextCommandDefinition> | null = null;
 
@@ -34,6 +43,15 @@ const buildCommands = (): Map<string, TextCommandDefinition> => {
     container.resolve(StreakCommands),
     container.resolve(LibrarySearchCommands),
     container.resolve(ServerCommands),
+    container.resolve(GenreCommands),
+    container.resolve(CountryCommands),
+    container.resolve(GameCommands),
+    container.resolve(IntelligenceCommands),
+    container.resolve(GuildAdminCommands),
+    container.resolve(UserHubCommands),
+    container.resolve(DiscogsCommands),
+    container.resolve(ImportCommands),
+    container.resolve(StreamingCommands),
     container.resolve(StaticCommands),
     container.resolve(ChartCommands),
     container.resolve(LoginCommands),

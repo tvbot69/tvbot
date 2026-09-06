@@ -13,6 +13,8 @@ import { UserService } from '@bot/services/userService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
 import { ColorService } from '@bot/services/colorService';
 import { getTextCommand } from '@bot/textCommands';
+import { GameService } from '@bot/services/gameService';
+import { GameBuilders } from '@bot/builders/gameBuilders';
 
 export class CommandHandler {
   private readonly client: Client;
@@ -24,6 +26,7 @@ export class CommandHandler {
   private readonly userService: UserService;
   private readonly guildUserService: GuildUserService;
   private readonly colorService: ColorService;
+  private readonly gameService: GameService;
 
   constructor() {
     this.client = container.resolve(Client);
@@ -35,6 +38,7 @@ export class CommandHandler {
     this.userService = container.resolve(UserService);
     this.guildUserService = container.resolve(GuildUserService);
     this.colorService = container.resolve(ColorService);
+    this.gameService = container.resolve(GameService);
 
     this.client.on(Events.MessageCreate, (message) => {
       void this.handleMessage(message);
@@ -64,6 +68,37 @@ export class CommandHandler {
     }
 
     if (!matchedPrefix) {
+      if (message.guildId) {
+        const active = this.gameService.getActiveGame(message.channelId);
+        if (active && !active.ended) {
+          const authorName = message.member?.displayName ?? message.author.username;
+          const result = this.gameService.checkAnswer(
+            message.channelId,
+            message.author.id,
+            authorName,
+            message.content,
+          );
+          if (result.isCorrect && result.session) {
+            await message.react('✅').catch(() => undefined);
+            const accentColor = await this.colorService.getAccentColorAsync(message.author.id)
+              ?? (message.guildId ? await this.colorService.getAccentColorAsync(message.guildId) : undefined);
+            const stats = this.gameService.getUserStats(message.author.id);
+            const wonResp = GameBuilders.buildGameWonResponse(
+              result.session,
+              result.timeSeconds ?? 0,
+              stats,
+              accentColor,
+            );
+            if (wonResp.componentsV2Container && message.channel.isTextBased() && 'send' in message.channel) {
+              await (message.channel as unknown as { send: (msg: Record<string, unknown>) => Promise<unknown> }).send({
+                components: [wonResp.componentsV2Container],
+                flags: MessageFlags.IsComponentsV2,
+                allowedMentions: { parse: [] },
+              }).catch(() => undefined);
+            }
+          }
+        }
+      }
       return;
     }
 

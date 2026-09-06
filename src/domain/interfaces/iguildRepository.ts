@@ -8,4 +8,7 @@ export interface IGuildRepository {
   setFmEmbedType(guildId: string, fmEmbedType: number | null): Promise<void>;
   setCommandsDisabled(guildId: string, disabled: boolean): Promise<void>;
   setLastCommand(guildId: string, date: Date): Promise<void>;
+  setCrownsThreshold(guildId: string, threshold: number): Promise<void>;
+  setCrownsActivityThreshold(guildId: string, days: number | null): Promise<void>;
+  setCrownsDisabled(guildId: string, disabled: boolean): Promise<void>;
 }
