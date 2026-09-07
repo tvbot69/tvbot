@@ -31,6 +31,7 @@ export class WhoKnowsBuilders {
     closeFriendUserIds?: Set<number>,
     mode: WhoKnowsMode = WhoKnowsMode.Default,
     footerExtra?: string,
+    mediaType?: 'Artist' | 'Track' | 'Album',
   ): ResponseModel {
     const accentColor = context.accentColor;
     const requestedUserId = Number(context.discordUserId);
@@ -54,18 +55,28 @@ export class WhoKnowsBuilders {
       }
     }
 
-    if (users.length > 1) {
-      const distinctUsers = users.filter((u, i, arr) => arr.findIndex((x) => x.userId === u.userId) === i);
-      const totalListeners = distinctUsers.filter((u) => u.playcount > 0).length;
-      const totalPlays = distinctUsers.reduce((sum, u) => sum + u.playcount, 0);
-      const avgPlays = totalListeners > 0 ? Math.round(totalPlays / totalListeners) : 0;
-      let typeLabel = 'Artist';
-      const lowerTitle = title.toLowerCase();
-      if (lowerTitle.includes(' by ') && lowerTitle.includes(' in ')) typeLabel = 'Track';
-      else if (url.includes('/music/') && url.split('/').length > 5) typeLabel = 'Album';
-      const baseLine = `${typeLabel} - ${totalListeners} listener${totalListeners !== 1 ? 's' : ''} - ${totalPlays.toLocaleString()} play${totalPlays !== 1 ? 's' : ''}`;
-      footerLines.push(totalListeners > 1 ? `${baseLine} - ${avgPlays.toLocaleString()} avg` : baseLine);
+    const distinctUsers = users.filter((u, i, arr) => arr.findIndex((x) => x.userId === u.userId) === i);
+    const totalListeners = distinctUsers.filter((u) => u.playcount > 0).length;
+    const totalPlays = distinctUsers.reduce((sum, u) => sum + u.playcount, 0);
+    const avgPlays = totalListeners > 0 ? Math.round(totalPlays / totalListeners) : 0;
+
+    let type = mediaType;
+    if (!type) {
+      if (url.includes('/_/')) {
+        type = 'Track';
+      } else if (url.includes('/music/')) {
+        const afterMusic = url.split('/music/')[1]?.split('?')[0]?.replace(/\/$/, '') || '';
+        const parts = afterMusic.split('/').filter(Boolean);
+        type = parts.length >= 2 ? 'Album' : 'Artist';
+      } else {
+        type = title.toLowerCase().includes(' by ') ? 'Track' : 'Artist';
+      }
     }
+
+    const listenersWord = totalListeners === 1 ? 'listener' : 'listeners';
+    const playsWord = totalPlays === 1 ? 'play' : 'plays';
+    const baseLine = `${type} - ${totalListeners} ${listenersWord} - ${totalPlays.toLocaleString()} ${playsWord}`;
+    footerLines.push(totalListeners > 1 ? `${baseLine} - ${avgPlays.toLocaleString()} avg` : baseLine);
 
     if (guildAlsoPlaying) {
       footerLines.push(guildAlsoPlaying);

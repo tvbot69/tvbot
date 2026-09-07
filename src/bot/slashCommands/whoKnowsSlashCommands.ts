@@ -263,6 +263,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       closeFriends,
       mode,
       result.crownModel?.crownResult ?? undefined,
+      'Artist',
     );
   }
 
@@ -337,6 +338,8 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       undefined,
       closeFriends,
       mode,
+      undefined,
+      'Track',
     );
   }
 
@@ -414,6 +417,8 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       undefined,
       closeFriends,
       mode,
+      undefined,
+      'Album',
     );
   }
 
@@ -482,6 +487,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       closeFriends,
       mode,
       footerExtra,
+      'Artist',
     );
   }
 
@@ -560,6 +566,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       closeFriends,
       mode,
       footerExtra,
+      'Track',
     );
   }
 
@@ -641,6 +648,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       closeFriends,
       mode,
       footerExtra,
+      'Album',
     );
   }
 }

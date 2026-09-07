@@ -174,6 +174,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
       closeFriends,
       settings.responseMode,
       result.crownModel?.crownResult ?? undefined,
+      'Artist',
     );
   }
 
@@ -249,6 +250,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
       undefined,
       closeFriends,
       settings.responseMode,
+      undefined,
+      'Track',
     );
   }
 
@@ -327,6 +330,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
       undefined,
       closeFriends,
       settings.responseMode,
+      undefined,
+      'Album',
     );
   }
 
@@ -394,6 +399,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
       closeFriends,
       settings.responseMode,
       footerExtra,
+      'Artist',
     );
   }
 
@@ -474,6 +480,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
       closeFriends,
       settings.responseMode,
       footerExtra,
+      'Track',
     );
   }
 
@@ -557,6 +564,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
       closeFriends,
       settings.responseMode,
       footerExtra,
+      'Album',
     );
   }
 

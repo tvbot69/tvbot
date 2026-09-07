@@ -292,7 +292,6 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'Crown claimed by moha!',
       );
 
-      // Must be a pure rich embed, NOT a components V2 container
       expect(res.componentsV2Container).toBeUndefined();
       expect(res.isComponentsV2).toBe(false);
       expect(res.embed).toBeDefined();
@@ -302,6 +301,81 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
       expect(desc).toBe(
         '👑\u200A\u2005**[moha](https://last.fm/user/Moha504) - 263 plays**\n\u20052.\u2004\u2005[مس](https://last.fm/user/fm-bot) - **16** plays\n\nCrown claimed by moha!'
       );
+
+      // Check footer formatting for multiple listeners
+      expect(res.embed.data.footer?.text).toBe(
+        'melodic rap\nArtist - 2 listeners - 279 plays - 140 avg'
+      );
+    });
+
+    it('builds footer with 1 listener for Artist, Track, and Album accurately', () => {
+      const singleArtistUser = [
+        {
+          userId: 123,
+          playcount: 263,
+          lastFmUsername: 'Moha504',
+          discordName: 'moha',
+          discordUserId: '123',
+          hasCrown: true,
+        },
+      ];
+      const artistRes = WhoKnowsBuilders.buildWhoKnowsResponse(
+        dummyContext,
+        'Gunna in الازعروكش',
+        'https://www.last.fm/music/Gunna',
+        undefined,
+        singleArtistUser as any,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        WhoKnowsMode.Default,
+        undefined,
+        'Artist',
+      );
+      expect(artistRes.embed?.data.footer?.text).toBe('Artist - 1 listener - 263 plays');
+
+      const singleTrackUser = [
+        {
+          userId: 123,
+          playcount: 3,
+          lastFmUsername: 'Moha504',
+          discordName: 'moha',
+          discordUserId: '123',
+          hasCrown: true,
+        },
+      ];
+      const trackRes = WhoKnowsBuilders.buildWhoKnowsResponse(
+        dummyContext,
+        'fukumean by Gunna in الازعروكش',
+        'https://www.last.fm/music/Gunna/_/fukumean',
+        undefined,
+        singleTrackUser as any,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        WhoKnowsMode.Default,
+        undefined,
+        'Track',
+      );
+      expect(trackRes.embed?.data.footer?.text).toBe('Track - 1 listener - 3 plays');
+
+      const albumRes = WhoKnowsBuilders.buildWhoKnowsResponse(
+        dummyContext,
+        'A Gift & a Curse by Gunna in الازعروكش',
+        'https://www.last.fm/music/Gunna/A+Gift+&+a+Curse',
+        undefined,
+        singleArtistUser as any,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        WhoKnowsMode.Default,
+        undefined,
+        'Album',
+      );
+      expect(albumRes.embed?.data.footer?.text).toBe('Album - 1 listener - 263 plays');
     });
   });
 });
