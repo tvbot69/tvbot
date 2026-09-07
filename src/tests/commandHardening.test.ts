@@ -81,16 +81,16 @@ describe('Bugfixes & Hardening Validation', () => {
       expect(joinDef?.aliases).toContain('j');
     });
 
-    it('verifies l alias belongs to music loop and not love', () => {
+    it('verifies l alias belongs to music leave/stop and not love', () => {
       const intellCmds = new IntelligenceCommands({} as any, {} as any, {} as any, {} as any);
       const loveDef = intellCmds.commands.find((c) => c.name === 'love');
       expect(loveDef).toBeDefined();
       expect(loveDef?.aliases).not.toContain('l');
 
       const musicCmds = new MusicCommands({} as any, {} as any, {} as any, {} as any);
-      const loopDef = musicCmds.commands.find((c) => c.name === 'loop');
-      expect(loopDef).toBeDefined();
-      expect(loopDef?.aliases).toContain('l');
+      const stopDef = musicCmds.commands.find((c) => c.name === 'stop');
+      expect(stopDef).toBeDefined();
+      expect(stopDef?.aliases).toContain('l');
     });
   });
 

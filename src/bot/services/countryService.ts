@@ -41,6 +41,8 @@ export class CountryService {
   public readonly countries: CountryInfo[] = [];
   private readonly countryCodeMap = new Map<string, CountryInfo>();
   public readonly seedArtistCountryMap = new Map<string, string>();
+  private readonly dbArtistCountryMap = new Map<string, string>();
+  private dbPreloadPromise: Promise<void> | null = null;
 
   public getSeedCountry(artistName: string): string | undefined {
     return this.seedArtistCountryMap.get(artistName.toLowerCase().trim());
@@ -72,6 +74,11 @@ export class CountryService {
       this.countryCodeMap.set(c.Code.toUpperCase(), c);
     }
 
+    this.reloadSeedMap();
+    void this.ensureDbPreloaded().catch(() => undefined);
+  }
+
+  public reloadSeedMap(): void {
     try {
       const seedCandidates = [
         path.join(__dirname, '..', 'resources', 'artist_countries.json'),
@@ -91,6 +98,27 @@ export class CountryService {
     } catch {
       // ignore
     }
+  }
+
+  public async ensureDbPreloaded(): Promise<void> {
+    if (this.dbArtistCountryMap.size > 0) return;
+    if (this.dbPreloadPromise) return this.dbPreloadPromise;
+    this.dbPreloadPromise = (async () => {
+      try {
+        const rows = await this.prisma.artist.findMany({
+          where: { countryCode: { not: null } },
+          select: { name: true, countryCode: true },
+        });
+        for (const row of rows) {
+          if (row.countryCode) {
+            this.dbArtistCountryMap.set(row.name.toLowerCase(), row.countryCode.toUpperCase());
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return this.dbPreloadPromise;
   }
 
   public static trimCountry(country: string): string {
@@ -139,14 +167,21 @@ export class CountryService {
       return this.getCountryByCode(seedCode);
     }
 
-    // 2. Cache check
+    // 2. Preloaded DB artist country map
+    await this.ensureDbPreloaded();
+    const dbPreloadCode = this.dbArtistCountryMap.get(cleanName);
+    if (dbPreloadCode) {
+      return this.getCountryByCode(dbPreloadCode);
+    }
+
+    // 3. Cache check
     const cacheKey = `artist_country:${cleanName}`;
     const cachedCode = await this.cache.get<string>(cacheKey);
     if (cachedCode) {
       return this.getCountryByCode(cachedCode);
     }
 
-    // 3. DB lookup
+    // 4. DB lookup (in case newly inserted)
     try {
       const dbArtist = await this.prisma.artist.findFirst({
         where: { name: { equals: artistName.trim(), mode: 'insensitive' } },
@@ -154,6 +189,7 @@ export class CountryService {
       });
       if (dbArtist?.countryCode) {
         const code = dbArtist.countryCode.toUpperCase();
+        this.dbArtistCountryMap.set(cleanName, code);
         await this.cache.set(cacheKey, code, 86400);
         return this.getCountryByCode(code);
       }
@@ -161,11 +197,12 @@ export class CountryService {
       // ignore db error
     }
 
-    // 4. MusicBrainz lookup
+    // 5. MusicBrainz lookup
     try {
       const mb = await this.musicBrainzService.getArtistData(artistName.trim());
       if (mb?.countryCode) {
         const code = mb.countryCode.toUpperCase();
+        this.dbArtistCountryMap.set(cleanName, code);
         await this.cache.set(cacheKey, code, 86400);
         this.prisma.artist.updateMany({
           where: { name: { equals: artistName.trim(), mode: 'insensitive' } },
@@ -211,58 +248,40 @@ export class CountryService {
     const artistNames = [...new Set(topArtists.map(a => a.name))];
     if (artistNames.length === 0) return [];
 
+    await this.ensureDbPreloaded();
+
     const artistCountryMap = new Map<string, string>();
+    const missing: string[] = [];
 
-    // 1) First check curated in-memory seed map (instant, no DB/network)
     for (const name of artistNames) {
-      const code = this.seedArtistCountryMap.get(name.toLowerCase());
+      const lower = name.toLowerCase();
+      const code = this.seedArtistCountryMap.get(lower) ?? this.dbArtistCountryMap.get(lower);
       if (code) {
-        artistCountryMap.set(name.toLowerCase(), code);
+        artistCountryMap.set(lower, code);
+      } else {
+        missing.push(name);
       }
     }
 
-    // 2) Query DB for missing artists
-    const missingFromSeed = artistNames.filter(n => !artistCountryMap.has(n.toLowerCase()));
-    if (missingFromSeed.length > 0) {
-      try {
-        const dbArtists = await this.prisma.artist.findMany({
-          where: {
-            name: { in: missingFromSeed, mode: 'insensitive' },
-            countryCode: { not: null },
-          },
-          select: {
-            name: true,
-            countryCode: true,
-          },
-        });
-        for (const a of dbArtists) {
-          if (a.countryCode) {
-            artistCountryMap.set(a.name.toLowerCase(), a.countryCode.toUpperCase());
+    // Asynchronously resolve top missing artists via MusicBrainz in the background without blocking the user response
+    if (missing.length > 0) {
+      setImmediate(async () => {
+        for (const name of missing.slice(0, 5)) {
+          try {
+            const mb = await this.musicBrainzService.getArtistData(name);
+            if (mb?.countryCode) {
+              const code = mb.countryCode.toUpperCase();
+              this.dbArtistCountryMap.set(name.toLowerCase(), code);
+              await this.prisma.artist.updateMany({
+                where: { name: { equals: name, mode: 'insensitive' } },
+                data: { countryCode: code },
+              });
+            }
+          } catch {
+            // ignore
           }
         }
-      } catch {
-        // ignore db error
-      }
-    }
-
-    // 3) MusicBrainz fallback for top missing artists
-    const stillMissing = artistNames.filter(n => !artistCountryMap.has(n.toLowerCase())).slice(0, 10);
-    if (stillMissing.length > 0) {
-      for (const name of stillMissing) {
-        try {
-          const mb = await this.musicBrainzService.getArtistData(name);
-          if (mb?.countryCode) {
-            const code = mb.countryCode.toUpperCase();
-            artistCountryMap.set(name.toLowerCase(), code);
-            this.prisma.artist.updateMany({
-              where: { name: { equals: name, mode: 'insensitive' } },
-              data: { countryCode: code },
-            }).catch(() => undefined);
-          }
-        } catch {
-          // ignore
-        }
-      }
+      });
     }
 
     // Aggregate playcounts and optionally group artists by country
@@ -302,8 +321,31 @@ export class CountryService {
     return results;
   }
 
-  public async getUserTopCountriesAllTime(userId: number, limit = 100): Promise<TopCountryItem[]> {
+  public async getUserArtistsTop(userId: number, limit = 10000): Promise<{ name: string; playcount: number }[]> {
     try {
+      const rows = await this.prisma.userArtist.findMany({
+        where: { userId },
+        select: { name: true, playcount: true },
+        orderBy: { playcount: 'desc' },
+        take: limit,
+      });
+      return rows;
+    } catch {
+      return [];
+    }
+  }
+
+  public async getUserTopCountriesAllTime(userId: number, limit = 250): Promise<TopCountryItem[]> {
+    try {
+      this.reloadSeedMap();
+      const userArtists = await this.getUserArtistsTop(userId, 10000);
+      if (userArtists.length > 0) {
+        const aggregated = await this.getTopCountriesForTopArtists(userArtists, true);
+        if (aggregated.length > 0) {
+          return aggregated.slice(0, limit);
+        }
+      }
+
       const rows = await this.prisma.$queryRaw<Array<{ countryCode: string; playcount: bigint; artistCount: bigint }>>`
         SELECT a.country_code AS "countryCode",
                SUM(ua.playcount)::bigint AS "playcount",

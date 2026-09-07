@@ -21,6 +21,7 @@ export interface CachedCountryQuery {
   guildId?: string | null;
   serverName?: string;
   userId?: number;
+  userNameLastFm?: string;
   currentTheme?: CountryChartTheme;
   expiresAt: number;
 }
@@ -306,6 +307,7 @@ export class CountryInteractions {
 
     const response = CountryBuilders.buildCountryChartResponse({
       displayName: cached.displayName || 'User',
+      userNameLastFm: cached.userNameLastFm,
       periodDescription: cached.periodDescription || 'all-time',
       imageBuffer,
       theme,

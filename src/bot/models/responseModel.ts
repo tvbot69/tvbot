@@ -8,10 +8,15 @@ import {
   type MessageActionRowComponentBuilder,
 } from 'discord.js';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { ResponseType } from '@domain/enums/responseType';
+import type { ReferencedMusic } from '@domain/models/referencedMusic';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 export class ResponseModel {
   public commandResponse: CommandResponse = CommandResponse.Ok;
+  public responseType: ResponseType = ResponseType.ComponentsV2;
+  public referencedMusic?: ReferencedMusic;
+  public emoteReactions: string[] = [];
   public embed: EmbedBuilder;
   public embedAuthorName?: string;
   public embedAuthorIconUrl?: string;
@@ -34,6 +39,16 @@ export class ResponseModel {
     if (color !== undefined && color !== null) {
       this.embed.setColor(color);
     }
+  }
+
+  public setReferencedMusic(music: ReferencedMusic): this {
+    this.referencedMusic = music;
+    return this;
+  }
+
+  public addReaction(...emotes: string[]): this {
+    this.emoteReactions.push(...emotes);
+    return this;
   }
 
   public addEmbed(...embeds: EmbedBuilder[]): this {

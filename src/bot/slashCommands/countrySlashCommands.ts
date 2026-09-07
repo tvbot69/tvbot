@@ -463,6 +463,7 @@ export class CountrySlashCommands implements ISlashCommandModule {
     storeCountryQuery(cacheKey, {
       type: 'chart',
       displayName: userRes.displayName,
+      userNameLastFm: userRes.userNameLastFm,
       countries,
       periodDescription: timeSettings.description,
       currentTheme: theme,
@@ -472,6 +473,7 @@ export class CountrySlashCommands implements ISlashCommandModule {
 
     return CountryBuilders.buildCountryChartResponse({
       displayName: userRes.displayName,
+      userNameLastFm: userRes.userNameLastFm,
       periodDescription: timeSettings.description,
       imageBuffer,
       theme,

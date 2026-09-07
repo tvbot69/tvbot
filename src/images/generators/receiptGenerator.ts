@@ -40,6 +40,27 @@ export class ReceiptGenerator {
         break;
       }
     }
+
+    const bgCandidates = [
+      path.join(__dirname, '..', 'pages', 'receipt_bg.png'),
+      path.join(process.cwd(), 'src', 'images', 'pages', 'receipt_bg.png'),
+      path.join(process.cwd(), 'dist', 'images', 'pages', 'receipt_bg.png'),
+    ];
+    for (const bgPath of bgCandidates) {
+      if (fs.existsSync(bgPath)) {
+        try {
+          const bgBuf = fs.readFileSync(bgPath);
+          const dataUri = `data:image/png;base64,${bgBuf.toString('base64')}`;
+          this.receiptHtmlTemplate = this.receiptHtmlTemplate.replace(
+            'https://fm.bot/img/bot/receipt.png',
+            dataUri,
+          );
+        } catch {
+          // ignore
+        }
+        break;
+      }
+    }
   }
 
   private escapeHtml(str: string): string {

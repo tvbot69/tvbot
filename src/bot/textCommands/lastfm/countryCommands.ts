@@ -354,6 +354,7 @@ export class CountryCommands implements ITextCommandModule {
     storeCountryQuery(cacheKey, {
       type: 'chart',
       displayName: userRes.displayName,
+      userNameLastFm: userRes.userNameLastFm,
       countries,
       periodDescription: timeSettings.description,
       currentTheme: theme,
@@ -363,6 +364,7 @@ export class CountryCommands implements ITextCommandModule {
 
     return CountryBuilders.buildCountryChartResponse({
       displayName: userRes.displayName,
+      userNameLastFm: userRes.userNameLastFm,
       periodDescription: timeSettings.description,
       imageBuffer,
       theme,

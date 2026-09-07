@@ -30,7 +30,6 @@ export class WhoKnowsService {
       discordName: discordDisplayName || contextUser.userNameLastFm,
       discordUserId: contextUser.discordUserId,
       lastUsed: contextUser.lastUsed,
-      sameServer: true,
     });
 
     return filtered.sort((a, b) => b.playcount - a.playcount);
@@ -97,17 +96,24 @@ export class WhoKnowsService {
   /**
    * Format WhoKnows list to embed description string (14 users max, with unicode alignment and pinned requester).
    */
+  /**
+   * Format WhoKnows list to embed description string (14 users max, with exact fmbot unicode alignment, crown handling, and pinned requester).
+   */
   public static whoKnowsListToString(
     users: WhoKnowsUser[],
     requestedUserId: number,
     closeFriendUserIds?: Set<number>,
+    requestedDiscordUserId?: string,
   ): string {
     if (users.length === 0) {
       return 'Nobody in this server has listened to this.';
     }
 
-    const whoKnowsCount = Math.min(users.length, 14);
     const usersToShow = [...users].sort((a, b) => b.playcount - a.playcount);
+    const whoKnowsCount = Math.min(usersToShow.length, 14);
+
+    const hasAnyCrown = usersToShow.some((u) => u.hasCrown);
+    const spacer = hasAnyCrown ? '\u2005' : '';
 
     const lines: string[] = [];
     let requestedUserAdded = false;
@@ -116,50 +122,71 @@ export class WhoKnowsService {
 
     let indexNumber = 1;
 
-    for (let i = 0; lines.length < whoKnowsCount && i < usersToShow.length; i++) {
-      const user = usersToShow[i]!;
+    for (let index = 0; lines.length < whoKnowsCount && index < usersToShow.length; index++) {
+      const user = usersToShow[index]!;
 
       if (addedUsers.has(user.userId) || addedLfm.has(user.lastFmUsername.toLowerCase())) {
         continue;
       }
 
-      const isRequester = user.userId === requestedUserId;
-      const nameWithLink = this.nameWithLink(user);
-      const playsText = user.playcount === 1 ? '1 play' : `${user.playcount.toLocaleString()} plays`;
+      const isRequester =
+        (requestedDiscordUserId !== undefined && user.discordUserId === requestedDiscordUserId) ||
+        user.userId === requestedUserId;
 
-      if (user.hasCrown) {
-        // Crown holder: 👑 replaces rank number, entire line bold
-        lines.push(`👑  **${nameWithLink} - ${playsText}**`);
-      } else {
-        const rank = `${indexNumber}.`;
-        const rankFormatted = isRequester ? `**${rank}** ` : `${rank} `;
-        const afterRankSpacer = indexNumber === 10 ? '' : indexNumber === 7 || indexNumber === 9 ? ' ' : ' ';
-        if (isRequester) {
-          lines.push(`${rankFormatted}${afterRankSpacer}**${nameWithLink} - ${playsText}**`);
-          requestedUserAdded = true;
-        } else {
-          lines.push(` ${rankFormatted}${afterRankSpacer}${nameWithLink} - **${playsText}**`);
-        }
+      let nameWithLink = this.nameWithLink(user);
+      if (isRequester) {
+        nameWithLink = `**${nameWithLink}`;
       }
 
+      let positionCounter = `${spacer}${indexNumber}.`;
+      if (isRequester) {
+        positionCounter = `**${positionCounter}**\u2006`;
+      } else {
+        positionCounter = `${positionCounter}\u2004`;
+      }
+
+      if (user.hasCrown) {
+        positionCounter = '👑\u200A';
+      }
+
+      const afterPositionSpacer =
+        index + 1 === 10 ? '' : index + 1 === 7 || index + 1 === 9 ? '\u2004' : '\u2005';
+
+      const playsCount = user.playcount.toLocaleString();
+      const playsText = user.playcount === 1 ? '1 play' : `${playsCount} plays`;
+
+      if (isRequester) {
+        lines.push(`${positionCounter}${afterPositionSpacer}${nameWithLink} - ${playsText}**`);
+        requestedUserAdded = true;
+      } else {
+        const boldPlays = user.playcount === 1 ? '**1** play' : `**${playsCount}** plays`;
+        lines.push(`${positionCounter}${afterPositionSpacer}${nameWithLink} - ${boldPlays}`);
+      }
+
+      indexNumber += 1;
       addedUsers.add(user.userId);
       addedLfm.add(user.lastFmUsername.toLowerCase());
-      indexNumber++;
     }
 
     // Pin requester at the bottom if outside top 14
     const pinnedUsers: WhoKnowsUser[] = [];
     if (!requestedUserAdded) {
-      const req = usersToShow.find((u) => u.userId === requestedUserId);
+      const req = usersToShow.find((u) =>
+        (requestedDiscordUserId !== undefined && u.discordUserId === requestedDiscordUserId) ||
+        u.userId === requestedUserId
+      );
       if (req) pinnedUsers.push(req);
     }
 
     // Pin close friends at the bottom if any
     if (closeFriendUserIds && closeFriendUserIds.size > 0) {
       for (const friend of usersToShow) {
+        const isReq =
+          (requestedDiscordUserId !== undefined && friend.discordUserId === requestedDiscordUserId) ||
+          friend.userId === requestedUserId;
         if (
           closeFriendUserIds.has(friend.userId) &&
-          friend.userId !== requestedUserId &&
+          !isReq &&
           !addedUsers.has(friend.userId)
         ) {
           pinnedUsers.push(friend);
@@ -172,11 +199,16 @@ export class WhoKnowsService {
       for (const pinned of pinnedUsers) {
         const rank = usersToShow.findIndex((u) => u.userId === pinned.userId) + 1;
         const nameLink = this.nameWithLink(pinned);
-        const playsText = pinned.playcount === 1 ? '1 play' : `${pinned.playcount.toLocaleString()} plays`;
-        if (pinned.userId === requestedUserId) {
-          lines.push(`**${rank}.  ${nameLink} - ${playsText}**`);
+        const playsCount = pinned.playcount.toLocaleString();
+        const playsText = pinned.playcount === 1 ? '1 play' : `${playsCount} plays`;
+        const isRequester =
+          (requestedDiscordUserId !== undefined && pinned.discordUserId === requestedDiscordUserId) ||
+          pinned.userId === requestedUserId;
+        if (isRequester) {
+          lines.push(`**${spacer}${rank}.\u2005\u2009${nameLink} - ${playsText}**`);
         } else {
-          lines.push(`${rank}.  *${nameLink}* - **${playsText}**`);
+          const boldPlays = pinned.playcount === 1 ? '**1** play' : `**${playsCount}** plays`;
+          lines.push(`${spacer}${rank}.\u2005\u2009*${nameLink}* - ${boldPlays}`);
         }
       }
     }
@@ -192,6 +224,7 @@ export class WhoKnowsService {
     requestedUserId: number,
     closeFriendUserIds?: Set<number>,
     usersPerPage: number = 10,
+    requestedDiscordUserId?: string,
   ): Array<{ lines: string; pageIndex: number; totalPages: number }> {
     const deduplicated: WhoKnowsUser[] = [];
     const addedUsers = new Set<number>();
@@ -211,7 +244,11 @@ export class WhoKnowsService {
 
     if (chunks.length === 0) chunks.push([]);
 
-    const requestedUser = deduplicated.find((u) => u.userId === requestedUserId);
+    const requestedUser = deduplicated.find(
+      (u) =>
+        (requestedDiscordUserId !== undefined && u.discordUserId === requestedDiscordUserId) ||
+        u.userId === requestedUserId,
+    );
     const requestedUserIndex = requestedUser ? deduplicated.indexOf(requestedUser) + 1 : -1;
 
     return chunks.map((chunk, pageIndex) => {
@@ -220,19 +257,28 @@ export class WhoKnowsService {
       let requestedOnPage = false;
 
       for (const user of chunk) {
-        const isRequester = user.userId === requestedUserId;
-        const nameLink = this.nameWithLink(user);
-        const playsText = user.playcount === 1 ? '1 play' : `${user.playcount.toLocaleString()} plays`;
+        const isRequester =
+          (requestedDiscordUserId !== undefined && user.discordUserId === requestedDiscordUserId) ||
+          user.userId === requestedUserId;
+        let nameLink = this.nameWithLink(user);
+        if (isRequester) {
+          nameLink = `**${nameLink}`;
+        }
+        const playsCount = user.playcount.toLocaleString();
+        const playsText = user.playcount === 1 ? '1 play' : `${playsCount} plays`;
 
         if (user.hasCrown) {
-          pageLines.push(`👑  **${nameLink} - ${playsText}**`);
+          pageLines.push(`👑\u200A\u2005${nameLink} - ${playsText}**`);
         } else {
           const rank = `${indexNumber}.`;
+          const positionCounter = isRequester ? `**${rank}**\u2006` : `${rank}\u2004`;
+          const afterSpacer = indexNumber === 10 ? '' : indexNumber === 7 || indexNumber === 9 ? '\u2004' : '\u2005';
           if (isRequester) {
-            pageLines.push(`**${rank}  ${nameLink} - ${playsText}**`);
+            pageLines.push(`${positionCounter}${afterSpacer}${nameLink} - ${playsText}**`);
             requestedOnPage = true;
           } else {
-            pageLines.push(` ${rank}  ${nameLink} - **${playsText}**`);
+            const boldPlays = user.playcount === 1 ? '**1** play' : `**${playsCount}** plays`;
+            pageLines.push(`${positionCounter}${afterSpacer}${nameLink} - ${boldPlays}`);
           }
         }
 
@@ -290,6 +336,6 @@ export class WhoKnowsService {
       .trim() || user.lastFmUsername;
 
     const url = `https://last.fm/user/${encodeURIComponent(user.lastFmUsername)}`;
-    return `[\u2066${sanitized}\u2069](${url})`;
+    return `[${sanitized}](${url})`;
   }
 }

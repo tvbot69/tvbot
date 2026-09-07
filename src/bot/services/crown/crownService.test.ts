@@ -58,7 +58,7 @@ describe('CrownService', () => {
 
     expect(result).not.toBeNull();
     expect(result?.claimed).toBe(true);
-    expect(result?.crownResult).toContain('Crown claimed by **moha**');
+    expect(result?.crownResult).toContain('Crown claimed by moha!');
     expect(crownRepoMock.createCrown).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 10,
@@ -104,7 +104,7 @@ describe('CrownService', () => {
 
     expect(result).not.toBeNull();
     expect(result?.stolen).toBe(true);
-    expect(result?.crownResult).toContain('Crown stolen by **moha** with 45 plays!');
+    expect(result?.crownResult).toContain('Crown stolen by moha with `45` plays!');
     expect(crownRepoMock.deactivateCrown).toHaveBeenCalledWith(1);
     expect(crownRepoMock.createCrown).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -183,7 +183,7 @@ describe('CrownService', () => {
     const result = await crownService.getAndUpdateCrownForArtist(users, guildUsers, mockGuild, 'TV Girl');
 
     expect(result).not.toBeNull();
-    expect(result?.crownResult).toContain('**moha** needs 12 more plays to claim the crown');
+    expect(result?.crownResult).toContain('moha needs 12 more plays to claim the crown');
     expect(crownRepoMock.createCrown).not.toHaveBeenCalled();
   });
 });

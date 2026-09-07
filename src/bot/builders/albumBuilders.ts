@@ -14,6 +14,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { AlbumSearchResult } from '@bot/services/albumService';
+import { PlaycountBuilders } from './playcountBuilders';
 
 const TRACKS_PER_PAGE = 12;
 
@@ -40,6 +41,8 @@ const formatDurationFriendly = (totalSeconds: number): string => {
 };
 
 export class AlbumBuilders {
+  // Static Facade Delegation — Zero Duplication with PlaycountBuilders
+  public static buildAlbumPlaysResponse = PlaycountBuilders.buildAlbumPlaysResponse;
   public static buildCoverResponse(
     album: AlbumSearchResult,
     targetUser: User,
@@ -187,6 +190,25 @@ export class AlbumBuilders {
         .setEmoji('🖼️')
         .setStyle(ButtonStyle.Secondary),
     );
+
+    if (album.albumUrl) {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel('Last.fm')
+          .setURL(album.albumUrl)
+          .setEmoji({ id: '1496297104434270290', name: 'las' } as any),
+      );
+    }
+    if (album.spotifyUrl) {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel('Spotify')
+          .setURL(album.spotifyUrl)
+          .setEmoji({ id: '1496297132381048995', name: 'sp' } as any),
+      );
+    }
 
     container.addActionRowComponents(actionRow);
 

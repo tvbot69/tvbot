@@ -1,5 +1,15 @@
 import util from 'util';
+import fs from 'fs';
+import path from 'path';
 import { execSync } from 'child_process';
+
+export interface LogContext {
+  traceId?: string;
+  userId?: string;
+  guildId?: string;
+  commandName?: string;
+  shardId?: number;
+}
 
 // Enable UTF-8 encoding for Windows terminals so Arabic, emojis, and symbols render cleanly
 if (process.platform === 'win32') {
@@ -75,7 +85,39 @@ function padBoxLine(content: string, innerWidth: number = 58): string {
 }
 
 export class CustomLogger {
-  private isDebugEnabled = process.env.LOG_LEVEL === 'debug' || process.env.NODE_ENV !== 'production';
+  public isDebugEnabled = process.env.LOG_LEVEL === 'debug' || process.env.NODE_ENV !== 'production';
+  public boundContext?: LogContext;
+  private logDir = path.resolve(process.cwd(), 'logs');
+  private fileLoggingEnabled = process.env.LOG_FILE !== 'false' && process.env.NODE_ENV !== 'test';
+
+  public withContext(context: LogContext): CustomLogger {
+    const child = new CustomLogger();
+    child.isDebugEnabled = this.isDebugEnabled;
+    child.boundContext = { ...(this.boundContext ?? {}), ...context };
+    return child;
+  }
+
+  private writeLogToFile(level: string, message: string, err?: Error): void {
+    if (!this.fileLoggingEnabled) return;
+    try {
+      if (!fs.existsSync(this.logDir)) {
+        fs.mkdirSync(this.logDir, { recursive: true });
+      }
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const logFile = path.join(this.logDir, `tvbot-${dateStr}.log`);
+
+      const cleanMsg = stripAnsi(message);
+      const ctxPrefix = this.boundContext?.traceId ? `[trace:${this.boundContext.traceId}] ` : '';
+      let logLine = `[${now.toISOString()}] [${level}] ${ctxPrefix}${cleanMsg}\n`;
+      if (err?.stack) {
+        logLine += `${err.stack}\n`;
+      }
+      fs.appendFileSync(logFile, logLine, 'utf8');
+    } catch {
+      // Don't crash application on filesystem logging failure
+    }
+  }
 
   public banner(): void {
     const innerWidth = 58;
@@ -198,6 +240,82 @@ export class CustomLogger {
     console.log(`${time} ${tag} ${ansi.yellow}${message}${ansi.reset}${latencyText}`);
   }
 
+  public generateReferenceId(): string {
+    return Math.random().toString(36).substring(2, 10);
+  }
+
+  public commandUsed(info: {
+    discordUserName: string;
+    discordUserId: string;
+    guildName?: string | null;
+    guildId?: string | null;
+    shardId?: number;
+    commandResponse: string;
+    responseTimeMs: number;
+    messageContent: string;
+  }): void {
+    const shard = info.shardId ?? 0;
+    const guildText = info.guildName ? `${info.guildName} / ${info.guildId}` : 'DM';
+    this.info(
+      `CommandUsed: ${info.discordUserName} / ${info.discordUserId} | ${guildText} #${shard} | ${info.commandResponse} | ${info.responseTimeMs}ms | ${info.messageContent}`
+    );
+  }
+
+  public slashCommandUsed(info: {
+    discordUserName: string;
+    discordUserId: string;
+    guildName?: string | null;
+    guildId?: string | null;
+    commandName: string;
+    commandResponse: string;
+    responseTimeMs: number;
+  }): void {
+    const guildText = info.guildName ? `${info.guildName} / ${info.guildId}` : 'UserApp';
+    this.info(
+      `SlashCommandUsed: ${info.discordUserName} / ${info.discordUserId} | ${guildText} | ${info.commandResponse} | ${info.responseTimeMs}ms | ${info.commandName}`
+    );
+  }
+
+  public shardEvent(event: 'ready' | 'connected' | 'disconnected' | 'resumed', shardId: number, details?: string): void {
+    const time = formatTimestamp();
+    const tag = `${ansi.bgBlue}${ansi.brightWhite}${ansi.bold} SHARD ${ansi.reset}`;
+    const desc = details ? ` - ${details}` : '';
+    console.log(`${time} ${tag} ${ansi.brightBlue}Shard #${shardId} ${event}${desc}${ansi.reset}`);
+  }
+
+  public errorWithRef(
+    error: unknown,
+    context?: {
+      commandName?: string;
+      userName?: string;
+      userId?: string;
+      guildName?: string | null;
+      guildId?: string | null;
+      shardId?: number;
+      messageContent?: string;
+    }
+  ): { referenceId: string; message: string } {
+    const referenceId = this.generateReferenceId();
+    const shard = context?.shardId ?? 0;
+    const guildText = context?.guildName ? `${context.guildName} / ${context.guildId}` : 'DM';
+    const userText = context?.userName ? `${context.userName} / ${context.userId}` : 'unknown';
+    const contentText = context?.messageContent ?? (context?.commandName ? `.${context.commandName}` : 'unknown');
+
+    const err = error instanceof Error ? error : new Error(String(error));
+    this.error(
+      `CommandUsed: Error ${referenceId} | ${userText} | ${guildText} #${shard} | Error (${err.message}) | ${contentText}`
+    );
+    if (err.stack) {
+      const stackLines = err.stack.split('\n').slice(1).map((l: string) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
+      console.log(stackLines.join('\n'));
+    }
+
+    return {
+      referenceId,
+      message: err.message,
+    };
+  }
+
   private print(level: string, badge: string, textColor: string, msgOrObj: any, extraArgs: any[]): void {
     const time = formatTimestamp();
     let message = '';
@@ -226,7 +344,10 @@ export class CustomLogger {
       message = String(msgOrObj);
     }
 
-    console.log(`${time} ${badge} ${textColor}${message}${ansi.reset}`);
+    const tracePrefix = this.boundContext?.traceId ? `${ansi.dim}[${this.boundContext.traceId}]${ansi.reset} ` : '';
+    console.log(`${time} ${badge} ${tracePrefix}${textColor}${message}${ansi.reset}`);
+
+    this.writeLogToFile(level, message, errObject);
 
     if (errObject && (level === 'ERROR' || level === 'FATAL')) {
       if (errObject.stack) {

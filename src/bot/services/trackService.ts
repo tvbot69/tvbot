@@ -214,4 +214,366 @@ export class TrackService {
       return 0;
     }
   }
+
+  // Scrobble reference storage matching C# StoreScrobbleReference
+  private readonly scrobbleReferences = new Map<string, { artist: string; track: string; album?: string; timePlayed?: Date }>();
+
+  public storeScrobbleReference(artistName: string, trackName: string, albumName?: string, timePlayed?: Date): string {
+    const id = Math.random().toString(36).substring(2, 10);
+    this.scrobbleReferences.set(`sbref-${id}`, {
+      artist: artistName,
+      track: trackName,
+      album: albumName,
+      timePlayed,
+    });
+    return id;
+  }
+
+  public getScrobbleReference(id: string): { artist: string; track: string; album?: string; timePlayed?: Date } | undefined {
+    return this.scrobbleReferences.get(`sbref-${id}`);
+  }
+
+  // Deduplication cache for scrobbles
+  private readonly scrobbledTracksCache = new Set<string>();
+
+  public markTrackAsScrobbled(userId: number, artistName: string, trackName: string, timePlayed?: Date): void {
+    const key = `${userId}:${artistName.toLowerCase()}:${trackName.toLowerCase()}:${timePlayed ? Math.floor(timePlayed.getTime() / 60000) : ''}`;
+    this.scrobbledTracksCache.add(key);
+    if (this.scrobbledTracksCache.size > 10000) {
+      const oldest = this.scrobbledTracksCache.values().next().value;
+      if (oldest) this.scrobbledTracksCache.delete(oldest);
+    }
+  }
+
+  public isTrackScrobbled(userId: number, artistName: string, trackName: string, timePlayed?: Date): boolean {
+    const key = `${userId}:${artistName.toLowerCase()}:${trackName.toLowerCase()}:${timePlayed ? Math.floor(timePlayed.getTime() / 60000) : ''}`;
+    return this.scrobbledTracksCache.has(key);
+  }
+
+  public getTrackFromLink(description: string): { artistName?: string; trackName?: string } | null {
+    if (!description || !description.includes('http')) return null;
+
+    // Spotify track link: https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp
+    const spotifyMatch = description.match(/spotify\.com\/(?:intl-[a-zA-Z-]+\/)?track\/([a-zA-Z0-9]+)/i);
+    if (spotifyMatch && spotifyMatch[1]) {
+      return { trackName: spotifyMatch[1] };
+    }
+
+    // Last.fm track URL: https://www.last.fm/music/Radiohead/_/Karma+Police
+    const lastfmMatch = description.match(/last\.fm\/music\/([^/?#]+)\/_\/([^/?#]+)/i);
+    if (lastfmMatch && lastfmMatch[1] && lastfmMatch[2]) {
+      try {
+        return {
+          artistName: decodeURIComponent(lastfmMatch[1].replace(/\+/g, ' ')),
+          trackName: decodeURIComponent(lastfmMatch[2].replace(/\+/g, ' ')),
+        };
+      } catch {
+        return { artistName: lastfmMatch[1], trackName: lastfmMatch[2] };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Parses bold-delimited track and artist strings like "**Track** **by** **Artist**"
+   */
+  public static parseBoldDelimitedTrackAndArtist(description: string): { track: string; artist: string } | null {
+    const byDelimiter = ' **by** ';
+    const delimiterIndex = description.indexOf(byDelimiter);
+    if (delimiterIndex !== -1) {
+      const unbold = (s: string) => {
+        const split = s.split('**');
+        return split.length === 3 ? split[1] : null;
+      };
+
+      const left = unbold(description.substring(0, delimiterIndex));
+      const right = unbold(description.substring(delimiterIndex + byDelimiter.length));
+      if (left && right) {
+        return { track: left, artist: right };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * User's all-time top tracks with optional 10-minute caching
+   */
+  public async getUserAllTimeTopTracks(userId: number, useCache: boolean = false): Promise<TopTrack[]> {
+    const cacheKey = `user-${userId}-toptracks-alltime`;
+    if (useCache) {
+      const cached = await this.cache.get<TopTrack[]>(cacheKey);
+      if (cached) return cached;
+    }
+
+    try {
+      if (!this.prisma) return [];
+      const rows = await this.prisma.$queryRawUnsafe<Array<{
+        track_name: string;
+        artist_name: string;
+        playcount: bigint;
+      }>>(`
+        SELECT track_name, artist_name, COUNT(*)::bigint AS playcount
+        FROM user_plays
+        WHERE user_id = $1 AND track_name IS NOT NULL AND track_name != ''
+        GROUP BY track_name, artist_name
+        ORDER BY playcount DESC
+        LIMIT 1000
+      `, userId);
+
+      const tracks: TopTrack[] = rows.map((r) => ({
+        name: r.track_name,
+        artistName: r.artist_name,
+        playcount: Number(r.playcount),
+      }));
+
+      if (tracks.length > 100) {
+        await this.cache.set(cacheKey, tracks, 600);
+      }
+
+      return tracks;
+    } catch {
+      return [];
+    }
+  }
+
+  public async getArtistUserTracks(userId: number, artistName: string): Promise<Array<{ name: string; playcount: number }>> {
+    try {
+      if (!this.prisma) return [];
+      const rows = await this.prisma.$queryRawUnsafe<Array<{
+        track_name: string;
+        playcount: bigint;
+      }>>(`
+        SELECT track_name, COUNT(*)::bigint AS playcount
+        FROM user_plays
+        WHERE user_id = $1 AND LOWER(artist_name) = LOWER($2) AND track_name IS NOT NULL
+        GROUP BY track_name
+        ORDER BY playcount DESC
+        LIMIT 50
+      `, userId, artistName);
+
+      return rows.map((r) => ({
+        name: r.track_name,
+        playcount: Number(r.playcount),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  public async getAverageTrackAudioFeaturesForTopTracks(topTracks: TopTrack[]): Promise<AudioFeaturesOverview> {
+    if (!this.prisma || !topTracks || topTracks.length === 0) {
+      return { total: 0, average: { danceability: 0, energy: 0, valence: 0, tempo: 0, acousticness: 0 } };
+    }
+
+    try {
+      const trackNames = topTracks.map((t) => t.name);
+      const rows = await this.prisma.$queryRawUnsafe<Array<{
+        danceability: number | null;
+        energy: number | null;
+        valence: number | null;
+        tempo: number | null;
+        acousticness: number | null;
+      }>>(`
+        SELECT danceability, energy, valence, tempo, acousticness
+        FROM tracks
+        WHERE name = ANY($1::text[]) AND valence IS NOT NULL
+      `, trackNames).catch(() => []);
+
+      if (rows.length === 0) {
+        return { total: 0, average: { danceability: 0, energy: 0, valence: 0, tempo: 0, acousticness: 0 } };
+      }
+
+      let sumDance = 0, sumEnergy = 0, sumValence = 0, sumTempo = 0, sumAcoustic = 0;
+      for (const t of rows) {
+        sumDance += t.danceability ?? 0;
+        sumEnergy += t.energy ?? 0;
+        sumValence += t.valence ?? 0;
+        sumTempo += t.tempo ?? 0;
+        sumAcoustic += t.acousticness ?? 0;
+      }
+      const count = rows.length;
+
+      return {
+        total: count,
+        average: {
+          danceability: +(sumDance / count).toFixed(3),
+          energy: +(sumEnergy / count).toFixed(3),
+          valence: +(sumValence / count).toFixed(3),
+          tempo: Math.round(sumTempo / count),
+          acousticness: +(sumAcoustic / count).toFixed(3),
+        },
+      };
+    } catch {
+      return { total: 0, average: { danceability: 0, energy: 0, valence: 0, tempo: 0, acousticness: 0 } };
+    }
+  }
+
+  public audioFeatureAnalysisComparisonString(current: AudioFeaturesOverview, previous?: AudioFeaturesOverview): string {
+    if (current.total === 0) return 'No audio features available.';
+    const lines: string[] = [];
+
+    const formatFeature = (label: string, curVal: number, prevVal?: number, isPercent = true) => {
+      const curStr = isPercent ? `${Math.round(curVal * 100)}%` : `${curVal} BPM`;
+      if (prevVal !== undefined && previous && previous.total > 0) {
+        const delta = isPercent ? Math.round((curVal - prevVal) * 100) : curVal - prevVal;
+        const sign = delta > 0 ? `+${delta}` : `${delta}`;
+        const prevStr = isPercent ? `${Math.round(prevVal * 100)}%` : `${prevVal} BPM`;
+        return `**${label}**: **${curStr}** (${sign}${isPercent ? '%' : ''} from ${prevStr})`;
+      }
+      return `**${label}**: **${curStr}**`;
+    };
+
+    lines.push(formatFeature('Danceability', current.average.danceability, previous?.average.danceability));
+    lines.push(formatFeature('Energy', current.average.energy, previous?.average.energy));
+    lines.push(formatFeature('Valence (Happiness)', current.average.valence, previous?.average.valence));
+    lines.push(formatFeature('Acousticness', current.average.acousticness, previous?.average.acousticness));
+    lines.push(formatFeature('Tempo', current.average.tempo, previous?.average.tempo, false));
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Autocomplete: Recent tracks in last 2 days
+   */
+  public async getLatestTracks(
+    discordUserId: string,
+    cacheEnabled: boolean = true,
+  ): Promise<Array<{ artistName: string; trackName: string }>> {
+    const cacheKey = `user-recent-tracks-${discordUserId}`;
+    if (cacheEnabled) {
+      const cached = await this.cache.get<Array<{ artistName: string; trackName: string }>>(cacheKey);
+      if (cached) return cached;
+    }
+
+    try {
+      if (!this.prisma) return [];
+      const user = await this.prisma.user.findFirst({
+        where: { discordUserId: BigInt(discordUserId) },
+        select: { userId: true },
+      });
+      if (!user) return [];
+
+      const cutoff = new Date(Date.now() - 2 * 24 * 3600 * 1000);
+      const plays = await this.prisma.userPlay.findMany({
+        where: {
+          userId: user.userId,
+          timePlayed: { gte: cutoff },
+          trackName: { not: null },
+        },
+        orderBy: { timePlayed: 'desc' },
+        select: { artistName: true, trackName: true },
+        take: 200,
+      });
+
+      const unique = new Map<string, { artistName: string; trackName: string }>();
+      for (const p of plays) {
+        if (p.trackName) {
+          const key = `${p.artistName.toLowerCase()}|${p.trackName.toLowerCase()}`;
+          if (!unique.has(key)) {
+            unique.set(key, { artistName: p.artistName, trackName: p.trackName });
+          }
+        }
+      }
+
+      const result = Array.from(unique.values()).slice(0, 25);
+      await this.cache.set(cacheKey, result, 30);
+      return result;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Autocomplete: Top tracks in last 20 days
+   */
+  public async getRecentTopTracks(
+    discordUserId: string,
+    cacheEnabled: boolean = true,
+  ): Promise<TopTrack[]> {
+    const cacheKey = `user-recent-top-tracks-${discordUserId}`;
+    if (cacheEnabled) {
+      const cached = await this.cache.get<TopTrack[]>(cacheKey);
+      if (cached) return cached;
+    }
+
+    try {
+      if (!this.prisma) return [];
+      const user = await this.prisma.user.findFirst({
+        where: { discordUserId: BigInt(discordUserId) },
+        select: { userId: true },
+      });
+      if (!user) return [];
+
+      const cutoff = new Date(Date.now() - 20 * 24 * 3600 * 1000);
+      const rows = await this.prisma.$queryRawUnsafe<Array<{
+        artist_name: string;
+        track_name: string;
+        playcount: bigint;
+      }>>(`
+        SELECT artist_name, track_name, COUNT(*)::bigint AS playcount
+        FROM user_plays
+        WHERE user_id = $1 AND time_played >= $2 AND track_name IS NOT NULL AND track_name != ''
+        GROUP BY artist_name, track_name
+        ORDER BY playcount DESC
+        LIMIT 25
+      `, user.userId, cutoff);
+
+      const result: TopTrack[] = rows.map((r) => ({
+        name: r.track_name,
+        artistName: r.artist_name,
+        playcount: Number(r.playcount),
+      }));
+
+      await this.cache.set(cacheKey, result, 120);
+      return result;
+    } catch {
+      return [];
+    }
+  }
+
+  public async getRecentTopTracksAutoComplete(
+    discordUserId: string,
+    cacheEnabled: boolean = true,
+  ): Promise<Array<{ artistName: string; trackName: string }>> {
+    const top = await this.getRecentTopTracks(discordUserId, cacheEnabled);
+    return top.map((t) => ({ artistName: t.artistName, trackName: t.name }));
+  }
+
+  /**
+   * Autocomplete: Search through track catalog
+   */
+  public async searchThroughTracks(
+    searchValue: string,
+  ): Promise<Array<{ artistName: string; trackName: string; popularity?: number }>> {
+    if (!searchValue || searchValue.trim().length === 0) return [];
+    try {
+      if (!this.prisma) return [];
+      const rows = await this.prisma.track.findMany({
+        where: {
+          name: { contains: searchValue.trim(), mode: 'insensitive' },
+        },
+        take: 25,
+        select: { name: true, artist: { select: { name: true } } },
+      });
+
+      return rows.map((r) => ({
+        artistName: r.artist.name,
+        trackName: r.name,
+      }));
+    } catch {
+      return [];
+    }
+  }
+}
+
+export interface AudioFeaturesOverview {
+  total: number;
+  average: {
+    danceability: number;
+    energy: number;
+    valence: number;
+    tempo: number;
+    acousticness: number;
+  };
 }

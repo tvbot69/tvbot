@@ -13,6 +13,10 @@ import { FmAccentColor } from '@domain/enums/fmAccentColor';
 import { FmButton, FmButtonMetaList } from '@domain/enums/fmButton';
 import { FmTextType } from '@domain/enums/fmTextType';
 import { buildFooterText } from './footerBuilder';
+import { PlaycountBuilders } from './playcountBuilders';
+import { StreakBuilders } from './streakBuilders';
+import { OverviewBuilders } from './overviewBuilders';
+import { RecentBuilders } from './recentBuilders';
 
 const lastfmTrackUrl = (artist: string, track: string): string =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}/_/${encodeURIComponent(track).replace(/%20/g, '+')}`;
@@ -43,18 +47,102 @@ function getAccentColor(setting: { accentColor: number | null; customColor: stri
   return userAccent;
 }
 
-function getLinkButtons(setting: { buttons: bigint } | null, track: RecentTrack, userName: string): ActionRowBuilder<ButtonBuilder> | null {
+export function buildNowPlayingButtons(
+  setting: { buttons: bigint } | null,
+  track: RecentTrack,
+  userName: string,
+  extra?: {
+    dbTrackId?: number;
+    spotifyId?: string | null;
+    appleMusicUrl?: string | null;
+    previewId?: string | null;
+    albumId?: number | string | null;
+    artistId?: number | string | null;
+    discordUserId?: string;
+    isSupporter?: boolean;
+  },
+): ActionRowBuilder<ButtonBuilder>[] {
   const enabled = setting?.buttons ?? BigInt(0);
   const has = (flag: FmButton) => (enabled & BigInt(flag)) !== BigInt(0);
   const buttons: ButtonBuilder[] = [];
-  if (has(FmButton.LastFmTrackLink)) buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Track').setURL(lastfmTrackUrl(track.artistName, track.name)));
-  if (track.albumName && has(FmButton.LastFmAlbumLink)) buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Album').setURL(lastfmAlbumUrl(track.artistName, track.albumName)));
-  if (has(FmButton.LastFmArtistLink)) buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Artist').setURL(lastfmArtistUrl(track.artistName)));
-  if (has(FmButton.LastFmUserLibraryLink)) buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Library').setURL(lastfmUserUrl(userName)));
-  return buttons.length ? new ActionRowBuilder<ButtonBuilder>().addComponents(buttons) : null;
+  const maxButtons = extra?.isSupporter ? 10 : 5;
+
+  // 1) Link buttons
+  if (has(FmButton.LastFmTrackLink)) {
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Track').setURL(lastfmTrackUrl(track.artistName, track.name)));
+  }
+  if (track.albumName && has(FmButton.LastFmAlbumLink)) {
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Album').setURL(lastfmAlbumUrl(track.artistName, track.albumName)));
+  }
+  if (has(FmButton.LastFmArtistLink)) {
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Artist').setURL(lastfmArtistUrl(track.artistName)));
+  }
+  if (has(FmButton.LastFmUserLibraryLink)) {
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Library').setURL(lastfmUserUrl(userName)));
+  }
+  if (has(FmButton.SpotifyLink)) {
+    const spotifyUrl = extra?.spotifyId
+      ? `https://open.spotify.com/track/${extra.spotifyId}`
+      : `https://open.spotify.com/search/${encodeURIComponent(track.artistName + ' ' + track.name)}`;
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Spotify').setURL(spotifyUrl).setEmoji({ id: '1496297132381048995', name: 'sp' } as any));
+  }
+  if (has(FmButton.AppleMusicLink)) {
+    const appleUrl = extra?.appleMusicUrl ?? `https://music.apple.com/us/search?term=${encodeURIComponent(track.artistName + ' ' + track.name)}`;
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Apple Music').setURL(appleUrl).setEmoji({ id: '1496297174869479548', name: 'am' } as any));
+  }
+  if (has(FmButton.RymLink) && track.albumName) {
+    const rymUrl = `https://rateyourmusic.com/search?searchterm=${encodeURIComponent(track.albumName + ' ' + track.artistName)}&searchtype=l`;
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('RYM').setURL(rymUrl));
+  }
+
+  // 2) Action buttons
+  const dUserId = extra?.discordUserId ?? '0';
+  if (has(FmButton.TrackLove)) {
+    buttons.push(new ButtonBuilder().setCustomId(`love-track:${encodeURIComponent(track.artistName)}:${encodeURIComponent(track.name)}`).setEmoji('❤️').setStyle(ButtonStyle.Secondary));
+  }
+  if (has(FmButton.TrackUnlove)) {
+    buttons.push(new ButtonBuilder().setCustomId(`unlove-track:${encodeURIComponent(track.artistName)}:${encodeURIComponent(track.name)}`).setEmoji('💔').setStyle(ButtonStyle.Secondary));
+  }
+  if (has(FmButton.TrackPreview)) {
+    const pId = extra?.previewId ?? encodeURIComponent(track.name);
+    buttons.push(new ButtonBuilder().setCustomId(`track-preview:${pId}:fm`).setLabel('Preview').setEmoji({ id: '1305607890941378672', name: 'fmbot_playpreview' } as any).setStyle(ButtonStyle.Secondary));
+  }
+  if (has(FmButton.TrackLyrics)) {
+    buttons.push(new ButtonBuilder().setCustomId(`track-lyrics:${encodeURIComponent(track.artistName)}:${encodeURIComponent(track.name)}:fm`).setLabel('Lyrics').setEmoji('📜').setStyle(ButtonStyle.Secondary));
+  }
+  if (has(FmButton.AlbumCover) && extra?.albumId) {
+    buttons.push(new ButtonBuilder().setCustomId(`album-cover:${extra.albumId}:${dUserId}:${dUserId}:still:fm`).setLabel('Cover').setEmoji('🖼️').setStyle(ButtonStyle.Secondary));
+  }
+  if (has(FmButton.AlbumTracks) && extra?.albumId) {
+    buttons.push(new ButtonBuilder().setCustomId(`album-tracks:${extra.albumId}:${dUserId}:${dUserId}:fm`).setLabel('Tracks').setEmoji('💿').setStyle(ButtonStyle.Secondary));
+  }
+  if (has(FmButton.ArtistTracks) && extra?.artistId) {
+    buttons.push(new ButtonBuilder().setCustomId(`artist-tracks:${extra.artistId}:${dUserId}:${dUserId}:fm`).setLabel('Artist Tracks').setEmoji('🎵').setStyle(ButtonStyle.Secondary));
+  }
+
+  // Limit to max buttons
+  const limited = buttons.slice(0, maxButtons);
+  if (limited.length === 0) return [];
+
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+  for (let i = 0; i < limited.length; i += 5) {
+    const chunk = limited.slice(i, i + 5);
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(chunk));
+  }
+  return rows;
 }
 
 export class PlayBuilders {
+  // Static Facade Delegations — Zero Duplication with Specialized Builders
+  public static buildDiscoveryDateResponse = PlaycountBuilders.buildDiscoveryDateResponse;
+  public static buildLastListenedDateResponse = PlaycountBuilders.buildLastListenedDateResponse;
+  public static buildPlaysResponse = PlaycountBuilders.buildPlaysResponse;
+  public static buildPaceResponse = PlaycountBuilders.buildPaceResponse;
+  public static buildMilestoneResponse = PlaycountBuilders.buildMilestoneResponse;
+  public static buildYearOverviewResponse = PlaycountBuilders.buildYearOverviewResponse;
+  public static buildStreakResponse = StreakBuilders.buildStreakResponse;
+  public static buildOverviewResponse = OverviewBuilders.buildOverviewResponse;
+  public static buildRecentTracksResponse = RecentBuilders.buildRecentTracksResponse;
   public static buildFmResponse(
     context: ContextModel,
     user: User,
@@ -96,19 +184,30 @@ export class PlayBuilders {
     const accent = getAccentColor(fmSetting, fallbackColor);
 
     // Text variants still use legacy embed for speed, but Embed types use Components V2 to match fmbot
+    const actionRows = buildNowPlayingButtons(fmSetting, track, user.userNameLastFm, {
+      discordUserId: user.discordUserId?.toString() ?? '0',
+    });
+
     if (embedType === FmEmbedType.TextOneLine) {
       const response = new ResponseModel(accent);
       response.commandResponse = CommandResponse.Ok;
       response.embed.setDescription(`${track.artistName} - ${track.name}`);
+      response.setReferencedMusic({ artist: track.artistName, album: track.albumName ?? undefined, track: track.name, timePlayed: track.timePlayed ?? undefined });
+      if (actionRows.length > 0) {
+        actionRows.forEach((r, i) => response.addButtonRow(i, r));
+      }
       return response;
     }
     if (embedType === FmEmbedType.TextMini) {
       const response = new ResponseModel(accent);
       response.commandResponse = CommandResponse.Ok;
       const line = `**[${track.name}](${lastfmTrackUrl(track.artistName, track.name)})** by **${track.artistName}**`;
-      // TextMini stays embed for now
       response.embed.setDescription(`${line}\n${footerText}`);
       if (track.imageUrl) response.embed.setThumbnail(track.imageUrl);
+      response.setReferencedMusic({ artist: track.artistName, album: track.albumName ?? undefined, track: track.name, timePlayed: track.timePlayed ?? undefined });
+      if (actionRows.length > 0) {
+        actionRows.forEach((r, i) => response.addButtonRow(i, r));
+      }
       return response;
     }
     if (embedType === FmEmbedType.TextFull) {
@@ -118,6 +217,10 @@ export class PlayBuilders {
       const prev = tracks[1] ? `\nPrevious: **${tracks[1].name}** by ${tracks[1].artistName}` : '';
       response.embed.setDescription(`${current}${prev}\n${footerText}`);
       if (track.imageUrl) response.embed.setThumbnail(track.imageUrl);
+      response.setReferencedMusic({ artist: track.artistName, album: track.albumName ?? undefined, track: track.name, timePlayed: track.timePlayed ?? undefined });
+      if (actionRows.length > 0) {
+        actionRows.forEach((r, i) => response.addButtonRow(i, r));
+      }
       return response;
     }
 
@@ -134,7 +237,6 @@ export class PlayBuilders {
       ? `${headerPrefix}Now playing for ${displayUserLink}`
       : `${headerPrefix}Last played ${relativeTime} for ${displayUserLink}`;
     const trackContent = `### ${trackLink}\n**${track.artistName}**${track.albumName ? ` • *${track.albumName}*` : ''}`;
-    const linkButtons = getLinkButtons(fmSetting, track, user.userNameLastFm);
 
     if (embedType === FmEmbedType.EmbedTiny) {
       const container = new ContainerBuilder();
@@ -143,9 +245,10 @@ export class PlayBuilders {
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(trackContent))
         .addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true))
         .addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${footerText.replace(/^-#\s*/, '')}`));
-      if (linkButtons) container.addActionRowComponents(linkButtons);
+      for (const row of actionRows) container.addActionRowComponents(row);
       const response = new ResponseModel(accent);
       response.commandResponse = CommandResponse.Ok;
+      response.setReferencedMusic({ artist: track.artistName, album: track.albumName ?? undefined, track: track.name, timePlayed: track.timePlayed ?? undefined });
       response.setComponentsV2Container(container);
       return response;
     }
@@ -163,9 +266,10 @@ export class PlayBuilders {
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`${header}\n${trackContent}`));
       }
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${footerText.replace(/^-#\s*/, '')}`));
-      if (linkButtons) container.addActionRowComponents(linkButtons);
+      for (const row of actionRows) container.addActionRowComponents(row);
       const response = new ResponseModel(accent);
       response.commandResponse = CommandResponse.Ok;
+      response.setReferencedMusic({ artist: track.artistName, album: track.albumName ?? undefined, track: track.name, timePlayed: track.timePlayed ?? undefined });
       response.setComponentsV2Container(container);
       return response;
     }
@@ -189,9 +293,10 @@ export class PlayBuilders {
         container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`Previous: ${prevLink} — ${prev.artistName}`));
       }
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${footerText.replace(/^-#\s*/, '')}`));
-      if (linkButtons) container.addActionRowComponents(linkButtons);
+      for (const row of actionRows) container.addActionRowComponents(row);
       const response = new ResponseModel(accent);
       response.commandResponse = CommandResponse.Ok;
+      response.setReferencedMusic({ artist: track.artistName, album: track.albumName ?? undefined, track: track.name, timePlayed: track.timePlayed ?? undefined });
       response.setComponentsV2Container(container);
       return response;
     }

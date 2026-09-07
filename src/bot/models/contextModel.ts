@@ -7,6 +7,8 @@ import {
   PermissionFlagsBits,
 } from 'discord.js';
 
+import { Logger } from '@domain/logger';
+
 export enum ContextType {
   Interaction,
   Message,
@@ -20,6 +22,16 @@ export class ContextModel {
   public prefix: string = '.';
   public accentColor: number | undefined;
   public args: string[] = [];
+  public traceId: string = `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+
+  public get logger() {
+    return Logger.withContext({
+      traceId: this.traceId,
+      userId: this.discordUserId,
+      guildId: this.guildId,
+      commandName: this.interaction?.commandName ?? this.args[0],
+    });
+  }
 
   public get contextType(): ContextType {
     return this.interaction ? ContextType.Interaction : ContextType.Message;

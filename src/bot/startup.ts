@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { container } from 'tsyringe';
 import { Client, GatewayIntentBits, ActivityType } from 'discord.js';
 import { PrismaClient } from '@prisma/client';
@@ -33,6 +34,9 @@ import { TrackService } from './services/trackService';
 import { ComponentInteractionTracker } from './services/componentInteractionTracker';
 import { PaginationService } from './services/paginationService';
 import { LocalizationService } from './services/localizationService';
+import { TelemetryService } from './services/telemetryService';
+import { AutopostService } from './services/autopostService';
+import { NowPlayingInteractions } from './interactions/nowPlayingInteractions';
 import { UserRepository } from '@persistence/repositories/userRepository';
 import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { GuildUserRepository } from '@persistence/repositories/guildUserRepository';
@@ -466,6 +470,32 @@ const configureContainer = (): void => {
   container.registerInstance(WhoKnowsAlbumService, whoKnowsAlbumService);
   container.registerInstance(WhoKnowsPlayService, whoKnowsPlayService);
 
+  const telemetryService = new TelemetryService();
+  const autopostService = new AutopostService(
+    artistsService,
+    albumService,
+    trackService,
+    crownService,
+    telemetryService,
+    guildRepository,
+  );
+  container.registerInstance('IGuildRepository', guildRepository);
+  container.registerInstance('IUserRepository', userRepository);
+  container.registerInstance('ILastfmRepository', lastFmRepository);
+  container.registerInstance(TimerService, timerService);
+  container.registerInstance(TelemetryService, telemetryService);
+  container.registerInstance(AutopostService, autopostService);
+
+  const lyricsService = new LyricsService();
+  const nowPlayingInteractions = new NowPlayingInteractions(
+    userRepository,
+    lastFmRepository,
+    trackService,
+    lyricsService,
+  );
+  container.registerInstance(LyricsService, lyricsService);
+  container.registerInstance(NowPlayingInteractions, nowPlayingInteractions);
+
   const friendInteractions = new FriendInteractions(friendsService, userService, colorService);
   container.registerInstance(FriendInteractions, friendInteractions);
 
@@ -533,7 +563,6 @@ const configureContainer = (): void => {
   const queueService = new QueueService(musicHistoryRepository);
   const playlistChunkManager = new PlaylistChunkManager(moonlinkManager, spotifyScraperService);
   const musicService = new MusicService(moonlinkManager, spotifyResolver, queueService, playlistChunkManager);
-  const lyricsService = new LyricsService();
   const voiceChannelStatusService = new VoiceChannelStatusService(client);
   const musicInteractions = new MusicInteractions(musicService, colorService);
   const musicCommands = new MusicCommands(musicService, colorService, lyricsService, musicInteractions);

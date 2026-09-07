@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { PlayBuilders } from './playBuilders';
 import { FmEmbedType } from '@domain/enums/fmEmbedType';

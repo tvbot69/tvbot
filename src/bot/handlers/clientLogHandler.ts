@@ -10,14 +10,31 @@ export class ClientLogHandler {
     const guildService = container.resolve(GuildService);
     const guildUserService = container.resolve(GuildUserService);
 
+    client.on(Events.ShardReady, (shardId, unavailableGuilds) => {
+      const unavail = unavailableGuilds ? `${unavailableGuilds.size} unavailable` : 'all available';
+      Logger.shardEvent('ready', shardId, `${client.guilds.cache.size} guilds (${unavail})`);
+    });
+
+    client.on(Events.ShardDisconnect, (event, shardId) => {
+      Logger.shardEvent('disconnected', shardId, `Code: ${event.code}`);
+    });
+
+    client.on(Events.ShardReconnecting, (shardId) => {
+      Logger.shardEvent('connected', shardId, 'Reconnecting');
+    });
+
+    client.on(Events.ShardResume, (shardId, replayedEvents) => {
+      Logger.shardEvent('resumed', shardId, `Replayed ${replayedEvents} events`);
+    });
+
     client.on(Events.GuildCreate, (guild) => {
-      Logger.info(`Joined guild ${guild.name} (${guild.id})`);
+      Logger.info(`JoinedGuild: ${guild.name} / ${guild.id} | ${guild.memberCount ?? 0} members`);
       void guildService.ensureGuildExists(guild);
       void guildUserService.storeGuildUsers(guild);
     });
 
     client.on(Events.GuildDelete, (guild) => {
-      Logger.info(`Removed from guild ${guild.name ?? guild.id}`);
+      Logger.info(`LeftGuild: ${guild.name ?? 'unknown'} / ${guild.id} | ${guild.memberCount ?? 0} members`);
     });
 
     client.on(Events.Error, (error) => {

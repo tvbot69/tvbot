@@ -65,12 +65,14 @@ export interface BuildWhoKnowsCountryOptions {
 
 export interface BuildCountryChartOptions {
   displayName: string;
+  userNameLastFm?: string;
   periodDescription: string;
   imageBuffer: Buffer;
   theme: CountryChartTheme;
   callerDiscordUserId: string;
   cacheKey: string;
   accentColor?: number | null;
+  artistsUrl?: string;
 }
 
 export class CountryBuilders {
@@ -513,61 +515,69 @@ export class CountryBuilders {
   public static buildCountryChartResponse(options: BuildCountryChartOptions): ResponseModel {
     const {
       displayName,
+      userNameLastFm,
       periodDescription,
       imageBuffer,
       theme,
       callerDiscordUserId,
       cacheKey,
       accentColor,
+      artistsUrl,
     } = options;
 
     const container = new ContainerBuilder();
     if (accentColor) container.setAccentColor(accentColor);
 
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `### Top ${periodDescription} artist countries for ${displayName}`,
-      ),
-    );
+    const periodLower = (periodDescription || 'overall').toLowerCase();
+    const isAllTime = periodLower === 'overall' || periodLower === 'all-time' || periodLower === 'alltime';
+    const periodText = isAllTime ? 'overall' : periodLower;
+
+    const userUrl =
+      artistsUrl ??
+      (userNameLastFm
+        ? `https://last.fm/user/${encodeURIComponent(userNameLastFm)}/library/artists${
+            isAllTime ? '?date_preset=ALL' : ''
+          }`
+        : null);
+
+    const titleContent = userUrl
+      ? `**[Top ${periodText} artist](${userUrl}) countries for ${displayName}**`
+      : `**Top ${periodText} artist countries for ${displayName}**`;
+
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleContent));
 
     const mediaItem = new MediaGalleryItemBuilder().setURL('attachment://artist-map.png');
     container.addMediaGalleryComponents(new MediaGalleryBuilder().addItems(mediaItem));
 
-    // Theme selector dropdown
+    // Theme selector dropdown matching fmbot structure
     const selectMenu = new StringSelectMenuBuilder()
       .setCustomId(`country:theme:${cacheKey}:${callerDiscordUserId}`)
-      .setPlaceholder('Change map theme...')
+      .setPlaceholder('Change map theme')
       .addOptions(
-        new StringSelectMenuOptionBuilder()
-          .setLabel('Dark')
-          .setValue('dark')
-          .setDescription('Deep dark theme with crisp neon blue accents')
-          .setDefault(theme === CountryChartTheme.Dark),
         new StringSelectMenuOptionBuilder()
           .setLabel('Light')
           .setValue('light')
-          .setDescription('Clean bright theme with deep navy ocean')
           .setDefault(theme === CountryChartTheme.Light),
         new StringSelectMenuOptionBuilder()
           .setLabel('Ocean')
           .setValue('ocean')
-          .setDescription('Warm maritime theme with sepia lands & fiery heatmap')
           .setDefault(theme === CountryChartTheme.Ocean),
         new StringSelectMenuOptionBuilder()
           .setLabel('Synthwave')
           .setValue('synthwave')
-          .setDescription('Cyberpunk synthwave theme with electric purples & pinks')
           .setDefault(theme === CountryChartTheme.Synthwave),
         new StringSelectMenuOptionBuilder()
           .setLabel('Sunset')
           .setValue('sunset')
-          .setDescription('Dramatic dusk palette with golden yellow & ruby red')
           .setDefault(theme === CountryChartTheme.Sunset),
         new StringSelectMenuOptionBuilder()
           .setLabel('Forest')
           .setValue('forest')
-          .setDescription('Earthy evergreen botanical theme with emerald greens')
           .setDefault(theme === CountryChartTheme.Forest),
+        new StringSelectMenuOptionBuilder()
+          .setLabel('Dark')
+          .setValue('dark')
+          .setDefault(theme === CountryChartTheme.Dark),
       );
 
     const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);

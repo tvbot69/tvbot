@@ -1,5 +1,6 @@
 import { container } from 'tsyringe';
 import cron, { type ScheduledTask } from 'node-cron';
+import { Client } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
 import { Statistics } from '@domain/statistics';
@@ -9,6 +10,7 @@ import { UserUpdateQueueService } from './userUpdateQueueService';
 import { UserIndexQueueService } from './userIndexQueueService';
 import { UserRepository } from '@persistence/repositories/userRepository';
 import { PlayRepository } from '@persistence/repositories/playRepository';
+import { AutopostService } from './autopostService';
 
 export class TimerService {
   private readonly tasks: Map<string, ScheduledTask> = new Map();
@@ -38,6 +40,17 @@ export class TimerService {
       const snapshot = Statistics.snapshot();
       Logger.info({ stats: snapshot }, 'Statistics snapshot');
       container.resolve(LastfmErrorRateTracker).logAndReset();
+    });
+
+    this.registerJob('autopost-runner', '*/15 * * * *', async () => {
+      try {
+        if (container.isRegistered(Client)) {
+          const client = container.resolve(Client);
+          await container.resolve(AutopostService).runScheduledAutoposts(client);
+        }
+      } catch (err) {
+        Logger.error({ err }, 'Autopost runner job failed');
+      }
     });
 
     Logger.info('Timer service started');

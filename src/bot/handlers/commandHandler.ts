@@ -16,6 +16,11 @@ import { getTextCommand } from '@bot/textCommands';
 import { GameService } from '@bot/services/gameService';
 import { GameBuilders } from '@bot/builders/gameBuilders';
 
+import { RateLimitService } from '@bot/services/rateLimitService';
+import { CommandDispatcher } from './commandDispatcher';
+import { DiscordConstants } from '@bot/resources/discordConstants';
+import { EmbedBuilder } from 'discord.js';
+
 export class CommandHandler {
   private readonly client: Client;
   private readonly prefixService: PrefixService;
@@ -27,6 +32,7 @@ export class CommandHandler {
   private readonly guildUserService: GuildUserService;
   private readonly colorService: ColorService;
   private readonly gameService: GameService;
+  private readonly rateLimitService: RateLimitService;
 
   constructor() {
     this.client = container.resolve(Client);
@@ -39,13 +45,20 @@ export class CommandHandler {
     this.guildUserService = container.resolve(GuildUserService);
     this.colorService = container.resolve(ColorService);
     this.gameService = container.resolve(GameService);
+    this.rateLimitService = container.resolve(RateLimitService);
 
     this.client.on(Events.MessageCreate, (message) => {
-      void this.handleMessage(message);
+      void this.handleMessage(message, false);
+    });
+
+    this.client.on(Events.MessageUpdate, (_oldMessage, newMessage) => {
+      if (newMessage && 'content' in newMessage && newMessage.content) {
+        void this.handleMessage(newMessage as Message, true);
+      }
     });
   }
 
-  private async handleMessage(message: Message): Promise<void> {
+  private async handleMessage(message: Message, isUpdate: boolean = false): Promise<void> {
     if (message.author.bot || message.webhookId) {
       return;
     }
@@ -68,7 +81,7 @@ export class CommandHandler {
     }
 
     if (!matchedPrefix) {
-      if (message.guildId) {
+      if (message.guildId && !isUpdate) {
         const active = this.gameService.getActiveGame(message.channelId);
         if (active && !active.ended) {
           const cleanText = message.content.trim().toLowerCase();
@@ -133,6 +146,21 @@ export class CommandHandler {
       return;
     }
 
+    // Two-tier Rate limit check
+    const rateLimit = this.rateLimitService.checkUserRateLimit(message.author.id);
+    if (rateLimit.rateLimited) {
+      if (!rateLimit.messageSent && message.channel && 'send' in message.channel) {
+        const embed = new EmbedBuilder()
+          .setColor(DiscordConstants.WarningColorOrange)
+          .setDescription(`⏳ You are using commands too fast! Please slow down (${rateLimit.retryAfterSeconds ?? 8}s cooldown).`);
+        await (message.channel as unknown as { send: (m: Record<string, unknown>) => Promise<unknown> }).send({
+          embeds: [embed],
+          allowedMentions: { parse: [] },
+        }).catch(() => undefined);
+      }
+      return;
+    }
+
     Statistics.inc('TextCommandExecuted');
 
     const blocked = await this.isBlockedInContext(
@@ -168,54 +196,16 @@ export class CommandHandler {
     const startTime = Date.now();
     try {
       const response = await command.executeAsync(context, split);
-      const durationMs = Date.now() - startTime;
-      Logger.command({
+      await CommandDispatcher.dispatchResponse(
+        message,
+        response,
+        startTime,
         commandName,
-        args: split?.join(' '),
-        userName: message.author.tag ?? message.author.username,
-        guildName: message.guild?.name,
-        channelName: 'name' in message.channel ? (message.channel.name as string) : undefined,
-        durationMs,
-      });
-
-      if (response.commandResponse === CommandResponse.Deleted) {
-        return;
-      }
-      const allowedMentions = { parse: [] as string[] };
-      let payload: Record<string, unknown>;
-      if (response.isComponentsV2) {
-        payload = {
-          components: [response.componentsV2Container],
-          flags: MessageFlags.IsComponentsV2,
-          allowedMentions,
-        };
-        if (response.hasFile()) {
-          payload.files = response.getFiles();
-        }
-      } else {
-        const hasEmbed = response.hasEmbed();
-        payload = {
-          content: response.content ?? (hasEmbed ? undefined : response._textContent),
-          embeds: hasEmbed ? response.buildEmbed() : [],
-          components: response.buildComponents(),
-          allowedMentions,
-        };
-        if (!payload.content && response._textContent) payload.content = response._textContent;
-        if (!hasEmbed && payload.content) delete payload.embeds;
-        if (response.hasFile()) {
-          payload.files = response.getFiles();
-        }
-      }
-      // fmbot posts command output as a regular channel message, not as a Discord
-      // reply.  This also avoids the reply reference shown in message JSON.
-      if (message.channel.isTextBased() && 'send' in message.channel) {
-        await (message.channel as unknown as { send: (message: Record<string, unknown>) => Promise<unknown> }).send(payload);
-      }
+        split,
+        this.userService
+      );
     } catch (err) {
-      Logger.error({ err }, `Error executing text command .${commandName}`);
-      await message
-        .reply('Something went wrong while executing that command.')
-        .catch(() => undefined);
+      await CommandDispatcher.handleCommandException(err, message, commandName);
     } finally {
       if (typingInterval) {
         clearInterval(typingInterval);

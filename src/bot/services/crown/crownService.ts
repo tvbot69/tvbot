@@ -80,7 +80,7 @@ export class CrownService {
               crown: newCrown,
               previousCrown: currentCrown,
               stolen: true,
-              crownResult: `👑 Crown stolen by **${topUser.discordName}** with ${topUser.playcount.toLocaleString()} plays! Previous owner: **${currentCrown.userNameLastFm ?? 'user'}** (${currentCrown.currentPlaycount.toLocaleString()} plays)`,
+              crownResult: `Crown stolen by ${topUser.discordName ?? topUser.lastFmUsername} with \`${topUser.playcount}\` plays! \n*Previous owner: ${currentCrown.userNameLastFm ?? 'user'} with \`${currentCrown.currentPlaycount}\` plays*.`,
             };
           } else {
             // Did not overtake
@@ -100,7 +100,7 @@ export class CrownService {
         return {
           crown: newCrown,
           claimed: true,
-          crownResult: `👑 Crown claimed by **${topUser.discordName}** with ${topUser.playcount.toLocaleString()} plays!`,
+          crownResult: `Crown claimed by ${topUser.discordName ?? topUser.lastFmUsername}!`,
         };
       }
     } else {
@@ -124,7 +124,7 @@ export class CrownService {
             active: false,
             seededCrown: false,
           },
-          crownResult: `👑 **${topUser.discordName}** needs ${remaining.toLocaleString()} more play${remaining === 1 ? '' : 's'} to claim the crown for **${effectiveName}**`,
+          crownResult: `${topUser.discordName ?? topUser.lastFmUsername} needs ${remaining} more ${remaining === 1 ? 'play' : 'plays'} to claim the crown.`,
         };
       }
 

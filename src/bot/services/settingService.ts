@@ -82,6 +82,126 @@ export class SettingService {
       return settingsModel;
     }
 
+    // Check custom day spans like '45d', '14days'
+    const dayMatch = searchValue.match(/\s(\d+)\s*(?:d|days)\s/i);
+    if (dayMatch && dayMatch[1]) {
+      const days = parseInt(dayMatch[1], 10);
+      if (days > 0 && days <= 3650) {
+        settingsModel.timePeriod = TimePeriod.Custom;
+        settingsModel.description = `${days} days`;
+        settingsModel.startDateTime = dayDiffFromNow(days);
+        settingsModel.endDateTime = new Date();
+        settingsModel.searchValue = searchValue.replace(dayMatch[0], ' ').trim();
+        settingsModel.urlParameter = timePeriodUrlParameter(settingsModel.startDateTime, settingsModel.endDateTime);
+        return settingsModel;
+      }
+    }
+
+    // Check custom week spans like '2w', '3weeks'
+    const weekMatch = searchValue.match(/\s(\d+)\s*(?:w|weeks)\s/i);
+    if (weekMatch && weekMatch[1]) {
+      const weeks = parseInt(weekMatch[1], 10);
+      if (weeks > 0 && weeks <= 520) {
+        const days = weeks * 7;
+        settingsModel.timePeriod = TimePeriod.Custom;
+        settingsModel.description = `${weeks} weeks`;
+        settingsModel.startDateTime = dayDiffFromNow(days);
+        settingsModel.endDateTime = new Date();
+        settingsModel.searchValue = searchValue.replace(weekMatch[0], ' ').trim();
+        settingsModel.urlParameter = timePeriodUrlParameter(settingsModel.startDateTime, settingsModel.endDateTime);
+        return settingsModel;
+      }
+    }
+
+    // Check specific year (1970 to present year + 1)
+    const currentYear = new Date().getFullYear();
+    const yearMatch = searchValue.match(/\s(19[7-9]\d|20[0-2]\d|203\d)\s/);
+    let matchedYear: number | null = null;
+    if (yearMatch && yearMatch[1]) {
+      const y = parseInt(yearMatch[1], 10);
+      if (y >= 1970 && y <= currentYear + 1) {
+        matchedYear = y;
+      }
+    }
+
+    // Check month names
+    const months = [
+      { name: 'January', num: 0, tokens: ['january', 'jan'] },
+      { name: 'February', num: 1, tokens: ['february', 'feb'] },
+      { name: 'March', num: 2, tokens: ['march', 'mar'] },
+      { name: 'April', num: 3, tokens: ['april', 'apr'] },
+      { name: 'May', num: 4, tokens: ['may'] },
+      { name: 'June', num: 5, tokens: ['june', 'jun'] },
+      { name: 'July', num: 6, tokens: ['july', 'jul'] },
+      { name: 'August', num: 7, tokens: ['august', 'aug'] },
+      { name: 'September', num: 8, tokens: ['september', 'sep', 'sept'] },
+      { name: 'October', num: 9, tokens: ['october', 'oct'] },
+      { name: 'November', num: 10, tokens: ['november', 'nov'] },
+      { name: 'December', num: 11, tokens: ['december', 'dec'] },
+    ];
+
+    let matchedMonth: { name: string; num: number } | null = null;
+    let matchedMonthToken: string | null = null;
+    for (const m of months) {
+      for (const t of m.tokens) {
+        if (searchValue.includes(` ${t} `)) {
+          matchedMonth = m;
+          matchedMonthToken = t;
+          break;
+        }
+      }
+      if (matchedMonth) break;
+    }
+
+    // Case: Both Year and Month specified (e.g. 'october 2022')
+    if (matchedYear && matchedMonth) {
+      const start = new Date(Date.UTC(matchedYear, matchedMonth.num, 1, 0, 0, 0));
+      const end = new Date(Date.UTC(matchedYear, matchedMonth.num + 1, 0, 23, 59, 59));
+      settingsModel.timePeriod = TimePeriod.Custom;
+      settingsModel.description = `${matchedMonth.name} ${matchedYear}`;
+      settingsModel.startDateTime = start;
+      settingsModel.endDateTime = end;
+      let clean = searchValue.replace(` ${matchedYear} `, ' ');
+      if (matchedMonthToken) clean = clean.replace(` ${matchedMonthToken} `, ' ');
+      settingsModel.searchValue = clean.trim();
+      settingsModel.urlParameter = timePeriodUrlParameter(settingsModel.startDateTime, settingsModel.endDateTime);
+      return settingsModel;
+    }
+
+    // Case: Only Year specified (e.g. '2021')
+    if (matchedYear && !matchedMonth) {
+      const start = new Date(Date.UTC(matchedYear, 0, 1, 0, 0, 0));
+      const end = new Date(Date.UTC(matchedYear, 11, 31, 23, 59, 59));
+      settingsModel.timePeriod = TimePeriod.Custom;
+      settingsModel.description = `${matchedYear}`;
+      settingsModel.startDateTime = start;
+      settingsModel.endDateTime = end;
+      settingsModel.searchValue = searchValue.replace(` ${matchedYear} `, ' ').trim();
+      settingsModel.urlParameter = timePeriodUrlParameter(settingsModel.startDateTime, settingsModel.endDateTime);
+      return settingsModel;
+    }
+
+    // Case: Only Month specified (e.g. 'october')
+    if (!matchedYear && matchedMonth) {
+      const now = new Date();
+      let targetYear = now.getUTCFullYear();
+      // If the month is in the future this year, assume previous year
+      if (matchedMonth.num > now.getUTCMonth()) {
+        targetYear -= 1;
+      }
+      const start = new Date(Date.UTC(targetYear, matchedMonth.num, 1, 0, 0, 0));
+      const end = new Date(Date.UTC(targetYear, matchedMonth.num + 1, 0, 23, 59, 59));
+      settingsModel.timePeriod = TimePeriod.Custom;
+      settingsModel.description = `${matchedMonth.name}`;
+      settingsModel.startDateTime = start;
+      settingsModel.endDateTime = end;
+      if (matchedMonthToken) {
+        settingsModel.searchValue = searchValue.replace(` ${matchedMonthToken} `, ' ').trim();
+      }
+      settingsModel.urlParameter = timePeriodUrlParameter(settingsModel.startDateTime, settingsModel.endDateTime);
+      return settingsModel;
+    }
+
     const dayAmounts: Array<[string[], string, number]> = [
       [['sixdays', '6d'], 'Six days', 6],
       [['fivedays', '5d'], 'Five days', 5],

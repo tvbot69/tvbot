@@ -5,6 +5,7 @@ export interface TopArtist {
   playcount: number;
   mbid?: string;
   url?: string;
+  imageUrl?: string;
 }
 
 export interface TopAlbum {

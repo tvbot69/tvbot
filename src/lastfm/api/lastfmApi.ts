@@ -3,6 +3,7 @@ import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
 import { LastfmApiError } from '@domain/models/lastfmError';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { TelemetryService } from '@bot/services/telemetryService';
 import { createLastfmSignature } from './lastfmSignature';
 
 const LASTFM_API_URL = 'https://ws.audioscrobbler.com/2.0/';
@@ -96,7 +97,18 @@ export class LastfmApi {
       try {
         await this.rateLimiter.acquire();
         const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+        const startTime = Date.now();
         const response = await fetch(url, { ...init, signal });
+        const durationMs = Date.now() - startTime;
+
+        try {
+          if (container.isRegistered(TelemetryService)) {
+            container.resolve(TelemetryService).recordApiCall('lastfm', method, durationMs, response.status);
+          }
+        } catch {
+          // Ignore telemetry errors
+        }
+
         if (!response.ok && isTransientStatus(response.status) && attempt < MAX_RETRIES - 1) {
           const delay = Math.min(300 * Math.pow(2, attempt) + Math.random() * 100, 2000);
           Logger.warn(`Last.fm returned HTTP ${response.status} for ${method}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);

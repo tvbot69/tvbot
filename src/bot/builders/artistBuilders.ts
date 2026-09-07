@@ -11,6 +11,8 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { MusicBrainzArtistData } from '@bot/services/musicBrainzService';
+import { PlaycountBuilders } from './playcountBuilders';
+import { ArtistTrackBuilders } from './artistTrackBuilders';
 
 const lastfmArtistUrl = (artist: string) =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -49,6 +51,10 @@ export const ARTIST_SOCIAL_EMOJIS = {
 };
 
 export class ArtistBuilders {
+  // Static Facade Delegations — Zero Duplication
+  public static buildArtistPlaysResponse = PlaycountBuilders.buildArtistPlaysResponse;
+  public static buildArtistPaceResponse = PlaycountBuilders.buildArtistPaceResponse;
+  public static buildArtistTopTracksResponse = ArtistTrackBuilders.buildArtistTopTracksResponse;
   public static buildArtistOverviewResponse(
     artistName: string,
     artistId: number | string,
@@ -166,7 +172,10 @@ export class ArtistBuilders {
       headerLines.push(`Artist from **${mbData.location}** ${flag}`.trim());
     }
     if (mbData?.birthDate) {
-      headerLines.push(`Born: <t:${mbData.birthDate}:D>`);
+      const bDate = new Date(mbData.birthDate * 1000);
+      const today = new Date();
+      const isBirthdayToday = bDate.getUTCMonth() === today.getUTCMonth() && bDate.getUTCDate() === today.getUTCDate();
+      headerLines.push(`Born: <t:${mbData.birthDate}:D>${isBirthdayToday ? ' 🎂 **(Birthday today!)**' : ''}`);
     }
     if (mbData?.type || mbData?.gender) {
       const subParts = [mbData.type, mbData.gender].filter(Boolean);

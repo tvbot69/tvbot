@@ -43,6 +43,8 @@ import { CountryInteractions } from '@bot/interactions/countryInteractions';
 import { GameInteractions } from '@bot/interactions/gameInteractions';
 import { UserHubInteractions } from '@bot/interactions/userHubInteractions';
 import { IntelligenceInteractions } from '@bot/interactions/intelligenceInteractions';
+import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
+import { TelemetryService } from '@bot/services/telemetryService';
 import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
 import { tryHandleModal } from '@bot/interactions';
@@ -80,9 +82,11 @@ export class InteractionHandler {
   private readonly gameInteractions: GameInteractions;
   private readonly userHubInteractions: UserHubInteractions;
   private readonly intelligenceInteractions: IntelligenceInteractions;
+  private readonly nowPlayingInteractions: NowPlayingInteractions;
 
   constructor() {
     this.client = container.resolve(Client);
+    this.nowPlayingInteractions = container.resolve(NowPlayingInteractions);
     this.guildService = container.resolve(GuildService);
     this.disabledChannelService = container.resolve(DisabledChannelService);
     this.guildDisabledCommands = container.resolve(GuildDisabledCommandService);
@@ -167,6 +171,18 @@ export class InteractionHandler {
           durationMs: Date.now() - btnStart,
         });
 
+        if (interaction.customId.startsWith('scrobble-ref:') || interaction.customId.startsWith('scrobble-now:')) {
+          await this.nowPlayingInteractions.handleScrobble(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('love-track:') || interaction.customId.startsWith('unlove-track:')) {
+          await this.nowPlayingInteractions.handleLove(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('track-lyrics:')) {
+          await this.nowPlayingInteractions.handleLyrics(interaction);
+          return;
+        }
         if (interaction.customId.startsWith(TRACK_PREVIEW_PREFIX)) {
           await this.trackPreviewInteractions.handle(interaction);
           return;
@@ -363,15 +379,42 @@ export class InteractionHandler {
         durationMs,
       });
 
+      try {
+        if (container.isRegistered(TelemetryService)) {
+          container.resolve(TelemetryService).recordCommandExecution(
+            commandName,
+            durationMs,
+            response.commandResponse !== CommandResponse.Error && response.commandResponse !== CommandResponse.LastFmError,
+          );
+        }
+      } catch {
+        // Telemetry should never affect command execution
+      }
+
       if (response.commandResponse === CommandResponse.Deleted) {
         return;
       }
       await this.sendResponse(interaction, response);
     } catch (err) {
-      Logger.error({ err }, `Error executing slash command /${commandName}`);
+      try {
+        if (container.isRegistered(TelemetryService)) {
+          container.resolve(TelemetryService).recordCommandExecution(commandName, 0, false);
+        }
+      } catch {
+        // Telemetry should never affect command execution
+      }
+
+      const { referenceId } = Logger.errorWithRef(err, {
+        commandName,
+        userName: interaction.user.tag ?? interaction.user.username,
+        userId: interaction.user.id,
+        guildName: interaction.guild?.name,
+        guildId: interaction.guildId,
+        shardId: interaction.guild?.shardId ?? 0,
+      });
       const errorResponse = GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
-        'Something went wrong while executing that command.',
+        `Sorry, something went wrong while executing that command. Please try again later.\n*Reference ID: \`${referenceId}\`*`,
       );
       await this.sendResponse(interaction, errorResponse);
     } finally {

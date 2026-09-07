@@ -1,4 +1,6 @@
+import { container } from 'tsyringe';
 import { SpotifyTokenManager } from './spotifyTokenManager';
+import { TelemetryService } from '@bot/services/telemetryService';
 import type {
   SpotifySearchAlbum,
   SpotifySearchArtist,
@@ -171,11 +173,20 @@ export class SpotifySearchApi {
     url.searchParams.set('type', type);
     url.searchParams.set('limit', String(limit));
 
+    const startTime = Date.now();
     let response: Response;
     try {
       response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      const durationMs = Date.now() - startTime;
+      try {
+        if (container.isRegistered(TelemetryService)) {
+          container.resolve(TelemetryService).recordApiCall('spotify', `/v1/search?type=${type}`, durationMs, response.status);
+        }
+      } catch {
+        // Ignore telemetry errors
+      }
     } catch (err) {
       throw new SpotifyUnavailableError(`Spotify network error: ${String(err)}`);
     }

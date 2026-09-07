@@ -18,9 +18,9 @@ describe('WhoKnowsService', () => {
     const formatted = WhoKnowsService.whoKnowsListToString(users, 2);
     expect(formatted).toContain('Alice');
     expect(formatted).toContain('https://last.fm/user/alice');
-    expect(formatted).toContain('1,500 plays');
+    expect(formatted).toContain('**1,500** plays');
     // Caller row is bolded
-    expect(formatted).toContain('**[⁦Bob⁩](https://last.fm/user/bob) - 850 plays**');
+    expect(formatted).toContain('**[Bob](https://last.fm/user/bob) - 850 plays**');
     expect(formatted).toContain('Charlie');
   });
 

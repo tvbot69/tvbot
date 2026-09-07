@@ -20,7 +20,7 @@ export class ReceiptBuilders {
     accentColor?: number | null;
   }): ResponseModel {
     const container = new ContainerBuilder();
-    container.setAccentColor(params.accentColor ?? DiscordConstants.LastFmColorRed);
+    // Do NOT set accent color on the container so Discord renders a clean theme-matching card without dark tint
 
     const userUrl =
       params.tracksUrl ??
@@ -34,7 +34,7 @@ export class ReceiptBuilders {
     );
     container.addMediaGalleryComponents(mediaGallery);
 
-    const response = new ResponseModel(params.accentColor ?? DiscordConstants.LastFmColorRed);
+    const response = new ResponseModel();
     response.commandResponse = CommandResponse.Ok;
     response.setFile(params.imageBuffer, 'receipt.png', 'Your listening receipt');
     response.setComponentsV2Container(container);

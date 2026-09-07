@@ -10,9 +10,12 @@ import {
   ThumbnailBuilder,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
+import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { TrackSearchResult } from '@bot/services/trackService';
+import { PlaycountBuilders } from './playcountBuilders';
+import { TrackDetailsBuilders } from './trackDetailsBuilders';
 
 export interface TrackMediaDetails {
   uniqueId: string;
@@ -21,6 +24,30 @@ export interface TrackMediaDetails {
   spotifyUrl?: string | null;
   source?: 'spotify' | 'deezer' | 'apple';
   durationFormatted?: string;
+}
+
+export interface AudioFeaturesData {
+  danceability?: number;
+  energy?: number;
+  valence?: number;
+  acousticness?: number;
+  instrumentalness?: number;
+  tempo?: number;
+  key?: string;
+}
+
+export interface LovedTrackItem {
+  name: string;
+  artistName: string;
+  url?: string;
+  dateLoved?: Date;
+}
+
+export function renderProgressBar(percentage: number, totalBlocks: number = 10): string {
+  const clamped = Math.max(0, Math.min(100, Math.round(percentage)));
+  const filledBlocks = Math.round((clamped / 100) * totalBlocks);
+  const emptyBlocks = totalBlocks - filledBlocks;
+  return `[${'█'.repeat(filledBlocks)}${'░'.repeat(emptyBlocks)}] ${clamped}%`;
 }
 
 const formatSeconds = (totalSeconds: number): string => {
@@ -172,6 +199,171 @@ export class TrackBuilders {
     }
 
     const response = new ResponseModel(accentColor);
+    response.setComponentsV2Container(container);
+    return response;
+  }
+
+  // Static Facade Delegations — Zero Duplication
+  public static buildTrackPlaysResponse = PlaycountBuilders.buildTrackPlaysResponse;
+  public static buildTrackDetailsResponse = TrackDetailsBuilders.buildTrackDetailsResponse;
+
+  public static buildLoveResponse(trackName: string, artistName: string, accentColor?: number): ResponseModel {
+    const response = new ResponseModel(accentColor);
+    response.commandResponse = CommandResponse.Ok;
+    const container = new ContainerBuilder();
+    if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`❤️ Loved **${trackName}** by **${artistName}** on Last.fm.`),
+    );
+    response.setComponentsV2Container(container);
+    return response;
+  }
+
+  public static buildUnloveResponse(trackName: string, artistName: string, accentColor?: number): ResponseModel {
+    const response = new ResponseModel(accentColor);
+    response.commandResponse = CommandResponse.Ok;
+    const container = new ContainerBuilder();
+    if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`💔 Unloved **${trackName}** by **${artistName}** on Last.fm.`),
+    );
+    response.setComponentsV2Container(container);
+    return response;
+  }
+
+  public static buildLovedTracksResponse(
+    userNameLastFm: string,
+    displayName: string,
+    tracks: LovedTrackItem[],
+    page: number = 0,
+    totalCount: number = 0,
+    accentColor?: number,
+  ): ResponseModel {
+    const perPage = 10;
+    const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+    const slice = tracks.slice(page * perPage, (page + 1) * perPage);
+
+    const container = new ContainerBuilder();
+    if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
+
+    const userUrl = `https://www.last.fm/user/${encodeURIComponent(userNameLastFm)}/loved`;
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`### Loved tracks for [${displayName}](${userUrl})`),
+    );
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+
+    const lines = slice.map((t, idx) => {
+      const rank = page * perPage + idx + 1;
+      const trackUrl = t.url ?? `https://www.last.fm/music/${encodeURIComponent(t.artistName).replace(/%20/g, '+')}/_/${encodeURIComponent(t.name).replace(/%20/g, '+')}`;
+      const timeStr = t.dateLoved ? ` — <t:${Math.floor(t.dateLoved.getTime() / 1000)}:R>` : '';
+      return `${rank}. ❤️ **[${t.name}](${trackUrl})** by **${t.artistName}**${timeStr}`;
+    }).join('\n') || 'No loved tracks found.';
+
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+
+    const footer = `-# Page ${page + 1}/${totalPages} — ${totalCount.toLocaleString()} loved tracks`;
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
+
+    if (totalPages > 1) {
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`loved:prev:${page}:${encodeURIComponent(userNameLastFm)}`).setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+        new ButtonBuilder().setCustomId(`loved:next:${page}:${encodeURIComponent(userNameLastFm)}`).setEmoji({ id: '883825508087922739', name: 'pages_next' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+      );
+      container.addActionRowComponents(row);
+    }
+
+    const response = new ResponseModel(accentColor);
+    response.commandResponse = CommandResponse.Ok;
+    response.setComponentsV2Container(container);
+    return response;
+  }
+
+  public static buildTrackLyricsResponse(
+    trackName: string,
+    artistName: string,
+    lyrics: string,
+    sourceUrl?: string | null,
+    accentColor?: number,
+  ): ResponseModel {
+    const container = new ContainerBuilder();
+    if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
+
+    const trackUrl = `https://www.last.fm/music/${encodeURIComponent(artistName).replace(/%20/g, '+')}/_/${encodeURIComponent(trackName).replace(/%20/g, '+')}`;
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`### Lyrics for [${trackName}](${trackUrl}) by ${artistName}`),
+    );
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+
+    const snippet = lyrics.length > 2000 ? `${lyrics.slice(0, 1990)}...` : lyrics;
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(snippet));
+
+    if (sourceUrl) {
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Source: [View full lyrics](${sourceUrl})`));
+    }
+
+    const response = new ResponseModel(accentColor);
+    response.commandResponse = CommandResponse.Ok;
+    response.setComponentsV2Container(container);
+    return response;
+  }
+
+  public static buildScrobbleResponse(
+    trackName: string,
+    artistName: string,
+    userNameLastFm: string,
+    accentColor?: number,
+  ): ResponseModel {
+    const response = new ResponseModel(accentColor);
+    response.commandResponse = CommandResponse.Ok;
+    const container = new ContainerBuilder();
+    if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(`Scrobbled **${trackName}** by **${artistName}** to **${userNameLastFm}**'s Last.fm profile.`),
+    );
+    response.setComponentsV2Container(container);
+    return response;
+  }
+
+  public static buildAudioFeaturesResponse(
+    trackName: string,
+    artistName: string,
+    features: AudioFeaturesData,
+    coverUrl?: string | null,
+    accentColor?: number,
+  ): ResponseModel {
+    const container = new ContainerBuilder();
+    if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
+
+    const trackUrl = `https://www.last.fm/music/${encodeURIComponent(artistName).replace(/%20/g, '+')}/_/${encodeURIComponent(trackName).replace(/%20/g, '+')}`;
+    const header = `### Audio Features for [${trackName}](${trackUrl})\n**${artistName}**`;
+
+    if (coverUrl) {
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(header))
+          .setThumbnailAccessory(new ThumbnailBuilder().setURL(coverUrl)),
+      );
+    } else {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(header));
+    }
+
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
+
+    const lines: string[] = [];
+    if (features.tempo !== undefined) lines.push(`**Tempo / BPM:** \`${features.tempo.toFixed(1)}\` bpm`);
+    if (features.key !== undefined) lines.push(`**Musical Key:** \`${features.key}\``);
+    if (features.danceability !== undefined) lines.push(`**Danceability:**  ${renderProgressBar(features.danceability * 100)}`);
+    if (features.energy !== undefined) lines.push(`**Energy:**        ${renderProgressBar(features.energy * 100)}`);
+    if (features.valence !== undefined) lines.push(`**Valence / Mood:** ${renderProgressBar(features.valence * 100)}`);
+    if (features.acousticness !== undefined) lines.push(`**Acousticness:**  ${renderProgressBar(features.acousticness * 100)}`);
+    if (features.instrumentalness !== undefined) lines.push(`**Instrumental:**  ${renderProgressBar(features.instrumentalness * 100)}`);
+
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+
+    const response = new ResponseModel(accentColor);
+    response.commandResponse = CommandResponse.Ok;
     response.setComponentsV2Container(container);
     return response;
   }

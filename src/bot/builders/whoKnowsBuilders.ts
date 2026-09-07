@@ -4,9 +4,11 @@ import {
   ButtonStyle,
   ContainerBuilder,
   EmbedBuilder,
+  SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
+  ThumbnailBuilder,
 } from 'discord.js';
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
@@ -52,7 +54,7 @@ export class WhoKnowsBuilders {
       }
     }
 
-    if (users.length > 0) {
+    if (users.length > 1) {
       const distinctUsers = users.filter((u, i, arr) => arr.findIndex((x) => x.userId === u.userId) === i);
       const totalListeners = distinctUsers.filter((u) => u.playcount > 0).length;
       const totalPlays = distinctUsers.reduce((sum, u) => sum + u.playcount, 0);
@@ -78,6 +80,7 @@ export class WhoKnowsBuilders {
         requestedUserId,
         closeFriendUserIds,
         10,
+        context.discordUserId,
       );
 
       const response = new ResponseModel(accentColor);
@@ -88,8 +91,18 @@ export class WhoKnowsBuilders {
       if (footerExtra) {
         pageContent += `\n\n${footerExtra}`;
       }
-      const container = new ContainerBuilder().setAccentColor(accentColor);
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${title}`));
+      const container = new ContainerBuilder();
+      if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
+
+      if (thumbnailUrl) {
+        const titleSection = new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### [${title}](<${url}>)`))
+          .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl));
+        container.addSectionComponents(titleSection);
+      } else {
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### [${title}](<${url}>)`));
+      }
+
       container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true));
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(pageContent));
       container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true));
@@ -117,7 +130,7 @@ export class WhoKnowsBuilders {
       return response;
     }
 
-    // === Default Embed Mode ===
+    // === Default Mode (Standard Discord Rich Embed) ===
     const response = new ResponseModel(accentColor);
     response.commandResponse = CommandResponse.Ok;
 
@@ -125,6 +138,7 @@ export class WhoKnowsBuilders {
       users,
       requestedUserId,
       closeFriendUserIds,
+      context.discordUserId,
     );
 
     let description = listText;
@@ -136,19 +150,20 @@ export class WhoKnowsBuilders {
       .setTitle(title.length > 255 ? `${title.slice(0, 252)}...` : title)
       .setURL(url)
       .setDescription(description);
+
     if (accentColor !== undefined && accentColor !== null) {
       embed.setColor(accentColor);
     }
-    response.embed = embed;
 
     if (thumbnailUrl) {
-      response.embed.setThumbnail(thumbnailUrl);
+      embed.setThumbnail(thumbnailUrl);
     }
 
     if (fullFooter) {
-      response.embed.setFooter({ text: fullFooter });
+      embed.setFooter({ text: fullFooter });
     }
 
+    response.embed = embed;
     return response;
   }
 }
