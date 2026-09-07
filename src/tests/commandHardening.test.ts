@@ -203,7 +203,57 @@ describe('Bugfixes & Hardening Validation', () => {
 
       const res = await streamingCommands.spotifyTrackAsync(ctx, []);
       expect(mockSpotifyApi.searchTracks).toHaveBeenCalledWith('Radiohead Creep', 1);
-      expect(res.isComponentsV2).toBe(true);
+      expect(res.content).toBe('https://spotify.com/track/1');
+    });
+
+    it('searches and returns direct link for spotify album and applemusic', async () => {
+      const mockUserService = {
+        getUserByDiscordId: vi.fn().mockResolvedValue(null),
+      } as any;
+      const mockSpotifyApi = {
+        searchAlbums: vi.fn().mockResolvedValue([
+          {
+            id: 'sp-album-1',
+            name: 'OK Computer',
+            external_urls: { spotify: 'https://open.spotify.com/album/okcomputer' },
+          },
+        ]),
+      } as any;
+      const mockAppleMusicService = {
+        searchSong: vi.fn().mockResolvedValue({
+          trackName: 'Creep',
+          artistName: 'Radiohead',
+          url: 'https://music.apple.com/us/album/creep/123?i=456',
+        }),
+        searchAlbum: vi.fn().mockResolvedValue('https://music.apple.com/us/album/ok-computer/123'),
+      } as any;
+      const mockPrefixService = {} as any;
+      const mockLastFmRepository = {} as any;
+
+      const streamingCommands = new StreamingCommands(
+        mockUserService,
+        mockSpotifyApi,
+        mockAppleMusicService,
+        mockPrefixService,
+        mockLastFmRepository,
+      );
+
+      const ctx: ContextModel = {
+        discordUserId: 'user-1',
+        prefix: '.',
+      } as any;
+
+      // Search album with .spotifyalbum
+      const albumRes = await streamingCommands.spotifyAlbumAsync(ctx, ['OK', 'Computer']);
+      expect(albumRes.content).toBe('https://open.spotify.com/album/okcomputer');
+
+      // Search song with .applemusic
+      const amRes = await streamingCommands.appleMusicAsync(ctx, ['Radiohead', 'Creep']);
+      expect(amRes.content).toBe('https://music.apple.com/us/album/creep/123?i=456');
+
+      // Search album with .applemusicalbum
+      const amAlbumRes = await streamingCommands.appleMusicAlbumAsync(ctx, ['OK', 'Computer']);
+      expect(amAlbumRes.content).toBe('https://music.apple.com/us/album/ok-computer/123');
     });
   });
 });

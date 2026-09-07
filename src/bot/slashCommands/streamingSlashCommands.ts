@@ -8,10 +8,7 @@ import { PrefixService } from '@bot/services/prefixService';
 import { ColorService } from '@bot/services/colorService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { AppleMusicService } from '@bot/services/appleMusicService';
-import { DiscogsAndImportBuilders } from '@bot/builders/discogsAndImportBuilders';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { ContainerBuilder, TextDisplayBuilder } from 'discord.js';
-import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 
@@ -31,29 +28,29 @@ export class StreamingSlashCommands implements ISlashCommandModule {
       {
         data: new SlashCommandBuilder()
           .setName('spotify')
-          .setDescription('Search Spotify catalog or share your current playing music')
+          .setDescription('Get Spotify links for tracks, albums, or your currently playing music')
           .addSubcommand((sub) =>
             sub
               .setName('track')
-              .setDescription('Search for a track on Spotify or share your currently playing track')
+              .setDescription('Get Spotify link for a track or your currently playing track')
               .addStringOption((opt) =>
-                opt.setName('query').setDescription('Song name or artist').setRequired(false),
+                opt.setName('query').setDescription('Song name or artist (leave empty for current song)').setRequired(false),
               ),
           )
           .addSubcommand((sub) =>
             sub
               .setName('album')
-              .setDescription('Search for an album on Spotify')
+              .setDescription('Get Spotify link for an album or your currently playing album')
               .addStringOption((opt) =>
-                opt.setName('query').setDescription('Album name or artist').setRequired(true),
+                opt.setName('query').setDescription('Album name or artist (leave empty for current album)').setRequired(false),
               ),
           )
           .addSubcommand((sub) =>
             sub
               .setName('artist')
-              .setDescription('Search for an artist on Spotify')
+              .setDescription('Get Spotify link for an artist')
               .addStringOption((opt) =>
-                opt.setName('query').setDescription('Artist name').setRequired(true),
+                opt.setName('query').setDescription('Artist name (leave empty for current artist)').setRequired(false),
               ),
           ),
         executeAsync: (ctx) => {
@@ -66,21 +63,24 @@ export class StreamingSlashCommands implements ISlashCommandModule {
       {
         data: new SlashCommandBuilder()
           .setName('applemusic')
-          .setDescription('Search for a song on Apple Music or share your current playing track')
+          .setDescription('Get Apple Music links for songs, albums, or your currently playing music')
           .addStringOption((opt) =>
-            opt.setName('query').setDescription('Song name or artist').setRequired(false),
+            opt.setName('query').setDescription('Song, album, or artist name (leave empty for current song)').setRequired(false),
+          )
+          .addStringOption((opt) =>
+            opt
+              .setName('type')
+              .setDescription('Search type (default: Song)')
+              .setRequired(false)
+              .addChoices(
+                { name: 'Song / Track', value: 'song' },
+                { name: 'Album', value: 'album' },
+                { name: 'Artist', value: 'artist' },
+              ),
           ),
         executeAsync: (ctx) => this.appleMusicSlashAsync(ctx),
       },
     ];
-  }
-
-  private async getAccentColor(ctx: ContextModel, defaultColor: number): Promise<number> {
-    if (this.colorService) {
-      const color = await this.colorService.getAccentColorAsync(ctx.guildId);
-      if (color) return color;
-    }
-    return defaultColor;
   }
 
   private async resolveQuery(
@@ -140,8 +140,119 @@ export class StreamingSlashCommands implements ISlashCommandModule {
     }
   }
 
+  private async resolveAlbumQuery(
+    ctx: ContextModel,
+    cmdSlash: string,
+  ): Promise<{ query: string } | { errorResponse: ResponseModel }> {
+    const raw = ctx.interaction?.options.getString('query')?.trim();
+    if (raw) return { query: raw };
+
+    const user = await this.userService.getUserByDiscordId(ctx.discordUserId);
+    if (!user || !user.userNameLastFm) {
+      return {
+        errorResponse: GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `You have not connected your Last.fm account yet. Link your account with \`/login\` or specify an album name (\`${cmdSlash}\`).`,
+        ),
+      };
+    }
+
+    try {
+      const recents = await this.lastFmRepository.getUserRecentTracks(
+        user.userNameLastFm,
+        2,
+        1,
+        undefined,
+        user.sessionKey ?? undefined,
+      );
+      if (!recents || recents.length === 0 || !recents[0]) {
+        return {
+          errorResponse: GenericEmbedService.buildCommandErrorResponse(
+            CommandResponse.NotFound,
+            `No recent tracks found for Last.fm user **${user.userNameLastFm}**. Specify an album name (\`${cmdSlash}\`).`,
+          ),
+        };
+      }
+
+      const track = recents.find((t) => t.nowPlaying) ?? recents[0]!;
+      const artist = track.artistName ?? (track as any).artist?.name ?? '';
+      const album = track.albumName ?? '';
+      const query = album ? `${artist} ${album}`.trim() : `${artist}`.trim();
+      if (!query) {
+        return {
+          errorResponse: GenericEmbedService.buildCommandErrorResponse(
+            CommandResponse.NotFound,
+            `Could not determine album details from your recent scrobbles. Specify an album name (\`${cmdSlash}\`).`,
+          ),
+        };
+      }
+      return { query };
+    } catch (err: any) {
+      return {
+        errorResponse: GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.Error,
+          `Failed to fetch your recent tracks from Last.fm: ${err?.message || 'Unknown error'}.`,
+        ),
+      };
+    }
+  }
+
+  private async resolveArtistQuery(
+    ctx: ContextModel,
+    cmdSlash: string,
+  ): Promise<{ query: string } | { errorResponse: ResponseModel }> {
+    const raw = ctx.interaction?.options.getString('query')?.trim();
+    if (raw) return { query: raw };
+
+    const user = await this.userService.getUserByDiscordId(ctx.discordUserId);
+    if (!user || !user.userNameLastFm) {
+      return {
+        errorResponse: GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `You have not connected your Last.fm account yet. Link your account with \`/login\` or specify an artist name (\`${cmdSlash}\`).`,
+        ),
+      };
+    }
+
+    try {
+      const recents = await this.lastFmRepository.getUserRecentTracks(
+        user.userNameLastFm,
+        2,
+        1,
+        undefined,
+        user.sessionKey ?? undefined,
+      );
+      if (!recents || recents.length === 0 || !recents[0]) {
+        return {
+          errorResponse: GenericEmbedService.buildCommandErrorResponse(
+            CommandResponse.NotFound,
+            `No recent tracks found for Last.fm user **${user.userNameLastFm}**. Specify an artist name (\`${cmdSlash}\`).`,
+          ),
+        };
+      }
+
+      const track = recents.find((t) => t.nowPlaying) ?? recents[0]!;
+      const artist = track.artistName ?? (track as any).artist?.name ?? '';
+      if (!artist) {
+        return {
+          errorResponse: GenericEmbedService.buildCommandErrorResponse(
+            CommandResponse.NotFound,
+            `Could not determine artist details from your recent scrobbles. Specify an artist name (\`${cmdSlash}\`).`,
+          ),
+        };
+      }
+      return { query: artist };
+    } catch (err: any) {
+      return {
+        errorResponse: GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.Error,
+          `Failed to fetch your recent tracks from Last.fm: ${err?.message || 'Unknown error'}.`,
+        ),
+      };
+    }
+  }
+
   public async spotifyTrackSlashAsync(ctx: ContextModel): Promise<ResponseModel> {
-    const accentColor = await this.getAccentColor(ctx, 0x1DB954);
     const resolved = await this.resolveQuery(ctx, '/spotify track query:<song name>');
     if ('errorResponse' in resolved) {
       return resolved.errorResponse;
@@ -150,98 +261,125 @@ export class StreamingSlashCommands implements ISlashCommandModule {
 
     try {
       const tracks = await this.spotifySearchApi.searchTracks(query, 1);
-      if (!tracks || tracks.length === 0 || !tracks[0]) {
-        const container = new ContainerBuilder();
-        container.setAccentColor(accentColor);
-        container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`No Spotify track found for **"${query}"**.`),
-        );
-        const res = new ResponseModel(accentColor);
+      if (tracks && tracks.length > 0 && tracks[0]?.external_urls?.spotify) {
+        const res = new ResponseModel();
         res.commandResponse = CommandResponse.Ok;
-        res.setComponentsV2Container(container);
+        res.setContent(tracks[0].external_urls.spotify);
         return res;
       }
 
-      return DiscogsAndImportBuilders.buildSpotifyTrackResponse({ track: tracks[0], accentColor });
-    } catch (err: any) {
-      const container = new ContainerBuilder();
-      container.setAccentColor(DiscordConstants.ErrorColorRed);
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`Spotify search failed: ${err?.message || 'Unknown error'}`),
+      // Fallback to album search
+      const albums = await this.spotifySearchApi.searchAlbums(query, 1);
+      if (albums && albums.length > 0 && albums[0]?.external_urls?.spotify) {
+        const res = new ResponseModel();
+        res.commandResponse = CommandResponse.Ok;
+        res.setContent(albums[0].external_urls.spotify);
+        return res;
+      }
+
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        `No Spotify link found for **"${query}"**.`,
       );
-      const res = new ResponseModel(DiscordConstants.ErrorColorRed);
-      res.commandResponse = CommandResponse.Ok;
-      res.setComponentsV2Container(container);
-      return res;
+    } catch (err: any) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Spotify search failed: ${err?.message || 'Unknown error'}`,
+      );
     }
   }
 
   public async spotifyAlbumSlashAsync(ctx: ContextModel): Promise<ResponseModel> {
-    const accentColor = await this.getAccentColor(ctx, 0x1DB954);
-    const query = ctx.interaction?.options.getString('query', true)?.trim() || '';
+    const resolved = await this.resolveAlbumQuery(ctx, '/spotify album query:<album name>');
+    if ('errorResponse' in resolved) {
+      return resolved.errorResponse;
+    }
+    const query = resolved.query;
 
     try {
       const albums = await this.spotifySearchApi.searchAlbums(query, 1);
-      if (!albums || albums.length === 0 || !albums[0]) {
-        const container = new ContainerBuilder();
-        container.setAccentColor(accentColor);
-        container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`No Spotify album found for **"${query}"**.`),
-        );
-        const res = new ResponseModel(accentColor);
+      if (albums && albums.length > 0 && albums[0]?.external_urls?.spotify) {
+        const res = new ResponseModel();
         res.commandResponse = CommandResponse.Ok;
-        res.setComponentsV2Container(container);
+        res.setContent(albums[0].external_urls.spotify);
         return res;
       }
 
-      return DiscogsAndImportBuilders.buildSpotifyAlbumResponse({ album: albums[0], accentColor });
-    } catch (err: any) {
-      const container = new ContainerBuilder();
-      container.setAccentColor(DiscordConstants.ErrorColorRed);
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`Spotify album search failed: ${err?.message || 'Unknown error'}`),
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        `No Spotify album link found for **"${query}"**.`,
       );
-      const res = new ResponseModel(DiscordConstants.ErrorColorRed);
-      res.commandResponse = CommandResponse.Ok;
-      res.setComponentsV2Container(container);
-      return res;
+    } catch (err: any) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Spotify album search failed: ${err?.message || 'Unknown error'}`,
+      );
     }
   }
 
   public async spotifyArtistSlashAsync(ctx: ContextModel): Promise<ResponseModel> {
-    const accentColor = await this.getAccentColor(ctx, 0x1DB954);
-    const query = ctx.interaction?.options.getString('query', true)?.trim() || '';
+    const resolved = await this.resolveArtistQuery(ctx, '/spotify artist query:<artist name>');
+    if ('errorResponse' in resolved) {
+      return resolved.errorResponse;
+    }
+    const query = resolved.query;
 
     try {
       const artists = await this.spotifySearchApi.searchArtists(query, 1);
-      if (!artists || artists.length === 0 || !artists[0]) {
-        const container = new ContainerBuilder();
-        container.setAccentColor(accentColor);
-        container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`No Spotify artist found for **"${query}"**.`),
-        );
-        const res = new ResponseModel(accentColor);
+      if (artists && artists.length > 0 && artists[0]?.external_urls?.spotify) {
+        const res = new ResponseModel();
         res.commandResponse = CommandResponse.Ok;
-        res.setComponentsV2Container(container);
+        res.setContent(artists[0].external_urls.spotify);
         return res;
       }
 
-      return DiscogsAndImportBuilders.buildSpotifyArtistResponse({ artist: artists[0], accentColor });
-    } catch (err: any) {
-      const container = new ContainerBuilder();
-      container.setAccentColor(DiscordConstants.ErrorColorRed);
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`Spotify artist search failed: ${err?.message || 'Unknown error'}`),
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        `No Spotify artist link found for **"${query}"**.`,
       );
-      const res = new ResponseModel(DiscordConstants.ErrorColorRed);
-      res.commandResponse = CommandResponse.Ok;
-      res.setComponentsV2Container(container);
-      return res;
+    } catch (err: any) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Spotify artist search failed: ${err?.message || 'Unknown error'}`,
+      );
     }
   }
 
   public async appleMusicSlashAsync(ctx: ContextModel): Promise<ResponseModel> {
-    const accentColor = await this.getAccentColor(ctx, 0xFA2D48);
+    const type = ctx.interaction?.options.getString('type') ?? 'song';
+
+    if (type === 'album') {
+      const resolved = await this.resolveAlbumQuery(ctx, '/applemusic query:<album name>');
+      if ('errorResponse' in resolved) return resolved.errorResponse;
+      const albumUrl = await this.appleMusicService.searchAlbum(resolved.query);
+      if (albumUrl) {
+        const res = new ResponseModel();
+        res.commandResponse = CommandResponse.Ok;
+        res.setContent(albumUrl);
+        return res;
+      }
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        `No Apple Music album found for **"${resolved.query}"**.`,
+      );
+    }
+
+    if (type === 'artist') {
+      const resolved = await this.resolveArtistQuery(ctx, '/applemusic query:<artist name>');
+      if ('errorResponse' in resolved) return resolved.errorResponse;
+      const artistUrl = await this.appleMusicService.searchArtist(resolved.query);
+      if (artistUrl) {
+        const res = new ResponseModel();
+        res.commandResponse = CommandResponse.Ok;
+        res.setContent(artistUrl);
+        return res;
+      }
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        `No Apple Music artist found for **"${resolved.query}"**.`,
+      );
+    }
+
     const resolved = await this.resolveQuery(ctx, '/applemusic query:<song name>');
     if ('errorResponse' in resolved) {
       return resolved.errorResponse;
@@ -249,18 +387,25 @@ export class StreamingSlashCommands implements ISlashCommandModule {
     const query = resolved.query;
 
     const item = await this.appleMusicService.searchSong(query);
-    if (!item) {
-      const container = new ContainerBuilder();
-      container.setAccentColor(accentColor);
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`No Apple Music release found for **"${query}"**.`),
-      );
-      const res = new ResponseModel(accentColor);
+    if (item?.url) {
+      const res = new ResponseModel();
       res.commandResponse = CommandResponse.Ok;
-      res.setComponentsV2Container(container);
+      res.setContent(item.url);
       return res;
     }
 
-    return DiscogsAndImportBuilders.buildAppleMusicResponse({ item, accentColor });
+    // Fallback: search album if song not found
+    const albumUrl = await this.appleMusicService.searchAlbum(query);
+    if (albumUrl) {
+      const res = new ResponseModel();
+      res.commandResponse = CommandResponse.Ok;
+      res.setContent(albumUrl);
+      return res;
+    }
+
+    return GenericEmbedService.buildCommandErrorResponse(
+      CommandResponse.NotFound,
+      `No Apple Music release found for **"${query}"**.`,
+    );
   }
 }
