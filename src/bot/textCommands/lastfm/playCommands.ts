@@ -15,6 +15,8 @@ import { ChannelRepository } from '@persistence/repositories/channelRepository';
 import { parseFmEmbedType } from '@domain/enums/fmEmbedType';
 import { PrefixService } from '@bot/services/prefixService';
 import { ArtworkService } from '@bot/services/artworkService';
+import { FmFooterResolver } from '@bot/services/fmFooterResolver';
+import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
 const FM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
@@ -174,12 +176,18 @@ export class PlayCommands implements ITextCommandModule {
 
     await enrichFmTracks(tracks);
 
+    const footerOptions = fmSetting ? BigInt(fmSetting.footerOptions) : BigInt(FmFooterOption.TotalScrobbles);
+    const footerData = tracks[0]
+      ? await FmFooterResolver.resolveFooterData(displayUser, tracks[0], footerOptions, context.guildId)
+      : {};
+
     return PlayBuilders.buildFmResponse(context, displayUser, tracks, lastfmUser, {
       fmSetting: fmSetting as unknown as { embedType: number; footerOptions: bigint; smallTextType: number | null; accentColor: number | null; customColor: string | null; buttons: bigint } | null,
       guildFmType: guildFmType ?? null,
       channelFmType: channelFmType ?? null,
       inlineEmbedType: inlineEmbedType ?? null,
       differentUser,
+      ...footerData,
     });
   }
 

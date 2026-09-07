@@ -46,4 +46,53 @@ describe('PlayBuilders.buildFmResponse', () => {
     expect(response.isComponentsV2).toBe(true);
     expect(response.componentsV2Container!.toJSON().components).toHaveLength(6);
   });
+
+  it('renders custom footer options (artist, album, track plays, loved) when configured in fmmode', () => {
+    const customSetting = {
+      ...setting,
+      footerOptions: BigInt(FmFooterOption.ArtistPlays | FmFooterOption.TrackPlays | FmFooterOption.Loved),
+    };
+
+    const response = PlayBuilders.buildFmResponse(
+      context,
+      user,
+      tracks,
+      { name: 'tester', playCount: 42 },
+      {
+        fmSetting: customSetting,
+        artistPlays: 263,
+        trackPlays: 3,
+        isLoved: true,
+      },
+    );
+
+    const json = JSON.stringify(response.componentsV2Container!.toJSON());
+    expect(json).toContain('❤️ Loved');
+    expect(json).toContain('263 artist plays');
+    expect(json).toContain('3 track plays');
+    // Total scrobbles should NOT appear since it wasn't selected in footerOptions
+    expect(json).not.toContain('total scrobbles');
+  });
+
+  it('renders total scrobbles alongside custom options when both are selected', () => {
+    const customSetting = {
+      ...setting,
+      footerOptions: BigInt(FmFooterOption.ArtistPlays | FmFooterOption.TotalScrobbles),
+    };
+
+    const response = PlayBuilders.buildFmResponse(
+      context,
+      user,
+      tracks,
+      { name: 'tester', playCount: 188022 },
+      {
+        fmSetting: customSetting,
+        artistPlays: 263,
+      },
+    );
+
+    const json = JSON.stringify(response.componentsV2Container!.toJSON());
+    expect(json).toContain('263 artist plays');
+    expect(json).toContain('188,022 total scrobbles');
+  });
 });

@@ -156,6 +156,12 @@ export class PlayBuilders {
       artistPlays?: number;
       albumPlays?: number;
       trackPlays?: number;
+      artistPlaysThisWeek?: number;
+      serverArtistListeners?: number;
+      serverAlbumListeners?: number;
+      serverTrackListeners?: number;
+      isLoved?: boolean;
+      crownHolder?: string | null;
       differentUser?: boolean;
     },
   ): ResponseModel {
@@ -176,6 +182,12 @@ export class PlayBuilders {
       artistPlays: opts?.artistPlays,
       albumPlays: opts?.albumPlays,
       trackPlays: opts?.trackPlays,
+      artistPlaysThisWeek: opts?.artistPlaysThisWeek,
+      serverArtistListeners: opts?.serverArtistListeners,
+      serverAlbumListeners: opts?.serverAlbumListeners,
+      serverTrackListeners: opts?.serverTrackListeners,
+      isLoved: opts?.isLoved,
+      crownHolder: opts?.crownHolder,
       useSmallText,
     });
     const footerText = rawFooter || `${toDisplayScrobbles(lastFmUser?.playCount)} total scrobbles`;
@@ -333,14 +345,14 @@ export class PlayBuilders {
       .setPlaceholder('Footer details')
       .setMinValues(0)
       .setMaxValues(FmFooterOptionMeta.length)
-      .addOptions(FmFooterOptionMeta.map(({ flag, label, description }) => ({ label, description, value: String(flag), default: (selectedFooter & flag) !== 0 })));
+      .addOptions(FmFooterOptionMeta.map(({ flag, label, description }) => ({ label, description, value: String(flag), default: (BigInt(setting.footerOptions) & BigInt(flag)) !== BigInt(0) })));
     const linkButtonOptions = FmButtonMetaList.filter((button) => button.isLink && button.flag !== FmButton.SpotifyLink);
     const buttonMenu = new StringSelectMenuBuilder()
       .setCustomId('fmmode:buttons')
       .setPlaceholder('Track link buttons')
       .setMinValues(0)
       .setMaxValues(linkButtonOptions.length)
-      .addOptions(linkButtonOptions.map(({ flag, label, emoji }) => ({ label, emoji, value: String(flag), default: (selectedButtons & flag) !== 0 })));
+      .addOptions(linkButtonOptions.map(({ flag, label, emoji }) => ({ label, emoji, value: String(flag), default: (BigInt(setting.buttons) & BigInt(flag)) !== BigInt(0) })));
     const container = new ContainerBuilder();
     if (accentColor !== undefined && accentColor !== null) {
       container.setAccentColor(accentColor);

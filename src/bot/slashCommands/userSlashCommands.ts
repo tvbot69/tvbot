@@ -15,7 +15,10 @@ import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { ChannelRepository } from '@persistence/repositories/channelRepository';
 import { FmEmbedType } from '@domain/enums/fmEmbedType';
 import { ArtworkService } from '@bot/services/artworkService';
+import { FmFooterResolver } from '@bot/services/fmFooterResolver';
+import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import type { RecentTrack } from '@domain/models/recentTrack';
+import type { UserFmSetting } from '@domain/interfaces/iuserFmSettingRepository';
 
 const FM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
 async function enrichFmTracks(tracks: RecentTrack[]): Promise<void> {
@@ -163,13 +166,13 @@ export class UserSlashCommands implements ISlashCommandModule {
       }
     }
 
-    let fmSetting: { embedType: number; footerOptions: bigint; smallTextType: number | null; accentColor: number | null; customColor: string | null; buttons: bigint } | null = null;
+    let fmSetting: UserFmSetting | null = null;
     let guildFmType: number | null = null;
     let channelFmType: number | null = null;
     const slashChannelId = context.interaction?.channelId ?? context.message?.channelId ?? null;
     try {
       const fmService = container.resolve(FmSettingService);
-      fmSetting = await fmService.get(displayUser.userId) as unknown as typeof fmSetting;
+      fmSetting = await fmService.get(displayUser.userId);
       if (context.guildId) {
         const g = await container.resolve(GuildRepository).getGuild(context.guildId);
         guildFmType = (g as unknown as { fmEmbedType?: number | null })?.fmEmbedType ?? null;
@@ -193,7 +196,20 @@ export class UserSlashCommands implements ISlashCommandModule {
       [tracks, lastfmUser] = await Promise.all([this.lastfmRepository.getUserRecentTracks(displayUser.userNameLastFm, 2), this.lastfmRepository.getUserInfo(displayUser.userNameLastFm)]);
     }
     await enrichFmTracks(tracks);
-    return PlayBuilders.buildFmResponse(context, displayUser, tracks, lastfmUser, { fmSetting: fmSetting as unknown as { embedType: number; footerOptions: bigint; smallTextType: number | null; accentColor: number | null; customColor: string | null; buttons: bigint } | null, guildFmType, channelFmType, inlineEmbedType, differentUser });
+
+    const footerOptions = fmSetting ? BigInt(fmSetting.footerOptions) : BigInt(FmFooterOption.TotalScrobbles);
+    const footerData = tracks[0]
+      ? await FmFooterResolver.resolveFooterData(displayUser, tracks[0], footerOptions, context.guildId)
+      : {};
+
+    return PlayBuilders.buildFmResponse(context, displayUser, tracks, lastfmUser, {
+      fmSetting: fmSetting as unknown as { embedType: number; footerOptions: bigint; smallTextType: number | null; accentColor: number | null; customColor: string | null; buttons: bigint } | null,
+      guildFmType,
+      channelFmType,
+      inlineEmbedType,
+      differentUser,
+      ...footerData,
+    });
   }
 
   private async fmModeAsync(context: ContextModel): Promise<ResponseModel> {
