@@ -36,8 +36,6 @@ export class RecentInteractions {
       const user = await this.userService.getUserByDiscordId(targetDiscordId).catch(() => null);
       const sessionKey = user?.sessionKey;
 
-      const accentColor = await this.colorService.getAccentColorAsync(interaction.guildId);
-
       const recentData = await this.lastfmRepo.getUserRecentTracksWithMetadata(
         userNameLastFm,
         6,
@@ -49,6 +47,8 @@ export class RecentInteractions {
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }
+
+      const accentColor = await this.colorService.getColorFromImageUrl(recentData.tracks[0]?.imageUrl);
 
       const response = RecentBuilders.buildRecentTracksResponse(
         userNameLastFm,

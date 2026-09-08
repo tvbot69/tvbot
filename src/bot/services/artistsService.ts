@@ -1,3 +1,4 @@
+import { container } from 'tsyringe';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { ArtistInfo } from '@domain/models/musicInfo';
 import type { TopArtist } from '@domain/models/topLists';
@@ -520,17 +521,17 @@ export class ArtistsService {
    * Resolves prominent accent color for artist
    */
   public async getArtistAccentColorAsync(
-    _artistImageUrl?: string | null,
+    artistImageUrl?: string | null,
     _artistId?: number | null,
-    artistName?: string | null,
+    _artistName?: string | null,
   ): Promise<number> {
-    if (!artistName) {
-      return DiscordConstants.LastFmColorRed;
-    }
-
-    if (this.colorService) {
-      const color = await this.colorService.getAccentColorAsync(null);
-      if (color) return color;
+    if (artistImageUrl) {
+      try {
+        const cs = this.colorService ?? container.resolve(ColorService);
+        return cs.getColorFromImageUrl(artistImageUrl);
+      } catch {
+        return DiscordConstants.LastFmColorRed;
+      }
     }
 
     return DiscordConstants.LastFmColorRed;

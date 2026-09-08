@@ -7,6 +7,7 @@ import { UserService } from '@bot/services/userService';
 import { ProfileService } from '@bot/services/profileService';
 import { ProfileBuilders } from '@bot/builders/profileBuilders';
 import { ColorService } from '@bot/services/colorService';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { User } from '@domain/interfaces/iuserRepository';
@@ -99,18 +100,27 @@ export class ProfileSlashCommands implements ISlashCommandModule {
       }
     }
 
-    const targetDiscordId = targetUser.discordUserId ? targetUser.discordUserId.toString() : undefined;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
-
-    const stats = await this.profileService.getProfileStats(displayName, targetUser, accentColor);
+    const stats = await this.profileService.getProfileStats(displayName, targetUser);
     if (!stats) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
         'Could not load this profile due to a Last.fm error, please try again later.',
       );
     }
+
+    let accentColor = await this.colorService.getColorFromImageUrl(stats.lastFmUser.imageUrl);
+    if (accentColor === DiscordConstants.LastFmColorRed && targetUser.discordUserId) {
+      try {
+        const discordUser = await context.interaction?.client.users.fetch(targetUser.discordUserId.toString());
+        const avatarUrl = discordUser?.displayAvatarURL({ size: 256 });
+        if (avatarUrl) {
+          accentColor = await this.colorService.getColorFromImageUrl(avatarUrl);
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    stats.accentColor = accentColor;
 
     return ProfileBuilders.buildProfileResponse(stats, context.discordUserId);
   }

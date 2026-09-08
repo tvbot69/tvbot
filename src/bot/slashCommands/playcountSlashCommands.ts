@@ -537,10 +537,7 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
 
     const callerUser = await this.userService.getUserByDiscordId(context.discordUserId);
 
-    const targetDiscordId = target.targetUser.discordUserId;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
+    const accentColor = await this.colorService.getColorFromImageUrl(albumCoverUrl);
 
     return PlaycountBuilders.buildMilestoneResponse(
       target.displayName,
@@ -578,10 +575,8 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       trackSearch.trackName,
     );
 
-    const targetDiscordId = target.targetUser.discordUserId;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
+    const trackCoverUrl = await this.artworkService.getTrackCoverUrl(trackSearch.trackName, trackSearch.artistName);
+    const accentColor = await this.colorService.getColorFromImageUrl(trackCoverUrl);
 
     const hasSearch = (query ?? '').length > 0;
     return PlaycountBuilders.buildDiscoveryDateResponse(
@@ -618,10 +613,8 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       trackSearch.trackName,
     );
 
-    const targetDiscordId = target.targetUser.discordUserId;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
+    const trackCoverUrl = await this.artworkService.getTrackCoverUrl(trackSearch.trackName, trackSearch.artistName);
+    const accentColor = await this.colorService.getColorFromImageUrl(trackCoverUrl);
 
     const hasSearch = (query ?? '').length > 0;
     return PlaycountBuilders.buildLastListenedDateResponse(
@@ -669,10 +662,8 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       days,
     );
 
-    const targetDiscordId = target.targetUser.discordUserId;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
+    const artistImageUrl = await this.artworkService.getArtistImageUrl(artistSearch.artistName);
+    const accentColor = await this.colorService.getColorFromImageUrl(artistImageUrl);
 
     return PlaycountBuilders.buildArtistPaceResponse({
       callerMention: `<@${context.discordUserId}>`,
@@ -788,10 +779,8 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       year: currentYear,
     });
 
-    const targetDiscordId = target.targetUser.discordUserId;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
+    const topCover = receiptTracks[0] ? await this.artworkService.getTrackCoverUrl(receiptTracks[0].trackName, receiptTracks[0].artistName) : null;
+    const accentColor = await this.colorService.getColorFromImageUrl(topCover);
 
     return ReceiptBuilders.buildReceiptResponse({
       displayName: target.displayName,
@@ -821,10 +810,9 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       );
     }
 
-    const targetDiscordId = target.targetUser.discordUserId;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
+    const topArtist = yearData.topArtists?.[0]?.name;
+    const topArtistArt = topArtist ? await this.artworkService.getArtistImageUrl(topArtist) : null;
+    const accentColor = await this.colorService.getColorFromImageUrl(topArtistArt);
 
     return PlaycountBuilders.buildYearOverviewResponse({
       displayName: target.displayName,
@@ -843,7 +831,8 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
     }
 
     const entries = await this.playHistoryService.getGuildPlayLeaderboard(context.guild.id);
-    const accentColor = await this.colorService.getAccentColorAsync(context.guild.id);
+    const guildIcon = context.guild.iconURL({ extension: 'png', size: 256 });
+    const accentColor = await this.colorService.getColorFromImageUrl(guildIcon);
 
     return PlaycountBuilders.buildLeaderboardResponse({
       guildName: context.guild.name,
@@ -863,7 +852,8 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
     }
 
     const entries = await this.playHistoryService.getGuildTimeLeaderboard(context.guild.id);
-    const accentColor = await this.colorService.getAccentColorAsync(context.guild.id);
+    const guildIcon = context.guild.iconURL({ extension: 'png', size: 256 });
+    const accentColor = await this.colorService.getColorFromImageUrl(guildIcon);
 
     return PlaycountBuilders.buildLeaderboardResponse({
       guildName: context.guild.name,

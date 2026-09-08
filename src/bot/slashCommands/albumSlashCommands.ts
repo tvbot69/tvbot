@@ -103,9 +103,7 @@ export class AlbumSlashCommands implements ISlashCommandModule {
     }
 
     const requesterName = context.interaction?.user.displayName ?? user.userNameLastFm;
-    const accentColor = (targetDiscordId && targetDiscordId !== context.discordUserId)
-      ? await this.colorService?.getAccentColorAsync(targetDiscordId)
-      : context.accentColor;
+    const accentColor = await this.albumService.getAlbumAccentColor(result.albumCoverUrl, result.albumName, result.artistName);
 
     return AlbumBuilders.buildCoverResponse(result, user, requesterName, accentColor);
   }
@@ -146,9 +144,7 @@ export class AlbumSlashCommands implements ISlashCommandModule {
     }
 
     const requesterName = context.interaction?.user.displayName ?? user.userNameLastFm;
-    const accentColor = (targetDiscordId && targetDiscordId !== context.discordUserId)
-      ? await this.colorService?.getAccentColorAsync(targetDiscordId)
-      : context.accentColor;
+    const accentColor = await this.albumService.getAlbumAccentColor(result.albumCoverUrl, result.albumName, result.artistName);
 
     return AlbumBuilders.buildAlbumInfoResponse(result, user, requesterName, accentColor);
   }

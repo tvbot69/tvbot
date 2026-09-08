@@ -48,10 +48,6 @@ export class GuildService {
     await this.cache.delete(this.cacheKey(guildId));
   }
 
-  public async setAccentColor(guildId: string, color: number | null): Promise<void> {
-    await this.guildRepository.setAccentColor(guildId, color);
-    await this.cache.delete(this.cacheKey(guildId));
-  }
 
   public async setCrownsThreshold(guildId: string, threshold: number): Promise<void> {
     await this.guildRepository.setCrownsThreshold(guildId, threshold);

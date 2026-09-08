@@ -250,6 +250,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
 
     const title = `${resolvedName} in ${context.guild.name}`;
     const url = lastfmArtistUrl(resolvedName);
+    const accentColor = await this.artistsService.getArtistAccentColorAsync(imgUrl);
 
     return WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
@@ -264,6 +265,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       mode,
       result.crownModel?.crownResult ?? undefined,
       'Artist',
+      accentColor,
     );
   }
 
@@ -326,6 +328,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
 
     const title = `${resolvedTrack} by ${resolvedArtist} in ${context.guild.name}`;
     const url = lastfmTrackUrl(resolvedArtist, resolvedTrack);
+    const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
     return WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
@@ -340,6 +343,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       mode,
       undefined,
       'Track',
+      accentColor,
     );
   }
 
@@ -405,6 +409,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
 
     const title = `${resolvedAlbum} by ${resolvedArtist} in ${context.guild.name}`;
     const url = lastfmAlbumUrl(resolvedArtist, resolvedAlbum);
+    const albumAccentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
     return WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
@@ -419,6 +424,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       mode,
       undefined,
       'Album',
+      albumAccentColor,
     );
   }
 
@@ -474,6 +480,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const title = `Friends who know ${resolvedName}`;
     const url = lastfmArtistUrl(resolvedName);
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
+    const accentColor = await this.artistsService.getArtistAccentColorAsync(imgUrl);
 
     return WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
@@ -488,6 +495,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       mode,
       footerExtra,
       'Artist',
+      accentColor,
     );
   }
 
@@ -553,6 +561,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const title = `Friends who know ${resolvedTrack} by ${resolvedArtist}`;
     const url = lastfmTrackUrl(resolvedArtist, resolvedTrack);
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
+    const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
     return WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
@@ -567,6 +576,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       mode,
       footerExtra,
       'Track',
+      accentColor,
     );
   }
 
@@ -635,6 +645,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const title = `Friends who know ${resolvedAlbum} by ${resolvedArtist}`;
     const url = lastfmAlbumUrl(resolvedArtist, resolvedAlbum);
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
+    const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
     return WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
@@ -649,6 +660,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       mode,
       footerExtra,
       'Album',
+      accentColor,
     );
   }
 }

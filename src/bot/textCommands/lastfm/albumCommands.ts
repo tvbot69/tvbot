@@ -73,7 +73,7 @@ export class AlbumCommands implements ITextCommandModule {
     }
 
     const requesterName = context.message?.author.displayName ?? user.userNameLastFm;
-    const accentColor = context.accentColor;
+    const accentColor = await this.albumService.getAlbumAccentColor(result.albumCoverUrl, result.albumName, result.artistName);
 
     return AlbumBuilders.buildCoverResponse(result, user, requesterName, accentColor);
   }
@@ -108,7 +108,7 @@ export class AlbumCommands implements ITextCommandModule {
     }
 
     const requesterName = context.message?.author.displayName ?? user.userNameLastFm;
-    const accentColor = context.accentColor;
+    const accentColor = await this.albumService.getAlbumAccentColor(result.albumCoverUrl, result.albumName, result.artistName);
 
     return AlbumBuilders.buildAlbumInfoResponse(result, user, requesterName, accentColor);
   }
@@ -143,7 +143,7 @@ export class AlbumCommands implements ITextCommandModule {
     }
 
     const requesterName = context.message?.author.displayName ?? user.userNameLastFm;
-    const accentColor = context.accentColor;
+    const accentColor = await this.albumService.getAlbumAccentColor(result.albumCoverUrl, result.albumName, result.artistName);
 
     return AlbumBuilders.buildAlbumTracksResponse(result, user, requesterName, 1, accentColor);
   }

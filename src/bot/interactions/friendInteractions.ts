@@ -43,7 +43,8 @@ export class FriendInteractions {
     context.discordUserId = interaction.user.id;
     context.guildId = interaction.guildId ?? undefined;
     context.prefix = '.';
-    context.accentColor = await this.colorService.getAccentColorAsync(interaction.user.id);
+    const avatarUrl = interaction.user.displayAvatarURL({ size: 256 });
+    context.accentColor = avatarUrl ? await this.colorService.getColorFromImageUrl(avatarUrl) : undefined;
     return context;
   }
 

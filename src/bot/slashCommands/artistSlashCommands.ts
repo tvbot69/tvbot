@@ -14,6 +14,8 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/updateService';
 import { prisma } from '@persistence/prismaClient';
+import { container } from 'tsyringe';
+import { ColorService } from '@bot/services/colorService';
 
 export class ArtistSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -100,6 +102,8 @@ export class ArtistSlashCommands implements ISlashCommandModule {
     };
 
     const displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? targetUser.userNameLastFm;
+    const colorService = container.resolve(ColorService);
+    const accentColor = await colorService.getColorFromImageUrl(imageUrl);
 
     return ArtistBuilders.buildArtistInfoResponse(
       resolvedArtist.name,
@@ -114,7 +118,7 @@ export class ArtistSlashCommands implements ISlashCommandModule {
       { userPlays: totalPlays, lastMonthPlays: recentPlays.month, userPercentage },
       genres,
       imageUrl,
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -137,6 +141,8 @@ export class ArtistSlashCommands implements ISlashCommandModule {
     ]);
 
     const displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? targetUser.userNameLastFm;
+    const colorService = container.resolve(ColorService);
+    const accentColor = await colorService.getColorFromImageUrl(imageUrl);
 
     return ArtistBuilders.buildArtistOverviewResponse(
       resolvedArtist.name,
@@ -150,7 +156,7 @@ export class ArtistSlashCommands implements ISlashCommandModule {
       topAlbums,
       genres,
       imageUrl,
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -167,6 +173,9 @@ export class ArtistSlashCommands implements ISlashCommandModule {
     const totalArtistPlays = await this.artistTrackService.getTotalArtistPlays(targetUser.userId, resolvedArtist.name);
     const distinct = albums.length;
     const displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? targetUser.userNameLastFm;
+    const imageUrl = await this.getArtistImage(resolvedArtist);
+    const colorService = container.resolve(ColorService);
+    const accentColor = await colorService.getColorFromImageUrl(imageUrl);
 
     return ArtistBuilders.buildArtistTopAlbumsResponse(
       resolvedArtist.name,
@@ -178,7 +187,7 @@ export class ArtistSlashCommands implements ISlashCommandModule {
       totalArtistPlays,
       distinct,
       0,
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -203,7 +212,7 @@ export class ArtistSlashCommands implements ISlashCommandModule {
       totalPlaysHelper(totalArtistPlays),
       distinct,
       0,
-      context.accentColor,
+      undefined,
       resolvedArtist.artistId,
       context.discordUserId,
       context.discordUserId,

@@ -13,6 +13,7 @@ import { storeServerRankingQuery } from '@bot/interactions/serverInteractions';
 import { ColorService } from '@bot/services/colorService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 
 @injectable()
 export class ServerSlashCommands implements ISlashCommandModule {
@@ -151,11 +152,13 @@ export class ServerSlashCommands implements ISlashCommandModule {
   }
 
   private async getAccentColor(context: ContextModel): Promise<number | undefined> {
-    const guildColor = await this.colorService.getGuildAccentColorAsync(context.guildId);
-    if (guildColor !== undefined && guildColor !== null) {
-      return guildColor;
+    if (context.interaction?.guild) {
+      const iconUrl = context.interaction.guild.iconURL({ extension: 'png', size: 128 });
+      if (iconUrl) {
+        return this.colorService.getColorFromImageUrl(iconUrl);
+      }
     }
-    return this.colorService.getUserAccentColorAsync(context.discordUserId);
+    return DiscordConstants.LastFmColorRed;
   }
 
   private async handleSubcommandAsync(context: ContextModel): Promise<ResponseModel> {

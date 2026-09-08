@@ -176,8 +176,6 @@ export class CommandHandler {
     void this.trackActivity(message);
 
     const context = ContextModel.fromMessage(message, prefix, split);
-    context.accentColor = await this.colorService.getAccentColorAsync(context.discordUserId)
-      ?? (context.guildId ? await this.colorService.getAccentColorAsync(context.guildId) : undefined);
 
     const typingInterval = message.channel.isTextBased() && 'sendTyping' in message.channel
       ? setInterval(() => {

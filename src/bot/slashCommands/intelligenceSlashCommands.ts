@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
-import { inject, injectable } from 'tsyringe';
+import { inject, injectable, container } from 'tsyringe';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
@@ -7,6 +7,8 @@ import { UserService } from '@bot/services/userService';
 import { SettingService } from '@bot/services/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { ColorService } from '@bot/services/colorService';
+import { ArtworkService } from '@bot/services/artworkService';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import {
@@ -46,6 +48,7 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
     @inject(MusicIntelligenceService) private readonly intelligenceService: MusicIntelligenceService,
     @inject(ColorService) private readonly colorService?: ColorService,
     @inject(IcebergGenerator) private readonly icebergGenerator?: IcebergGenerator,
+    @inject(ArtworkService) private readonly artworkService?: ArtworkService,
   ) {
     this.commands = [
       {
@@ -233,10 +236,25 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
 
     const items = await this.intelligenceService.getListeningGaps(target.targetUser.userId, entityType, 90);
 
+    const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+    const clrSvc = this.colorService ?? container.resolve(ColorService);
+    let accentColor = DiscordConstants.LastFmColorRed;
+    if (items.length > 0 && items[0]) {
+      const top = items[0];
+      let artUrl: string | null = null;
+      if (entityType === 'artist') {
+        artUrl = await artSvc.getArtistImageUrl(top.name);
+      } else if (entityType === 'album') {
+        artUrl = await artSvc.getAlbumCoverUrl(top.artistName ?? '', top.name);
+      } else {
+        artUrl = await artSvc.getTrackCoverUrl(top.artistName ?? '', top.name);
+      }
+      if (artUrl) {
+        accentColor = await clrSvc.getColorFromImageUrl(artUrl);
+      }
+    }
+
     const targetDiscordId = target.targetUser.discordUserId.toString();
-    const accentColor = targetDiscordId && targetDiscordId !== '0'
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
 
     return IntelligenceBuilders.buildListeningGapsResponse({
       displayName: target.displayName,
@@ -264,10 +282,17 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
 
     const items = await this.intelligenceService.getDiscoveries(target.targetUser.userId, start, end);
 
+    const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+    const clrSvc = this.colorService ?? container.resolve(ColorService);
+    let accentColor = DiscordConstants.LastFmColorRed;
+    if (items.length > 0 && items[0]?.artistName) {
+      const artUrl = await artSvc.getArtistImageUrl(items[0].artistName);
+      if (artUrl) {
+        accentColor = await clrSvc.getColorFromImageUrl(artUrl);
+      }
+    }
+
     const targetDiscordId = target.targetUser.discordUserId.toString();
-    const accentColor = targetDiscordId && targetDiscordId !== '0'
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
 
     return IntelligenceBuilders.buildDiscoveriesResponse({
       displayName: target.displayName,
@@ -322,10 +347,18 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
       }
     }
 
-    const targetDiscordId = target.targetUser.discordUserId.toString();
-    const accentColor = targetDiscordId && targetDiscordId !== '0'
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
+    const clrSvc = this.colorService ?? container.resolve(ColorService);
+    let accentColor = DiscordConstants.LastFmColorRed;
+    if (imageBuffer) {
+      accentColor = await clrSvc.extractAccentColor(imageBuffer);
+    }
+    if (accentColor === DiscordConstants.LastFmColorRed && topArtists.length > 0 && topArtists[0]?.name) {
+      const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+      const artUrl = await artSvc.getArtistImageUrl(topArtists[0].name);
+      if (artUrl) {
+        accentColor = await clrSvc.getColorFromImageUrl(artUrl);
+      }
+    }
 
     return IntelligenceBuilders.buildIcebergResponse({
       data: icebergData,
@@ -358,10 +391,18 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
       guildName,
     );
 
+    const clrSvc = this.colorService ?? container.resolve(ColorService);
+    const iconUrl = context.guild?.iconURL({ size: 256 }) ?? undefined;
+    let accentColor = iconUrl ? await clrSvc.getColorFromImageUrl(iconUrl) : DiscordConstants.LastFmColorRed;
+    if (accentColor === DiscordConstants.LastFmColorRed && affinityData.neighbors.length > 0 && affinityData.neighbors[0]?.sharedArtists[0]) {
+      const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+      const artUrl = await artSvc.getArtistImageUrl(affinityData.neighbors[0].sharedArtists[0]);
+      if (artUrl) {
+        accentColor = await clrSvc.getColorFromImageUrl(artUrl);
+      }
+    }
+
     const targetDiscordId = target.targetUser.discordUserId.toString();
-    const accentColor = targetDiscordId && targetDiscordId !== '0'
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
 
     return IntelligenceBuilders.buildAffinityResponse({
       data: affinityData,
@@ -436,7 +477,12 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
       );
     }
 
-    return IntelligenceBuilders.buildLoveSuccessResponse(artistName, trackName, true, context.accentColor);
+    const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+    const clrSvc = this.colorService ?? container.resolve(ColorService);
+    const trackArtUrl = await artSvc.getTrackCoverUrl(artistName, trackName);
+    const accentColor = trackArtUrl ? await clrSvc.getColorFromImageUrl(trackArtUrl) : DiscordConstants.LastFmColorRed;
+
+    return IntelligenceBuilders.buildLoveSuccessResponse(artistName, trackName, true, accentColor);
   }
 
   private async unloveSlashAsync(
@@ -504,7 +550,12 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
       );
     }
 
-    return IntelligenceBuilders.buildLoveSuccessResponse(artistName, trackName, false, context.accentColor);
+    const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+    const clrSvc = this.colorService ?? container.resolve(ColorService);
+    const trackArtUrl = await artSvc.getTrackCoverUrl(artistName, trackName);
+    const accentColor = trackArtUrl ? await clrSvc.getColorFromImageUrl(trackArtUrl) : DiscordConstants.LastFmColorRed;
+
+    return IntelligenceBuilders.buildLoveSuccessResponse(artistName, trackName, false, accentColor);
   }
 
   private async lovedSlashAsync(
@@ -521,10 +572,16 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
       target.targetUser.sessionKey ?? undefined,
     );
 
-    const targetDiscordId = target.targetUser.discordUserId.toString();
-    const accentColor = targetDiscordId && targetDiscordId !== '0'
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
+    const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+    const clrSvc = this.colorService ?? container.resolve(ColorService);
+    let accentColor = DiscordConstants.LastFmColorRed;
+    if (tracks.length > 0 && tracks[0]) {
+      const topTrack = tracks[0];
+      const trackArtUrl = topTrack.imageUrl || await artSvc.getTrackCoverUrl(topTrack.artistName, topTrack.name);
+      if (trackArtUrl) {
+        accentColor = await clrSvc.getColorFromImageUrl(trackArtUrl);
+      }
+    }
 
     return IntelligenceBuilders.buildLovedTracksResponse({
       displayName: target.displayName,
@@ -570,6 +627,11 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
       );
     }
 
-    return IntelligenceBuilders.buildScrobbleSuccessResponse(artist, track, album, context.accentColor);
+    const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+    const clrSvc = this.colorService ?? container.resolve(ColorService);
+    const trackArtUrl = await artSvc.getTrackCoverUrl(artist, track);
+    const accentColor = trackArtUrl ? await clrSvc.getColorFromImageUrl(trackArtUrl) : DiscordConstants.LastFmColorRed;
+
+    return IntelligenceBuilders.buildScrobbleSuccessResponse(artist, track, album, accentColor);
   }
 }

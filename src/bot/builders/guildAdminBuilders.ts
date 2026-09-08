@@ -24,7 +24,8 @@ export class GuildAdminBuilders {
   }): ResponseModel {
     const { guild } = params;
     const container = new ContainerBuilder();
-    container.setAccentColor(params.accentColor ?? guild.accentColor ?? DiscordConstants.LastFmColorRed);
+    const accent = params.accentColor ?? DiscordConstants.LastFmColorRed;
+    container.setAccentColor(accent);
 
     const titleText = `### ⚙️ Server Configuration for **${guild.guildName}**\n-# Server settings and crown management dashboard`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
@@ -35,14 +36,14 @@ export class GuildAdminBuilders {
     const crownActivity = guild.crownsActivityThresholdDays ? `${guild.crownsActivityThresholdDays} days` : 'No expiration';
 
     const sections = [
-      `**⚙️ General**\n> • Prefix: \`${params.prefix}\`\n> • Accent Color: \`${guild.accentColor ? `#${guild.accentColor.toString(16)}` : 'Default Red'}\`\n> • Commands: ${guild.commandsDisabled ? '🔴 Disabled' : '🟢 Enabled'}`,
+      `**⚙️ General**\n> • Prefix: \`${params.prefix}\`\n> • Commands: ${guild.commandsDisabled ? '🔴 Disabled' : '🟢 Enabled'}`,
       `**👑 Crowns Configuration**\n> • Status: ${crownStatus}\n> • Minimum Playcount Threshold: **${crownThreshold} plays**\n> • Activity Expiration: **${crownActivity}**`,
       `**👥 Server Members**\n> • Indexed Last.fm Members: **${params.memberCount.toLocaleString()}**\n> • Blocked from Crowns & WhoKnows: **${params.blockedCount.toLocaleString()}**`,
     ];
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(sections.join('\n\n')));
 
-    const response = new ResponseModel(params.accentColor ?? guild.accentColor ?? DiscordConstants.LastFmColorRed);
+    const response = new ResponseModel(accent);
     response.commandResponse = CommandResponse.Ok;
     response.setComponentsV2Container(container);
     return response;

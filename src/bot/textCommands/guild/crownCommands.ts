@@ -10,6 +10,10 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { ArtistsService } from '@bot/services/artistsService';
 
+import { container } from 'tsyringe';
+import { ColorService } from '@bot/services/colorService';
+import { ArtworkService } from '@bot/services/artworkService';
+
 export class CrownCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
 
@@ -19,6 +23,8 @@ export class CrownCommands implements ITextCommandModule {
     private readonly lastfmRepo: ILastfmRepository,
     private readonly artistsService: ArtistsService,
     private readonly updateService: UpdateService,
+    private readonly colorService?: ColorService,
+    private readonly artworkService?: ArtworkService,
   ) {
     this.commands = [
       {
@@ -94,6 +100,11 @@ export class CrownCommands implements ITextCommandModule {
     const displayName = member?.displayName ?? targetUser.userNameLastFm;
 
     const crowns = await this.crownService.getUserCrowns(context.guildId, targetUser.userId, 'Playcount');
+    const topArtist = crowns[0]?.artistName;
+    const artService = this.artworkService ?? container.resolve(ArtworkService);
+    const colorService = this.colorService ?? container.resolve(ColorService);
+    const imgUrl = topArtist ? await artService.getArtistImageUrl(topArtist) : null;
+    const accentColor = await colorService.getColorFromImageUrl(imgUrl);
 
     return CrownBuilders.buildCrownsResponse(
       displayName,
@@ -102,7 +113,7 @@ export class CrownCommands implements ITextCommandModule {
       crowns,
       page,
       'Playcount',
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -177,13 +188,18 @@ export class CrownCommands implements ITextCommandModule {
       };
     }
 
+    const artService = this.artworkService ?? container.resolve(ArtworkService);
+    const colorService = this.colorService ?? container.resolve(ColorService);
+    const imgUrl = await artService.getArtistImageUrl(resolvedName);
+    const accentColor = await colorService.getColorFromImageUrl(imgUrl);
+
     return CrownBuilders.buildCrownDuelResponse(
       resolvedName,
       currentCrown,
       holderDisplayName,
       challengerPayload,
       history,
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -206,13 +222,17 @@ export class CrownCommands implements ITextCommandModule {
       if (m) item.displayName = m.displayName;
     }
 
+    const guildIcon = context.message?.guild?.iconURL({ extension: 'png', size: 256 });
+    const colorService = this.colorService ?? container.resolve(ColorService);
+    const accentColor = await colorService.getColorFromImageUrl(guildIcon);
+
     return CrownBuilders.buildCrownLeaderboardResponse(
       guildName,
       entries,
       caller?.userId,
       page,
       totalActiveCrowns,
-      context.accentColor,
+      accentColor,
     );
   }
 

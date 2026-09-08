@@ -9,7 +9,6 @@ import type { LastFmUser } from '@domain/models/lastFmUser';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { FmEmbedType, FmEmbedTypeNames } from '@domain/enums/fmEmbedType';
 import { FmFooterOption, FmFooterOptionMeta } from '@domain/enums/fmFooterOption';
-import { FmAccentColor } from '@domain/enums/fmAccentColor';
 import { FmButton, FmButtonMetaList } from '@domain/enums/fmButton';
 import { FmTextType } from '@domain/enums/fmTextType';
 import { buildFooterText } from './footerBuilder';
@@ -38,14 +37,6 @@ function toDisplayScrobbles(n?: number): string {
   return n.toLocaleString();
 }
 
-function getAccentColor(setting: { accentColor: number | null; customColor: string | null } | null, userAccent?: number): number | undefined {
-  if (setting?.accentColor === FmAccentColor.LastFmRed) return DiscordConstants.LastFmColorRed;
-  if (setting?.accentColor === FmAccentColor.Custom) {
-    const color = setting.customColor?.replace(/^#/, '');
-    if (color && /^[0-9a-f]{6}$/i.test(color)) return parseInt(color, 16);
-  }
-  return userAccent;
-}
 
 export function buildNowPlayingButtons(
   setting: { buttons: bigint } | null,
@@ -149,7 +140,7 @@ export class PlayBuilders {
     tracks: RecentTrack[],
     lastFmUser: LastFmUser | null,
     opts?: {
-      fmSetting?: { embedType: number; footerOptions: bigint; smallTextType: number | null; accentColor: number | null; customColor: string | null; buttons: bigint } | null;
+      fmSetting?: { embedType: number; footerOptions: bigint; smallTextType: number | null; buttons: bigint } | null;
       guildFmType?: number | null;
       channelFmType?: number | null;
       inlineEmbedType?: FmEmbedType | null;
@@ -163,6 +154,7 @@ export class PlayBuilders {
       isLoved?: boolean;
       crownHolder?: string | null;
       differentUser?: boolean;
+      accentColor?: number;
     },
   ): ResponseModel {
     const track = tracks[0];
@@ -192,8 +184,7 @@ export class PlayBuilders {
     });
     const footerText = rawFooter || `${toDisplayScrobbles(lastFmUser?.playCount)} total scrobbles`;
 
-    const fallbackColor = opts?.differentUser ? undefined : context.accentColor;
-    const accent = getAccentColor(fmSetting, fallbackColor);
+    const accent = opts?.accentColor ?? DiscordConstants.LastFmColorRed;
 
     // Text variants still use legacy embed for speed, but Embed types use Components V2 to match fmbot
     const actionRows = buildNowPlayingButtons(fmSetting, track, user.userNameLastFm, {
@@ -315,24 +306,14 @@ export class PlayBuilders {
   }
 
   public static buildFmModeResponse(
-    setting: { embedType: number; footerOptions: bigint; buttons: bigint; accentColor: number | null; customColor: string | null; smallTextType: number | null },
+    setting: { embedType: number; footerOptions: bigint; buttons: bigint; smallTextType: number | null },
     accentColor?: number,
   ): ResponseModel {
     const typeName = (FmEmbedTypeNames as Record<number,string>)[setting.embedType] ?? String(setting.embedType);
-    const selectedFooter = Number(setting.footerOptions);
-    const selectedButtons = Number(setting.buttons);
     const typeMenu = new StringSelectMenuBuilder()
       .setCustomId('fmmode:type')
       .setPlaceholder(`Layout: ${typeName}`)
       .addOptions(Object.entries(FmEmbedTypeNames).map(([value, label]) => ({ label, value, default: Number(value) === setting.embedType })));
-    const accentMenu = new StringSelectMenuBuilder()
-      .setCustomId('fmmode:accent')
-      .setPlaceholder('Accent color')
-      .addOptions([
-        { label: 'Neutral cover', value: String(FmAccentColor.CoverColor), default: setting.accentColor === FmAccentColor.CoverColor || setting.accentColor === null },
-        { label: 'Last.fm red', value: String(FmAccentColor.LastFmRed), default: setting.accentColor === FmAccentColor.LastFmRed },
-        { label: 'Server color', value: String(FmAccentColor.GuildColor), default: setting.accentColor === FmAccentColor.GuildColor },
-      ]);
     const textMenu = new StringSelectMenuBuilder()
       .setCustomId('fmmode:text')
       .setPlaceholder('Text size')
@@ -354,17 +335,15 @@ export class PlayBuilders {
       .setMaxValues(linkButtonOptions.length)
       .addOptions(linkButtonOptions.map(({ flag, label, emoji }) => ({ label, emoji, value: String(flag), default: (BigInt(setting.buttons) & BigInt(flag)) !== BigInt(0) })));
     const container = new ContainerBuilder();
-    if (accentColor !== undefined && accentColor !== null) {
-      container.setAccentColor(accentColor);
-    }
+    const resolvedAccent = accentColor ?? DiscordConstants.LastFmColorRed;
+    container.setAccentColor(resolvedAccent);
     container
       .addTextDisplayComponents(new TextDisplayBuilder().setContent(`## FM Mode\nCurrent layout: **${typeName}**\nChanges save immediately and affect your own \`.fm\` responses.`))
       .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(typeMenu))
-      .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(accentMenu))
       .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(textMenu))
       .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(footerMenu))
       .addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(buttonMenu));
-    const response = new ResponseModel(accentColor);
+    const response = new ResponseModel(resolvedAccent);
     response.commandResponse = CommandResponse.Ok;
     response.setComponentsV2Container(container);
     return response;

@@ -11,6 +11,10 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { ArtistsService } from '@bot/services/artistsService';
 
+import { container } from 'tsyringe';
+import { ColorService } from '@bot/services/colorService';
+import { ArtworkService } from '@bot/services/artworkService';
+
 export class CrownSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
 
@@ -20,6 +24,8 @@ export class CrownSlashCommands implements ISlashCommandModule {
     private readonly lastfmRepo: ILastfmRepository,
     private readonly artistsService: ArtistsService,
     private readonly updateService: UpdateService,
+    private readonly colorService?: ColorService,
+    private readonly artworkService?: ArtworkService,
   ) {
     this.commands = [
       {
@@ -39,17 +45,17 @@ export class CrownSlashCommands implements ISlashCommandModule {
           .setName('crown')
           .setDescription('Shows the crown holder and stats for an artist in this server')
           .addStringOption((opt) =>
-            opt.setName('artist').setDescription('Artist name').setRequired(false),
+            opt.setName('artist').setDescription('Artist name (defaults to currently playing)').setRequired(false),
           )
           .addUserOption((opt) =>
-            opt.setName('user').setDescription('User to duel or compare with').setRequired(false),
+            opt.setName('user').setDescription('Compare with a specific user').setRequired(false),
           ) as any,
         executeAsync: (ctx) => this.crownAsync(ctx),
       },
       {
         data: new SlashCommandBuilder()
           .setName('crownlb')
-          .setDescription('Shows the crown leaderboard for this server')
+          .setDescription('Leaderboard of top crown holders in this server')
           .addIntegerOption((opt) =>
             opt.setName('page').setDescription('Page number').setMinValue(1).setRequired(false),
           ) as any,
@@ -58,9 +64,9 @@ export class CrownSlashCommands implements ISlashCommandModule {
       {
         data: new SlashCommandBuilder()
           .setName('crownseed')
-          .setDescription('Seeds crowns for this server based on existing indexed plays (Admin)')
+          .setDescription('Admin command to seed/refresh crowns for this server')
           .addIntegerOption((opt) =>
-            opt.setName('min_plays').setDescription('Minimum playcount threshold (default: 30)').setMinValue(1).setRequired(false),
+            opt.setName('min_plays').setDescription('Minimum playcount threshold (default 30)').setMinValue(1).setRequired(false),
           ) as any,
         executeAsync: (ctx) => this.crownSeedAsync(ctx),
       },
@@ -84,18 +90,19 @@ export class CrownSlashCommands implements ISlashCommandModule {
       void this.updateService.updateUser(caller.userId, { accurateTotal: true });
     }
 
-    const targetUserOpt = context.interaction?.options.getUser('user');
-    const targetDiscordId = targetUserOpt?.id ?? context.discordUserId;
-    const targetUser = targetUserOpt
-      ? await this.userService.getUserByDiscordId(targetDiscordId)
-      : caller;
+    let targetDiscordId = context.discordUserId;
+    let targetUser = caller;
 
-    if (!targetUser) {
-      return GenericEmbedService.buildNotFoundResponse('That user has not registered with the bot yet.');
-    }
-
-    if (targetUser.userId !== caller.userId && UpdateService.needsUpdate(targetUser, 2)) {
-      void this.updateService.updateUser(targetUser.userId, { accurateTotal: true });
+    const userOpt = context.interaction?.options.getUser('user');
+    if (userOpt) {
+      targetDiscordId = userOpt.id;
+      const other = await this.userService.getUserByDiscordId(targetDiscordId);
+      if (other) {
+        targetUser = other;
+        if (UpdateService.needsUpdate(other, 2)) {
+          void this.updateService.updateUser(other.userId, { accurateTotal: true });
+        }
+      }
     }
 
     const page = Math.max(1, context.interaction?.options.getInteger('page') ?? 1);
@@ -103,6 +110,11 @@ export class CrownSlashCommands implements ISlashCommandModule {
     const displayName = member?.displayName ?? targetUser.userNameLastFm;
 
     const crowns = await this.crownService.getUserCrowns(context.guildId, targetUser.userId, 'Playcount');
+    const topArtist = crowns[0]?.artistName;
+    const artService = this.artworkService ?? container.resolve(ArtworkService);
+    const colorService = this.colorService ?? container.resolve(ColorService);
+    const imgUrl = topArtist ? await artService.getArtistImageUrl(topArtist) : null;
+    const accentColor = await colorService.getColorFromImageUrl(imgUrl);
 
     return CrownBuilders.buildCrownsResponse(
       displayName,
@@ -111,7 +123,7 @@ export class CrownSlashCommands implements ISlashCommandModule {
       crowns,
       page,
       'Playcount',
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -175,13 +187,18 @@ export class CrownSlashCommands implements ISlashCommandModule {
       };
     }
 
+    const artService = this.artworkService ?? container.resolve(ArtworkService);
+    const colorService = this.colorService ?? container.resolve(ColorService);
+    const imgUrl = await artService.getArtistImageUrl(resolvedName);
+    const accentColor = await colorService.getColorFromImageUrl(imgUrl);
+
     return CrownBuilders.buildCrownDuelResponse(
       resolvedName,
       currentCrown,
       holderDisplayName,
       challengerPayload,
       history,
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -201,13 +218,17 @@ export class CrownSlashCommands implements ISlashCommandModule {
       if (m) item.displayName = m.displayName;
     }
 
+    const guildIcon = context.guild?.iconURL({ extension: 'png', size: 256 });
+    const colorService = this.colorService ?? container.resolve(ColorService);
+    const accentColor = await colorService.getColorFromImageUrl(guildIcon);
+
     return CrownBuilders.buildCrownLeaderboardResponse(
       guildName,
       entries,
       caller?.userId,
       page,
       totalActiveCrowns,
-      context.accentColor,
+      accentColor,
     );
   }
 

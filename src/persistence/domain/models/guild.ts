@@ -6,7 +6,6 @@ export interface Guild {
   lastCommand?: Date;
   commandsDisabled: boolean;
   emotesDisabled: boolean;
-  accentColor?: number;
   fmEmbedType?: number | null;
   whoKnowsActivityThreshold?: number;
   crownsDisabled?: boolean;

@@ -44,7 +44,7 @@ describe('PlayBuilders.buildFmResponse', () => {
   it('builds the FM mode selector panel', () => {
     const response = PlayBuilders.buildFmModeResponse(setting);
     expect(response.isComponentsV2).toBe(true);
-    expect(response.componentsV2Container!.toJSON().components).toHaveLength(6);
+    expect(response.componentsV2Container!.toJSON().components).toHaveLength(5);
   });
 
   it('renders custom footer options (artist, album, track plays, loved) when configured in fmmode', () => {

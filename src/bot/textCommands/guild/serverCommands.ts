@@ -11,6 +11,7 @@ import { storeServerRankingQuery } from '@bot/interactions/serverInteractions';
 import { ColorService } from '@bot/services/colorService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 
 @injectable()
 export class ServerCommands implements ITextCommandModule {
@@ -44,12 +45,12 @@ export class ServerCommands implements ITextCommandModule {
     ];
   }
 
-  private async getAccentColor(context: ContextModel): Promise<number | undefined> {
-    const guildColor = await this.colorService.getGuildAccentColorAsync(context.guildId);
-    if (guildColor !== undefined && guildColor !== null) {
-      return guildColor;
+  private async getAccentColor(context: ContextModel): Promise<number> {
+    const iconUrl = context.guild?.iconURL();
+    if (iconUrl) {
+      return this.colorService.getColorFromImageUrl(iconUrl);
     }
-    return this.colorService.getUserAccentColorAsync(context.discordUserId);
+    return DiscordConstants.LastFmColorRed;
   }
 
   private async serverArtistsAsync(context: ContextModel, extraOptions: string): Promise<ResponseModel> {

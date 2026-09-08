@@ -1,4 +1,4 @@
-import { inject, injectable } from 'tsyringe';
+import { container, inject, injectable } from 'tsyringe';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
@@ -8,10 +8,12 @@ import type { AlbumInfo } from '@domain/models/musicInfo';
 import type { TopAlbum } from '@domain/models/topLists';
 import { CacheService } from './cacheService';
 import { ArtworkService } from './artworkService';
+import { ColorService } from './colorService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { parseSpotifyReleaseDate } from './albumEnrichmentService';
 import { PrismaClient } from '@prisma/client';
 import { Logger } from '@domain/logger';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 
 const CACHE_TTL_SECONDS = 3600;
 
@@ -58,6 +60,7 @@ export class AlbumService {
   private readonly spotifyApi: SpotifySearchApi;
   private readonly prisma: PrismaClient;
   private readonly cache: CacheService;
+  private readonly colorService?: ColorService;
 
   constructor(
     @inject('ILastfmRepository') lastfmRepository: ILastfmRepository,
@@ -69,6 +72,7 @@ export class AlbumService {
     @inject(SpotifySearchApi) spotifyApi: SpotifySearchApi,
     @inject(PrismaClient) prisma: PrismaClient,
     @inject(CacheService) cache: CacheService,
+    @inject(ColorService) colorService?: ColorService,
   ) {
     this.lastfmRepository = lastfmRepository;
     this.artistRepository = artistRepository;
@@ -79,6 +83,7 @@ export class AlbumService {
     this.spotifyApi = spotifyApi;
     this.prisma = prisma;
     this.cache = cache;
+    this.colorService = colorService;
   }
 
   public async getAlbumInfo(
@@ -628,11 +633,19 @@ export class AlbumService {
    * Resolves album accent color
    */
   public async getAlbumAccentColor(
-    _albumCoverUrl?: string | null,
+    albumCoverUrl?: string | null,
     _albumName?: string,
     _artistName?: string,
   ): Promise<number> {
-    return 0xb90000; // LastFmColorRed
+    if (albumCoverUrl) {
+      try {
+        const cs = this.colorService ?? container.resolve(ColorService);
+        return cs.getColorFromImageUrl(albumCoverUrl);
+      } catch {
+        return DiscordConstants.LastFmColorRed;
+      }
+    }
+    return DiscordConstants.LastFmColorRed;
   }
 
   public async getAccentColorWithAlbum(

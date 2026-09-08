@@ -30,11 +30,6 @@ export class UserFmSettingRepository implements IUserFmSettingRepository {
     const e = await this.prisma.userFmSetting.update({ where: { userId }, data: { buttons, modified: new Date() } });
     return this.map(e);
   }
-  async setAccentColor(userId: number, accentColor: number | null, customColor: string | null = null): Promise<UserFmSetting> {
-    await this.getOrCreate(userId);
-    const e = await this.prisma.userFmSetting.update({ where: { userId }, data: { accentColor, customColor, modified: new Date() } });
-    return this.map(e);
-  }
   async setSmallTextType(userId: number, smallTextType: number | null): Promise<UserFmSetting> {
     await this.getOrCreate(userId);
     const e = await this.prisma.userFmSetting.update({ where: { userId }, data: { smallTextType, modified: new Date() } });
@@ -45,7 +40,7 @@ export class UserFmSettingRepository implements IUserFmSettingRepository {
     const e = await this.prisma.userFmSetting.update({ where: { userId }, data: { privateButtonResponse: value, modified: new Date() } });
     return this.map(e);
   }
-  private map(e: { userId: number; embedType: number; footerOptions: bigint; buttons: bigint; accentColor: number | null; customColor: string | null; smallTextType: number | null; privateButtonResponse: boolean | null; modified: Date | null }): UserFmSetting {
-    return { userId: e.userId, embedType: e.embedType, footerOptions: e.footerOptions, buttons: e.buttons, accentColor: e.accentColor, customColor: e.customColor, smallTextType: e.smallTextType, privateButtonResponse: e.privateButtonResponse, modified: e.modified };
+  private map(e: { userId: number; embedType: number; footerOptions: bigint; buttons: bigint; smallTextType: number | null; privateButtonResponse: boolean | null; modified: Date | null }): UserFmSetting {
+    return { userId: e.userId, embedType: e.embedType, footerOptions: e.footerOptions, buttons: e.buttons, smallTextType: e.smallTextType, privateButtonResponse: e.privateButtonResponse, modified: e.modified };
   }
 }

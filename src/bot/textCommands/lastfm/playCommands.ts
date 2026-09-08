@@ -17,6 +17,7 @@ import { PrefixService } from '@bot/services/prefixService';
 import { ArtworkService } from '@bot/services/artworkService';
 import { FmFooterResolver } from '@bot/services/fmFooterResolver';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
+import { ColorService } from '@bot/services/colorService';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
 const FM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
@@ -131,12 +132,14 @@ export class PlayCommands implements ITextCommandModule {
         await enrichFmTracks(tracks);
         // build as if external
         const fakeUser = { ...targetUser, userNameLastFm: targetUserName } as typeof targetUser;
-        return PlayBuilders.buildFmResponse(context, fakeUser, tracks, info, { guildFmType: null, channelFmType: null, inlineEmbedType, differentUser: true });
+        const colorService = container.resolve(ColorService);
+        const accentColor = await colorService.getColorFromImageUrl(tracks[0]?.imageUrl);
+        return PlayBuilders.buildFmResponse(context, fakeUser, tracks, info, { guildFmType: null, channelFmType: null, inlineEmbedType, differentUser: true, accentColor });
       }
     }
 
     // fetch fm setting for display user
-    let fmSetting: { embedType: number; footerOptions: bigint; smallTextType: number | null; accentColor: number | null; customColor: string | null; buttons: bigint } | null = null;
+    let fmSetting: { embedType: number; footerOptions: bigint; smallTextType: number | null; buttons: bigint } | null = null;
     let guildFmType: number | null | undefined = null;
     let channelFmType: number | null | undefined = null;
     try {
@@ -176,17 +179,21 @@ export class PlayCommands implements ITextCommandModule {
 
     await enrichFmTracks(tracks);
 
+    const colorService = container.resolve(ColorService);
+    const accentColor = await colorService.getColorFromImageUrl(tracks[0]?.imageUrl);
+
     const footerOptions = fmSetting ? BigInt(fmSetting.footerOptions) : BigInt(FmFooterOption.TotalScrobbles);
     const footerData = tracks[0]
       ? await FmFooterResolver.resolveFooterData(displayUser, tracks[0], footerOptions, context.guildId)
       : {};
 
     return PlayBuilders.buildFmResponse(context, displayUser, tracks, lastfmUser, {
-      fmSetting: fmSetting as unknown as { embedType: number; footerOptions: bigint; smallTextType: number | null; accentColor: number | null; customColor: string | null; buttons: bigint } | null,
+      fmSetting,
       guildFmType: guildFmType ?? null,
       channelFmType: channelFmType ?? null,
       inlineEmbedType: inlineEmbedType ?? null,
       differentUser,
+      accentColor,
       ...footerData,
     });
   }
@@ -290,13 +297,17 @@ export class PlayCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse(`No scrobbles found for ${targetDisplayName}.`);
     }
 
+    await enrichFmTracks(recentData.tracks);
+    const colorService = container.resolve(ColorService);
+    const accentColor = await colorService.getColorFromImageUrl(recentData.tracks[0]?.imageUrl);
+
     return RecentBuilders.buildRecentTracksResponse(
       targetUserName,
       targetDisplayName,
       targetDiscordId,
       recentData,
       page,
-      context.accentColor,
+      accentColor,
     );
   }
 }

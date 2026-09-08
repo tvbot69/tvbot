@@ -13,6 +13,7 @@ import { UpdateService } from '@bot/services/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import { ColorService } from '@bot/services/colorService';
 
 export class TrackCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -23,6 +24,7 @@ export class TrackCommands implements ITextCommandModule {
     private readonly trackDetailsService: TrackDetailsService,
     private readonly lastfmRepository: ILastfmRepository,
     private readonly updateService: UpdateService,
+    private readonly colorService?: ColorService,
   ) {
     this.commands = [
       {
@@ -110,11 +112,13 @@ export class TrackCommands implements ITextCommandModule {
       previewMap.set(uniqueId, mediaDetails.previewUrl);
     }
 
+    const accentColor = await this.colorService?.getColorFromImageUrl(result.coverUrl) ?? DiscordConstants.LastFmColorRed;
+
     return TrackBuilders.buildTrackInfoResponse(
       result,
       user,
       displayName,
-      context.accentColor,
+      accentColor,
       mediaDetails,
     );
   }
@@ -161,7 +165,8 @@ export class TrackCommands implements ITextCommandModule {
 
     const uniqueId = `td_${context.discordUserId}_${Date.now()}`;
     const details = await this.trackDetailsService.getDetails(artist, trackName, uniqueId);
-    if (!details.resolved) return TrackDetailsBuilders.buildNoMetadataResponse(artist, trackName, context.accentColor);
-    return TrackDetailsBuilders.buildTrackDetailsResponse(details, uniqueId, context.accentColor);
+    const accentColor = await this.colorService?.getColorFromImageUrl(details.artworkUrl) ?? DiscordConstants.LastFmColorRed;
+    if (!details.resolved) return TrackDetailsBuilders.buildNoMetadataResponse(artist, trackName, accentColor);
+    return TrackDetailsBuilders.buildTrackDetailsResponse(details, uniqueId, accentColor);
   }
 }

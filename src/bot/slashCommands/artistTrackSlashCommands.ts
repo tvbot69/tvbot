@@ -10,6 +10,10 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { UpdateService } from '@bot/services/updateService';
 
+import { container } from 'tsyringe';
+import { ArtworkService } from '@bot/services/artworkService';
+import { ColorService } from '@bot/services/colorService';
+
 export class ArtistTrackSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
   constructor(
@@ -17,6 +21,8 @@ export class ArtistTrackSlashCommands implements ISlashCommandModule {
     private readonly artistTrackService: ArtistTrackService,
     private readonly lastfmRepository: LastFmRepository,
     private readonly updateService: UpdateService,
+    private readonly colorService?: ColorService,
+    private readonly artworkService?: ArtworkService,
   ) {
     this.commands = [
       {
@@ -49,7 +55,13 @@ export class ArtistTrackSlashCommands implements ISlashCommandModule {
     const totalPlays = await this.artistTrackService.getTotalArtistPlays(user.userId, artistName);
     const distinct = await this.artistTrackService.getDistinctTrackCount(user.userId, artistName);
     const displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? user.userNameLastFm;
-    return ArtistTrackBuilders.buildArtistTopTracksResponse(artistName, displayName, tracks, totalPlays, distinct, 0, context.accentColor);
+
+    const artService = this.artworkService ?? container.resolve(ArtworkService);
+    const colorService = this.colorService ?? container.resolve(ColorService);
+    const imgUrl = await artService.getArtistImageUrl(artistName);
+    const accentColor = await colorService.getColorFromImageUrl(imgUrl);
+
+    return ArtistTrackBuilders.buildArtistTopTracksResponse(artistName, displayName, tracks, totalPlays, distinct, 0, accentColor);
   }
 }
 

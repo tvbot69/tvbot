@@ -393,9 +393,14 @@ export class ChartSlashCommands implements ISlashCommandModule {
         totalPlayCount: chartUser.totalPlayCount ?? requestingUser?.totalPlayCount,
       };
 
-      const accentColor = (chartUser.discordUserId && chartUser.discordUserId !== context.discordUserId && this.colorService)
-        ? await this.colorService.getAccentColorAsync(chartUser.discordUserId)
-        : context.accentColor;
+      let accentColor: number | undefined;
+      if (this.colorService) {
+        if (chartResult.buffer) {
+          accentColor = await this.colorService.extractAccentColor(chartResult.buffer);
+        } else if (chartResult.imageUrl) {
+          accentColor = await this.colorService.getColorFromImageUrl(chartResult.imageUrl);
+        }
+      }
 
       return trackChart
         ? ChartBuilders.buildTrackChartResponse(

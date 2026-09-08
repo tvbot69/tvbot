@@ -1,4 +1,5 @@
 import { SlashCommandBuilder } from 'discord.js';
+import { container } from 'tsyringe';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
@@ -6,6 +7,9 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { UserService } from '@bot/services/userService';
 import { FriendsService } from '@bot/services/friendsService';
 import { FriendBuilders, type FriendNowPlayingItem } from '@bot/builders/friendBuilders';
+import { ArtworkService } from '@bot/services/artworkService';
+import { ColorService } from '@bot/services/colorService';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { FriendType } from '@domain/enums/friendType';
 
@@ -130,6 +134,21 @@ export class FriendSlashCommands implements ISlashCommandModule {
       if (timeA !== timeB) return timeB - timeA;
       return a.displayName.localeCompare(b.displayName);
     });
+
+    let accentColor = DiscordConstants.LastFmColorRed;
+    if (items.length > 0 && items[0]?.artistName && items[0]?.trackName) {
+      try {
+        const artSvc = container.resolve(ArtworkService);
+        const clrSvc = container.resolve(ColorService);
+        const artUrl = await artSvc.getTrackCoverUrl(items[0].artistName, items[0].trackName);
+        if (artUrl) {
+          accentColor = await clrSvc.getColorFromImageUrl(artUrl);
+        }
+      } catch {
+        // fallback
+      }
+    }
+    context.accentColor = accentColor;
 
     return FriendBuilders.buildFriendsNowPlayingResponse(context, user, items, allFriends.length);
   }

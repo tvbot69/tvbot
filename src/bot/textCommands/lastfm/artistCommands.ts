@@ -12,6 +12,7 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/updateService';
 import { prisma } from '@persistence/prismaClient';
+import { ArtistsService } from '@bot/services/artistsService';
 
 export class ArtistCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -24,6 +25,7 @@ export class ArtistCommands implements ITextCommandModule {
     private readonly spotifySearchApi: SpotifySearchApi,
     private readonly lastfmRepository: LastFmRepository,
     private readonly updateService: UpdateService,
+    private readonly artistsService: ArtistsService,
   ) {
     this.commands = [
       {
@@ -82,6 +84,8 @@ export class ArtistCommands implements ITextCommandModule {
 
     const displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? targetUser.userNameLastFm;
 
+    const accentColor = await this.artistsService.getArtistAccentColorAsync(imageUrl, resolvedArtist.artistId, resolvedArtist.name);
+
     return ArtistBuilders.buildArtistInfoResponse(
       resolvedArtist.name,
       resolvedArtist.artistId,
@@ -95,7 +99,7 @@ export class ArtistCommands implements ITextCommandModule {
       { userPlays: totalPlays, lastMonthPlays: recentPlays.month, userPercentage },
       genres,
       imageUrl,
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -126,6 +130,7 @@ export class ArtistCommands implements ITextCommandModule {
     ]);
 
     const displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? targetUser.userNameLastFm;
+    const accentColor = await this.artistsService.getArtistAccentColorAsync(imageUrl, resolvedArtist.artistId, resolvedArtist.name);
 
     return ArtistBuilders.buildArtistOverviewResponse(
       resolvedArtist.name,
@@ -139,7 +144,7 @@ export class ArtistCommands implements ITextCommandModule {
       topAlbums,
       genres,
       imageUrl,
-      context.accentColor,
+      accentColor,
     );
   }
 
@@ -160,10 +165,14 @@ export class ArtistCommands implements ITextCommandModule {
     if (!artistName) return GenericEmbedService.buildNotFoundResponse('No recent tracks found.');
 
     const resolvedArtist = await this.getOrCreateArtist(artistName);
-    const albums = await this.artistTrackService.getTopAlbumsForArtist(targetUser.userId, resolvedArtist.name);
-    const totalArtistPlays = await this.artistTrackService.getTotalArtistPlays(targetUser.userId, resolvedArtist.name);
+    const [albums, totalArtistPlays, imageUrl] = await Promise.all([
+      this.artistTrackService.getTopAlbumsForArtist(targetUser.userId, resolvedArtist.name),
+      this.artistTrackService.getTotalArtistPlays(targetUser.userId, resolvedArtist.name),
+      this.getArtistImage(resolvedArtist),
+    ]);
     const distinct = albums.length;
     const displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? targetUser.userNameLastFm;
+    const accentColor = await this.artistsService.getArtistAccentColorAsync(imageUrl, resolvedArtist.artistId, resolvedArtist.name);
 
     return ArtistBuilders.buildArtistTopAlbumsResponse(
       resolvedArtist.name,
@@ -175,7 +184,7 @@ export class ArtistCommands implements ITextCommandModule {
       totalArtistPlays,
       distinct,
       0,
-      context.accentColor,
+      accentColor,
     );
   }
 

@@ -336,7 +336,8 @@ const configureContainer = (): void => {
     albumRepository,
     cache,
   );
-  const artistsService = new ArtistsService(lastFmRepository, cache);
+  const colorService = new ColorService(cache);
+  const artistsService = new ArtistsService(lastFmRepository, cache, undefined, colorService);
   const albumService = new AlbumService(
     lastFmRepository,
     artistRepository,
@@ -347,6 +348,7 @@ const configureContainer = (): void => {
     spotifySearchApi,
     prisma,
     cache,
+    colorService,
   );
   const trackService = new TrackService(
     lastFmRepository,
@@ -358,7 +360,6 @@ const configureContainer = (): void => {
     prisma,
   );
   const fmSettingService = new FmSettingService(userFmSettingRepository, cache);
-  const colorService = new ColorService(userRepository, fmSettingService, cache, guildRepository);
 
   const indexService = new IndexService(
     userIndexQueue,
@@ -499,9 +500,9 @@ const configureContainer = (): void => {
   const friendInteractions = new FriendInteractions(friendsService, userService, colorService);
   container.registerInstance(FriendInteractions, friendInteractions);
 
-  container.registerInstance(SettingsInteractions, new SettingsInteractions(prefixService, colorService));
+  container.registerInstance(SettingsInteractions, new SettingsInteractions(prefixService));
   container.registerInstance(ChartInteractions, new ChartInteractions(chartService, userService, colorService));
-  container.registerInstance(FmModeInteractions, new FmModeInteractions(userService, fmSettingService, colorService));
+  container.registerInstance(FmModeInteractions, new FmModeInteractions(userService, fmSettingService));
   container.registerInstance(SettingsSlashCommands, new SettingsSlashCommands(prefixService, colorService));
   container.registerInstance(PuppeteerService, puppeteerService);
   container.registerInstance(ImageChartService, imageChartService);
@@ -622,8 +623,8 @@ const configureContainer = (): void => {
   const overviewService = new OverviewService(genreService);
   const topInteractions = new TopInteractions();
   const voiceMessageService = new VoiceMessageService();
-  const trackSlashCommands = new TrackSlashCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService);
-  const trackCommands = new TrackCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService);
+  const trackSlashCommands = new TrackSlashCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, colorService);
+  const trackCommands = new TrackCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, colorService);
   const trackPreviewInteractions = new TrackPreviewInteractions();
   const artistTrackService = new ArtistTrackService();
   const artistTrackSlashCommands = new ArtistTrackSlashCommands(userService, artistTrackService, lastFmRepository, updateService);
@@ -652,7 +653,7 @@ const configureContainer = (): void => {
   const updateSlashCommands = new UpdateSlashCommands(userService, updateService, indexService);
   const updateCommands = new UpdateCommands(userService, updateService, indexService);
   const musicBrainzService = new MusicBrainzService(cache);
-  const artistCommands = new ArtistCommands(userService, artistTrackService, musicBrainzService, genreService, spotifySearchApi, lastFmRepository, updateService);
+  const artistCommands = new ArtistCommands(userService, artistTrackService, musicBrainzService, genreService, spotifySearchApi, lastFmRepository, updateService, artistsService);
   const artistSlashCommands = new ArtistSlashCommands(userService, artistTrackService, musicBrainzService, genreService, spotifySearchApi, lastFmRepository, updateService);
   const artistInteractions = new ArtistInteractions();
 

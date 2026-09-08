@@ -1,9 +1,11 @@
 import { ButtonInteraction, MessageFlags } from 'discord.js';
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { MusicIntelligenceService, type GapEntityType } from '@bot/services/musicIntelligenceService';
 import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
 import { UserService } from '@bot/services/userService';
 import { ColorService } from '@bot/services/colorService';
+import { ArtworkService } from '@bot/services/artworkService';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 
 @injectable()
 export class IntelligenceInteractions {
@@ -11,6 +13,7 @@ export class IntelligenceInteractions {
     @inject(MusicIntelligenceService) private readonly intelligenceService: MusicIntelligenceService,
     @inject(UserService) private readonly userService: UserService,
     @inject(ColorService) private readonly colorService: ColorService,
+    @inject(ArtworkService) private readonly artworkService?: ArtworkService,
   ) {}
 
   public async handleButton(interaction: ButtonInteraction): Promise<void> {
@@ -67,7 +70,16 @@ export class IntelligenceInteractions {
       interaction.guild.name,
     );
 
-    const accentColor = await this.colorService.getAccentColorAsync(lookupId);
+    const iconUrl = interaction.guild?.iconURL({ size: 256 }) ?? undefined;
+    let accentColor = iconUrl ? await this.colorService.getColorFromImageUrl(iconUrl) : DiscordConstants.LastFmColorRed;
+    if (accentColor === DiscordConstants.LastFmColorRed && affinityData.neighbors.length > 0 && affinityData.neighbors[0]?.sharedArtists[0]) {
+      const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+      const artUrl = await artSvc.getArtistImageUrl(affinityData.neighbors[0].sharedArtists[0]);
+      if (artUrl) {
+        accentColor = await this.colorService.getColorFromImageUrl(artUrl);
+      }
+    }
+
     const response = IntelligenceBuilders.buildAffinityResponse({
       data: affinityData,
       page: newPage,
@@ -117,7 +129,15 @@ export class IntelligenceInteractions {
 
     const member = interaction.guild?.members.cache.get(lookupId);
     const displayName = member?.displayName ?? targetUser.userNameLastFm;
-    const accentColor = await this.colorService.getAccentColorAsync(lookupId);
+
+    const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+    let accentColor = DiscordConstants.LastFmColorRed;
+    if (items.length > 0 && items[0]?.artistName) {
+      const artUrl = await artSvc.getArtistImageUrl(items[0].artistName);
+      if (artUrl) {
+        accentColor = await this.colorService.getColorFromImageUrl(artUrl);
+      }
+    }
 
     const response = IntelligenceBuilders.buildDiscoveriesResponse({
       displayName,
@@ -170,7 +190,23 @@ export class IntelligenceInteractions {
 
     const member = interaction.guild?.members.cache.get(lookupId);
     const displayName = member?.displayName ?? targetUser.userNameLastFm;
-    const accentColor = await this.colorService.getAccentColorAsync(lookupId);
+
+    const artSvc = this.artworkService ?? container.resolve(ArtworkService);
+    let accentColor = DiscordConstants.LastFmColorRed;
+    if (items.length > 0 && items[0]) {
+      const top = items[0];
+      let artUrl: string | null = null;
+      if (entityType === 'artist') {
+        artUrl = await artSvc.getArtistImageUrl(top.name);
+      } else if (entityType === 'album') {
+        artUrl = await artSvc.getAlbumCoverUrl(top.artistName ?? '', top.name);
+      } else {
+        artUrl = await artSvc.getTrackCoverUrl(top.artistName ?? '', top.name);
+      }
+      if (artUrl) {
+        accentColor = await this.colorService.getColorFromImageUrl(artUrl);
+      }
+    }
 
     const response = IntelligenceBuilders.buildListeningGapsResponse({
       displayName,

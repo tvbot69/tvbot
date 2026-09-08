@@ -8,6 +8,8 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/updateService';
 
+import { container } from 'tsyringe';
+import { ArtworkService } from '@bot/services/artworkService';
 import { ColorService } from '@bot/services/colorService';
 
 export class OverviewCommands implements ITextCommandModule {
@@ -70,13 +72,14 @@ export class OverviewCommands implements ITextCommandModule {
       void this.updateService.updateUser(targetUserId, { accurateTotal: true });
     }
 
-    const targetDiscordId = targetUserObj?.discordUserId ? String(targetUserObj.discordUserId) : undefined;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : (userStr ? undefined : context.accentColor);
-
     const overview = await this.overviewService.getOverview(userNameLastFm);
     if (!overview || overview.dailyBlocks.length === 0) return GenericEmbedService.buildNotFoundResponse('No recent plays found for overview.');
+
+    const topArtist = overview.dailyBlocks.find(b => b.topArtist)?.topArtist;
+    const artService = container.resolve(ArtworkService);
+    const topArt = topArtist ? await artService.getArtistImageUrl(topArtist) : null;
+    const accentColor = await this.colorService?.getColorFromImageUrl(topArt);
+
     return OverviewBuilders.buildOverviewResponse(userNameLastFm, displayName, 'Weekly', overview, 0, accentColor);
   }
 }

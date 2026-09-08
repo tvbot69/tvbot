@@ -75,15 +75,12 @@ export class TopCommands implements ITextCommandModule {
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
-    const targetDiscordId = userObj?.discordUserId ? String(userObj.discordUserId) : undefined;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : (userStr ? undefined : context.accentColor);
     const timeSettings = this.settingService.getTimePeriod(period);
     const from = timeSettings.startDateTime ? Math.floor(timeSettings.startDateTime.getTime() / 1000) : undefined;
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
     const topArtists = await this.lastfmRepository.getTopArtists(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topArtists || topArtists.length === 0) return GenericEmbedService.buildNotFoundResponse('No top artists found for this time period.');
+    const accentColor = await this.colorService?.getColorFromImageUrl(topArtists[0]?.imageUrl);
     return TopBuilders.buildTopArtistsResponse(userNameLastFm, displayName, topArtists, timeSettings, 0, accentColor);
   }
 
@@ -95,15 +92,12 @@ export class TopCommands implements ITextCommandModule {
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
-    const targetDiscordId = userObj?.discordUserId ? String(userObj.discordUserId) : undefined;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : (userStr ? undefined : context.accentColor);
     const timeSettings = this.settingService.getTimePeriod(period);
     const from = timeSettings.startDateTime ? Math.floor(timeSettings.startDateTime.getTime() / 1000) : undefined;
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
     const topAlbums = await this.lastfmRepository.getTopAlbums(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topAlbums || topAlbums.length === 0) return GenericEmbedService.buildNotFoundResponse('No top albums found for this time period.');
+    const accentColor = await this.colorService?.getColorFromImageUrl(topAlbums[0]?.imageUrl);
     return TopBuilders.buildTopAlbumsResponse(userNameLastFm, displayName, topAlbums, timeSettings, 0, accentColor);
   }
 
@@ -115,15 +109,12 @@ export class TopCommands implements ITextCommandModule {
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
-    const targetDiscordId = userObj?.discordUserId ? String(userObj.discordUserId) : undefined;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService?.getAccentColorAsync(targetDiscordId))
-      : (userStr ? undefined : context.accentColor);
     const timeSettings = this.settingService.getTimePeriod(period);
     const from = timeSettings.startDateTime ? Math.floor(timeSettings.startDateTime.getTime() / 1000) : undefined;
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
     const topTracks = await this.lastfmRepository.getTopTracks(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topTracks || topTracks.length === 0) return GenericEmbedService.buildNotFoundResponse('No top tracks found for this time period.');
+    const accentColor = await this.colorService?.getColorFromImageUrl(topTracks[0]?.imageUrl);
     return TopBuilders.buildTopTracksResponse(userNameLastFm, displayName, topTracks, timeSettings, 0, accentColor);
   }
 }

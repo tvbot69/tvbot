@@ -32,8 +32,9 @@ export class WhoKnowsBuilders {
     mode: WhoKnowsMode = WhoKnowsMode.Default,
     footerExtra?: string,
     mediaType?: 'Artist' | 'Track' | 'Album',
+    accentColor?: number,
   ): ResponseModel {
-    const accentColor = context.accentColor;
+    const resolvedAccent = accentColor ?? DiscordConstants.LastFmColorRed;
     const requestedUserId = Number(context.discordUserId);
 
     // Build footer lines — match fmbot style: genres line + "Artist/Track/Album - X listeners - Y plays - Z avg"
@@ -103,7 +104,7 @@ export class WhoKnowsBuilders {
         pageContent += `\n\n${footerExtra}`;
       }
       const container = new ContainerBuilder();
-      if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
+      container.setAccentColor(resolvedAccent);
 
       if (thumbnailUrl) {
         const titleSection = new SectionBuilder()
@@ -142,7 +143,7 @@ export class WhoKnowsBuilders {
     }
 
     // === Default Mode (Standard Discord Rich Embed) ===
-    const response = new ResponseModel(accentColor);
+    const response = new ResponseModel(resolvedAccent);
     response.commandResponse = CommandResponse.Ok;
 
     const listText = WhoKnowsService.whoKnowsListToString(
@@ -162,9 +163,7 @@ export class WhoKnowsBuilders {
       .setURL(url)
       .setDescription(description);
 
-    if (accentColor !== undefined && accentColor !== null) {
-      embed.setColor(accentColor);
-    }
+    embed.setColor(resolvedAccent);
 
     if (thumbnailUrl) {
       embed.setThumbnail(thumbnailUrl);

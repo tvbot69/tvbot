@@ -8,6 +8,9 @@ import { TasteBuilders } from '@bot/builders/tasteBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { UpdateService } from '@bot/services/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { container } from 'tsyringe';
+import { ArtworkService } from '@bot/services/artworkService';
+import { ColorService } from '@bot/services/colorService';
 
 export class TasteSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -101,6 +104,12 @@ export class TasteSlashCommands implements ISlashCommandModule {
       'two-year',
     );
 
-    return TasteBuilders.buildTasteResponse(tasteData, 0, 14, context.accentColor);
+    const topArtist = tasteData.artists.items[0]?.name;
+    const artService = container.resolve(ArtworkService);
+    const colorService = container.resolve(ColorService);
+    const imgUrl = topArtist ? await artService.getArtistImageUrl(topArtist) : null;
+    const accentColor = await colorService.getColorFromImageUrl(imgUrl);
+
+    return TasteBuilders.buildTasteResponse(tasteData, 0, 14, accentColor);
   }
 }

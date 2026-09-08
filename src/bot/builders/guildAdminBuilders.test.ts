@@ -8,7 +8,6 @@ describe('GuildAdminBuilders', () => {
     guildId: '123456789012345678',
     guildName: 'Test Guild',
     prefix: '.',
-    accentColor: 0xba0000,
     commandsDisabled: false,
     emotesDisabled: false,
     guildCreatedOn: new Date(),

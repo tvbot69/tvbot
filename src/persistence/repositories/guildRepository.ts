@@ -39,12 +39,6 @@ export class GuildRepository implements IGuildRepository {
     });
   }
 
-  public async setAccentColor(guildId: string, color: number | null): Promise<void> {
-    await this.prisma.guild.update({
-      where: { guildId: BigInt(guildId) },
-      data: { accentColor: color },
-    });
-  }
   public async setFmEmbedType(guildId: string, fmEmbedType: number | null): Promise<void> {
     await this.prisma.guild.update({ where: { guildId: BigInt(guildId) }, data: { fmEmbedType } });
   }
@@ -81,7 +75,6 @@ export class GuildRepository implements IGuildRepository {
       guildId: entity.guildId.toString(),
       guildName: entity.guildName,
       prefix: entity.prefix ?? undefined,
-      accentColor: entity.accentColor ?? undefined,
       fmEmbedType: (entity as unknown as { fmEmbedType?: number | null }).fmEmbedType ?? undefined,
       guildCreatedOn: entity.guildCreatedOn,
       lastCommand: entity.lastCommand ?? undefined,

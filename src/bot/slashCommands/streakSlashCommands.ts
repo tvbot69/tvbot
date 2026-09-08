@@ -6,6 +6,8 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import { StreakService } from '@bot/services/streakService';
 import { StreakBuilders } from '@bot/builders/streakBuilders';
+import { container } from 'tsyringe';
+import { ArtworkService } from '@bot/services/artworkService';
 import { ColorService } from '@bot/services/colorService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -99,16 +101,25 @@ export class StreakSlashCommands implements ISlashCommandModule {
       }
     }
 
-    const targetDiscordId = targetUser.discordUserId ? targetUser.discordUserId.toString() : undefined;
-    const accentColor = targetDiscordId
-      ? (targetDiscordId === context.discordUserId ? context.accentColor : await this.colorService.getAccentColorAsync(targetDiscordId))
-      : context.accentColor;
-
     const streak = await this.streakService.getCurrentStreak(
       targetUser.userId,
       targetUser.userNameLastFm,
       targetUser.sessionKey,
     );
+
+    let streakArt: string | null = null;
+    const artService = container.resolve(ArtworkService);
+    if (streak?.trackName && streak.artistName) {
+      streakArt = await artService.getTrackCoverUrl(streak.trackName, streak.artistName);
+    }
+    if (!streakArt && streak?.albumName && streak.artistName) {
+      streakArt = await artService.getAlbumCoverUrl(streak.albumName, streak.artistName);
+    }
+    if (!streakArt && streak?.artistName) {
+      streakArt = await artService.getArtistImageUrl(streak.artistName);
+    }
+    const accentColor = await this.colorService.getColorFromImageUrl(streakArt);
+
     return StreakBuilders.buildStreakResponse(displayName, targetUser.userNameLastFm, streak, accentColor);
   }
 }

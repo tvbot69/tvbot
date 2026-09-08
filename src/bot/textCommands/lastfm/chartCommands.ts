@@ -200,9 +200,14 @@ export class ChartCommands implements ITextCommandModule {
         ? (targetDisplayName ?? user.userNameLastFm)
         : displayName;
 
-      const accentColor = (requestedByOther && targetDiscordId && this.colorService)
-        ? await this.colorService.getAccentColorAsync(targetDiscordId)
-        : context.accentColor;
+      let accentColor: number | undefined;
+      if (this.colorService) {
+        if (chartResult.buffer) {
+          accentColor = await this.colorService.extractAccentColor(chartResult.buffer);
+        } else if (chartResult.imageUrl) {
+          accentColor = await this.colorService.getColorFromImageUrl(chartResult.imageUrl);
+        }
+      }
 
       return trackChart
         ? ChartBuilders.buildTrackChartResponse(

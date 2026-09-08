@@ -47,10 +47,6 @@ export class ProfileInteractions {
       } as any;
     }
 
-    const accentColor = targetDiscordId !== '0'
-      ? await this.colorService.getAccentColorAsync(targetDiscordId)
-      : undefined;
-
     let displayName = lastFmName;
     if (interaction.guild && targetDiscordId !== '0') {
       try {
@@ -65,12 +61,13 @@ export class ProfileInteractions {
       const historyStats = await this.profileService.getProfileHistory(
         displayName,
         targetUser!,
-        accentColor,
       );
       if (!historyStats) {
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }
+
+      historyStats.accentColor = await this.colorService.getColorFromImageUrl(historyStats.lastFmUser.imageUrl);
 
       const response = ProfileBuilders.buildProfileHistoryResponse(historyStats, callerDiscordId);
       if (response.isComponentsV2) {
@@ -88,12 +85,13 @@ export class ProfileInteractions {
       const profileStats = await this.profileService.getProfileStats(
         displayName,
         targetUser!,
-        accentColor,
       );
       if (!profileStats) {
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }
+
+      profileStats.accentColor = await this.colorService.getColorFromImageUrl(profileStats.lastFmUser.imageUrl);
 
       const response = ProfileBuilders.buildProfileResponse(profileStats, callerDiscordId);
       if (response.isComponentsV2) {
