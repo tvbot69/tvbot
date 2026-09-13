@@ -242,6 +242,10 @@ export class SpotifySearchApi {
       throw new SpotifyUnavailableError('Spotify token rejected');
     }
     if (response.status === 429) {
+      if (this.tokenManager.rotateCredential()) {
+        Logger.warn('[Spotify] Credential rate-limited (429). Retrying immediately with next credential in pool...');
+        return this.search(query, type, limit, isRetry);
+      }
       SpotifySearchApi.handleRateLimit(response);
       throw new SpotifyUnavailableError('Spotify rate limited');
     }

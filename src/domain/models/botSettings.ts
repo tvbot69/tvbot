@@ -35,9 +35,15 @@ export interface LastFmConfig {
   userIndexFrequencyInDays: number;
 }
 
+export interface SpotifyCredential {
+  key: string;
+  secret: string;
+}
+
 export interface SpotifyConfig {
   key: string;
   secret: string;
+  credentials?: SpotifyCredential[];
 }
 
 export interface AppleMusicConfig {

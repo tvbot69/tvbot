@@ -26,6 +26,7 @@ import { ArtworkService, matchesArtistName } from '@bot/services/artworkService'
 import { UserService } from '@bot/services/userService';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
+import { DeezerApi } from '@deezer/apis/deezerApi';
 import { Logger } from '@domain/logger';
 
 export class WhoKnowsBuilders {
@@ -306,36 +307,31 @@ export class WhoKnowsBuilders {
                 // ignore
               }
 
-              // 4. If we have verified covers from Spotify (even 3-10), WE ARE DONE!
-              // Do NOT pollute with Last.fm's multi-artist search!
-              if (distinctCovers.length < 5 && candidateAlbums.length > 0) {
-                const BATCH_SIZE = 6;
-                for (let i = 0; i < candidateAlbums.length && distinctCovers.length < 21; i += BATCH_SIZE) {
-                  const batch = candidateAlbums.slice(i, i + BATCH_SIZE);
-                  const resolvedBatch = await Promise.all(
-                    batch.map(async (alb) => {
-                      try {
-                        const cover = alb.isTrack
-                          ? await artworkService.getTrackCoverUrl(alb.name, alb.artistName || resolvedArtistName)
-                          : await artworkService.getAlbumCoverUrl(alb.name, alb.artistName || resolvedArtistName);
-                        if (cover) return cover;
-                        if (alb.directImage && !alb.directImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-                          return alb.directImage;
-                        }
-                        return null;
-                      } catch {
-                        return null;
-                      }
-                    }),
-                  );
-
-                  for (let j = 0; j < batch.length; j++) {
-                    const url = resolvedBatch[j];
-                    if (url && !seenCovers.has(url)) {
-                      seenCovers.add(url);
-                      distinctCovers.push(url);
+              // 4. Fill background covers using Deezer (unlimited/no tokens) if fewer than 15 covers
+              if (distinctCovers.length < 15 && container.isRegistered(DeezerApi)) {
+                try {
+                  const deezerApi = container.resolve(DeezerApi);
+                  const deezerAlbums = await deezerApi.searchAlbums(resolvedArtistName, 25);
+                  for (const da of deezerAlbums) {
+                    const cover = da.cover_xl ?? da.cover_big ?? da.cover_medium;
+                    if (cover && !seenCovers.has(cover)) {
+                      seenCovers.add(cover);
+                      distinctCovers.push(cover);
                       if (distinctCovers.length >= 21) break;
                     }
+                  }
+                } catch {
+                  // ignore
+                }
+              }
+
+              // 5. Supplement from candidate albums with pre-existing directImage
+              if (distinctCovers.length < 21 && candidateAlbums.length > 0) {
+                for (const alb of candidateAlbums) {
+                  if (alb.directImage && !alb.directImage.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seenCovers.has(alb.directImage)) {
+                    seenCovers.add(alb.directImage);
+                    distinctCovers.push(alb.directImage);
+                    if (distinctCovers.length >= 21) break;
                   }
                 }
               }

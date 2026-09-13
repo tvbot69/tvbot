@@ -12,6 +12,7 @@ describe('SpotifySearchApi', () => {
     tokenManager = {
       getToken: vi.fn().mockResolvedValue('test-token'),
       invalidate: vi.fn(),
+      rotateCredential: vi.fn().mockReturnValue(false),
     } as unknown as SpotifyTokenManager;
     api = new SpotifySearchApi(tokenManager);
   });
@@ -67,5 +68,37 @@ describe('SpotifySearchApi', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(artists).toHaveLength(1);
     expect(artists[0]?.name).toBe('Travis Scott');
+  });
+
+  it('rotates credential and retries immediately when backup credential is available', async () => {
+    const mock429 = {
+      status: 429,
+      ok: false,
+      headers: new Headers({ 'Retry-After': '30' }),
+    } as unknown as Response;
+
+    const mock200 = {
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({
+        artists: {
+          items: [{ name: 'Drake', images: [{ url: 'https://spotify.com/drake.jpg', height: 640 }] }],
+        },
+      }),
+    } as unknown as Response;
+
+    (tokenManager.rotateCredential as any).mockReturnValueOnce(true);
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(mock429)
+      .mockResolvedValueOnce(mock200);
+
+    const artists = await api.searchArtists('Drake');
+
+    expect(tokenManager.rotateCredential).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(artists[0]?.name).toBe('Drake');
+    expect(SpotifySearchApi.isRateLimited()).toBe(false);
   });
 });

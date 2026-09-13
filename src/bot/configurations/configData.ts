@@ -58,10 +58,37 @@ const buildSettings = (): BotSettings => {
       userUpdateFrequencyInHours: Number(optional('LASTFM_USER_UPDATE_FREQUENCY_HOURS') ?? 24),
       userIndexFrequencyInDays: Number(optional('LASTFM_USER_INDEX_FREQUENCY_DAYS') ?? 120),
     },
-    spotify: {
-      key: optional('SPOTIFY_CLIENT_ID') ?? '',
-      secret: optional('SPOTIFY_CLIENT_SECRET') ?? '',
-    },
+    spotify: (() => {
+      const primaryKey = optional('SPOTIFY_CLIENT_ID') ?? '';
+      const primarySecret = optional('SPOTIFY_CLIENT_SECRET') ?? '';
+
+      const spotifyKeys = primaryKey.split(',').map((s) => s.trim()).filter(Boolean);
+      const spotifySecrets = primarySecret.split(',').map((s) => s.trim()).filter(Boolean);
+
+      const credentials: Array<{ key: string; secret: string }> = [];
+      const count = Math.max(spotifyKeys.length, spotifySecrets.length);
+      for (let i = 0; i < count; i++) {
+        const k = spotifyKeys[i] ?? spotifyKeys[0] ?? '';
+        const s = spotifySecrets[i] ?? spotifySecrets[0] ?? '';
+        if (k && s) {
+          credentials.push({ key: k, secret: s });
+        }
+      }
+
+      for (let i = 2; i <= 5; i++) {
+        const k = optional(`SPOTIFY_CLIENT_ID_${i}`);
+        const s = optional(`SPOTIFY_CLIENT_SECRET_${i}`);
+        if (k && s && !credentials.some((c) => c.key === k)) {
+          credentials.push({ key: k, secret: s });
+        }
+      }
+
+      return {
+        key: credentials[0]?.key ?? primaryKey,
+        secret: credentials[0]?.secret ?? primarySecret,
+        credentials: credentials.length > 0 ? credentials : [{ key: primaryKey, secret: primarySecret }],
+      };
+    })(),
     genius: {
       clientId: optional('GENIUS_CLIENT_ID') ?? '',
       clientSecret: optional('GENIUS_CLIENT_SECRET') ?? '',
