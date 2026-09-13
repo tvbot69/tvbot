@@ -80,4 +80,68 @@ describe('ArtworkService priority chain', () => {
     const url = await service.getAlbumCoverUrl('Homework', 'Daft Punk');
     expect(url).toBe('spotify-url');
   });
+
+  it('uses spotify first for artist images when available', async () => {
+    const service = new ArtworkService(
+      {
+        searchAlbums: async () => [],
+        searchArtists: async () => [
+          { name: 'Kanye West', images: [{ url: 'https://spotify.com/kanye.jpg', height: 640 }] },
+        ],
+        searchTracks: async () => [],
+      } as never,
+      {
+        searchAlbums: async () => [],
+        searchArtists: async () => [
+          { name: 'Kanye West', picture_xl: 'https://deezer.com/kanye.jpg' },
+        ],
+        searchTracks: async () => [],
+      } as never,
+      { searchArtists: async () => [] } as never,
+      { searchArtists: async () => [] } as never,
+      {
+        getArtistByName: async () => null,
+        getOrCreateArtist: async () => ({ artistId: 1 }),
+        setSpotifyImage: async () => undefined,
+        setDeezerImage: async () => undefined,
+      } as never,
+      {} as never,
+      {} as never,
+      { getArtistInfo: async () => ({ imageUrl: 'https://lastfm.com/kanye.jpg' }) } as never,
+      { get: async () => null, set: async () => undefined } as never,
+    );
+    const url = await service.getArtistImageUrl('Kanye West');
+    expect(url).toBe('https://spotify.com/kanye.jpg');
+  });
+
+  it('falls through to deezer for artist images when spotify misses', async () => {
+    const service = new ArtworkService(
+      {
+        searchAlbums: async () => [],
+        searchArtists: async () => [],
+        searchTracks: async () => [],
+      } as never,
+      {
+        searchAlbums: async () => [],
+        searchArtists: async () => [
+          { name: 'Kanye West', picture_xl: 'https://deezer.com/kanye.jpg' },
+        ],
+        searchTracks: async () => [],
+      } as never,
+      { searchArtists: async () => [] } as never,
+      { searchArtists: async () => [] } as never,
+      {
+        getArtistByName: async () => null,
+        getOrCreateArtist: async () => ({ artistId: 1 }),
+        setSpotifyImage: async () => undefined,
+        setDeezerImage: async () => undefined,
+      } as never,
+      {} as never,
+      {} as never,
+      { getArtistInfo: async () => ({ imageUrl: 'https://lastfm.com/kanye.jpg' }) } as never,
+      { get: async () => null, set: async () => undefined } as never,
+    );
+    const url = await service.getArtistImageUrl('Kanye West');
+    expect(url).toBe('https://deezer.com/kanye.jpg');
+  });
 });

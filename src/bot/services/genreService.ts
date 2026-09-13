@@ -1,10 +1,11 @@
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { CacheService } from './cacheService';
 import { ArtistGenreRepository } from '@persistence/repositories/artistGenreRepository';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
+import { LastfmApi } from '@lastfm/api/lastfmApi';
 
 export interface TopGenreItem {
   genreName: string;
@@ -54,12 +55,43 @@ export class GenreService {
 
     // 2) Last.fm fallback — top tags via artist.getInfo
     try {
-      const info = await this.lastfmRepo.getArtistInfo(artistName);
-      const tags = info?.tags ?? [];
+      let info = await this.lastfmRepo.getArtistInfo(artistName);
+      let tags = info?.tags ?? [];
+
+      // If tags empty and artist name has '$' or 's', try spelling variant (e.g. Travis Scott vs Travi$ Scott)
+      if (tags.length === 0) {
+        if (artistName.includes('$')) {
+          const alt = artistName.replace(/\$/g, 's');
+          info = await this.lastfmRepo.getArtistInfo(alt);
+          tags = info?.tags ?? [];
+        } else if (/s/i.test(artistName)) {
+          const alt = artistName.replace(/s/gi, '$');
+          info = await this.lastfmRepo.getArtistInfo(alt);
+          tags = info?.tags ?? [];
+        }
+      }
+
+      // If still empty, query artist.gettoptags directly
+      if (tags.length === 0 && container.isRegistered(LastfmApi)) {
+        try {
+          const api = container.resolve(LastfmApi);
+          const res = await api.call<{ toptags?: { tag?: Array<{ name: string }> } }>('artist.gettoptags', {
+            artist: artistName,
+            autocorrect: '1',
+          });
+          const rawTags = res?.toptags?.tag ?? [];
+          tags = rawTags.map((t) => t.name).filter(Boolean);
+        } catch {
+          // ignore
+        }
+      }
+
+      const lowerName = artistName.toLowerCase().replace(/\$/g, 's').replace(/[^a-z0-9]/g, '');
       const top = tags
-        .slice(0, 5)
-        .map(t => String(t).toLowerCase().trim())
-        .filter(Boolean);
+        .map((t) => String(t).toLowerCase().trim())
+        .filter((t) => Boolean(t) && t.toLowerCase().replace(/\$/g, 's').replace(/[^a-z0-9]/g, '') !== lowerName)
+        .slice(0, 4);
+
       if (top.length) {
         const artist = await this.artistRepo.getOrCreateArtist(artistName);
         await this.artistGenreRepo.setForArtistId(artist.artistId, top);

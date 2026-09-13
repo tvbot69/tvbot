@@ -13,6 +13,13 @@ export interface WhoKnowsImageParams {
   callerDiscordId?: string;
   crownText?: string;
   backgroundCovers?: string[];
+  tags?: string[];
+  globalPlays?: number;
+  globalListeners?: number;
+  topItemLabel?: string;
+  topItemValue?: string;
+  topItemExtra?: string;
+  topTracks?: string[];
 }
 
 const escapeHtml = (value: string): string =>
@@ -21,6 +28,12 @@ const escapeHtml = (value: string): string =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+
+const formatCompact = (num: number): string => {
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (num >= 1_000) return `${(num / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return num.toLocaleString();
+};
 
 export class WhoKnowsGenerator {
   private readonly puppeteer: PuppeteerService;
@@ -43,7 +56,7 @@ export class WhoKnowsGenerator {
     const html = this.buildHtml(template, params);
 
     const width = 1200;
-    const height = params.crownText ? 870 : 800;
+    const height = params.crownText ? 940 : 860;
 
     return this.puppeteer.screenshotHtml(html, width, height);
   }
@@ -59,6 +72,13 @@ export class WhoKnowsGenerator {
       callerDiscordId,
       crownText,
       backgroundCovers,
+      tags,
+      globalPlays,
+      globalListeners,
+      topItemLabel,
+      topItemValue,
+      topItemExtra,
+      topTracks,
     } = params;
 
     const getPlays = (u: WhoKnowsUser): number =>
@@ -86,7 +106,7 @@ export class WhoKnowsGenerator {
         if (isCaller) callerInTop10 = true;
 
         let rankHtml: string;
-        if (user.hasCrown || (rank === 1 && !crownText)) {
+        if (user.hasCrown) {
           rankHtml = '<span class="rank-crown">👑</span>';
         } else if (rank === 1) {
           rankHtml = '<span class="rank-gold">1.</span>';
@@ -151,9 +171,22 @@ export class WhoKnowsGenerator {
     }
 
     // Crown Ribbon
-    const crownHtml = crownText
-      ? `<div class="crown-banner"><span class="crown-banner-icon">👑</span><span>${escapeHtml(crownText)}</span></div>`
+    const cleanCrownText = crownText ? crownText.replace(/^👑\s*/, '') : '';
+    const crownHtml = cleanCrownText
+      ? `<div class="crown-banner"><span class="crown-banner-icon">👑</span><span>${escapeHtml(cleanCrownText)}</span></div>`
       : '';
+
+    // Stats Bar: omit average if only one listener is on the table
+    const listenersLabel = totalListeners === 1 ? 'listener' : 'listeners';
+    const playsLabel = totalPlays === 1 ? 'play' : 'total plays';
+    let statsBarHtml = `<span><strong class="stat-highlight">${totalListeners.toLocaleString()}</strong> ${listenersLabel}</span>
+      <span class="stat-sep">·</span>
+      <span><strong class="stat-highlight">${totalPlays.toLocaleString()}</strong> ${playsLabel}</span>`;
+    if (totalListeners > 1) {
+      statsBarHtml += `
+      <span class="stat-sep">·</span>
+      <span><strong class="stat-highlight">${avgPlays.toLocaleString()}</strong> avg</span>`;
+    }
 
     // Dynamic Album Covers Mosaic Wallpaper
     const fallbackImage =
@@ -170,29 +203,97 @@ export class WhoKnowsGenerator {
       return `<div class="mosaic-tile"><img class="mosaic-tile-img" src="${escapeHtml(url)}" alt="Album" onerror="this.style.display='none';"></div>`;
     }).join('\n');
 
-    // Token Replacements
+    // Artwork Meta Section (Tags, Global Stats, Top Item)
+    const tagPills = (tags && tags.length > 0)
+      ? tags.slice(0, 4).map((t) => `<span class="genre-tag"><span class="genre-tag-dot">✦</span>${escapeHtml(t)}</span>`).join('')
+      : '';
+
+    let infoBoxHtml = '';
+    const hasGlobal = globalPlays !== undefined || globalListeners !== undefined;
+    const hasTopList = Boolean(topTracks && topTracks.length > 0);
+    const hasTop = Boolean(topItemLabel && topItemValue);
+
+    if (hasGlobal || hasTopList || hasTop) {
+      let statsRow = '';
+      if (hasGlobal) {
+        const playsFormatted = globalPlays !== undefined ? formatCompact(globalPlays) : null;
+        const listenersFormatted = globalListeners !== undefined ? formatCompact(globalListeners) : null;
+        statsRow = `
+          <div class="info-row-stats">
+            ${playsFormatted ? `
+              <div class="info-stat-item">
+                <span class="info-stat-num">${playsFormatted}</span>
+                <span class="info-stat-lbl">scrobbles</span>
+              </div>` : ''}
+            ${playsFormatted && listenersFormatted ? '<div class="info-stat-divider"></div>' : ''}
+            ${listenersFormatted ? `
+              <div class="info-stat-item">
+                <span class="info-stat-num">${listenersFormatted}</span>
+                <span class="info-stat-lbl">listeners</span>
+              </div>` : ''}
+          </div>`;
+      }
+
+      let topRow = '';
+      if (hasTopList) {
+        const tracksToRender = topTracks!.slice(0, 3);
+        topRow = `
+          <div class="info-top-list">
+            <div class="info-top-header">Top Tracks</div>
+            ${tracksToRender.map((t, idx) => `
+              <div class="info-top-item">
+                <span class="info-top-rank">${idx + 1}</span>
+                <span class="info-top-name">${escapeHtml(t)}</span>
+              </div>
+            `).join('')}
+          </div>`;
+      } else if (hasTop && topItemLabel && topItemValue) {
+        topRow = `
+          <div class="info-row-top">
+            <span class="info-top-badge">${escapeHtml(topItemLabel)}</span>
+            <span class="info-top-val" title="${escapeHtml(topItemValue)}">${escapeHtml(topItemValue)}${topItemExtra ? ` <span class="info-top-extra">(${escapeHtml(topItemExtra)})</span>` : ''}</span>
+          </div>`;
+      }
+
+      infoBoxHtml = `
+        <div class="info-card">
+          ${statsRow}
+          ${topRow}
+        </div>`;
+    }
+
+    const artworkMetaHtml = (tagPills || infoBoxHtml)
+      ? `<div class="artwork-meta">
+          ${tagPills ? `<div class="genre-tags">${tagPills}</div>` : ''}
+          ${infoBoxHtml}
+        </div>`
+      : '';
+
+    // Token Replacements (use replacer functions to prevent $ from triggering RegExp substitution patterns)
     let output = template;
-    output = output.replace(/\{\{type\}\}/g, escapeHtml(type));
-    output = output.replace(/\{\{title\}\}/g, escapeHtml(title));
-    output = output.replace(/\{\{location\}\}/g, escapeHtml(location));
+    output = output.replace(/\{\{type\}\}/g, () => escapeHtml(type));
+    output = output.replace(/\{\{title\}\}/g, () => escapeHtml(title));
+    output = output.replace(/\{\{location\}\}/g, () => escapeHtml(location));
     output = output.replace(
       /\{\{image-url\}\}/g,
-      escapeHtml(
+      () => escapeHtml(
         imageUrl ||
           'https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png',
       ),
     );
     output = output.replace(
       /\{\{hide-img\}\}/g,
-      imageUrl ? '' : 'hidden',
+      () => (imageUrl ? '' : 'hidden'),
     );
-    output = output.replace(/\{\{users\}\}/g, userRowsHtml || '<li class="user-row"><div class="name-col">No listeners found</div></li>');
-    output = output.replace(/\{\{caller-html\}\}/g, callerHtml);
-    output = output.replace(/\{\{mosaic-tiles\}\}/g, mosaicTilesHtml);
-    output = output.replace(/\{\{listeners\}\}/g, totalListeners.toLocaleString());
-    output = output.replace(/\{\{plays\}\}/g, totalPlays.toLocaleString());
-    output = output.replace(/\{\{average\}\}/g, avgPlays.toLocaleString());
-    output = output.replace(/\{\{crown-html\}\}/g, crownHtml);
+    output = output.replace(/\{\{artwork-meta\}\}/g, () => artworkMetaHtml);
+    output = output.replace(/\{\{users\}\}/g, () => userRowsHtml || '<li class="user-row"><div class="name-col">No listeners found</div></li>');
+    output = output.replace(/\{\{caller-html\}\}/g, () => callerHtml);
+    output = output.replace(/\{\{mosaic-tiles\}\}/g, () => mosaicTilesHtml);
+    output = output.replace(/\{\{stats-bar\}\}/g, () => statsBarHtml);
+    output = output.replace(/\{\{listeners\}\}/g, () => totalListeners.toLocaleString());
+    output = output.replace(/\{\{plays\}\}/g, () => totalPlays.toLocaleString());
+    output = output.replace(/\{\{average\}\}/g, () => avgPlays.toLocaleString());
+    output = output.replace(/\{\{crown-html\}\}/g, () => crownHtml);
 
     return output;
   }

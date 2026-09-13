@@ -1,6 +1,7 @@
 import { container } from 'tsyringe';
 import { SpotifyTokenManager } from './spotifyTokenManager';
 import { TelemetryService } from '@bot/services/telemetryService';
+import { Logger } from '@domain/logger';
 import type {
   SpotifySearchAlbum,
   SpotifySearchArtist,
@@ -14,10 +15,39 @@ const DEFAULT_LIMIT = 5;
 export class SpotifyUnavailableError extends Error {}
 
 export class SpotifySearchApi {
+  private static rateLimitedUntil: number = 0;
   private readonly tokenManager: SpotifyTokenManager;
 
   constructor(tokenManager: SpotifyTokenManager) {
     this.tokenManager = tokenManager;
+  }
+
+  public static isRateLimited(): boolean {
+    return Date.now() < SpotifySearchApi.rateLimitedUntil;
+  }
+
+  public static getRateLimitedUntil(): number {
+    return SpotifySearchApi.rateLimitedUntil;
+  }
+
+  public static clearRateLimit(): void {
+    SpotifySearchApi.rateLimitedUntil = 0;
+  }
+
+  private static checkRateLimit(): void {
+    if (Date.now() < SpotifySearchApi.rateLimitedUntil) {
+      const waitSec = Math.ceil((SpotifySearchApi.rateLimitedUntil - Date.now()) / 1000);
+      throw new SpotifyUnavailableError(`Spotify rate limit cooldown active (${waitSec}s remaining)`);
+    }
+  }
+
+  private static handleRateLimit(response: Response): void {
+    const retryHeader = response.headers.get('Retry-After');
+    const retrySeconds = retryHeader ? Math.max(1, parseInt(retryHeader, 10) || 10) : 10;
+    SpotifySearchApi.rateLimitedUntil = Date.now() + (retrySeconds * 1000);
+    Logger.warn(
+      `[Spotify] API hit 429 (Too Many Requests). Entering rate-limit cooldown for ${retrySeconds}s until ${new Date(SpotifySearchApi.rateLimitedUntil).toLocaleTimeString()}.`,
+    );
   }
 
   public async searchArtists(query: string, limit: number = DEFAULT_LIMIT): Promise<SpotifySearchArtist[]> {
@@ -101,6 +131,7 @@ export class SpotifySearchApi {
   }
 
   public async getFullAlbum(spotifyId: string): Promise<SpotifySearchAlbum | null> {
+    if (SpotifySearchApi.isRateLimited()) return null;
     const token = await this.tokenManager.getToken();
     if (!token) return null;
 
@@ -108,6 +139,14 @@ export class SpotifySearchApi {
       const response = await fetch(`https://api.spotify.com/v1/albums/${spotifyId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (response.status === 401) {
+        this.tokenManager.invalidate();
+        return null;
+      }
+      if (response.status === 429) {
+        SpotifySearchApi.handleRateLimit(response);
+        return null;
+      }
       if (!response.ok) return null;
       return (await response.json()) as SpotifySearchAlbum;
     } catch {
@@ -162,7 +201,10 @@ export class SpotifySearchApi {
     query: string,
     type: 'artist' | 'album' | 'track',
     limit: number,
+    isRetry = false,
   ): Promise<SpotifySearchResponse> {
+    SpotifySearchApi.checkRateLimit();
+
     const token = await this.tokenManager.getToken();
     if (!token) {
       throw new SpotifyUnavailableError('Spotify credentials not configured');
@@ -193,9 +235,14 @@ export class SpotifySearchApi {
 
     if (response.status === 401) {
       this.tokenManager.invalidate();
+      if (!isRetry) {
+        Logger.info('[Spotify] Access token expired (401). Retrying with freshly requested token...');
+        return this.search(query, type, limit, true);
+      }
       throw new SpotifyUnavailableError('Spotify token rejected');
     }
     if (response.status === 429) {
+      SpotifySearchApi.handleRateLimit(response);
       throw new SpotifyUnavailableError('Spotify rate limited');
     }
     if (!response.ok) {
@@ -204,4 +251,135 @@ export class SpotifySearchApi {
 
     return (await response.json()) as SpotifySearchResponse;
   }
+
+  public async getArtistDiscographyCovers(
+    artistName: string,
+    sampleTrackOrAlbum?: string,
+    limit: number = 20,
+  ): Promise<string[]> {
+    try {
+      if (SpotifySearchApi.isRateLimited()) return [];
+      const token = await this.tokenManager.getToken();
+      if (!token) return [];
+
+      let artistId: string | null = null;
+
+      // 1. If sample track/album provided, find exact artist ID through track search
+      if (sampleTrackOrAlbum) {
+        try {
+          const tracks = await this.searchTracks(`${artistName} ${sampleTrackOrAlbum}`, 5);
+          for (const t of tracks) {
+            const matchingArtist = t.artists?.find((a) => {
+              const an = a.name.toLowerCase().trim();
+              const target = artistName.toLowerCase().trim();
+              return an === target || SpotifySearchApi.clean(an) === SpotifySearchApi.clean(target);
+            });
+            if (matchingArtist?.id) {
+              artistId = matchingArtist.id;
+              break;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // 2. Fall back to direct artist search
+      if (!artistId) {
+        try {
+          const artists = await this.searchArtists(artistName, 5);
+          const matched = artists.find((a) => {
+            const an = a.name.toLowerCase().trim();
+            const target = artistName.toLowerCase().trim();
+            return an === target || SpotifySearchApi.clean(an) === SpotifySearchApi.clean(target);
+          });
+          if (matched?.id) {
+            artistId = matched.id;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!artistId) return [];
+
+      // 3. Query official albums, singles, and features (appears_on)
+      const url = `https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single,appears_on&limit=${Math.min(limit, 50)}`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        this.tokenManager.invalidate();
+        return [];
+      }
+      if (res.status === 429) {
+        SpotifySearchApi.handleRateLimit(res);
+        return [];
+      }
+      if (!res.ok) return [];
+      const data: any = await res.json();
+      const items: any[] = data.items ?? [];
+
+      const covers: string[] = [];
+      const seenUrls = new Set<string>();
+
+      for (const item of items) {
+        const coverUrl = item.images?.[0]?.url;
+        if (coverUrl && !seenUrls.has(coverUrl)) {
+          seenUrls.add(coverUrl);
+          covers.push(coverUrl);
+        }
+      }
+
+      return covers;
+    } catch {
+      return [];
+    }
+  }
+
+  public async getAlbumTrackNames(albumName: string, artistName?: string, limit: number = 5): Promise<string[]> {
+    try {
+      if (SpotifySearchApi.isRateLimited()) return [];
+      const token = await this.tokenManager.getToken();
+      if (!token) return [];
+
+      let albums: SpotifySearchAlbum[] = [];
+      try {
+        const query = artistName ? `album:"${albumName}" artist:"${artistName}"` : `album:"${albumName}"`;
+        albums = await this.searchAlbums(query, 3);
+      } catch {
+        // ignore
+      }
+
+      if (albums.length === 0) {
+        try {
+          const simpleQuery = artistName ? `${artistName} ${albumName}` : albumName;
+          albums = await this.searchAlbums(simpleQuery, 3);
+        } catch {
+          // ignore
+        }
+      }
+
+      const albumId = albums[0]?.id;
+      if (!albumId) return [];
+
+      const res = await fetch(`https://api.spotify.com/v1/albums/${albumId}/tracks?limit=${Math.min(limit, 50)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        this.tokenManager.invalidate();
+        return [];
+      }
+      if (res.status === 429) {
+        SpotifySearchApi.handleRateLimit(res);
+        return [];
+      }
+      if (!res.ok) return [];
+      const data: any = await res.json();
+      return (data.items ?? []).map((t: any) => t.name).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
 }
+

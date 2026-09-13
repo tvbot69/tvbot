@@ -153,7 +153,7 @@
     /* Main Grid Layout */
     .content-grid {
       display: grid;
-      grid-template-columns: 440px 1fr;
+      grid-template-columns: 460px 1fr;
       gap: 28px;
       flex: 1;
       align-items: stretch;
@@ -161,11 +161,11 @@
 
     /* Left Card: Artwork showcase */
     .artwork-card {
-      background: rgba(14, 18, 28, 0.42);
-      backdrop-filter: blur(14px);
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(14, 18, 28, 0.45);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: 20px;
-      padding: 20px;
+      padding: 16px 18px;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -174,16 +174,17 @@
     }
 
     .artwork-img-wrapper {
-      width: 400px;
-      height: 400px;
+      width: 340px;
+      height: 340px;
       border-radius: 16px;
       overflow: hidden;
       box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.14);
       background: #131722;
       display: flex;
       align-items: center;
       justify-content: center;
+      flex-shrink: 0;
     }
 
     .artwork-img {
@@ -195,6 +196,181 @@
     .artwork-placeholder {
       font-size: 72px;
       color: #475569;
+    }
+
+    /* Artwork Meta: Tags & Global Stats */
+    .artwork-meta {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 10px;
+      flex: 1;
+      justify-content: center;
+    }
+
+    .genre-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: center;
+      max-height: 38px;
+      overflow: hidden;
+    }
+
+    .genre-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.10);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #e2e8f0;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: lowercase;
+      letter-spacing: 0.02em;
+    }
+
+    .genre-tag-dot {
+      color: #818cf8;
+      font-size: 11px;
+    }
+
+    .info-card {
+      background: rgba(11, 13, 19, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      width: 100%;
+    }
+
+    .info-row-stats {
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .info-stat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .info-stat-num {
+      font-size: 22px;
+      font-weight: 800;
+      color: #ffffff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .info-stat-lbl {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+    }
+
+    .info-stat-divider {
+      width: 1px;
+      height: 24px;
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Top list (multiple tracks) */
+    .info-top-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .info-top-header {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: #818cf8;
+      margin-bottom: 1px;
+    }
+
+    .info-top-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.06);
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .info-top-rank {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: rgba(99, 102, 241, 0.32);
+      color: #e0e7ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .info-top-name {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 18px;
+      font-weight: 800;
+      color: #ffffff;
+    }
+
+    .info-row-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .info-top-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 8px;
+      background: rgba(99, 102, 241, 0.28);
+      border: 1px solid rgba(99, 102, 241, 0.50);
+      color: #c7d2fe;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+
+    .info-top-val {
+      font-weight: 800;
+      color: #ffffff;
+      font-size: 19px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 270px;
+    }
+
+    .info-top-extra {
+      font-size: 14px;
+      font-weight: 600;
+      color: #94a3b8;
+      margin-left: 4px;
     }
 
     .brand-footer {
@@ -215,11 +391,11 @@
 
     /* Right Card: Leaderboard */
     .leaderboard-card {
-      background: rgba(14, 18, 28, 0.42);
-      backdrop-filter: blur(14px);
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: rgba(14, 18, 28, 0.45);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: 20px;
-      padding: 22px 24px;
+      padding: 24px 26px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -230,39 +406,39 @@
       list-style: none;
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 8px;
     }
 
     .user-row {
       display: flex;
       align-items: center;
-      padding: 6px 14px;
-      border-radius: 10px;
-      background: rgba(11, 13, 19, 0.55);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      padding: 8px 20px;
+      border-radius: 14px;
+      background: rgba(11, 13, 19, 0.60);
+      border: 1px solid rgba(255, 255, 255, 0.09);
       transition: none;
-      height: 42px;
+      height: 54px;
     }
 
     .user-row.caller-highlight {
-      background: rgba(99, 102, 241, 0.16);
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
+      background: rgba(99, 102, 241, 0.22);
+      border: 1px solid rgba(99, 102, 241, 0.55);
+      box-shadow: 0 0 16px rgba(99, 102, 241, 0.28);
     }
 
     .rank-col {
-      width: 38px;
+      width: 52px;
       font-weight: 800;
-      font-size: 16px;
+      font-size: 25px;
       color: #94a3b8;
       display: flex;
       align-items: center;
     }
 
     .rank-crown {
-      font-size: 18px;
+      font-size: 28px;
       color: #ffd700;
-      filter: drop-shadow(0 0 6px rgba(255, 215, 0, 0.6));
+      filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.65));
     }
 
     .rank-gold {
@@ -279,23 +455,25 @@
 
     .name-col {
       flex: 1;
-      font-size: 16px;
-      font-weight: 600;
-      color: #e2e8f0;
+      font-size: 25px;
+      font-weight: 700;
+      color: #f8fafc;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      padding-right: 12px;
+      padding-right: 16px;
+      letter-spacing: -0.015em;
     }
 
     .caller-highlight .name-col {
       color: #ffffff;
-      font-weight: 700;
+      font-weight: 800;
+      font-size: 25px;
     }
 
     .plays-col {
-      font-size: 15px;
-      font-weight: 700;
+      font-size: 24px;
+      font-weight: 800;
       font-variant-numeric: tabular-nums;
       color: #94a3b8;
       text-align: right;
@@ -306,17 +484,17 @@
     }
 
     .plays-unit {
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 16px;
+      font-weight: 600;
       color: #64748b;
-      margin-left: 4px;
+      margin-left: 6px;
     }
 
     /* Caller Outside Top 10 Divider Row */
     .caller-outside-container {
-      margin-top: 6px;
-      border-top: 1px dashed rgba(255, 255, 255, 0.15);
-      padding-top: 8px;
+      margin-top: 10px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.20);
+      padding-top: 12px;
     }
 
     /* Stats Summary Pill Bar */
@@ -324,12 +502,12 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 16px;
-      padding: 10px 20px;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      font-size: 14px;
+      gap: 18px;
+      padding: 14px 28px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+      font-size: 18px;
       font-weight: 600;
       color: #cbd5e1;
       margin-top: 14px;
@@ -341,7 +519,8 @@
 
     .stat-highlight {
       color: #ffffff;
-      font-weight: 700;
+      font-weight: 800;
+      font-size: 20px;
     }
 
     /* Crown Notification Ribbon */
@@ -355,7 +534,7 @@
       background: linear-gradient(90deg, rgba(234, 179, 8, 0.12), rgba(234, 179, 8, 0.2), rgba(234, 179, 8, 0.12));
       border: 1px solid rgba(234, 179, 8, 0.35);
       box-shadow: 0 0 20px rgba(234, 179, 8, 0.12);
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 700;
       color: #fef08a;
       text-align: center;
@@ -401,6 +580,7 @@
           <img class="artwork-img" src="{{image-url}}" alt="Cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
           <div class="artwork-placeholder" style="display: none;">🎵</div>
         </div>
+        {{artwork-meta}}
         <div class="brand-footer">
           <span>Powered by</span>
           <span class="brand-dot">✦</span>
@@ -417,11 +597,7 @@
         {{caller-html}}
 
         <div class="stats-bar">
-          <span><strong class="stat-highlight">{{listeners}}</strong> listeners</span>
-          <span class="stat-sep">·</span>
-          <span><strong class="stat-highlight">{{plays}}</strong> total plays</span>
-          <span class="stat-sep">·</span>
-          <span><strong class="stat-highlight">{{average}}</strong> avg</span>
+          {{stats-bar}}
         </div>
       </div>
     </div>

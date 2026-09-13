@@ -540,6 +540,111 @@ export class AlbumService {
     }
   }
 
+  public async getTopTracksForAlbum(
+    artistName: string,
+    albumName: string,
+    limit: number = 3,
+    userId?: number,
+  ): Promise<string[]> {
+    try {
+      // 1. Get official album tracklist from Last.fm or Spotify
+      const albumInfo = await this.getAlbumInfo(artistName, albumName);
+      let albumTrackNames = (albumInfo?.tracks ?? []).map((t) => t.name).filter(Boolean);
+
+      if (albumTrackNames.length === 0) {
+        albumTrackNames = await this.spotifyApi.getAlbumTrackNames(albumName, artistName, 50);
+      }
+
+      // 2. If user provided and we have album tracks, count caller's plays for each track
+      if (userId && albumTrackNames.length > 0) {
+        const lowerTrackNames = albumTrackNames.map((t) => t.toLowerCase());
+        const userTrackPlays = await this.prisma.userPlay.groupBy({
+          by: ['trackName'],
+          where: {
+            userId,
+            artistName: { equals: artistName, mode: 'insensitive' },
+            trackName: { in: lowerTrackNames, mode: 'insensitive' },
+          },
+          _count: { trackName: true },
+        });
+
+        const playMap = new Map<string, number>();
+        for (const row of userTrackPlays) {
+          if (row.trackName) {
+            playMap.set(row.trackName.toLowerCase(), row._count.trackName);
+          }
+        }
+
+        // Sort album tracks by user's playcount descending; keep original order for ties
+        const scoredTracks = albumTrackNames.map((name, idx) => ({
+          name,
+          plays: playMap.get(name.toLowerCase()) ?? 0,
+          originalIdx: idx,
+        }));
+
+        scoredTracks.sort((a, b) => {
+          if (b.plays !== a.plays) return b.plays - a.plays;
+          return a.originalIdx - b.originalIdx;
+        });
+
+        return scoredTracks.slice(0, limit).map((t) => t.name);
+      }
+
+      // 3. If global (no userId) and we have album tracks, count global plays
+      if (albumTrackNames.length > 0) {
+        const lowerTrackNames = albumTrackNames.map((t) => t.toLowerCase());
+        const globalTrackPlays = await this.prisma.userPlay.groupBy({
+          by: ['trackName'],
+          where: {
+            artistName: { equals: artistName, mode: 'insensitive' },
+            trackName: { in: lowerTrackNames, mode: 'insensitive' },
+          },
+          _count: { trackName: true },
+        });
+
+        const playMap = new Map<string, number>();
+        for (const row of globalTrackPlays) {
+          if (row.trackName) {
+            playMap.set(row.trackName.toLowerCase(), row._count.trackName);
+          }
+        }
+
+        const scoredTracks = albumTrackNames.map((name, idx) => ({
+          name,
+          plays: playMap.get(name.toLowerCase()) ?? 0,
+          originalIdx: idx,
+        }));
+
+        scoredTracks.sort((a, b) => {
+          if (b.plays !== a.plays) return b.plays - a.plays;
+          return a.originalIdx - b.originalIdx;
+        });
+
+        return scoredTracks.slice(0, limit).map((t) => t.name);
+      }
+
+      // 4. Fallback: query user_plays directly by album_name
+      if (userId) {
+        const rows = await this.prisma.$queryRawUnsafe<Array<{ track_name: string; playcount: bigint }>>(`
+          SELECT track_name, COUNT(*)::bigint AS playcount
+          FROM user_plays
+          WHERE user_id = $1 AND LOWER(artist_name) = LOWER($2) AND LOWER(album_name) = LOWER($3) AND track_name IS NOT NULL AND track_name != ''
+          GROUP BY track_name
+          ORDER BY playcount DESC
+          LIMIT $4
+        `, userId, artistName, albumName, limit);
+
+        const tracks = rows.map((r) => r.track_name).filter(Boolean);
+        if (tracks.length > 0) return tracks;
+      }
+
+      return [];
+    } catch (err) {
+      Logger.warn({ err }, 'Failed to resolve top tracks for album');
+      return [];
+    }
+  }
+
   /**
    * Filters user's all-time top albums by release prefix (e.g. '199' for 90s, '2023' for 2023)
    */

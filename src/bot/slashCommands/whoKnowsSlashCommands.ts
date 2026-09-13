@@ -258,6 +258,16 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const url = lastfmArtistUrl(resolvedName);
     const accentColor = await this.artistsService.getArtistAccentColorAsync(imgUrl);
 
+    const crownMessage =
+      (result.crownModel?.claimed || result.crownModel?.stolen)
+        ? (result.crownModel.crownResult ?? undefined)
+        : undefined;
+
+    const globalStats = {
+      globalPlays: artistInfo?.playCount,
+      globalListeners: artistInfo?.listeners,
+    };
+
     return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
@@ -269,9 +279,10 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       result.genres,
       closeFriends,
       mode,
-      result.crownModel?.crownResult ?? undefined,
+      crownMessage,
       'Artist',
       accentColor,
+      globalStats,
     );
   }
 
@@ -336,6 +347,13 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const url = lastfmTrackUrl(resolvedArtist, resolvedTrack);
     const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
+    const globalStats = {
+      globalPlays: trackInfo?.playCount,
+      globalListeners: trackInfo?.listeners,
+      topItemLabel: 'Album',
+      topItemValue: trackInfo?.albumName,
+    };
+
     return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
@@ -350,6 +368,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       undefined,
       'Track',
       accentColor,
+      globalStats,
     );
   }
 
@@ -417,6 +436,16 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const url = lastfmAlbumUrl(resolvedArtist, resolvedAlbum);
     const albumAccentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
+    const albumTracksFromInfo = albumInfo?.tracks?.slice(0, 3).map((t) => t.name).filter(Boolean);
+    const albumGlobalStats = {
+      globalPlays: albumInfo?.playCount,
+      globalListeners: albumInfo?.listeners,
+      topItemLabel: 'Top Track',
+      topItemValue: albumInfo?.tracks?.[0]?.name,
+      topItemExtra: albumInfo?.tracks?.length ? `${albumInfo.tracks.length} tracks` : undefined,
+      topTracks: albumTracksFromInfo && albumTracksFromInfo.length > 0 ? albumTracksFromInfo : undefined,
+    };
+
     return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
@@ -431,6 +460,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       undefined,
       'Album',
       albumAccentColor,
+      albumGlobalStats,
     );
   }
 

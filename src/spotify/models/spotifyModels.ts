@@ -25,7 +25,7 @@ export interface SpotifySearchAlbum {
   release_date_precision?: string;
   external_urls?: { spotify?: string };
   images?: SpotifyImage[];
-  artists?: Array<{ name: string }>;
+  artists?: Array<{ id?: string; name: string }>;
   label?: string;
   copyrights?: Array<{ text: string; type: string }>;
   tracks?: {
@@ -49,7 +49,7 @@ export interface SpotifySearchTrack {
     name?: string;
     images?: SpotifyImage[];
   };
-  artists?: Array<{ name: string }>;
+  artists?: Array<{ id?: string; name: string }>;
 }
 
 export interface SpotifySearchResponse {

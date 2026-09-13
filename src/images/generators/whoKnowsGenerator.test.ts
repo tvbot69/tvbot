@@ -27,6 +27,12 @@ describe('WhoKnowsGenerator', () => {
       users,
       callerUserId: 2,
       crownText: 'Crown claimed by Alice with 150 plays!',
+      tags: ['alternative rock', 'art rock', 'electronic'],
+      globalPlays: 2540000,
+      globalListeners: 320000,
+      topItemLabel: 'Top Track',
+      topItemValue: 'Creep',
+      topItemExtra: '120M scrobbles',
     });
 
     expect(png.length).toBeGreaterThan(1000);
@@ -69,6 +75,28 @@ describe('WhoKnowsGenerator', () => {
         'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
         'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
       ],
+    });
+
+    expect(png.length).toBeGreaterThan(1000);
+    expect(png[0]).toBe(0x89);
+    expect(png.toString('ascii', 1, 4)).toBe('PNG');
+  }, 60000);
+
+  it('renders with top 3 tracks list correctly', async () => {
+    const users = [
+      { userId: 1, playcount: 80, lastFmUsername: 'user1', discordName: 'Alice' },
+      { userId: 2, playcount: 50, lastFmUsername: 'user2', discordName: 'Bob' },
+    ];
+
+    const png = await generator.generateWhoKnowsImage({
+      type: 'Who Knows Artist',
+      title: 'Alvin',
+      location: 'Discovery Club',
+      users,
+      tags: ['rap', 'trap', 'hip hop'],
+      globalPlays: 154000,
+      globalListeners: 18200,
+      topTracks: ['eldalma', 'okokok', 'keep calm'],
     });
 
     expect(png.length).toBeGreaterThan(1000);

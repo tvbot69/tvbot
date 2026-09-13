@@ -1,0 +1,27 @@
+{
+  "editor.inlineSuggest.enabled": false,
+  "antigravity.searchMaxWorkspaceFileCount": 1,
+  "git.autofetch": false,
+  "git.confirmSync": false,
+  "telemetry.telemetryLevel": "off",
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/.puppeteer/**": true,
+    "**/dist/**": true,
+    "**/backup/**": true,
+    "**/fmbot-dev/**": true,
+    "**/.opencode/**": true,
+    "**/logs/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.puppeteer": true,
+    "**/dist": true,
+    "**/backup": true,
+    "**/fmbot-dev": true,
+    "**/.opencode": true,
+    "**/logs": true
+  }
+}

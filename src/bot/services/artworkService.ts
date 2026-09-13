@@ -50,11 +50,28 @@ export const normalizeArtistKey = (s: string): string =>
     .replace(/[^\p{L}\p{N}]/gu, '');
 
 export const matchesArtistName = (candidate: string, target: string): boolean => {
-  if (candidate.toLowerCase() === target.toLowerCase()) return true;
+  const cLow = candidate.toLowerCase().trim();
+  const tLow = target.toLowerCase().trim();
+  if (cLow === tLow) return true;
+
   const nc = normalizeArtistKey(candidate);
   const nt = normalizeArtistKey(target);
   if (nc.length > 0 && nc === nt) return true;
-  if (nc.length > 3 && nt.length > 3 && (nc.includes(nt) || nt.includes(nc))) return true;
+
+  // Split collaboration/feature formats: "A & B", "A feat. B", "A x B", "A / B", "A with B"
+  const collabs = cLow
+    .split(/\s*(?:feat\.?|ft\.?|featuring|\bx\b|&|\/|,|\bwith\b)\s*/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (collabs.length > 1) {
+    for (const part of collabs) {
+      if (part === tLow || normalizeArtistKey(part) === nt) {
+        return true;
+      }
+    }
+  }
+
   return false;
 };
 
@@ -126,7 +143,7 @@ export class ArtworkService {
       result = existing.spotifyImageUrl;
     }
 
-    if (!result) {
+    if (!result && !SpotifySearchApi.isRateLimited()) {
       try {
         let albums: any[] = [];
         try {
@@ -286,14 +303,9 @@ export class ArtworkService {
       await this.cache.set(key, existing.spotifyImageUrl, MEMORY_CACHE_TTL_SECONDS);
       return existing.spotifyImageUrl;
     }
-    if (existing?.deezerImageUrl && isValidImageUrl(existing.deezerImageUrl)) {
-      result = existing.deezerImageUrl;
-    }
-    if (!result && existing?.imageUrl && isValidImageUrl(existing.imageUrl)) {
-      result = existing.imageUrl;
-    }
 
-    if (!result) {
+    // 1. PRIMARY: Query Spotify API first for highest-quality artist profile picture
+    if (!SpotifySearchApi.isRateLimited()) {
       try {
         const artists = await this.spotifyApi.searchArtists(artistName);
         let match = artists.find((a) => matchesArtistName(a.name, artistName));
@@ -306,10 +318,13 @@ export class ArtworkService {
           match = artists[0];
         }
         const url = pickLargest(match?.images);
-        if (url && match) {
+        if (url && isValidImageUrl(url) && match) {
           result = url;
-          if (existing) {
-            await this.artistRepository.setSpotifyImage(existing.artistId, url, new Date());
+          try {
+            const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
+            await this.artistRepository.setSpotifyImage(target.artistId, url, new Date());
+          } catch {
+            // ignore persistence failure
           }
         }
       } catch (err) {
@@ -317,6 +332,18 @@ export class ArtworkService {
       }
     }
 
+    // 2. FALLBACK 1: If Spotify API missed/rate-limited, check DB for older Spotify, Deezer, or Last.fm image
+    if (!result) {
+      if (existing?.spotifyImageUrl && isValidImageUrl(existing.spotifyImageUrl)) {
+        result = existing.spotifyImageUrl;
+      } else if (existing?.deezerImageUrl && isValidImageUrl(existing.deezerImageUrl)) {
+        result = existing.deezerImageUrl;
+      } else if (existing?.imageUrl && isValidImageUrl(existing.imageUrl)) {
+        result = existing.imageUrl;
+      }
+    }
+
+    // 3. FALLBACK 2: Query Deezer API
     if (!result) {
       try {
         const artists = await this.deezerApi.searchArtists(artistName);
@@ -333,10 +360,13 @@ export class ArtworkService {
           Logger.debug(`Artist art: deezer no match for ${artistName}`);
         } else {
           const url = match.picture_xl ?? match.picture_big;
-          if (url) {
+          if (url && isValidImageUrl(url)) {
             result = url;
-            if (existing) {
-              await this.artistRepository.setDeezerImage(existing.artistId, match.id, url);
+            try {
+              const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
+              await this.artistRepository.setDeezerImage(target.artistId, match.id, url);
+            } catch {
+              // ignore persistence failure
             }
           }
         }
@@ -407,10 +437,11 @@ export class ArtworkService {
 
     let result: string | null = null;
 
-    try {
-      const tracks = await this.spotifyApi.searchTracks(
-        `track:${cleanTrack} artist:${artistName}`,
-      );
+    if (!SpotifySearchApi.isRateLimited()) {
+      try {
+        const tracks = await this.spotifyApi.searchTracks(
+          `track:${cleanTrack} artist:${artistName}`,
+        );
       const url = pickLargest(tracks[0]?.album?.images);
       if (url) {
         result = url;
@@ -425,8 +456,9 @@ export class ArtworkService {
           }
         }
       }
-    } catch (err) {
-      Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: spotify miss');
+      } catch (err) {
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: spotify miss');
+      }
     }
 
     if (!result) {
