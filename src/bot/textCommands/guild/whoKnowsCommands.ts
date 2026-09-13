@@ -18,6 +18,7 @@ import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import { UpdateService } from '@bot/services/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
+import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 
 const lastfmArtistUrl = (artist: string): string =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -126,7 +127,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
 
     this.checkSync(user);
 
-    const settings = this.settingService.setWhoKnowsSettings(rawArgs);
+    const defaultMode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const settings = this.settingService.setWhoKnowsSettings(rawArgs, defaultMode);
     let artistName = settings.newSearchValue;
     let livePlaycount: number | undefined;
 
@@ -163,7 +165,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
     const url = lastfmArtistUrl(resolvedName);
     const accentColor = await this.artistsService.getArtistAccentColorAsync(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -192,7 +194,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
 
     this.checkSync(user);
 
-    const settings = this.settingService.setWhoKnowsSettings(rawArgs);
+    const defaultMode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const settings = this.settingService.setWhoKnowsSettings(rawArgs, defaultMode);
     const query = settings.newSearchValue;
     let artistName = '';
     let trackName = '';
@@ -242,7 +245,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
     const url = lastfmTrackUrl(resolvedArtist, resolvedTrack);
     const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -271,7 +274,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
 
     this.checkSync(user);
 
-    const settings = this.settingService.setWhoKnowsSettings(rawArgs);
+    const defaultMode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const settings = this.settingService.setWhoKnowsSettings(rawArgs, defaultMode);
     const query = settings.newSearchValue;
     let artistName = '';
     let albumName = '';
@@ -324,7 +328,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
     const url = lastfmAlbumUrl(resolvedArtist, resolvedAlbum);
     const albumAccentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -356,7 +360,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
       );
     }
 
-    const settings = this.settingService.setWhoKnowsSettings(rawArgs);
+    const defaultMode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const settings = this.settingService.setWhoKnowsSettings(rawArgs, defaultMode);
     let artistName = settings.newSearchValue;
 
     if (!artistName) {
@@ -394,7 +399,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
     const accentColor = await this.artistsService.getArtistAccentColorAsync(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -426,7 +431,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
       );
     }
 
-    const settings = this.settingService.setWhoKnowsSettings(rawArgs);
+    const defaultMode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const settings = this.settingService.setWhoKnowsSettings(rawArgs, defaultMode);
     const query = settings.newSearchValue;
     let artistName = '';
     let trackName = '';
@@ -477,7 +483,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
     const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -509,7 +515,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
       );
     }
 
-    const settings = this.settingService.setWhoKnowsSettings(rawArgs);
+    const defaultMode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const settings = this.settingService.setWhoKnowsSettings(rawArgs, defaultMode);
     const query = settings.newSearchValue;
     let artistName = '';
     let albumName = '';
@@ -563,7 +570,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
     const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,

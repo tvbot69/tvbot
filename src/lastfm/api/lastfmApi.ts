@@ -1,3 +1,9 @@
+import dns from 'dns';
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // ignore
+}
 import { container } from 'tsyringe';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
@@ -98,7 +104,11 @@ export class LastfmApi {
         await this.rateLimiter.acquire();
         const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
         const startTime = Date.now();
-        const response = await fetch(url, { ...init, signal });
+        const headers = {
+          'User-Agent': 'tvbot/0.1.0 (https://github.com/moha/tvbot)',
+          ...init.headers,
+        };
+        const response = await fetch(url, { ...init, headers, signal });
         const durationMs = Date.now() - startTime;
 
         try {

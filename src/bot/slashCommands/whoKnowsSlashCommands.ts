@@ -89,6 +89,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
                   .addChoices(
                     { name: 'Embed (Default)', value: WhoKnowsMode.Default },
                     { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                    { name: 'Image', value: WhoKnowsMode.Image },
                   ),
               )
               .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
@@ -106,6 +107,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
                   .addChoices(
                     { name: 'Embed (Default)', value: WhoKnowsMode.Default },
                     { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                    { name: 'Image', value: WhoKnowsMode.Image },
                   ),
               )
               .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
@@ -123,6 +125,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
                   .addChoices(
                     { name: 'Embed (Default)', value: WhoKnowsMode.Default },
                     { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                    { name: 'Image', value: WhoKnowsMode.Image },
                   ),
               )
               .addBooleanOption((opt) => opt.setName('filter_disabled').setDescription('Disable activity filters')),
@@ -150,6 +153,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
                   .addChoices(
                     { name: 'Embed (Default)', value: WhoKnowsMode.Default },
                     { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                    { name: 'Image', value: WhoKnowsMode.Image },
                   ),
               ),
           )
@@ -166,6 +170,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
                   .addChoices(
                     { name: 'Embed (Default)', value: WhoKnowsMode.Default },
                     { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                    { name: 'Image', value: WhoKnowsMode.Image },
                   ),
               ),
           )
@@ -182,6 +187,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
                   .addChoices(
                     { name: 'Embed (Default)', value: WhoKnowsMode.Default },
                     { name: 'Pagination', value: WhoKnowsMode.Pagination },
+                    { name: 'Image', value: WhoKnowsMode.Image },
                   ),
               ),
           ),
@@ -214,7 +220,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     this.checkSync(user);
 
     const rawArtist = context.interaction?.options.getString('artist')?.trim();
-    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
     const filterDisabled = context.interaction?.options.getBoolean('filter_disabled') ?? false;
 
     let artistName = rawArtist;
@@ -252,7 +258,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const url = lastfmArtistUrl(resolvedName);
     const accentColor = await this.artistsService.getArtistAccentColorAsync(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -283,7 +289,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
 
     const rawTrack = context.interaction?.options.getString('track')?.trim();
     const rawArtist = context.interaction?.options.getString('artist')?.trim();
-    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
     const filterDisabled = context.interaction?.options.getBoolean('filter_disabled') ?? false;
 
     let trackName = rawTrack ?? '';
@@ -330,7 +336,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const url = lastfmTrackUrl(resolvedArtist, resolvedTrack);
     const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -361,7 +367,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
 
     const rawAlbum = context.interaction?.options.getString('album')?.trim();
     const rawArtist = context.interaction?.options.getString('artist')?.trim();
-    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
     const filterDisabled = context.interaction?.options.getBoolean('filter_disabled') ?? false;
 
     let albumName = rawAlbum ?? '';
@@ -411,7 +417,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const url = lastfmAlbumUrl(resolvedArtist, resolvedAlbum);
     const albumAccentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -444,7 +450,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     }
 
     const rawArtist = context.interaction?.options.getString('artist')?.trim();
-    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
 
     let artistName = rawArtist;
     if (!artistName) {
@@ -482,7 +488,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
     const accentColor = await this.artistsService.getArtistAccentColorAsync(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -516,7 +522,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
 
     const rawTrack = context.interaction?.options.getString('track')?.trim();
     const rawArtist = context.interaction?.options.getString('artist')?.trim();
-    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
 
     let trackName = rawTrack ?? '';
     let artistName = rawArtist ?? '';
@@ -563,7 +569,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
     const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,
@@ -597,7 +603,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
 
     const rawAlbum = context.interaction?.options.getString('album')?.trim();
     const rawArtist = context.interaction?.options.getString('artist')?.trim();
-    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    const mode = (context.interaction?.options.getInteger('mode') as WhoKnowsMode) ?? (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
 
     let albumName = rawAlbum ?? '';
     let artistName = rawArtist ?? '';
@@ -647,7 +653,7 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     const footerExtra = `Friends who know for ${context.member?.displayName ?? user.userNameLastFm}`;
     const accentColor = await this.albumService.getAlbumAccentColor(imgUrl);
 
-    return WhoKnowsBuilders.buildWhoKnowsResponse(
+    return await WhoKnowsBuilders.buildWhoKnowsResponse(
       context,
       title,
       url,

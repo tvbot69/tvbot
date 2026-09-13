@@ -59,6 +59,7 @@ import { AppleMusicWebApi } from '@applemusic/apis/appleMusicWebApi';
 import { AppleMusicSearchApi } from '@applemusic/apis/appleMusicSearchApi';
 import { PuppeteerService } from '@images/generators/puppeteerService';
 import { ChartService as ImageChartService } from '@images/generators/chartService';
+import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
 import { ChartService as BotChartService } from './services/chartService';
 import { ClientLogHandler } from './handlers/clientLogHandler';
 import { InteractionHandler } from './handlers/interactionHandler';
@@ -204,7 +205,7 @@ import { ImportSlashCommands } from './slashCommands/importSlashCommands';
 import { StreamingCommands } from './textCommands/thirdParty/streamingCommands';
 import { StreamingSlashCommands } from './slashCommands/streamingSlashCommands';
 
-const configureContainer = (): void => {
+export const configureContainer = (): void => {
   const settings = ConfigData.Data;
   void settings;
 
@@ -398,6 +399,7 @@ const configureContainer = (): void => {
 
   const puppeteerService = new PuppeteerService();
   const imageChartService = new ImageChartService(puppeteerService);
+  const whoKnowsGenerator = new WhoKnowsGenerator(puppeteerService);
   const imageUploadService = new ImageUploadService();
   const chartService = new BotChartService(
     artworkService,
@@ -513,6 +515,7 @@ const configureContainer = (): void => {
   container.registerInstance(SettingsSlashCommands, new SettingsSlashCommands(prefixService, colorService, userService));
   container.registerInstance(PuppeteerService, puppeteerService);
   container.registerInstance(ImageChartService, imageChartService);
+  container.registerInstance(WhoKnowsGenerator, whoKnowsGenerator);
   container.registerInstance(ImageUploadService, imageUploadService);
   container.registerInstance(BotChartService, chartService);
   container.registerInstance(TimerService, timerService);

@@ -379,6 +379,27 @@ export class ArtistsService {
     }
   }
 
+  public async getTopAlbumsForArtistGlobal(artistName: string, limit: number = 10): Promise<Array<{ name: string; artistName: string; playcount: number }>> {
+    try {
+      const rows = await this.db.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
+        SELECT album_name, artist_name, COUNT(*)::bigint AS playcount
+        FROM user_plays
+        WHERE LOWER(artist_name) = LOWER($1) AND album_name IS NOT NULL AND album_name != ''
+        GROUP BY album_name, artist_name
+        ORDER BY playcount DESC
+        LIMIT $2
+      `, artistName, limit);
+
+      return rows.map((r) => ({
+        name: r.album_name,
+        artistName: r.artist_name,
+        playcount: Number(r.playcount),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   public async getUserAlbumsForArtist(userId: number, artistName: string): Promise<UserAlbumEntry[]> {
     try {
       const albums = await this.getTopAlbumsForArtist(userId, artistName);

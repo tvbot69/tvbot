@@ -221,7 +221,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
   });
 
   describe('WhoKnowsBuilders', () => {
-    it('builds components V2 container and embed fallback with thumbnail accessory', () => {
+    it('builds components V2 container and embed fallback with thumbnail accessory', async () => {
       const users = [
         {
           userId: 1,
@@ -242,7 +242,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         },
       ];
 
-      const res = WhoKnowsBuilders.buildWhoKnowsResponse(
+      const res = await WhoKnowsBuilders.buildWhoKnowsResponse(
         dummyContext,
         'Radiohead',
         'https://last.fm/music/Radiohead',
@@ -258,7 +258,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
       expect(res.componentsV2Container).toBeDefined();
     });
 
-    it('builds standard Discord Rich Embed with exact fmbot unicode spacing in Default Mode', () => {
+    it('builds standard Discord Rich Embed with exact fmbot unicode spacing in Default Mode', async () => {
       const users = [
         {
           userId: 123456789012345678,
@@ -278,7 +278,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         },
       ];
 
-      const res = WhoKnowsBuilders.buildWhoKnowsResponse(
+      const res = await WhoKnowsBuilders.buildWhoKnowsResponse(
         dummyContext,
         'Gunna in الازعروكش',
         'https://www.last.fm/music/Gunna',
@@ -308,7 +308,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
       );
     });
 
-    it('builds footer with 1 listener for Artist, Track, and Album accurately', () => {
+    it('builds footer with 1 listener for Artist, Track, and Album accurately', async () => {
       const singleArtistUser = [
         {
           userId: 123,
@@ -319,7 +319,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
           hasCrown: true,
         },
       ];
-      const artistRes = WhoKnowsBuilders.buildWhoKnowsResponse(
+      const artistRes = await WhoKnowsBuilders.buildWhoKnowsResponse(
         dummyContext,
         'Gunna in الازعروكش',
         'https://www.last.fm/music/Gunna',
@@ -345,7 +345,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
           hasCrown: true,
         },
       ];
-      const trackRes = WhoKnowsBuilders.buildWhoKnowsResponse(
+      const trackRes = await WhoKnowsBuilders.buildWhoKnowsResponse(
         dummyContext,
         'fukumean by Gunna in الازعروكش',
         'https://www.last.fm/music/Gunna/_/fukumean',
@@ -361,7 +361,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
       );
       expect(trackRes.embed?.data.footer?.text).toBe('Track - 1 listener - 3 plays');
 
-      const albumRes = WhoKnowsBuilders.buildWhoKnowsResponse(
+      const albumRes = await WhoKnowsBuilders.buildWhoKnowsResponse(
         dummyContext,
         'A Gift & a Curse by Gunna in الازعروكش',
         'https://www.last.fm/music/Gunna/A+Gift+&+a+Curse',
@@ -376,6 +376,34 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'Album',
       );
       expect(albumRes.embed?.data.footer?.text).toBe('Album - 1 listener - 263 plays');
+    });
+
+    it('builds image file attachment in Image Mode', async () => {
+      const users = [
+        {
+          userId: 1,
+          playcount: 150,
+          lastFmUsername: 'RadioheadFan',
+          discordName: 'RadioheadFan',
+          discordUserId: '123',
+          hasCrown: true,
+        },
+      ];
+
+      const res = await WhoKnowsBuilders.buildWhoKnowsResponse(
+        dummyContext,
+        'Radiohead',
+        'https://last.fm/music/Radiohead',
+        undefined,
+        users as any,
+        undefined,
+        undefined,
+        ['rock'],
+        undefined,
+        WhoKnowsMode.Image,
+      );
+
+      expect(res.commandResponse).toBeDefined();
     });
   });
 });

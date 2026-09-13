@@ -1,3 +1,5 @@
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
 import 'reflect-metadata';
 import { Logger } from '@domain/logger';
 
