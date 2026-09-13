@@ -79,7 +79,7 @@ export class MusicCommands implements ITextCommandModule {
       },
       {
         name: 'stop',
-        aliases: ['leave', 'dc', 'disconnect', 'l'],
+        aliases: ['leave', 'dc', 'disconnect'],
         executeAsync: (ctx) => this.stopAsync(ctx),
       },
       {

@@ -18,6 +18,9 @@ export class UserRepository implements IUserRepository {
   }
 
   public async getUserByDiscordUserId(discordUserId: string): Promise<User | null> {
+    if (!discordUserId || !/^\d+$/.test(discordUserId)) {
+      return null;
+    }
     const entity = await this.prisma.user.findUnique({
       where: { discordUserId: BigInt(discordUserId) },
     });
@@ -136,13 +139,14 @@ export class UserRepository implements IUserRepository {
   }
 
   public async getUsersByDiscordIds(discordUserIds: string[]): Promise<Map<string, User>> {
-    if (discordUserIds.length === 0) {
+    const validIds = discordUserIds.filter((id) => id && /^\d+$/.test(id));
+    if (validIds.length === 0) {
       return new Map();
     }
     const entities = await this.prisma.user.findMany({
       where: {
         discordUserId: {
-          in: discordUserIds.map((id) => BigInt(id)),
+          in: validIds.map((id) => BigInt(id)),
         },
       },
     });
@@ -195,6 +199,9 @@ export class UserRepository implements IUserRepository {
       dataSource: entity.dataSource === 'SpotifyImport' ? DataSource.SpotifyImport : entity.dataSource === 'AppleMusicImport' ? DataSource.AppleMusicImport : DataSource.LastFm,
       timeZone: entity.timeZone ?? undefined,
       numberFormat: entity.numberFormat ?? undefined,
+      mode: entity.mode ?? undefined,
+      whoKnowsMode: entity.whoKnowsMode ?? undefined,
+      coverType: entity.coverType ?? undefined,
       lastUsed: entity.lastUsed ?? undefined,
       lastUpdate: entity.lastUpdate ?? undefined,
       lastIndexed: entity.lastIndexed ?? undefined,

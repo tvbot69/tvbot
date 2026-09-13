@@ -79,6 +79,13 @@ export class ContextModel {
     return context;
   }
 
+  public static fromComponentInteraction(interaction: import('discord.js').ButtonInteraction | import('discord.js').StringSelectMenuInteraction): ContextModel {
+    const context = new ContextModel();
+    context.discordUserId = interaction.user.id;
+    context.guildId = interaction.guildId ?? undefined;
+    return context;
+  }
+
   public static fromMessage(message: Message, prefix: string, args: string[]): ContextModel {
     const context = new ContextModel();
     context.message = message;

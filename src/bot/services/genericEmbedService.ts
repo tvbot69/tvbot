@@ -34,4 +34,12 @@ export class GenericEmbedService {
     response.embed.setDescription(description);
     return response;
   }
+
+  public static buildCustomEmbedResponse(title: string, description: string, accentColor?: number): ResponseModel {
+    const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorBlue);
+    response.commandResponse = CommandResponse.Ok;
+    response.embed.setTitle(title);
+    response.embed.setDescription(description);
+    return response;
+  }
 }

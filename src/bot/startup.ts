@@ -42,6 +42,7 @@ import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { GuildUserRepository } from '@persistence/repositories/guildUserRepository';
 import { ChannelRepository } from '@persistence/repositories/channelRepository';
 import { GuildDisabledCommandRepository } from '@persistence/repositories/guildDisabledCommandRepository';
+import { AutopostRepository } from '@persistence/repositories/autopostRepository';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { AlbumRepository } from '@persistence/repositories/albumRepository';
 import { TrackRepository } from '@persistence/repositories/trackRepository';
@@ -73,6 +74,7 @@ import { StaticCommands } from './textCommands/staticCommands';
 import { ChartCommands } from './textCommands/lastfm/chartCommands';
 import { LoginCommands } from './textCommands/lastfm/loginCommands';
 import { SettingsInteractions } from './interactions/settingsInteractions';
+import { UserSettingsInteractions } from './interactions/userSettingsInteractions';
 import { ChartInteractions } from './interactions/chartInteractions';
 import { SettingsSlashCommands } from './slashCommands/settingsSlashCommands';
 import { SettingsCommands } from './textCommands/settingsCommands';
@@ -472,6 +474,8 @@ const configureContainer = (): void => {
   container.registerInstance(WhoKnowsPlayService, whoKnowsPlayService);
 
   const telemetryService = new TelemetryService();
+  const autopostRepository = new AutopostRepository(prisma);
+  container.registerInstance(AutopostRepository, autopostRepository);
   const autopostService = new AutopostService(
     artistsService,
     albumService,
@@ -479,6 +483,7 @@ const configureContainer = (): void => {
     crownService,
     telemetryService,
     guildRepository,
+    autopostRepository,
   );
   container.registerInstance('IGuildRepository', guildRepository);
   container.registerInstance('IUserRepository', userRepository);
@@ -501,9 +506,11 @@ const configureContainer = (): void => {
   container.registerInstance(FriendInteractions, friendInteractions);
 
   container.registerInstance(SettingsInteractions, new SettingsInteractions(prefixService));
+  const userSettingsInteractions = new UserSettingsInteractions(userService, fmSettingService, prefixService);
+  container.registerInstance(UserSettingsInteractions, userSettingsInteractions);
   container.registerInstance(ChartInteractions, new ChartInteractions(chartService, userService, colorService));
   container.registerInstance(FmModeInteractions, new FmModeInteractions(userService, fmSettingService));
-  container.registerInstance(SettingsSlashCommands, new SettingsSlashCommands(prefixService, colorService));
+  container.registerInstance(SettingsSlashCommands, new SettingsSlashCommands(prefixService, colorService, userService));
   container.registerInstance(PuppeteerService, puppeteerService);
   container.registerInstance(ImageChartService, imageChartService);
   container.registerInstance(ImageUploadService, imageUploadService);
@@ -598,7 +605,7 @@ const configureContainer = (): void => {
     new PlayCommands(userService, lastFmRepository, updateService),
   );
   container.registerInstance(StaticCommands, new StaticCommands());
-  container.registerInstance(SettingsCommands, new SettingsCommands(prefixService, colorService));
+  container.registerInstance(SettingsCommands, new SettingsCommands(prefixService, colorService, userService, guildService));
   container.registerInstance(
     ChartCommands,
     new ChartCommands(chartService, userService, settingService, updateService, colorService),
@@ -624,7 +631,7 @@ const configureContainer = (): void => {
   const topInteractions = new TopInteractions();
   const voiceMessageService = new VoiceMessageService();
   const trackSlashCommands = new TrackSlashCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, colorService);
-  const trackCommands = new TrackCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, colorService);
+  const trackCommands = new TrackCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, lyricsService, colorService);
   const trackPreviewInteractions = new TrackPreviewInteractions();
   const artistTrackService = new ArtistTrackService();
   const artistTrackSlashCommands = new ArtistTrackSlashCommands(userService, artistTrackService, lastFmRepository, updateService);
@@ -846,7 +853,7 @@ const configureContainer = (): void => {
   container.registerInstance(IntelligenceSlashCommands, intelligenceSlashCommands);
 
   const guildAdminService = new GuildAdminService(guildUserRepository, userRepository, guildService, prisma);
-  const guildAdminCommands = new GuildAdminCommands(guildService, guildAdminService, userService, prefixService, colorService);
+  const guildAdminCommands = new GuildAdminCommands(guildService, guildAdminService, userService, prefixService, guildDisabledCommandService, colorService);
   const guildAdminSlashCommands = new GuildAdminSlashCommands(guildService, guildAdminService, userService, prefixService, colorService);
 
   container.registerInstance(GuildAdminService, guildAdminService);

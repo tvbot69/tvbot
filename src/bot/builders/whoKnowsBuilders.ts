@@ -35,7 +35,8 @@ export class WhoKnowsBuilders {
     accentColor?: number,
   ): ResponseModel {
     const resolvedAccent = accentColor ?? DiscordConstants.LastFmColorRed;
-    const requestedUserId = Number(context.discordUserId);
+    const caller = users.find((u) => u.discordUserId === context.discordUserId);
+    const requestedUserId = caller?.userId ?? 0;
 
     // Build footer lines — match fmbot style: genres line + "Artist/Track/Album - X listeners - Y plays - Z avg"
     const footerLines: string[] = [];

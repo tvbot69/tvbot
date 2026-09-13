@@ -15,6 +15,7 @@ export interface WhoKnowsUser {
   lastMessage?: Date;
   sameServer?: boolean;
   hasCrown?: boolean;
+  roles?: string[];
 }
 
 export interface FilterStats {

@@ -67,6 +67,11 @@ export class LoginCommands implements ITextCommandModule {
         aliases: ['disconnect'],
         executeAsync: (context, _args) => this.logoutAsync(context),
       },
+      {
+        name: 'remove',
+        aliases: ['unlink', 'deleteaccount'],
+        executeAsync: (context, args) => this.removeAsync(context, args),
+      },
     ];
   }
 
@@ -146,5 +151,38 @@ export class LoginCommands implements ITextCommandModule {
     const response = new ResponseModel(context.accentColor);
     response.embed.setDescription('Your Last.fm session has been disconnected from the bot.');
     return response;
+  }
+
+  private async removeAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
+    const user = await this.userService.getUserByDiscordId(context.discordUserId);
+    if (!user) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        "Sorry, but we don't have any data from you in our database.",
+      );
+    }
+
+    if (args[0]?.toLowerCase() !== 'confirm') {
+      const response = new ResponseModel(context.accentColor ?? DiscordConstants.WarningColorOrange);
+      response.embed.setTitle('⚠️ Account Deletion');
+      response.embed.setDescription(
+        `Are you sure you want to disconnect your Last.fm account (**${user.userNameLastFm}**)?\n\n` +
+        `This will revoke your session, delete your saved preferences, and remove your cached plays and crowns from the bot.\n\n` +
+        `To confirm deletion, type: \`${context.prefix}remove confirm\` (or \`${context.prefix}unlink confirm\`).`,
+      );
+      return response;
+    }
+
+    const removed = await this.userService.removeUser(context.discordUserId);
+    if (!removed) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        'Failed to remove your user data. Please try again later.',
+      );
+    }
+
+    return GenericEmbedService.buildSuccessResponse(
+      `🗑️ Successfully deleted your account (**${user.userNameLastFm}**) and all associated data. You can re-connect anytime using \`${context.prefix}login\`.`,
+    );
   }
 }

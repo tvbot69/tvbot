@@ -9,6 +9,8 @@ import { ContainerBuilder, MessageFlags } from 'discord.js';
 import type { ContextModel } from '@bot/models/contextModel';
 import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
 import { IntelligenceCommands } from '@bot/textCommands/lastfm/intelligenceCommands';
+import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
+import { UserSettingsInteractions } from '@bot/interactions/userSettingsInteractions';
 
 describe('Bugfixes & Hardening Validation', () => {
   describe('Issue 3: ResponseModel and Pixelation Attachment', () => {
@@ -81,16 +83,16 @@ describe('Bugfixes & Hardening Validation', () => {
       expect(joinDef?.aliases).toContain('j');
     });
 
-    it('verifies l alias belongs to music leave/stop and not love', () => {
-      const intellCmds = new IntelligenceCommands({} as any, {} as any, {} as any, {} as any);
-      const loveDef = intellCmds.commands.find((c) => c.name === 'love');
+    it('verifies l alias belongs to love and not music stop', () => {
+      const trackCmds = new TrackCommands({} as any, {} as any, {} as any, {} as any, {} as any);
+      const loveDef = trackCmds.commands.find((c) => c.name === 'love');
       expect(loveDef).toBeDefined();
-      expect(loveDef?.aliases).not.toContain('l');
+      expect(loveDef?.aliases).toContain('l');
 
       const musicCmds = new MusicCommands({} as any, {} as any, {} as any, {} as any);
       const stopDef = musicCmds.commands.find((c) => c.name === 'stop');
       expect(stopDef).toBeDefined();
-      expect(stopDef?.aliases).toContain('l');
+      expect(stopDef?.aliases).not.toContain('l');
     });
   });
 
@@ -254,6 +256,45 @@ describe('Bugfixes & Hardening Validation', () => {
       // Search album with .applemusicalbum
       const amAlbumRes = await streamingCommands.appleMusicAlbumAsync(ctx, ['OK', 'Computer']);
       expect(amAlbumRes.content).toBe('https://music.apple.com/us/album/ok-computer/123');
+    });
+  });
+
+  describe('Issue 10: UserSettingsInteractions Components V2 flags', () => {
+    it('sets MessageFlags.IsComponentsV2 on select menu replies', async () => {
+      const mockUserService = {
+        getUserByDiscordId: vi.fn().mockResolvedValue({
+          userId: 1,
+          discordUserId: '123',
+          userNameLastFm: 'tester',
+        }),
+      } as any;
+      const mockFmSettingService = {
+        get: vi.fn().mockResolvedValue(null),
+      } as any;
+      const mockPrefixService = {} as any;
+
+      const interactions = new UserSettingsInteractions(
+        mockUserService,
+        mockFmSettingService,
+        mockPrefixService,
+      );
+
+      const replyMock = vi.fn().mockResolvedValue(undefined);
+      const interaction = {
+        isButton: () => false,
+        isStringSelectMenu: () => true,
+        customId: 'user-settings:select',
+        values: ['us-view-WkMode'],
+        user: { id: '123', displayName: 'tester' },
+        reply: replyMock,
+      } as any;
+
+      await interactions.handle(interaction);
+      expect(replyMock).toHaveBeenCalledTimes(1);
+      const callArgs = replyMock.mock.calls[0]![0];
+      expect(callArgs.flags & MessageFlags.IsComponentsV2).toBeTruthy();
+      expect(callArgs.flags & MessageFlags.Ephemeral).toBeTruthy();
+      expect(callArgs.components.length).toBe(1);
     });
   });
 });

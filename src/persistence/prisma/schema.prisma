@@ -39,6 +39,9 @@ model User {
   lastUsed        DateTime?    @map("last_used") @db.Timestamptz(6)
   dmChannelId     BigInt?      @map("dm_channel_id")
   privacyLevel    privacy_level @default(Default) @map("privacy_level")
+  mode            Int?         @map("mode")
+  whoKnowsMode    Int?         @map("who_knows_mode")
+  coverType       Int?         @map("cover_type")
   lastUpdate      DateTime?    @map("last_update") @db.Timestamptz(6)
   lastIndexed     DateTime?    @map("last_indexed") @db.Timestamptz(6)
   totalPlayCount  Int?         @map("total_play_count")
@@ -90,6 +93,7 @@ model Guild {
   channels         Channel[]
   disabledCommands GuildDisabledCommand[]
   userCrowns       UserCrown[]
+  autoposts        GuildAutopost[]
 
   @@map("guilds")
 }
@@ -279,6 +283,7 @@ model GuildUser {
   whoKnowsWhitelisted Boolean @default(false) @map("who_knows_whitelisted")
   whoKnowsBanned      Boolean @default(false) @map("who_knows_banned")
   blockedFromCrowns   Boolean @default(false) @map("blocked_from_crowns")
+  selfBlockFromWhoKnows Boolean @default(false) @map("self_block_from_who_knows")
 
   guild Guild @relation(fields: [guildId], references: [guildId])
   user  User  @relation(fields: [userId], references: [userId])
@@ -326,4 +331,20 @@ model UserCrown {
   @@index([guildId, active])
   @@index([userId])
   @@map("user_crowns")
+}
+
+model GuildAutopost {
+  id          Int       @id @default(autoincrement()) @map("id")
+  guildId     BigInt    @map("guild_id")
+  channelId   BigInt    @map("channel_id")
+  contentType String    @map("content_type") @db.VarChar(50)
+  schedule    String    @map("schedule") @db.VarChar(20)
+  enabled     Boolean   @default(true) @map("enabled")
+  lastPosted  DateTime? @map("last_posted") @db.Timestamptz(6)
+  created     DateTime  @default(now()) @map("created") @db.Timestamptz(6)
+
+  guild       Guild     @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  @@index([guildId])
+  @@map("guild_autoposts")
 }

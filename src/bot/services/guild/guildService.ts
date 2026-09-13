@@ -2,6 +2,7 @@ import type { Guild as DiscordGuild } from 'discord.js';
 import type { IGuildRepository } from '@domain/interfaces/iguildRepository';
 import type { Guild } from '@persistence/domain/models/guild';
 import { CacheService } from '../cacheService';
+import { prisma } from '@persistence/prismaClient';
 
 const GUILD_CACHE_TTL_SECONDS = 300;
 
@@ -72,6 +73,34 @@ export class GuildService {
     }
     await this.cache.set(throttleKey, new Date().toISOString(), 600);
     await this.guildRepository.setLastCommand(guildId, new Date());
+  }
+
+  public async selfBlockGuildUserAsync(guildId: string, userId: number): Promise<boolean> {
+    try {
+      const gId = BigInt(guildId);
+      await prisma.guildUser.upsert({
+        where: { guildId_userId: { guildId: gId, userId } },
+        update: { selfBlockFromWhoKnows: true },
+        create: { guildId: gId, userId, selfBlockFromWhoKnows: true },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async selfUnblockGuildUserAsync(guildId: string, userId: number): Promise<boolean> {
+    try {
+      const gId = BigInt(guildId);
+      await prisma.guildUser.upsert({
+        where: { guildId_userId: { guildId: gId, userId } },
+        update: { selfBlockFromWhoKnows: false },
+        create: { guildId: gId, userId, selfBlockFromWhoKnows: false },
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private cacheKey(guildId: string): string {

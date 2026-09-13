@@ -39,6 +39,7 @@ export class PrefixService {
   public async setPrefix(guildId: string, prefix: string): Promise<void> {
     await this.guildRepository.setPrefix(guildId, prefix);
     await this.cache.delete(`prefix:${guildId}`);
+    await this.cache.delete(`guild:${guildId}`);
   }
 
   public getDefaultPrefix(): string {

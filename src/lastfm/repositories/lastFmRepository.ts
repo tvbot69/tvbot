@@ -722,6 +722,7 @@ export class LastFmRepository implements ILastfmRepository {
         mbid: t.mbid,
         url: t.url,
         imageUrl: Array.isArray(t.image) ? (t.image[t.image.length - 1]?.['#text'] ?? undefined) : undefined,
+        dateLoved: t.date?.uts ? new Date(parseInt(t.date.uts, 10) * 1000) : undefined,
       }));
 
       return { tracks, total };

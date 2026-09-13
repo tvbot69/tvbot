@@ -1,3 +1,4 @@
+import { PermissionsBitField } from 'discord.js';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
@@ -45,6 +46,41 @@ export class CrownCommands implements ITextCommandModule {
       {
         name: 'crownseed',
         executeAsync: (context, args) => this.crownSeedAsync(context, args),
+      },
+      {
+        name: 'killcrown',
+        aliases: ['kc', 'resetcrown'],
+        executeAsync: (context, args) => this.killCrownAsync(context, args),
+      },
+      {
+        name: 'removeusercrowns',
+        aliases: ['removecrowns', 'deleteusercrowns'],
+        executeAsync: (context, args) => this.removeUserCrownsAsync(context, args),
+      },
+      {
+        name: 'crownblock',
+        aliases: ['cwblock', 'blockcrowns'],
+        executeAsync: (context, args) => this.crownBlockAsync(context, args, true),
+      },
+      {
+        name: 'crownunblock',
+        aliases: ['cwunblock', 'unblockcrowns'],
+        executeAsync: (context, args) => this.crownBlockAsync(context, args, false),
+      },
+      {
+        name: 'crownblockedusers',
+        aliases: ['cwblocked', 'crownblocked'],
+        executeAsync: (context) => this.crownBlockedUsersAsync(context),
+      },
+      {
+        name: 'crownroles',
+        aliases: ['setcrownrole', 'crownrole', 'cwrole', 'cwroles'],
+        executeAsync: (context, args) => this.crownRolesAsync(context, args),
+      },
+      {
+        name: 'killallcrowns',
+        aliases: ['resetallcrowns'],
+        executeAsync: (context, args) => this.killAllCrownsAsync(context, args),
       },
     ];
   }
@@ -250,5 +286,163 @@ export class CrownCommands implements ITextCommandModule {
     return GenericEmbedService.buildSuccessResponse(
       `👑 Successfully seeded **${count.toLocaleString()}** crowns for this server (minimum **${minPlays} plays** threshold)!`,
     );
+  }
+
+  private async killCrownAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildWrongInputResponse('You need the **Manage Server** permission to kill crowns.');
+    }
+
+    const artistName = args.join(' ').trim();
+    if (!artistName) {
+      return GenericEmbedService.buildWrongInputResponse(`Usage: \`${context.prefix}killcrown <artist name>\``);
+    }
+
+    const killed = await this.crownService.killCrown(context.guildId, artistName);
+    if (!killed) {
+      return GenericEmbedService.buildNotFoundResponse(`No active crown was found for **${artistName}** in this server.`);
+    }
+
+    return GenericEmbedService.buildSuccessResponse(`👑 The crown for **${artistName}** has been revoked and reset.`);
+  }
+
+  private async removeUserCrownsAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildWrongInputResponse('You need the **Manage Server** permission to remove crowns.');
+    }
+
+    const targetInput = args.join(' ').trim();
+    if (!targetInput) {
+      return GenericEmbedService.buildWrongInputResponse(`Usage: \`${context.prefix}removeusercrowns <@user|username>\``);
+    }
+
+    const mentionMatch = targetInput.match(/<@!?(\d+)>/) || targetInput.match(/^(\d+)$/);
+    const targetUser = mentionMatch
+      ? await this.userService.getUserByDiscordId(mentionMatch[1]!)
+      : await this.userService.getUserByLastFmName(targetInput);
+
+    if (!targetUser) {
+      return GenericEmbedService.buildNotFoundResponse(`Could not find a registered user matching **${targetInput}**.`);
+    }
+
+    const count = await this.crownService.removeUserCrowns(context.guildId, targetUser.userId);
+    return GenericEmbedService.buildSuccessResponse(
+      `👑 Removed **${count.toLocaleString()}** active crown(s) from **${targetUser.userNameLastFm}** in this server.`,
+    );
+  }
+
+  private async crownBlockAsync(context: ContextModel, args: string[], block: boolean): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildWrongInputResponse('You need the **Manage Server** permission to block users from crowns.');
+    }
+
+    const targetInput = args.join(' ').trim();
+    if (!targetInput) {
+      return GenericEmbedService.buildWrongInputResponse(`Usage: \`${context.prefix}${block ? 'crownblock' : 'crownunblock'} <@user|username>\``);
+    }
+
+    const mentionMatch = targetInput.match(/<@!?(\d+)>/) || targetInput.match(/^(\d+)$/);
+    const targetUser = mentionMatch
+      ? await this.userService.getUserByDiscordId(mentionMatch[1]!)
+      : await this.userService.getUserByLastFmName(targetInput);
+
+    if (!targetUser) {
+      return GenericEmbedService.buildNotFoundResponse(`Could not find a registered user matching **${targetInput}**.`);
+    }
+
+    await this.crownService.setCrownBlock(context.guildId, targetUser.userId, block);
+
+    if (block) {
+      return GenericEmbedService.buildSuccessResponse(
+        `🚫 **${targetUser.userNameLastFm}** (<@${targetUser.discordUserId}>) is now **blocked** from earning crowns in this server. Any held crowns were revoked.`,
+      );
+    } else {
+      return GenericEmbedService.buildSuccessResponse(
+        `✅ **${targetUser.userNameLastFm}** (<@${targetUser.discordUserId}>) has been **unblocked** and can now earn crowns in this server again.`,
+      );
+    }
+  }
+
+  private async crownBlockedUsersAsync(context: ContextModel): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+
+    const blocked = await this.crownService.getBlockedCrownUsers(context.guildId);
+    if (blocked.length === 0) {
+      return GenericEmbedService.buildSuccessResponse('No users are currently blocked from earning crowns in this server.');
+    }
+
+    const lines = blocked.map((u, i) => `${i + 1}. **${u.userNameLastFm}** (<@${u.discordUserId}>)`);
+    return GenericEmbedService.buildCustomEmbedResponse(
+      `🚫 Crown Blocked Users (${blocked.length})`,
+      lines.join('\n'),
+    );
+  }
+
+  private async crownRolesAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+
+    if (args.length === 0) {
+      const roles = await this.crownService.getCrownRoles(context.guildId);
+      if (roles.length === 0) {
+        return GenericEmbedService.buildCustomEmbedResponse(
+          '👑 Crown Role Configuration',
+          `No crown role is configured for this server.\n\nSet a crown role:\n\`${context.prefix}crownroles <@role|roleID>\``,
+        );
+      }
+      return GenericEmbedService.buildCustomEmbedResponse(
+        '👑 Crown Role Configuration',
+        `Current crown role: <@&${roles[0]}>\n\nTo remove: \`${context.prefix}crownroles none\``,
+      );
+    }
+
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildWrongInputResponse('You need the **Manage Server** permission to configure crown roles.');
+    }
+
+    const input = args[0]!.toLowerCase();
+    if (input === 'none' || input === 'remove' || input === 'clear') {
+      await this.crownService.setCrownRole(context.guildId, null);
+      return GenericEmbedService.buildSuccessResponse('👑 Crown role has been removed.');
+    }
+
+    const roleMatch = args[0]!.match(/<@&(\d+)>/) || args[0]!.match(/^(\d+)$/);
+    if (!roleMatch) {
+      return GenericEmbedService.buildWrongInputResponse('Please mention a role or provide a valid role ID.');
+    }
+
+    const roleId = roleMatch[1]!;
+    await this.crownService.setCrownRole(context.guildId, roleId);
+    return GenericEmbedService.buildSuccessResponse(`👑 Crown role set to <@&${roleId}>!`);
+  }
+
+  private async killAllCrownsAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildWrongInputResponse('You need the **Manage Server** permission to reset all crowns.');
+    }
+
+    if (args[0]?.toLowerCase() !== 'confirm') {
+      return GenericEmbedService.buildWrongInputResponse(
+        `⚠️ **Warning**: This will deactivate **ALL** crowns held in this server!\nTo proceed, run: \`${context.prefix}killallcrowns confirm\``,
+      );
+    }
+
+    const count = await this.crownService.killAllCrowns(context.guildId);
+    return GenericEmbedService.buildSuccessResponse(`👑 Reset complete. Revoked **${count.toLocaleString()}** crowns for this server.`);
   }
 }

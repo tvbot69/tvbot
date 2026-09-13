@@ -12,6 +12,7 @@ export class WhoKnowsService {
     contextUser: User,
     discordDisplayName?: string,
     livePlaycount?: number | null,
+    roles?: string[],
   ): WhoKnowsUser[] {
     if (livePlaycount === undefined || livePlaycount === null) {
       return users;
@@ -30,6 +31,7 @@ export class WhoKnowsService {
       discordName: discordDisplayName || contextUser.userNameLastFm,
       discordUserId: contextUser.discordUserId,
       lastUsed: contextUser.lastUsed,
+      roles,
     });
 
     return filtered.sort((a, b) => b.playcount - a.playcount);

@@ -6,7 +6,7 @@
 
 [![Discord.js](https://img.shields.io/badge/Discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.js.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-150%2F150_passing-4caf50?style=flat-square)](https://vitest.dev/)
+[![Tests](https://img.shields.io/badge/Tests-368%2F368_passing-4caf50?style=flat-square)](https://vitest.dev/)
 
 </div>
 
@@ -31,10 +31,11 @@
 | Delta Sync — background scrobble updates | `██████████` 100% |
 | Playcounts (`artistplays`, `albumplays`, `trackplays`) | `██████████` 100% |
 | Long-tail (`plays`, `pace`, `milestone`, `discoverydate`, `lastlistened`) | `██████████` 100% |
-| Server billboard (serverartists / topalbums) | `░░░░░░░░░░` 0% |
-| Genre & Country commands | `░░░░░░░░░░` 0% |
-| Guild admin & configuration | `█░░░░░░░░░` 10% |
-| **Overall core parity** | **`██████░░░░` ~60%** |
+| Server billboard (`serverartists`, `serveralbums`, `servertracks`, `servergenres`) | `██████████` 100% |
+| Genre & Country commands (`topgenres`, `country`, `countrychart`) | `██████████` 100% |
+| Central Settings & Modes (`settings`, `mode`, `responsemode`, `covermode`, `privacy`) | `██████████` 100% |
+| Guild admin & configuration | `█████████░` 90% |
+| **Overall core parity** | **`█████████░` ~95%** |
 
 > Extras not in fmbot at all: Lavalink music playback, football live scores, Essentia audio analysis.
 

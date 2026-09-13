@@ -71,12 +71,16 @@ export class WhoKnowsTrackService {
     let users: WhoKnowsUser[] = await Promise.all(indexedRows.map(async (row) => {
       const gu = guildUserMap.get(row.userId);
       let displayName: string | undefined;
+      let memberRoles: string[] | undefined;
       if (gu?.discordUserId && discordGuild) {
         let member = discordGuild.members.cache.get(gu.discordUserId);
         if (!member) {
           try { member = await discordGuild.members.fetch(gu.discordUserId); } catch { /* fallback */ }
         }
         displayName = member?.displayName;
+        if (member) {
+          memberRoles = Array.from(member.roles.cache.keys());
+        }
       }
       return {
         userId: row.userId,
@@ -85,15 +89,18 @@ export class WhoKnowsTrackService {
         discordName: displayName ?? gu?.userNameLastFm,
         discordUserId: gu?.discordUserId,
         lastUsed: gu?.lastUsed,
+        roles: memberRoles,
       };
     }));
 
     const requesterMember = discordGuild?.members.cache.get(contextUser.discordUserId);
+    const requesterRoles = requesterMember ? Array.from(requesterMember.roles.cache.keys()) : undefined;
     users = WhoKnowsService.addOrReplaceUserToIndexList(
       users,
       contextUser,
       requesterMember?.displayName,
       contextUserPlaycount,
+      requesterRoles,
     );
 
     const { filterStats, filteredUsers } = WhoKnowsService.filterWhoKnowsObjects(

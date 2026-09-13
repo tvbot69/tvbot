@@ -31,6 +31,7 @@ import { GuildAdminCommands } from './guild/guildAdminCommands';
 import { UserHubCommands } from './user/userHubCommands';
 import { ImportCommands } from './thirdParty/importCommands';
 import { StreamingCommands } from './thirdParty/streamingCommands';
+import { AutopostCommands } from './guild/autopostCommands';
 
 let commandCache: Map<string, TextCommandDefinition> | null = null;
 
@@ -66,6 +67,7 @@ const buildCommands = (): Map<string, TextCommandDefinition> => {
     container.resolve(ArtistCommands),
     container.resolve(TasteCommands),
     container.resolve(CrownCommands),
+    container.resolve(AutopostCommands),
     container.resolve(FootballCommands),
   ];
   const map = new Map<string, TextCommandDefinition>();

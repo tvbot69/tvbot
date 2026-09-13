@@ -25,6 +25,9 @@ export interface User {
   timeZone?: string;
   numberFormat?: string;
   privacyLevel: PrivacyLevel;
+  mode?: number;
+  whoKnowsMode?: number;
+  coverType?: number;
   lastUpdate?: Date;
   lastIndexed?: Date;
   totalPlayCount?: number;

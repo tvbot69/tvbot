@@ -11,6 +11,8 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
 
+import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
+
 @injectable()
 export class GuildAdminCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -20,6 +22,7 @@ export class GuildAdminCommands implements ITextCommandModule {
     @inject(GuildAdminService) private readonly guildAdminService: GuildAdminService,
     @inject(UserService) private readonly userService: UserService,
     @inject(PrefixService) private readonly prefixService: PrefixService,
+    @inject(GuildDisabledCommandService) private readonly guildDisabledCommandService: GuildDisabledCommandService,
     @inject(ColorService) private readonly colorService?: ColorService,
   ) {
     this.commands = [
@@ -65,6 +68,21 @@ export class GuildAdminCommands implements ITextCommandModule {
         name: 'togglecrowns',
         aliases: ['disablecrowns', 'enablecrowns'],
         executeAsync: (ctx) => this.toggleCrownsAsync(ctx),
+      },
+      {
+        name: 'prefix',
+        aliases: ['setprefix'],
+        executeAsync: (ctx, args) => this.prefixAsync(ctx, args.join(' ')),
+      },
+      {
+        name: 'togglecommand',
+        aliases: ['toggleservercommand', 'togglecmd'],
+        executeAsync: (ctx, args) => this.toggleCommandAsync(ctx, args.join(' ')),
+      },
+      {
+        name: 'disabledcommands',
+        aliases: ['serverdisabledcommands', 'listdisabledcommands'],
+        executeAsync: (ctx) => this.disabledCommandsAsync(ctx),
       },
     ];
   }
@@ -344,5 +362,91 @@ export class GuildAdminCommands implements ITextCommandModule {
       value: newDisabled ? 'Disabled' : 'Enabled',
       accentColor,
     });
+  }
+
+  private async prefixAsync(context: ContextModel, newPrefix: string): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'This command can only be used in a server.',
+      );
+    }
+
+    const currentPrefix = await this.prefixService.getPrefix(context.guildId);
+    const trimmed = newPrefix.trim();
+
+    if (!trimmed) {
+      return GenericEmbedService.buildCustomEmbedResponse(
+        '⚙️ Server Prefix',
+        `The current server prefix is \`${currentPrefix}\`.\n\nTo change it: \`${currentPrefix}prefix <newPrefix>\``,
+      );
+    }
+
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to change the server prefix.',
+      );
+    }
+
+    if (trimmed.length > 10) {
+      return GenericEmbedService.buildWrongInputResponse('The prefix must be 10 characters or less.');
+    }
+
+    await this.prefixService.setPrefix(context.guildId, trimmed);
+    return GenericEmbedService.buildSuccessResponse(`✅ Server prefix has been updated to \`${trimmed}\`!`);
+  }
+
+  private async toggleCommandAsync(context: ContextModel, rawCommand: string): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'This command can only be used in a server.',
+      );
+    }
+
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to toggle server commands.',
+      );
+    }
+
+    const commandName = rawCommand.trim().toLowerCase();
+    if (!commandName) {
+      return GenericEmbedService.buildWrongInputResponse(`Usage: \`${context.prefix}togglecommand <commandName>\``);
+    }
+
+    if (['serversettings', 'togglecommand', 'prefix', 'settings'].includes(commandName)) {
+      return GenericEmbedService.buildWrongInputResponse(`The command \`${commandName}\` cannot be disabled.`);
+    }
+
+    const isCurrentlyDisabled = await this.guildDisabledCommandService.isCommandDisabled(context.guildId, commandName);
+    if (isCurrentlyDisabled) {
+      await this.guildDisabledCommandService.removeDisabledCommand(context.guildId, commandName);
+      return GenericEmbedService.buildSuccessResponse(`🟢 Command \`${commandName}\` has been **enabled** for this server.`);
+    } else {
+      await this.guildDisabledCommandService.addDisabledCommand(context.guildId, commandName);
+      return GenericEmbedService.buildSuccessResponse(`🔴 Command \`${commandName}\` has been **disabled** for this server.`);
+    }
+  }
+
+  private async disabledCommandsAsync(context: ContextModel): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'This command can only be used in a server.',
+      );
+    }
+
+    const disabled = await this.guildDisabledCommandService.getDisabledCommands(context.guildId);
+    if (disabled.length === 0) {
+      return GenericEmbedService.buildSuccessResponse('No commands are currently disabled in this server.');
+    }
+
+    return GenericEmbedService.buildCustomEmbedResponse(
+      `🚫 Disabled Commands (${disabled.length})`,
+      disabled.map((c) => `• \`${c}\``).join('\n'),
+    );
   }
 }

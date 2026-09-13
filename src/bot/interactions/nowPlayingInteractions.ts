@@ -186,4 +186,44 @@ export class NowPlayingInteractions {
       });
     }
   }
+
+  /**
+   * Handle loved tracks pagination: loved:prev:{page}:{username} or loved:next:{page}:{username}
+   */
+  public async handleLovedPagination(interaction: ButtonInteraction): Promise<void> {
+    const parts = interaction.customId.split(':');
+    const dir = parts[1];
+    const currentPage = parseInt(parts[2] || '0', 10);
+    const userNameLastFm = decodeURIComponent(parts[3] || '');
+
+    if (!userNameLastFm) return;
+
+    const newPage = dir === 'prev' ? Math.max(0, currentPage - 1) : currentPage + 1;
+
+    await interaction.deferUpdate();
+
+    try {
+      const user = await this.userRepository.getUserByDiscordUserId(interaction.user.id);
+      const sessionKey = user?.userNameLastFm?.toLowerCase() === userNameLastFm.toLowerCase() ? user?.sessionKey : undefined;
+
+      const { tracks, total } = await this.lastfmRepository.getLovedTracks(userNameLastFm, 200, 1, sessionKey);
+      const displayName = interaction.guild?.members.cache.get(interaction.user.id)?.displayName ?? userNameLastFm;
+
+      const res = TrackBuilders.buildLovedTracksResponse(
+        userNameLastFm,
+        displayName,
+        tracks,
+        newPage,
+        total,
+      );
+
+      if (res.componentsV2Container) {
+        await interaction.editReply({
+          components: [res.componentsV2Container as any],
+        });
+      }
+    } catch (err: any) {
+      Logger.warn({ err: err?.message }, `[NowPlayingInteractions] handleLovedPagination error for ${userNameLastFm}`);
+    }
+  }
 }

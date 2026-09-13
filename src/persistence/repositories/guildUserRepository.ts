@@ -9,6 +9,7 @@ export class GuildUserRepository implements IGuildUserRepository {
   }
 
   public async upsert(guildId: string, userId: number): Promise<void> {
+    if (!guildId || !/^\d+$/.test(guildId)) return;
     await this.prisma.guildUser.upsert({
       where: {
         guildId_userId: { guildId: BigInt(guildId), userId: userId },
@@ -19,7 +20,7 @@ export class GuildUserRepository implements IGuildUserRepository {
   }
 
   public async upsertMany(guildId: string, userIds: number[]): Promise<void> {
-    if (userIds.length === 0) {
+    if (!guildId || !/^\d+$/.test(guildId) || userIds.length === 0) {
       return;
     }
     await this.prisma.guildUser.createMany({
@@ -29,12 +30,14 @@ export class GuildUserRepository implements IGuildUserRepository {
   }
 
   public async remove(guildId: string, userId: number): Promise<void> {
+    if (!guildId || !/^\d+$/.test(guildId)) return;
     await this.prisma.guildUser.deleteMany({
       where: { guildId: BigInt(guildId), userId: userId },
     });
   }
 
   public async getUserIdsForGuild(guildId: string): Promise<number[]> {
+    if (!guildId || !/^\d+$/.test(guildId)) return [];
     const rows = await this.prisma.guildUser.findMany({
       where: { guildId: BigInt(guildId) },
       select: { userId: true },
@@ -43,6 +46,7 @@ export class GuildUserRepository implements IGuildUserRepository {
   }
 
   public async getGuildUsers(guildId: string): Promise<FullGuildUserDetails[]> {
+    if (!guildId || !/^\d+$/.test(guildId)) return [];
     const rows = await this.prisma.guildUser.findMany({
       where: { guildId: BigInt(guildId) },
       include: {

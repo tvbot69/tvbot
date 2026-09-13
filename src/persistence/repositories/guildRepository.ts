@@ -10,6 +10,9 @@ export class GuildRepository implements IGuildRepository {
   }
 
   public async getGuild(guildId: string): Promise<Guild | null> {
+    if (!guildId || !/^\d+$/.test(guildId)) {
+      return null;
+    }
     const entity = await this.prisma.guild.findUnique({
       where: { guildId: BigInt(guildId) },
     });

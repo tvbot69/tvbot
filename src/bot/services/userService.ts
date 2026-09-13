@@ -312,44 +312,81 @@ export class UserService {
   // --- Settings & User lifecycle ---
   public async setTimeZone(userId: number, timeZone: string): Promise<string> {
     const resolved = this.resolveTimeZone(timeZone);
-    await this.db.user.update({
+    const updated = await this.db.user.update({
       where: { userId },
       data: { timeZone: resolved },
     }).catch(() => null);
+    if (updated) {
+      await this.cache.delete(`user-discord:${updated.discordUserId}`);
+    }
     return resolved;
   }
 
   public async setNumberFormat(userId: number, format: string): Promise<string> {
-    await this.db.user.update({
+    const updated = await this.db.user.update({
       where: { userId },
       data: { numberFormat: format },
     }).catch(() => null);
+    if (updated) {
+      await this.cache.delete(`user-discord:${updated.discordUserId}`);
+    }
     return format;
   }
 
   public async setPrivacyLevel(userId: number, privacyLevel: string): Promise<string> {
-    await this.db.user.update({
+    const pLevel = privacyLevel.toLowerCase() === 'hide' || privacyLevel.toLowerCase() === 'server' ? 'Hide' : 'Default';
+    const updated = await this.db.user.update({
       where: { userId },
-      data: { userType: privacyLevel as any },
+      data: { privacyLevel: pLevel as any },
     }).catch(() => null);
-    return privacyLevel;
+    if (updated) {
+      await this.cache.delete(`user-discord:${updated.discordUserId}`);
+    }
+    return pLevel === 'Hide' ? 'Server' : 'Global';
   }
 
   public async setDataSource(userId: number, dataSource: string): Promise<string> {
-    await this.db.user.update({
+    const updated = await this.db.user.update({
       where: { userId },
       data: { dataSource: dataSource as any },
     }).catch(() => null);
+    if (updated) {
+      await this.cache.delete(`user-discord:${updated.discordUserId}`);
+    }
     return dataSource;
   }
 
-  public async setWhoKnowsMode(userId: number, mode: string): Promise<string> {
-    await this.db.userFmSetting.upsert({
+  public async setWhoKnowsMode(userId: number, mode: number): Promise<number> {
+    const updated = await this.db.user.update({
       where: { userId },
-      update: { embedType: Number(mode) || 0 },
-      create: { userId, embedType: Number(mode) || 0 },
+      data: { whoKnowsMode: mode },
     }).catch(() => null);
+    if (updated) {
+      await this.cache.delete(`user-discord:${updated.discordUserId}`);
+    }
     return mode;
+  }
+
+  public async setResponseMode(userId: number, mode: number): Promise<number> {
+    const updated = await this.db.user.update({
+      where: { userId },
+      data: { mode: mode },
+    }).catch(() => null);
+    if (updated) {
+      await this.cache.delete(`user-discord:${updated.discordUserId}`);
+    }
+    return mode;
+  }
+
+  public async setCoverType(userId: number, coverType: number): Promise<number> {
+    const updated = await this.db.user.update({
+      where: { userId },
+      data: { coverType: coverType },
+    }).catch(() => null);
+    if (updated) {
+      await this.cache.delete(`user-discord:${updated.discordUserId}`);
+    }
+    return coverType;
   }
 
   public async deleteUser(userId: number): Promise<boolean> {

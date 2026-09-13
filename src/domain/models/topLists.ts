@@ -27,6 +27,7 @@ export interface TopTrack {
   mbid?: string;
   url?: string;
   imageUrl?: string;
+  dateLoved?: Date;
 }
 
 export type { TimePeriod };

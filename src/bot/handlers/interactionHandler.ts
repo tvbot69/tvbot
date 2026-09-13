@@ -21,6 +21,7 @@ import { ColorService } from '@bot/services/colorService';
 import { UserService } from '@bot/services/userService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
 import { SettingsInteractions, SETTINGS_BUTTON_PREFIX } from '@bot/interactions/settingsInteractions';
+import { UserSettingsInteractions } from '@bot/interactions/userSettingsInteractions';
 import { ChartInteractions } from '@bot/interactions/chartInteractions';
 import { AlbumInteractions, ALBUM_BUTTON_PREFIXES } from '@bot/interactions/albumInteractions';
 import { FmModeInteractions, FM_MODE_PREFIX } from '@bot/interactions/fmModeInteractions';
@@ -83,10 +84,12 @@ export class InteractionHandler {
   private readonly userHubInteractions: UserHubInteractions;
   private readonly intelligenceInteractions: IntelligenceInteractions;
   private readonly nowPlayingInteractions: NowPlayingInteractions;
+  private readonly userSettingsInteractions: UserSettingsInteractions;
 
   constructor() {
     this.client = container.resolve(Client);
     this.nowPlayingInteractions = container.resolve(NowPlayingInteractions);
+    this.userSettingsInteractions = container.resolve(UserSettingsInteractions);
     this.guildService = container.resolve(GuildService);
     this.disabledChannelService = container.resolve(DisabledChannelService);
     this.guildDisabledCommands = container.resolve(GuildDisabledCommandService);
@@ -125,10 +128,11 @@ export class InteractionHandler {
   }
 
   private async onInteractionCreated(interaction: Interaction): Promise<void> {
-    if (interaction.isChatInputCommand()) {
-      await this.executeSlashCommand(interaction);
-      return;
-    }
+    try {
+      if (interaction.isChatInputCommand()) {
+        await this.executeSlashCommand(interaction);
+        return;
+      }
 
     if (interaction.isAutocomplete()) {
       await this.handleAutocomplete(interaction);
@@ -136,6 +140,10 @@ export class InteractionHandler {
     }
 
     if (interaction.isButton() || interaction.isAnySelectMenu()) {
+      if (this.userSettingsInteractions.isUserSettingsInteraction(interaction)) {
+        await this.userSettingsInteractions.handle(interaction as any);
+        return;
+      }
       if (interaction.isStringSelectMenu()) {
         if (interaction.customId.startsWith(FM_MODE_PREFIX)) {
           await this.fmModeInteractions.handle(interaction);
@@ -177,6 +185,10 @@ export class InteractionHandler {
         }
         if (interaction.customId.startsWith('love-track:') || interaction.customId.startsWith('unlove-track:')) {
           await this.nowPlayingInteractions.handleLove(interaction);
+          return;
+        }
+        if (interaction.customId.startsWith('loved:')) {
+          await this.nowPlayingInteractions.handleLovedPagination(interaction);
           return;
         }
         if (interaction.customId.startsWith('track-lyrics:')) {
@@ -301,8 +313,16 @@ export class InteractionHandler {
       return;
     }
 
-    if (interaction.isModalSubmit()) {
-      await tryHandleModal(interaction);
+      if (interaction.isModalSubmit()) {
+        await tryHandleModal(interaction);
+      }
+    } catch (err) {
+      Logger.error({ err }, 'Unhandled exception in interactionHandler');
+      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+        await interaction
+          .reply({ content: 'Sorry, something went wrong while processing this interaction.', flags: MessageFlags.Ephemeral })
+          .catch(() => undefined);
+      }
     }
   }
 

@@ -42,6 +42,13 @@ export class CrownService {
         if (lastUsedMs < cutoffMs) return false;
       }
 
+      if (guild && (guild as any).crownRoles && (guild as any).crownRoles.length > 0) {
+        const requiredRoles = new Set((guild as any).crownRoles.map((r: any) => r.toString()));
+        const userRoles = u.roles ?? [];
+        const hasRole = userRoles.some((r) => requiredRoles.has(r));
+        if (!hasRole) return false;
+      }
+
       return true;
     });
 
@@ -176,5 +183,33 @@ export class CrownService {
 
   public async seedCrowns(guildId: string, minPlaycount: number = 30): Promise<number> {
     return this.crownRepository.seedCrownsForGuild(guildId, minPlaycount);
+  }
+
+  public async killCrown(guildId: string, artistName: string): Promise<boolean> {
+    return this.crownRepository.killCrown(guildId, artistName);
+  }
+
+  public async removeUserCrowns(guildId: string, userId: number): Promise<number> {
+    return this.crownRepository.removeUserCrowns(guildId, userId);
+  }
+
+  public async setCrownBlock(guildId: string, userId: number, blocked: boolean): Promise<void> {
+    return this.crownRepository.setCrownBlock(guildId, userId, blocked);
+  }
+
+  public async getBlockedCrownUsers(guildId: string): Promise<{ userId: number; userNameLastFm: string; discordUserId: string }[]> {
+    return this.crownRepository.getBlockedCrownUsers(guildId);
+  }
+
+  public async setCrownRole(guildId: string, roleId: string | null): Promise<void> {
+    return this.crownRepository.setCrownRole(guildId, roleId);
+  }
+
+  public async getCrownRoles(guildId: string): Promise<string[]> {
+    return this.crownRepository.getCrownRoles(guildId);
+  }
+
+  public async killAllCrowns(guildId: string): Promise<number> {
+    return this.crownRepository.killAllCrowns(guildId);
   }
 }

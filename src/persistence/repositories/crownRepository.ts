@@ -6,7 +6,19 @@ import type { UserCrownDto, CrownViewType } from '@domain/models/crownModels';
 export class CrownRepository {
   constructor(@inject(PrismaClient) private readonly prisma: PrismaClient) {}
 
+  private safeBigInt(id: string): bigint | null {
+    if (!id || !/^\d+$/.test(id)) return null;
+    try {
+      return BigInt(id);
+    } catch {
+      return null;
+    }
+  }
+
   public async getCurrentCrown(guildId: string, artistName: string): Promise<UserCrownDto | null> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return null;
+
     const rows = await this.prisma.$queryRaw<UserCrownDto[]>`
       SELECT 
         c.crown_id as "crownId",
@@ -23,7 +35,7 @@ export class CrownRepository {
         u.discord_user_id::text as "discordUserId"
       FROM user_crowns c
       JOIN users u ON u.user_id = c.user_id
-      WHERE c.guild_id = ${BigInt(guildId)}
+      WHERE c.guild_id = ${gid}
         AND c.active = true
         AND UPPER(c.artist_name) = UPPER(${artistName})
       LIMIT 1
@@ -96,6 +108,9 @@ export class CrownRepository {
     userId: number,
     viewType: CrownViewType = 'Playcount',
   ): Promise<UserCrownDto[]> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return [];
+
     let activeFilter = true;
 
     if (viewType === 'Stolen') {
@@ -118,7 +133,7 @@ export class CrownRepository {
         u.discord_user_id::text as "discordUserId"
       FROM user_crowns c
       JOIN users u ON u.user_id = c.user_id
-      WHERE c.guild_id = ${BigInt(guildId)}
+      WHERE c.guild_id = ${gid}
         AND c.user_id = ${userId}
         AND c.active = ${activeFilter}
       ORDER BY 
@@ -132,12 +147,15 @@ export class CrownRepository {
   }
 
   public async getTopCrownHoldersInGuild(guildId: string): Promise<{ userId: number; crownCount: number }[]> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return [];
+
     const rows = await this.prisma.$queryRaw<{ userId: number; crownCount: number }[]>`
       SELECT 
         c.user_id as "userId",
         COUNT(*)::int as "crownCount"
       FROM user_crowns c
-      WHERE c.guild_id = ${BigInt(guildId)}
+      WHERE c.guild_id = ${gid}
         AND c.active = true
       GROUP BY c.user_id
       ORDER BY "crownCount" DESC
@@ -146,9 +164,12 @@ export class CrownRepository {
   }
 
   public async getTotalActiveCrownsInGuild(guildId: string): Promise<number> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return 0;
+
     const count = await this.prisma.userCrown.count({
       where: {
-        guildId: BigInt(guildId),
+        guildId: gid,
         active: true,
       },
     });
@@ -156,6 +177,9 @@ export class CrownRepository {
   }
 
   public async getCrownHistoryForArtist(guildId: string, artistName: string, limit: number = 10): Promise<UserCrownDto[]> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return [];
+
     const rows = await this.prisma.$queryRaw<UserCrownDto[]>`
       SELECT 
         c.crown_id as "crownId",
@@ -172,7 +196,7 @@ export class CrownRepository {
         u.discord_user_id::text as "discordUserId"
       FROM user_crowns c
       JOIN users u ON u.user_id = c.user_id
-      WHERE c.guild_id = ${BigInt(guildId)}
+      WHERE c.guild_id = ${gid}
         AND UPPER(c.artist_name) = UPPER(${artistName})
       ORDER BY c.created DESC
       LIMIT ${limit}
@@ -184,7 +208,8 @@ export class CrownRepository {
     guildId: string,
     minPlaycount: number = 30,
   ): Promise<number> {
-    const gid = BigInt(guildId);
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return 0;
 
     // Delete previous seeded crowns
     await this.prisma.userCrown.deleteMany({
@@ -240,5 +265,117 @@ export class CrownRepository {
     }
 
     return inserted;
+  }
+
+  public async killCrown(guildId: string, artistName: string): Promise<boolean> {
+    const res = await this.prisma.userCrown.updateMany({
+      where: {
+        guildId: BigInt(guildId),
+        active: true,
+        artistName: {
+          equals: artistName,
+          mode: 'insensitive',
+        },
+      },
+      data: {
+        active: false,
+        modified: new Date(),
+      },
+    });
+    return res.count > 0;
+  }
+
+  public async removeUserCrowns(guildId: string, userId: number): Promise<number> {
+    const res = await this.prisma.userCrown.updateMany({
+      where: {
+        guildId: BigInt(guildId),
+        userId,
+        active: true,
+      },
+      data: {
+        active: false,
+        modified: new Date(),
+      },
+    });
+    return res.count;
+  }
+
+  public async setCrownBlock(guildId: string, userId: number, blocked: boolean): Promise<void> {
+    const gid = BigInt(guildId);
+    await this.prisma.guildUser.upsert({
+      where: {
+        guildId_userId: { guildId: gid, userId },
+      },
+      update: {
+        blockedFromCrowns: blocked,
+      },
+      create: {
+        guildId: gid,
+        userId,
+        blockedFromCrowns: blocked,
+      },
+    });
+
+    if (blocked) {
+      await this.removeUserCrowns(guildId, userId);
+    }
+  }
+
+  public async getBlockedCrownUsers(guildId: string): Promise<{ userId: number; userNameLastFm: string; discordUserId: string }[]> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return [];
+
+    const rows = await this.prisma.$queryRaw<{ userId: number; userNameLastFm: string; discordUserId: string }[]>`
+      SELECT 
+        gu.user_id as "userId",
+        u.user_name_last_fm as "userNameLastFm",
+        u.discord_user_id::text as "discordUserId"
+      FROM guild_users gu
+      JOIN users u ON u.user_id = gu.user_id
+      WHERE gu.guild_id = ${gid}
+        AND gu.blocked_from_crowns = true
+      ORDER BY u.user_name_last_fm ASC
+    `;
+    return rows;
+  }
+
+  public async setCrownRole(guildId: string, roleId: string | null): Promise<void> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return;
+
+    const validRoleId = roleId && /^\d+$/.test(roleId) ? BigInt(roleId) : null;
+    const roles = validRoleId ? [validRoleId] : [];
+    await this.prisma.guild.update({
+      where: { guildId: gid },
+      data: { crownRoles: roles },
+    });
+  }
+
+  public async getCrownRoles(guildId: string): Promise<string[]> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return [];
+
+    const guild = await this.prisma.guild.findUnique({
+      where: { guildId: gid },
+      select: { crownRoles: true },
+    });
+    return guild?.crownRoles?.map((r) => r.toString()) ?? [];
+  }
+
+  public async killAllCrowns(guildId: string): Promise<number> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return 0;
+
+    const res = await this.prisma.userCrown.updateMany({
+      where: {
+        guildId: gid,
+        active: true,
+      },
+      data: {
+        active: false,
+        modified: new Date(),
+      },
+    });
+    return res.count;
   }
 }

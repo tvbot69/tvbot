@@ -68,4 +68,38 @@ describe('TrackBuilders', () => {
     expect(str).toContain('services_apple_music');
     expect(str).toContain('track-preview:103854464:');
   });
+
+  it('buildLoveResponse and buildUnloveResponse generate correct text', () => {
+    const loveRes = TrackBuilders.buildLoveResponse('Song Title', 'Band Name', 0x123456);
+    expect(loveRes.isComponentsV2).toBe(true);
+    const loveJson = JSON.stringify(loveRes.componentsV2Container!.toJSON());
+    expect(loveJson).toContain('Loved **Song Title** by **Band Name** on Last.fm');
+
+    const unloveRes = TrackBuilders.buildUnloveResponse('Song Title', 'Band Name', 0x123456);
+    expect(unloveRes.isComponentsV2).toBe(true);
+    const unloveJson = JSON.stringify(unloveRes.componentsV2Container!.toJSON());
+    expect(unloveJson).toContain('Unloved **Song Title** by **Band Name** on Last.fm');
+  });
+
+  it('buildLovedTracksResponse formats pagination and loved list properly', () => {
+    const tracks = [
+      { name: 'Track 1', artistName: 'Artist 1', dateLoved: new Date('2025-01-01') },
+      { name: 'Track 2', artistName: 'Artist 2' },
+    ];
+    const res = TrackBuilders.buildLovedTracksResponse('moha_lfm', 'Moha', tracks, 0, 2);
+    expect(res.isComponentsV2).toBe(true);
+    const json = JSON.stringify(res.componentsV2Container!.toJSON());
+    expect(json).toContain('Loved tracks for [Moha]');
+    expect(json).toContain('Track 1');
+    expect(json).toContain('Artist 1');
+    expect(json).toContain('Track 2');
+    expect(json).toContain('Artist 2');
+  });
+
+  it('buildScrobbleResponse generates correct text and metadata', () => {
+    const res = TrackBuilders.buildScrobbleResponse('Track Name', 'Artist Name', 'moha_lfm');
+    expect(res.isComponentsV2).toBe(true);
+    const json = JSON.stringify(res.componentsV2Container!.toJSON());
+    expect(json).toContain('Scrobbled **Track Name** by **Artist Name** to **moha_lfm**\'s Last.fm profile.');
+  });
 });
