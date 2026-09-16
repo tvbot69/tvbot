@@ -12,6 +12,7 @@ import { PuppeteerService } from '@images/generators/puppeteerService';
 import { getSlashCommandPayloads } from '@bot/slashCommands';
 import { MoonlinkManager } from './music/moonlinkManager';
 import { MusicHandler } from '@bot/handlers/musicHandler';
+import { LyricStatusService } from './lyricStatusService';
 
 export class StartupService {
   private readonly client: Client;
@@ -73,6 +74,10 @@ export class StartupService {
       }
 
       this.timerService.startAsync();
+
+      if (container.isRegistered(LyricStatusService)) {
+        void container.resolve(LyricStatusService).updateLyricStatusAsync().catch(() => undefined);
+      }
     });
 
     // Auto-register when invited to any new guild

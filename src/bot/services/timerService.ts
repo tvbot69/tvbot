@@ -11,6 +11,7 @@ import { UserIndexQueueService } from './userIndexQueueService';
 import { UserRepository } from '@persistence/repositories/userRepository';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { AutopostService } from './autopostService';
+import { LyricStatusService } from './lyricStatusService';
 
 export class TimerService {
   private readonly tasks: Map<string, ScheduledTask> = new Map();
@@ -50,6 +51,16 @@ export class TimerService {
         }
       } catch (err) {
         Logger.error({ err }, 'Autopost runner job failed');
+      }
+    });
+
+    this.registerJob('lyric-status-updater', '*/10 * * * *', async () => {
+      try {
+        if (container.isRegistered(LyricStatusService)) {
+          await container.resolve(LyricStatusService).updateLyricStatusAsync();
+        }
+      } catch (err) {
+        Logger.error({ err }, 'Lyric status updater scheduled job failed');
       }
     });
 

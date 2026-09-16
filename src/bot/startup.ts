@@ -208,6 +208,7 @@ import { StreamingSlashCommands } from './slashCommands/streamingSlashCommands';
 import { HelpInteractions } from './interactions/helpInteractions';
 import { HelpCommands } from './textCommands/helpCommands';
 import { HelpSlashCommands } from './slashCommands/helpSlashCommands';
+import { LyricStatusService } from './services/lyricStatusService';
 
 export const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -510,6 +511,9 @@ export const configureContainer = (): void => {
   );
   container.registerInstance(LyricsService, lyricsService);
   container.registerInstance(NowPlayingInteractions, nowPlayingInteractions);
+
+  const lyricStatusService = new LyricStatusService(client, lyricsService, prisma);
+  container.registerInstance(LyricStatusService, lyricStatusService);
 
   const friendInteractions = new FriendInteractions(friendsService, userService, colorService);
   container.registerInstance(FriendInteractions, friendInteractions);
