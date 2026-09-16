@@ -32,11 +32,13 @@ import { GuildAdminSlashCommands } from './guildAdminSlashCommands';
 import { UserHubSlashCommands } from './userHubSlashCommands';
 import { ImportSlashCommands } from './importSlashCommands';
 import { StreamingSlashCommands } from './streamingSlashCommands';
+import { HelpSlashCommands } from './helpSlashCommands';
 
 let commandCache: Map<string, SlashCommandDefinition> | null = null;
 
 const buildCommands = (): Map<string, SlashCommandDefinition> => {
   const modules = [
+    container.resolve(HelpSlashCommands),
     container.resolve(UserSlashCommands),
     container.resolve(PlaycountSlashCommands),
     container.resolve(ProfileSlashCommands),

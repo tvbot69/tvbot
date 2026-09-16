@@ -205,6 +205,9 @@ import { ImportCommands } from './textCommands/thirdParty/importCommands';
 import { ImportSlashCommands } from './slashCommands/importSlashCommands';
 import { StreamingCommands } from './textCommands/thirdParty/streamingCommands';
 import { StreamingSlashCommands } from './slashCommands/streamingSlashCommands';
+import { HelpInteractions } from './interactions/helpInteractions';
+import { HelpCommands } from './textCommands/helpCommands';
+import { HelpSlashCommands } from './slashCommands/helpSlashCommands';
 
 export const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -599,6 +602,9 @@ export const configureContainer = (): void => {
     new UserSlashCommands(userService, lastFmRepository, updateService),
   );
   container.registerInstance(StaticSlashCommands, new StaticSlashCommands());
+  container.registerInstance(HelpSlashCommands, new HelpSlashCommands());
+  container.registerInstance(HelpCommands, new HelpCommands());
+  container.registerInstance(HelpInteractions, new HelpInteractions(prefixService, colorService));
   container.registerInstance(
     ChartSlashCommands,
     new ChartSlashCommands(chartService, userService, settingService, updateService, colorService),

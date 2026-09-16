@@ -46,6 +46,7 @@ import { GameInteractions } from '@bot/interactions/gameInteractions';
 import { UserHubInteractions } from '@bot/interactions/userHubInteractions';
 import { IntelligenceInteractions } from '@bot/interactions/intelligenceInteractions';
 import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
+import { HelpInteractions } from '@bot/interactions/helpInteractions';
 import { TelemetryService } from '@bot/services/telemetryService';
 import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
@@ -87,9 +88,11 @@ export class InteractionHandler {
   private readonly intelligenceInteractions: IntelligenceInteractions;
   private readonly nowPlayingInteractions: NowPlayingInteractions;
   private readonly userSettingsInteractions: UserSettingsInteractions;
+  private readonly helpInteractions: HelpInteractions;
 
   constructor() {
     this.client = container.resolve(Client);
+    this.helpInteractions = container.resolve(HelpInteractions);
     this.nowPlayingInteractions = container.resolve(NowPlayingInteractions);
     this.userSettingsInteractions = container.resolve(UserSettingsInteractions);
     this.guildService = container.resolve(GuildService);
@@ -172,6 +175,10 @@ export class InteractionHandler {
           await this.countryInteractions.handleStringSelect(interaction);
           return;
         }
+        if (interaction.customId.startsWith('help:')) {
+          await this.helpInteractions.handleSelectMenu(interaction);
+          return;
+        }
       }
       if (interaction.isButton()) {
         const btnStart = Date.now();
@@ -181,6 +188,11 @@ export class InteractionHandler {
           guildName: interaction.guild?.name,
           durationMs: Date.now() - btnStart,
         });
+
+        if (interaction.customId.startsWith('help:')) {
+          await this.helpInteractions.handleButton(interaction);
+          return;
+        }
 
         if (interaction.customId.startsWith('scrobble-ref:') || interaction.customId.startsWith('scrobble-now:')) {
           await this.nowPlayingInteractions.handleScrobble(interaction);
