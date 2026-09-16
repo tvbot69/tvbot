@@ -18,6 +18,7 @@ import { ArtworkService } from '@bot/services/artworkService';
 import { FmFooterResolver } from '@bot/services/fmFooterResolver';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import { ColorService } from '@bot/services/colorService';
+import { ExposedService } from '@bot/services/exposedService';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
 const FM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
@@ -187,7 +188,7 @@ export class PlayCommands implements ITextCommandModule {
       ? await FmFooterResolver.resolveFooterData(displayUser, tracks[0], footerOptions, context.guildId)
       : {};
 
-    return PlayBuilders.buildFmResponse(context, displayUser, tracks, lastfmUser, {
+    const response = PlayBuilders.buildFmResponse(context, displayUser, tracks, lastfmUser, {
       fmSetting,
       guildFmType: guildFmType ?? null,
       channelFmType: channelFmType ?? null,
@@ -196,6 +197,25 @@ export class PlayCommands implements ITextCommandModule {
       accentColor,
       ...footerData,
     });
+
+    // Check for rare live 4K anomaly (subject to 24h guild / 7d user cooldown)
+    if (context.guildId && tracks[0] && container.isRegistered(ExposedService)) {
+      try {
+        const anomaly = await container.resolve(ExposedService).checkLiveNowPlayingAnomaly(
+          displayUser,
+          context.guildId,
+          tracks[0].artistName,
+          tracks[0].name,
+        );
+        if (anomaly) {
+          response.content = `📸 **CAUGHT IN 4K:** <@${displayUser.discordUserId}> — *${anomaly.roast}* \`[Guilty tag: ${anomaly.matchedGenre}]\``;
+        }
+      } catch {
+        // Safe failover
+      }
+    }
+
+    return response;
   }
 
   private async registerAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {

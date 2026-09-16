@@ -33,12 +33,14 @@ import { ImportCommands } from './thirdParty/importCommands';
 import { StreamingCommands } from './thirdParty/streamingCommands';
 import { AutopostCommands } from './guild/autopostCommands';
 import { HelpCommands } from './helpCommands';
+import { ExposedCommands } from './lastfm/exposedCommands';
 
 let commandCache: Map<string, TextCommandDefinition> | null = null;
 
 const buildCommands = (): Map<string, TextCommandDefinition> => {
   const modules = [
     container.resolve(HelpCommands),
+    container.resolve(ExposedCommands),
     container.resolve(PlayCommands),
     container.resolve(PlaycountCommands),
     container.resolve(ProfileCommands),

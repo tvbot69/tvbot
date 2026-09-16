@@ -209,6 +209,9 @@ import { HelpInteractions } from './interactions/helpInteractions';
 import { HelpCommands } from './textCommands/helpCommands';
 import { HelpSlashCommands } from './slashCommands/helpSlashCommands';
 import { LyricStatusService } from './services/lyricStatusService';
+import { ExposedService } from './services/exposedService';
+import { ExposedCommands } from './textCommands/lastfm/exposedCommands';
+import { ExposedSlashCommands } from './slashCommands/exposedSlashCommands';
 
 export const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -925,6 +928,13 @@ export const configureContainer = (): void => {
   container.registerInstance(ImportSlashCommands, importSlashCommands);
   container.registerInstance(StreamingCommands, streamingCommands);
   container.registerInstance(StreamingSlashCommands, streamingSlashCommands);
+
+  const exposedService = new ExposedService(genreService, playRepository, prisma);
+  const exposedCommands = new ExposedCommands(userService, exposedService);
+  const exposedSlashCommands = new ExposedSlashCommands(userService, exposedService);
+  container.registerInstance(ExposedService, exposedService);
+  container.registerInstance(ExposedCommands, exposedCommands);
+  container.registerInstance(ExposedSlashCommands, exposedSlashCommands);
 
   const musicHandler = new MusicHandler(
     client,

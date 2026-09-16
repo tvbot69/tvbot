@@ -319,6 +319,8 @@ export class HelpBuilders {
           `Music discovery, compatibility testing, and competitive trivia mini-games.\n\n` +
             `• **\`${prefix}taste\`** or **\`${prefix}compare\`** \`<@user | username>\`\n` +
             `  Compare your musical taste and shared artists with another member.\n\n` +
+            `• **\`${prefix}exposed\`** or **\`${prefix}caughtin4k\`** \`[@user]\`\n` +
+            `  Audit a member's listening history to expose secret guilty pleasures in 4K!\n\n` +
             `• **\`${prefix}friends\`** \`[user]\`\n` +
             `  View mutual friends, listening habits, and compatibility rankings.\n\n` +
             `• **\`${prefix}game\`** \`[track | artist | album]\`\n` +

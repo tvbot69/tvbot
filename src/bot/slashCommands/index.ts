@@ -33,12 +33,14 @@ import { UserHubSlashCommands } from './userHubSlashCommands';
 import { ImportSlashCommands } from './importSlashCommands';
 import { StreamingSlashCommands } from './streamingSlashCommands';
 import { HelpSlashCommands } from './helpSlashCommands';
+import { ExposedSlashCommands } from './exposedSlashCommands';
 
 let commandCache: Map<string, SlashCommandDefinition> | null = null;
 
 const buildCommands = (): Map<string, SlashCommandDefinition> => {
   const modules = [
     container.resolve(HelpSlashCommands),
+    container.resolve(ExposedSlashCommands),
     container.resolve(UserSlashCommands),
     container.resolve(PlaycountSlashCommands),
     container.resolve(ProfileSlashCommands),
