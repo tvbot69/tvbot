@@ -262,25 +262,26 @@ export class WhoKnowsService {
         const isRequester =
           (requestedDiscordUserId !== undefined && user.discordUserId === requestedDiscordUserId) ||
           user.userId === requestedUserId;
-        let nameLink = this.nameWithLink(user);
-        if (isRequester) {
-          nameLink = `**${nameLink}`;
-        }
         const playsCount = user.playcount.toLocaleString();
         const playsText = user.playcount === 1 ? '1 play' : `${playsCount} plays`;
+        const link = this.nameWithLink(user);
+
+        const playsWord = user.playcount === 1 ? 'play' : 'plays';
 
         if (user.hasCrown) {
-          pageLines.push(`👑\u200A\u2005${nameLink} - ${playsText}**`);
-        } else {
-          const rank = `${indexNumber}.`;
-          const positionCounter = isRequester ? `**${rank}**\u2006` : `${rank}\u2004`;
-          const afterSpacer = indexNumber === 10 ? '' : indexNumber === 7 || indexNumber === 9 ? '\u2004' : '\u2005';
           if (isRequester) {
-            pageLines.push(`${positionCounter}${afterSpacer}${nameLink} - ${playsText}**`);
+            pageLines.push(`👑  **${link} - ${playsText}**`);
             requestedOnPage = true;
           } else {
-            const boldPlays = user.playcount === 1 ? '**1** play' : `**${playsCount}** plays`;
-            pageLines.push(`${positionCounter}${afterSpacer}${nameLink} - ${boldPlays}`);
+            pageLines.push(`👑  ${link} - **${playsCount}** ${playsWord}`);
+          }
+        } else {
+          const rank = `${indexNumber}.`;
+          if (isRequester) {
+            pageLines.push(`**${rank}  ${link} - ${playsText}**`);
+            requestedOnPage = true;
+          } else {
+            pageLines.push(`${rank}  ${link} - **${playsCount}** ${playsWord}`);
           }
         }
 

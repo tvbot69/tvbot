@@ -175,6 +175,17 @@ export class CommandDispatcher {
           const oldest = this.commandResponseMessageMap.keys().next().value;
           if (oldest) this.commandResponseMessageMap.delete(oldest);
         }
+
+        if ((response as any)._paginatorSession) {
+          try {
+            const { ComponentPaginatorService } = await import('@bot/services/componentPaginatorService');
+            if (container.isRegistered(ComponentPaginatorService)) {
+              container.resolve(ComponentPaginatorService).registerSession(sentMessage.id, (response as any)._paginatorSession);
+            }
+          } catch {
+            // ignore
+          }
+        }
       }
     }
 

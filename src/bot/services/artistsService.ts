@@ -421,6 +421,22 @@ export class ArtistsService {
     }
   }
 
+  public async getIndexedAlbumCoversForArtist(artistName: string, limit: number = 25): Promise<string[]> {
+    try {
+      const rows = await this.db.$queryRawUnsafe<Array<{ cover: string }>>(`
+        SELECT DISTINCT COALESCE(al.deezer_image_url, al.spotify_image_url, al.image_url) AS cover
+        FROM albums al
+        JOIN artists ar ON ar.artist_id = al.artist_id
+        WHERE LOWER(ar.name) = LOWER($1)
+          AND (al.deezer_image_url IS NOT NULL OR al.spotify_image_url IS NOT NULL OR (al.image_url IS NOT NULL AND al.image_url NOT LIKE '%2a96cbd8b46e442fc41c2b86b821562f%'))
+        LIMIT $2
+      `, artistName, limit);
+      return rows.map((r) => r.cover).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
   public async getUserAlbumsForArtist(userId: number, artistName: string): Promise<UserAlbumEntry[]> {
     try {
       const albums = await this.getTopAlbumsForArtist(userId, artistName);

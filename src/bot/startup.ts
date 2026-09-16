@@ -32,6 +32,7 @@ import { ArtistsService } from './services/artistsService';
 import { AlbumService } from './services/albumService';
 import { TrackService } from './services/trackService';
 import { ComponentInteractionTracker } from './services/componentInteractionTracker';
+import { ComponentPaginatorService } from './services/componentPaginatorService';
 import { PaginationService } from './services/paginationService';
 import { LocalizationService } from './services/localizationService';
 import { TelemetryService } from './services/telemetryService';
@@ -250,10 +251,12 @@ export const configureContainer = (): void => {
   const settingService = new SettingService();
   const cache = new CacheService();
   const componentTracker = new ComponentInteractionTracker();
+  const componentPaginatorService = new ComponentPaginatorService();
   container.registerInstance(LastfmErrorRateTracker, errorRateTracker);
   container.registerInstance(SettingService, settingService);
   container.registerInstance(CacheService, cache);
   container.registerInstance(ComponentInteractionTracker, componentTracker);
+  container.registerInstance(ComponentPaginatorService, componentPaginatorService);
 
   const spotifyTokenManager = new SpotifyTokenManager();
   const lastfmApi = new LastfmApi();
@@ -457,6 +460,7 @@ export const configureContainer = (): void => {
   container.registerInstance(TrackService, trackService);
 
   container.registerInstance(ComponentInteractionTracker, componentTracker);
+  container.registerInstance(ComponentPaginatorService, componentPaginatorService);
   container.registerInstance(PaginationService, paginationService);
   container.registerInstance(LocalizationService, localizationService);
   container.registerInstance(ColorService, colorService);

@@ -3,6 +3,11 @@ import path from 'path';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { PuppeteerService } from './puppeteerService';
 
+export interface WhoKnowsStatItem {
+  value: string | number;
+  label: string;
+}
+
 export interface WhoKnowsImageParams {
   type: string;
   title: string;
@@ -20,6 +25,9 @@ export interface WhoKnowsImageParams {
   topItemValue?: string;
   topItemExtra?: string;
   topTracks?: string[];
+  topListHeader?: string;
+  stats?: WhoKnowsStatItem[];
+  footerItemLabel?: string;
 }
 
 const escapeHtml = (value: string): string =>
@@ -56,7 +64,22 @@ export class WhoKnowsGenerator {
     const html = this.buildHtml(template, params);
 
     const width = 1200;
-    const height = params.crownText ? 940 : 860;
+    const userCount = Math.min(params.users?.length ?? 10, 10);
+    let height = 860;
+    if (userCount >= 8 || params.stats || params.topTracks) {
+      height = 920;
+    }
+    if (params.crownText) {
+      height += 60;
+    }
+    const callerInTop10 = (params.users ?? []).slice(0, 10).some(
+      (u) =>
+        (params.callerUserId && u.userId === params.callerUserId) ||
+        (params.callerDiscordId && u.discordUserId === params.callerDiscordId),
+    );
+    if (!callerInTop10 && (params.callerUserId || params.callerDiscordId)) {
+      height += 65;
+    }
 
     return this.puppeteer.screenshotHtml(html, width, height);
   }
@@ -177,7 +200,7 @@ export class WhoKnowsGenerator {
       : '';
 
     // Stats Bar: omit average if only one listener is on the table
-    const listenersLabel = totalListeners === 1 ? 'listener' : 'listeners';
+    const listenersLabel = params.footerItemLabel || (totalListeners === 1 ? 'listener' : 'listeners');
     const playsLabel = totalPlays === 1 ? 'play' : 'total plays';
     let statsBarHtml = `<span><strong class="stat-highlight">${totalListeners.toLocaleString()}</strong> ${listenersLabel}</span>
       <span class="stat-sep">·</span>
@@ -209,13 +232,25 @@ export class WhoKnowsGenerator {
       : '';
 
     let infoBoxHtml = '';
+    const hasCustomStats = Boolean(params.stats && params.stats.length > 0);
     const hasGlobal = globalPlays !== undefined || globalListeners !== undefined;
     const hasTopList = Boolean(topTracks && topTracks.length > 0);
     const hasTop = Boolean(topItemLabel && topItemValue);
 
-    if (hasGlobal || hasTopList || hasTop) {
+    if (hasCustomStats || hasGlobal || hasTopList || hasTop) {
       let statsRow = '';
-      if (hasGlobal) {
+      if (hasCustomStats) {
+        statsRow = `
+          <div class="info-row-stats">
+            ${params.stats!.map((s, idx) => `
+              <div class="info-stat-item">
+                <span class="info-stat-num">${typeof s.value === 'number' ? formatCompact(s.value) : escapeHtml(String(s.value))}</span>
+                <span class="info-stat-lbl">${escapeHtml(s.label)}</span>
+              </div>
+              ${idx < params.stats!.length - 1 ? '<div class="info-stat-divider"></div>' : ''}
+            `).join('')}
+          </div>`;
+      } else if (hasGlobal) {
         const playsFormatted = globalPlays !== undefined ? formatCompact(globalPlays) : null;
         const listenersFormatted = globalListeners !== undefined ? formatCompact(globalListeners) : null;
         statsRow = `
@@ -237,9 +272,10 @@ export class WhoKnowsGenerator {
       let topRow = '';
       if (hasTopList) {
         const tracksToRender = topTracks!.slice(0, 3);
+        const headerTitle = params.topListHeader || 'Top Tracks';
         topRow = `
           <div class="info-top-list">
-            <div class="info-top-header">Top Tracks</div>
+            <div class="info-top-header">${escapeHtml(headerTitle)}</div>
             ${tracksToRender.map((t, idx) => `
               <div class="info-top-item">
                 <span class="info-top-rank">${idx + 1}</span>

@@ -304,7 +304,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
 
       // Check footer formatting for multiple listeners
       expect(res.embed.data.footer?.text).toBe(
-        'melodic rap\nArtist - 2 listeners - 279 plays - 140 avg'
+        'melodic rap\nArtist - 2 listeners - 279 plays - 139 avg'
       );
     });
 

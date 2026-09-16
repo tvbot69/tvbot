@@ -79,7 +79,7 @@ export class WhoKnowsBuilders {
     const distinctUsers = users.filter((u, i, arr) => arr.findIndex((x) => x.userId === u.userId) === i);
     const totalListeners = distinctUsers.filter((u) => u.playcount > 0).length;
     const totalPlays = distinctUsers.reduce((sum, u) => sum + u.playcount, 0);
-    const avgPlays = totalListeners > 0 ? Math.round(totalPlays / totalListeners) : 0;
+    const avgPlays = totalListeners > 0 ? Math.floor(totalPlays / totalListeners) : 0;
 
     let type = mediaType;
     if (!type) {
@@ -293,6 +293,20 @@ export class WhoKnowsBuilders {
                 }
               }
 
+              // 3. Database albums with covers for this artist
+              try {
+                const dbCovers = await artistsService.getIndexedAlbumCoversForArtist(resolvedArtistName, 21);
+                for (const c of dbCovers) {
+                  if (c && !seenCovers.has(c)) {
+                    seenCovers.add(c);
+                    distinctCovers.push(c);
+                    if (distinctCovers.length >= 21) break;
+                  }
+                }
+              } catch {
+                // ignore
+              }
+
               // 3. Global DB plays for this artist
               try {
                 const globalAlbums = await artistsService.getTopAlbumsForArtistGlobal(resolvedArtistName, 25);
@@ -319,6 +333,32 @@ export class WhoKnowsBuilders {
                       distinctCovers.push(cover);
                       if (distinctCovers.length >= 21) break;
                     }
+                  }
+
+                  // Index discovered covers into PostgreSQL database in the background
+                  if (deezerAlbums.length > 0) {
+                    setImmediate(async () => {
+                      try {
+                        const { ArtistRepository } = await import('@persistence/repositories/artistRepository');
+                        const { AlbumRepository } = await import('@persistence/repositories/albumRepository');
+                        if (container.isRegistered(ArtistRepository) && container.isRegistered(AlbumRepository)) {
+                          const artistRepo = container.resolve(ArtistRepository);
+                          const albumRepo = container.resolve(AlbumRepository);
+                          const artist = await artistRepo.getOrCreateArtist(resolvedArtistName);
+                          for (const da of deezerAlbums) {
+                            const cover = da.cover_xl ?? da.cover_big ?? da.cover_medium;
+                            if (cover && da.title) {
+                              const alb = await albumRepo.getOrCreateAlbum(da.title, artist.artistId, cover);
+                              if (!alb.deezerImageUrl) {
+                                await albumRepo.setDeezerImage(alb.albumId, da.id, cover);
+                              }
+                            }
+                          }
+                        }
+                      } catch (err) {
+                        Logger.debug({ err }, 'Background indexing of Deezer covers failed');
+                      }
+                    });
                   }
                 } catch {
                   // ignore
@@ -368,7 +408,7 @@ export class WhoKnowsBuilders {
           });
         }
       } catch (err) {
-        Logger.error({ err }, 'Failed to generate WhoKnows image, falling back to embed');
+        Logger.error({ err }, 'Failed to generate WhoKnows image');
       }
 
       if (imageBuffer) {
@@ -389,50 +429,130 @@ export class WhoKnowsBuilders {
         context.discordUserId,
       );
 
-      const response = new ResponseModel(accentColor);
+      const response = new ResponseModel();
       response.commandResponse = CommandResponse.Ok;
 
-      const firstPage = pages[0]!;
-      let pageContent = firstPage.lines;
-      if (footerExtra) {
-        pageContent += `\n\n${footerExtra}`;
+      const statsLine = totalListeners > 1
+        ? `${baseLine} - ${avgPlays.toLocaleString()} avg`
+        : baseLine;
+
+      const extraFooterLines: string[] = [];
+      if (filterStats) {
+        const filterItems: string[] = [];
+        if (filterStats.blockedFiltered && filterStats.blockedFiltered > 0) {
+          filterItems.push(`${filterStats.blockedFiltered} blocked`);
+        }
+        if (filterStats.activityThresholdFiltered && filterStats.activityThresholdFiltered > 0) {
+          filterItems.push(`${filterStats.activityThresholdFiltered} inactive`);
+        }
+        if (filterItems.length > 0) {
+          extraFooterLines.push(`Filtered: ${filterItems.join(', ')}`);
+        }
       }
-      const container = new ContainerBuilder();
-      container.setAccentColor(resolvedAccent);
-
-      if (thumbnailUrl) {
-        const titleSection = new SectionBuilder()
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(`### [${title}](<${url}>)`))
-          .setThumbnailAccessory(new ThumbnailBuilder().setURL(thumbnailUrl));
-        container.addSectionComponents(titleSection);
-      } else {
-        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### [${title}](<${url}>)`));
+      if (guildAlsoPlaying) {
+        extraFooterLines.push(guildAlsoPlaying);
       }
 
-      container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true));
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(pageContent));
-      container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true));
+      const buildContainerForPage = (pageIdx: number): ContainerBuilder => {
+        const container = new ContainerBuilder();
 
-      let footerText = `Page 1/${pages.length}`;
-      if (fullFooter) {
-        footerText += `\n-# ${fullFooter.replace(/\n/g, '\n-# ')}`;
-      }
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${footerText}`));
+        // 0: Header (clean plain text title, no link, no section/thumbnail accessory)
+        container.addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(`### ${title}`)
+        );
 
-      if (pages.length > 1) {
-        const prevBtn = new ButtonBuilder()
-          .setCustomId('wk-page:prev:0')
-          .setLabel('<')
+        // 1: Separator
+        container.addSeparatorComponents(
+          new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+        );
+
+        // 2: Leaderboard content
+        const page = pages[pageIdx]!;
+        let pageContent = page.lines;
+        if (pageIdx === 0 && footerExtra) {
+          pageContent += `\n\n${footerExtra}`;
+        }
+        container.addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(pageContent)
+        );
+
+        // 3: Separator
+        container.addSeparatorComponents(
+          new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true)
+        );
+
+        // 4: Footer
+        const footerParts = [
+          `-# Page ${pageIdx + 1}/${pages.length}`,
+          `-# ${statsLine}`,
+        ];
+        for (const line of extraFooterLines) {
+          footerParts.push(`-# ${line}`);
+        }
+        footerParts.push("-# Spotify not tracking properly? Check '.outofsync'");
+        container.addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(footerParts.join('\n'))
+        );
+
+        // 5: Action Row with 5 pagination buttons
+        const isOnePage = pages.length <= 1;
+        const isFirst = isOnePage || pageIdx === 0;
+        const isLast = isOnePage || pageIdx === pages.length - 1;
+
+        const firstBtn = new ButtonBuilder()
+          .setCustomId('component_paginator_first')
           .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true);
-        const nextBtn = new ButtonBuilder()
-          .setCustomId('wk-page:next:0')
-          .setLabel('>')
-          .setStyle(ButtonStyle.Secondary);
-        container.addActionRowComponents(new ActionRowBuilder<ButtonBuilder>().addComponents(prevBtn, nextBtn));
-      }
+          .setEmoji({ id: '883825508633182208', name: 'pages_first' })
+          .setDisabled(isFirst);
 
-      response.setComponentsV2Container(container);
+        const prevBtn = new ButtonBuilder()
+          .setCustomId('component_paginator_previous')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji({ id: '883825508507336704', name: 'pages_previous' })
+          .setDisabled(isFirst);
+
+        const nextBtn = new ButtonBuilder()
+          .setCustomId('component_paginator_next')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji({ id: '883825508087922739', name: 'pages_next' })
+          .setDisabled(isLast);
+
+        const lastBtn = new ButtonBuilder()
+          .setCustomId('component_paginator_last')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji({ id: '883825508482183258', name: 'pages_last' })
+          .setDisabled(isLast);
+
+        const jumpBtn = new ButtonBuilder()
+          .setCustomId('component_paginator_jump')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji({ id: '1138849626234036264', name: 'pages_goto' })
+          .setDisabled(isOnePage);
+
+        container.addActionRowComponents(
+          new ActionRowBuilder<ButtonBuilder>().addComponents(
+            firstBtn,
+            prevBtn,
+            nextBtn,
+            lastBtn,
+            jumpBtn,
+          )
+        );
+
+        return container;
+      };
+
+      const initialContainer = buildContainerForPage(0);
+      response.setComponentsV2Container(initialContainer);
+
+      (response as any)._paginatorSession = {
+        currentPage: 0,
+        totalPages: pages.length,
+        renderPage: (pageIdx: number) => buildContainerForPage(pageIdx),
+        authorDiscordId: context.discordUserId,
+        expiresAt: Date.now() + 15 * 60 * 1000,
+      };
+
       return response;
     }
 

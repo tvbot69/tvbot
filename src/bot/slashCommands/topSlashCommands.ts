@@ -82,7 +82,7 @@ export class TopSlashCommands implements ISlashCommandModule {
     const topArtists = await this.lastfmRepository.getTopArtists(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topArtists || topArtists.length === 0) return GenericEmbedService.buildNotFoundResponse('No top artists found for this time period.');
     const accentColor = await this.colorService?.getColorFromImageUrl(topArtists[0]?.imageUrl);
-    return TopBuilders.buildTopArtistsResponse(userNameLastFm, displayName, topArtists, timeSettings, 0, accentColor);
+    return await TopBuilders.buildTopArtistsResponse(userNameLastFm, displayName, topArtists, timeSettings, 0, accentColor, userObj?.mode);
   }
 
   private async topAlbumsAsync(context: ContextModel): Promise<ResponseModel> {
@@ -99,7 +99,7 @@ export class TopSlashCommands implements ISlashCommandModule {
     const topAlbums = await this.lastfmRepository.getTopAlbums(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topAlbums || topAlbums.length === 0) return GenericEmbedService.buildNotFoundResponse('No top albums found for this time period.');
     const accentColor = await this.colorService?.getColorFromImageUrl(topAlbums[0]?.imageUrl);
-    return TopBuilders.buildTopAlbumsResponse(userNameLastFm, displayName, topAlbums, timeSettings, 0, accentColor);
+    return await TopBuilders.buildTopAlbumsResponse(userNameLastFm, displayName, topAlbums, timeSettings, 0, accentColor, userObj?.mode);
   }
 
   private async topTracksAsync(context: ContextModel): Promise<ResponseModel> {
@@ -116,6 +116,6 @@ export class TopSlashCommands implements ISlashCommandModule {
     const topTracks = await this.lastfmRepository.getTopTracks(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topTracks || topTracks.length === 0) return GenericEmbedService.buildNotFoundResponse('No top tracks found for this time period.');
     const accentColor = await this.colorService?.getColorFromImageUrl(topTracks[0]?.imageUrl);
-    return TopBuilders.buildTopTracksResponse(userNameLastFm, displayName, topTracks, timeSettings, 0, accentColor);
+    return await TopBuilders.buildTopTracksResponse(userNameLastFm, displayName, topTracks, timeSettings, 0, accentColor, userObj?.mode);
   }
 }

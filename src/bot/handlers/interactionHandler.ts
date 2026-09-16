@@ -17,6 +17,7 @@ import { DisabledChannelService } from '@bot/services/guild/disabledChannelServi
 import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
 import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
 import { ComponentInteractionTracker } from '@bot/services/componentInteractionTracker';
+import { ComponentPaginatorService } from '@bot/services/componentPaginatorService';
 import { ColorService } from '@bot/services/colorService';
 import { UserService } from '@bot/services/userService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
@@ -57,6 +58,7 @@ export class InteractionHandler {
   private readonly guildDisabledCommands: GuildDisabledCommandService;
   private readonly channelToggledCommands: ChannelToggledCommandService;
   private readonly componentTracker: ComponentInteractionTracker;
+  private readonly componentPaginatorService: ComponentPaginatorService;
   private readonly colorService: ColorService;
   private readonly userService: UserService;
   private readonly guildUserService: GuildUserService;
@@ -95,6 +97,7 @@ export class InteractionHandler {
     this.guildDisabledCommands = container.resolve(GuildDisabledCommandService);
     this.channelToggledCommands = container.resolve(ChannelToggledCommandService);
     this.componentTracker = container.resolve(ComponentInteractionTracker);
+    this.componentPaginatorService = container.resolve(ComponentPaginatorService);
     this.colorService = container.resolve(ColorService);
     this.userService = container.resolve(UserService);
     this.guildUserService = container.resolve(GuildUserService);
@@ -303,6 +306,10 @@ export class InteractionHandler {
           await this.userHubInteractions.handleButton(interaction);
           return;
         }
+        if (interaction.customId.startsWith('component_paginator_')) {
+          await this.componentPaginatorService.handleButton(interaction);
+          return;
+        }
       }
       const handled = await this.componentTracker.handle(interaction);
       if (!handled && interaction.isRepliable() && !interaction.replied) {
@@ -508,10 +515,15 @@ export class InteractionHandler {
       }
     }
     try {
+      let replyMsg: import('discord.js').Message | null = null;
       if (interaction.deferred || interaction.replied) {
-        await interaction.editReply(payload);
+        replyMsg = await interaction.editReply(payload);
       } else {
-        await interaction.reply(payload);
+        const reply = await interaction.reply(payload);
+        replyMsg = await reply.fetch().catch(() => null);
+      }
+      if (replyMsg && (response as any)._paginatorSession) {
+        this.componentPaginatorService.registerSession(replyMsg.id, (response as any)._paginatorSession);
       }
     } catch (err) {
       Logger.warn({ err }, 'Failed to send interaction response');
