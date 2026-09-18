@@ -46,22 +46,18 @@ async function resolveBackgroundCovers(
     }
   }
 
-  // Fetch user's top albums for this time period to get actual album covers
+  // 1. Fetch user's top albums for this period WITHOUT from/to so Last.fm returns actual album imageUrls
   try {
     const { LastFmRepository } = await import('@lastfm/repositories/lastFmRepository');
     if (container.isRegistered(LastFmRepository)) {
       const lastfmRepo = container.resolve(LastFmRepository);
-      const from = timeSettings.startDateTime ? Math.floor(timeSettings.startDateTime.getTime() / 1000) : undefined;
-      const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
 
+      // Calling getTopAlbums with standard period returns real image URLs (weekly chart doesn't include images)
       const albums = await lastfmRepo.getTopAlbums(
         userNameLastFm,
         timeSettings.timePeriod as any,
         25,
         1,
-        undefined,
-        from,
-        to,
       ).catch(() => []);
 
       for (const alb of albums) {
@@ -72,22 +68,19 @@ async function resolveBackgroundCovers(
         }
       }
 
-      // If still fewer than 21, fetch user's top tracks covers for this period
+      // If still fewer than 21, fetch user's overall top albums
       if (covers.length < 21) {
-        const tracks = await lastfmRepo.getTopTracks(
+        const overallAlbums = await lastfmRepo.getTopAlbums(
           userNameLastFm,
-          timeSettings.timePeriod as any,
+          'overall' as any,
           25,
           1,
-          undefined,
-          from,
-          to,
         ).catch(() => []);
 
-        for (const trk of tracks) {
-          if (trk.imageUrl && !trk.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(trk.imageUrl)) {
-            seen.add(trk.imageUrl);
-            covers.push(trk.imageUrl);
+        for (const alb of overallAlbums) {
+          if (alb.imageUrl && !alb.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(alb.imageUrl)) {
+            seen.add(alb.imageUrl);
+            covers.push(alb.imageUrl);
             if (covers.length >= 21) return covers;
           }
         }
@@ -97,7 +90,7 @@ async function resolveBackgroundCovers(
     // ignore
   }
 
-  // Supplement from database indexed album covers for top artists
+  // 2. Supplement from database indexed album covers for top artists
   if (covers.length < 21 && artistNames && artistNames.length > 0) {
     try {
       const { ArtistsService } = await import('@bot/services/artistsService');
@@ -120,8 +113,33 @@ async function resolveBackgroundCovers(
     }
   }
 
+  // 3. Fallback: query Deezer for the top artists (guarantees diverse high-res covers even on empty DB)
+  if (covers.length < 21 && artistNames && artistNames.length > 0) {
+    try {
+      const { DeezerApi } = await import('@deezer/apis/deezerApi');
+      if (container.isRegistered(DeezerApi)) {
+        const deezerApi = container.resolve(DeezerApi);
+        for (const name of artistNames.slice(0, 5)) {
+          if (covers.length >= 21) break;
+          const deezerAlbums = await deezerApi.searchAlbums(name, 5).catch(() => []);
+          for (const da of deezerAlbums) {
+            const cover = da.cover_xl ?? da.cover_big ?? da.cover_medium ?? da.cover;
+            if (cover && !seen.has(cover)) {
+              seen.add(cover);
+              covers.push(cover);
+              if (covers.length >= 21) break;
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   return covers;
 }
+
 
 export class TopBuilders {
   public static async buildTopArtistsResponse(
@@ -345,10 +363,23 @@ export class TopBuilders {
           hasCrown: idx === 0,
         }));
 
+        // Resolve diverse covers from top tracks via ArtworkService
+        let trackCovers: string[] = [];
+        if (container.isRegistered(ArtworkService)) {
+          const artworkService = container.resolve(ArtworkService);
+          const coverPromises = topTracks.slice(0, 10).map(async (t) => {
+            if (t.imageUrl && !t.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+              return t.imageUrl;
+            }
+            return await artworkService.getTrackCoverUrl(t.artistName, t.name).catch(() => null);
+          });
+          trackCovers = (await Promise.all(coverPromises)).filter(Boolean) as string[];
+        }
+
         const backgroundCovers = await resolveBackgroundCovers(
           userNameLastFm,
           timeSettings,
-          topTracks.map((t) => t.imageUrl).filter(Boolean) as string[],
+          trackCovers.length > 0 ? trackCovers : (topTracks.map((t) => t.imageUrl).filter(Boolean) as string[]),
           topTracks.slice(0, 5).map((t) => t.artistName),
         );
 
