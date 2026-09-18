@@ -42,6 +42,8 @@ ENV NODE_ENV=production
 ENV ENVIRONMENT=production
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
+ENV FFPROBE_PATH=/usr/bin/ffprobe
 
 # Install Chromium, fonts (CJK, Arabic, Emojis for music stats), ffmpeg, and openssl
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -57,14 +59,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Prepare directory permissions for node user
-RUN mkdir -p /app/.puppeteer /app/logs && chown -R node:node /app
-
 # Copy production dependencies & built artifacts from builder
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/src/persistence/prisma ./src/persistence/prisma
+
+# Prepare directory permissions and ensure binaries are executable
+RUN mkdir -p /app/.puppeteer /app/logs \
+    && find /app/node_modules -type f -name "ffprobe*" -exec chmod +x {} + 2>/dev/null || true \
+    && find /app/node_modules -type f -name "ffmpeg*" -exec chmod +x {} + 2>/dev/null || true \
+    && chown -R node:node /app
 
 # Run as non-root user
 USER node

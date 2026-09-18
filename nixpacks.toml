@@ -13,5 +13,7 @@ cmd = 'npx prisma db push --schema src/persistence/prisma/schema.prisma --skip-g
 [variables]
 PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
 PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium'
+FFMPEG_PATH = '/usr/bin/ffmpeg'
+FFPROBE_PATH = '/usr/bin/ffprobe'
 NODE_ENV = 'production'
 ENVIRONMENT = 'production'

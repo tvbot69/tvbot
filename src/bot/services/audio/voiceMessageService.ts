@@ -1,24 +1,27 @@
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { getAudioDurationInSeconds } from 'get-audio-duration';
 import { Logger } from '@domain/logger';
 
 export const previewMap = new Map<string, string>();
 
-async function generateWaveformAndDuration(oggPath: string, _isAac: boolean): Promise<{ waveform: string; duration: number }> {
-  // Try real waveform via PCM RMS if audioSignalService available, fallback to random
+async function getDuration(oggPath: string): Promise<number> {
   try {
-    // Real waveform: decode to PCM and compute RMS per bucket (like fmbot)
-    // For now use random pseudo-waveform to guarantee voice look — replace with PCM if you want pixel-perfect
-    const waveBuf = Buffer.alloc(100);
-    for (let i = 0; i < 100; i++) waveBuf[i] = Math.floor(20 + Math.random() * 130);
-    const duration = Number(await getAudioDurationInSeconds(oggPath));
-    return { waveform: waveBuf.toString('base64'), duration: Number.isFinite(duration) ? duration : 30 };
-  } catch {
-    const waveBuf = Buffer.alloc(100);
-    for (let i = 0; i < 100; i++) waveBuf[i] = Math.floor(20 + Math.random() * 130);
-    return { waveform: waveBuf.toString('base64'), duration: 30 };
+    const ffprobePath = process.env.FFPROBE_PATH || (fsSync.existsSync('/usr/bin/ffprobe') ? '/usr/bin/ffprobe' : undefined);
+    const duration = Number(await getAudioDurationInSeconds(oggPath, ffprobePath));
+    return Number.isFinite(duration) && duration > 0 ? duration : 30;
+  } catch (err) {
+    Logger.warn({ err }, '[VoiceMessage] Failed to get audio duration, defaulting to 30s');
+    return 30;
   }
+}
+
+async function generateWaveformAndDuration(oggPath: string, _isAac: boolean): Promise<{ waveform: string; duration: number }> {
+  const waveBuf = Buffer.alloc(100);
+  for (let i = 0; i < 100; i++) waveBuf[i] = Math.floor(20 + Math.random() * 130);
+  const duration = await getDuration(oggPath);
+  return { waveform: waveBuf.toString('base64'), duration };
 }
 
 export class VoiceMessageService {
@@ -51,7 +54,7 @@ export class VoiceMessageService {
 
   // Send via channel attachments endpoint (text commands / preview button)
   public async sendViaChannel(channelId: string, oggPath: string, botToken: string, replyToMessageId?: string): Promise<any> {
-    const duration = Number(await getAudioDurationInSeconds(oggPath));
+    const duration = await getDuration(oggPath);
     const stat = await fs.stat(oggPath);
     const fileName = path.basename(oggPath);
 
