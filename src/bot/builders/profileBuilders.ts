@@ -105,10 +105,11 @@ export class ProfileBuilders {
     }
 
     if (stats.top10ArtistsScrobbles && stats.top10ArtistsScrobbles > 0 && lastFmUser.playCount > 0) {
-      const percentage = (
-        Math.round((stats.top10ArtistsScrobbles / lastFmUser.playCount) * 1000) / 10
-      ).toFixed(1);
-      statLines.push(`Top **10** artists make up **${percentage}%** of scrobbles`);
+      const pct = Math.round((stats.top10ArtistsScrobbles / lastFmUser.playCount) * 1000) / 10;
+      if (pct > 0) {
+        const percentage = pct.toFixed(1);
+        statLines.push(`Top **10** artists make up **${percentage}%** of scrobbles`);
+      }
     }
 
     // ActionRow buttons: History & Last.fm link

@@ -50,7 +50,20 @@ export class ProfileService {
     }
 
     let top10ArtistsScrobbles = 0;
-    if (targetUser.userId > 0) {
+    try {
+      const topArtists = await this.lastfmRepo.getTopArtists(
+        targetUser.userNameLastFm,
+        TimePeriod.AllTime,
+        10,
+      );
+      if (topArtists && topArtists.length > 0) {
+        top10ArtistsScrobbles = topArtists.reduce((acc, a) => acc + (a.playcount ?? 0), 0);
+      }
+    } catch {
+      top10ArtistsScrobbles = 0;
+    }
+
+    if (top10ArtistsScrobbles === 0 && targetUser.userId > 0) {
       try {
         const dbTop = await prisma.userArtist.findMany({
           where: { userId: targetUser.userId },
@@ -60,21 +73,6 @@ export class ProfileService {
         });
         if (dbTop && dbTop.length > 0) {
           top10ArtistsScrobbles = dbTop.reduce((acc, a) => acc + (a.playcount ?? 0), 0);
-        }
-      } catch {
-        top10ArtistsScrobbles = 0;
-      }
-    }
-
-    if (top10ArtistsScrobbles === 0) {
-      try {
-        const topArtists = await this.lastfmRepo.getTopArtists(
-          targetUser.userNameLastFm,
-          TimePeriod.AllTime,
-          10,
-        );
-        if (topArtists && topArtists.length > 0) {
-          top10ArtistsScrobbles = topArtists.reduce((acc, a) => acc + (a.playcount ?? 0), 0);
         }
       } catch {
         top10ArtistsScrobbles = 0;
