@@ -44,10 +44,6 @@ export function validateEnvironment(): EnvValidationResult {
     warnings.push('REDIS_URL not specified — defaulting to in-memory LRU cache.');
   }
 
-  if (!process.env.LAVALINK_HOST) {
-    warnings.push('LAVALINK_HOST not specified — music playback commands will not be functional.');
-  }
-
   return {
     valid: errors.length === 0,
     errors,
