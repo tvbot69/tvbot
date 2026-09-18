@@ -195,10 +195,20 @@ export class MusicHandler {
       this.stopProgressUpdater(player.guildId);
 
       const trackRecord = track as unknown as Record<string, unknown>;
-      const source = (trackRecord['sourceName'] as string | undefined) ?? (trackRecord['source'] as string | undefined) ?? '';
-      const isYouTube = !source || source === 'youtube';
+      const source = String((trackRecord['sourceName'] as string | undefined) ?? (trackRecord['source'] as string | undefined) ?? '').toLowerCase();
+      // Spotify-labeled tracks are still YouTube-encoded under the hood (musicService
+      // resolves Spotify metadata -> YouTube via Lavalink), so they need the fallback too.
+      const isFallbackEligible = !source || source === 'youtube' || source === 'spotify';
+      // Guard against double-skip: Moonlink may already have advanced past this track
+      // (e.g. fault-severity auto-skip) while our async SoundCloud search was in flight.
+      const failedKey = track.encoded ?? track.uri ?? track.identifier;
+      const stillCurrent = (): boolean => {
+        const cur = player.current as unknown as { encoded?: string; uri?: string; identifier?: string } | null;
+        if (!cur) return false;
+        return (cur.encoded ?? cur.uri ?? cur.identifier) === failedKey;
+      };
 
-      if (isYouTube && track.title && track.author) {
+      if (isFallbackEligible && track.title && track.author) {
         Logger.warn(
           { guildId: player.guildId, track: track.title, threshold },
           `[Music] YouTube track stuck (${threshold}ms) — retrying "${track.title}" on SoundCloud...`,
@@ -215,7 +225,14 @@ export class MusicHandler {
             rec.sourceName = 'soundcloud';
             rec.source = 'soundcloud';
             player.queue.unshift(fallback);
-            Logger.info({ guildId: player.guildId, track: track.title }, `[Music] SoundCloud fallback queued for stuck track — Lavalink will advance.`);
+            Logger.info({ guildId: player.guildId, track: track.title }, `[Music] SoundCloud fallback queued for stuck track — skipping to it.`);
+            // Moonlink does NOT auto-advance on stuck (it seeks/retries by default), so we
+            // must advance ourselves. Only skip if the stuck track is still current.
+            if (stillCurrent()) {
+              await player.skip().catch((err: unknown) => {
+                Logger.warn({ err, guildId: player.guildId }, '[Music] Skip to SoundCloud fallback failed');
+              });
+            }
             return;
           }
         } catch { /* fall through */ }
@@ -223,21 +240,40 @@ export class MusicHandler {
 
       Logger.warn(
         { guildId: player.guildId, track: track.title, threshold },
-        `[Music] Track stuck (${threshold}ms) — no fallback, Lavalink will auto-advance.`,
+        `[Music] Track stuck (${threshold}ms) — no fallback, leaving Moonlink recovery to handle it.`,
       );
-      // Lavalink v4 fires trackEnd after a stuck track and auto-advances — no manual skip needed.
     });
 
 
     manager.on('trackException', async (player: Player, track: Track, exception: unknown) => {
       this.stopProgressUpdater(player.guildId);
 
-      // Determine if this was a YouTube track — if so, retry on SoundCloud before giving up
+      // Spotify-labeled tracks are still YouTube-encoded under the hood (musicService
+      // resolves Spotify metadata -> YouTube via Lavalink), so they need the fallback too.
       const trackRecord = track as unknown as Record<string, unknown>;
-      const source = (trackRecord['sourceName'] as string | undefined) ?? (trackRecord['source'] as string | undefined) ?? '';
-      const isYouTube = !source || source === 'youtube';
+      const source = String((trackRecord['sourceName'] as string | undefined) ?? (trackRecord['source'] as string | undefined) ?? '').toLowerCase();
+      const isFallbackEligible = !source || source === 'youtube' || source === 'spotify';
+      // Guard against double-skip: Moonlink auto-skips fault-severity exceptions on its
+      // own, which may complete while our async SoundCloud search is in flight.
+      const failedKey = track.encoded ?? track.uri ?? track.identifier;
+      const stillCurrent = (): boolean => {
+        const cur = player.current as unknown as { encoded?: string; uri?: string; identifier?: string } | null;
+        if (!cur) return false;
+        return (cur.encoded ?? cur.uri ?? cur.identifier) === failedKey;
+      };
+      const skipPastFailed = async (): Promise<void> => {
+        if (!stillCurrent()) return;
+        try {
+          // skip() with a non-empty queue plays the next track; with an empty queue it
+          // stops the player (which then fires queueEnd). Either way the poison track
+          // can't stall the queue — Moonlink only auto-skips fault/suspicious severity.
+          await player.skip();
+        } catch (err) {
+          Logger.warn({ err, guildId: player.guildId }, '[Music] Skip past failed track failed');
+        }
+      };
 
-      if (isYouTube && track.title && track.author) {
+      if (isFallbackEligible && track.title && track.author) {
         Logger.warn(
           { guildId: player.guildId, track: track.title, source },
           `[Music] YouTube track failed — retrying "${track.title}" on SoundCloud...`,
@@ -256,12 +292,15 @@ export class MusicHandler {
             rec.sourceName = 'soundcloud';
             rec.source = 'soundcloud';
 
-            // Inject at the front of the queue so it plays next
+            // Inject at the front of the queue so it plays next, then advance to it —
+            // Moonlink only auto-skips fault-severity exceptions, so common-severity
+            // YouTube failures (unavailable/age-restricted/blocked) would stall forever.
             player.queue.unshift(fallback);
             Logger.info(
               { guildId: player.guildId, track: track.title },
-              `[Music] SoundCloud fallback queued for "${track.title}" — Lavalink will advance to it.`,
+              `[Music] SoundCloud fallback queued for "${track.title}" — skipping to it.`,
             );
+            await skipPastFailed();
             return;
           }
         } catch (retryErr) {
@@ -271,9 +310,9 @@ export class MusicHandler {
 
       Logger.error(
         { err: exception, guildId: player.guildId, track: track.title },
-        `[Music] Track exception in guild ${player.guildId} — no fallback available, Lavalink will auto-advance.`,
+        `[Music] Track exception in guild ${player.guildId} — skipping past failed track.`,
       );
-      // Lavalink v4 fires trackEnd after a track exception and auto-advances — no manual skip needed.
+      await skipPastFailed();
     });
 
 
