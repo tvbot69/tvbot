@@ -302,12 +302,18 @@ export class MusicHandler {
       const fallback = await this.findAlternatePlayableTrack(manager, track);
       if (fallback) {
         player.queue.unshift(fallback);
-        Logger.info({ guildId: player.guildId, track: track.title }, `[Music] Alternate upload queued for stuck track — skipping to it.`);
+        Logger.info({ guildId: player.guildId, track: track.title }, `[Music] Alternate upload queued for stuck track — advancing to it.`);
         // Moonlink does NOT auto-advance on stuck (it seeks/retries by default), so we
         // must advance ourselves. Only skip if the stuck track is still current.
+        // If Moonlink already stopped the player while our search was in flight, the
+        // fallback would otherwise sit orphaned in the queue — start it explicitly.
         if (stillCurrent()) {
           await player.skip().catch((err: unknown) => {
             Logger.warn({ err, guildId: player.guildId }, '[Music] Skip to alternate upload failed');
+          });
+        } else if (!player.playing && !player.paused) {
+          await player.play().catch((err: unknown) => {
+            Logger.warn({ err, guildId: player.guildId }, '[Music] Play of alternate upload failed');
           });
         }
         return;
@@ -355,8 +361,19 @@ export class MusicHandler {
         player.queue.unshift(fallback);
         Logger.info(
           { guildId: player.guildId, track: track.title },
-          `[Music] Alternate upload queued for "${track.title}" — skipping to it.`,
+          `[Music] Alternate upload queued for "${track.title}" — advancing to it.`,
         );
+        // Race: Moonlink may have stopped the player (empty queue → queueEnd) while our
+        // search was in flight. Then skipPastFailed() is a no-op (nothing is current)
+        // and the fallback would sit orphaned — start it explicitly instead.
+        if (!player.playing && !player.paused && !stillCurrent()) {
+          try {
+            await player.play();
+          } catch (err) {
+            Logger.warn({ err, guildId: player.guildId }, '[Music] Play of alternate upload failed');
+          }
+          return;
+        }
         await skipPastFailed();
         return;
       }
