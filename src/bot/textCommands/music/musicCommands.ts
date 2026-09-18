@@ -7,6 +7,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { MusicService } from '@bot/services/music/musicService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { ColorService } from '@bot/services/colorService';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { FilterName, LoopMode } from '@domain/models/music/musicQueue';
 import { ALL_FILTERS } from '@domain/models/music/musicQueue';
 import type { LyricsService } from '@bot/services/music/lyricsService';
@@ -38,8 +39,8 @@ export class MusicCommands implements ITextCommandModule {
         executeAsync: (ctx, args) => this.playAsync(ctx, args),
       },
       {
-        name: 'musicsearch',
-        aliases: ['msr'],
+        name: 'search',
+        aliases: ['find', 'musicsearch', 'msr'],
         executeAsync: (ctx, args) => this.searchAsync(ctx, args),
       },
       {
@@ -202,7 +203,8 @@ export class MusicCommands implements ITextCommandModule {
       requester,
     );
 
-    const accentColor = await this.colorService.getAccentColorAsync(info.guildId);
+    const trackArtwork = result.track?.artworkUrl ?? result.artworkUrl;
+    const accentColor = await this.colorService.getAccentColorAsync(info.guildId, trackArtwork);
 
     if (result.loadType === 'empty') {
       return GenericEmbedService.buildNotFoundResponse(
@@ -224,7 +226,7 @@ export class MusicCommands implements ITextCommandModule {
         result.positionInQueue,
         queue?.totalTracks ?? 1,
         accentColor,
-      );
+      ).setAutoDelete(8);
     }
 
     if (
@@ -243,7 +245,7 @@ export class MusicCommands implements ITextCommandModule {
         result.positionInQueue,
         accentColor,
         isSpotify ? 'spotify' : 'youtube',
-      );
+      ).setAutoDelete(10);
     }
 
     return MusicBuilders.buildSimpleResponse('🎵 Added to Queue', `Added **${query}** to the queue.`, accentColor);
@@ -323,7 +325,7 @@ export class MusicCommands implements ITextCommandModule {
     return MusicBuilders.buildSimpleResponse(
       '⏭️ Skipped',
       count > 1 ? `Skipped **${count}** tracks.` : 'Skipped to the next track.',
-    );
+    ).setAutoDelete(4);
   }
 
   private async previousAsync(context: ContextModel): Promise<ResponseModel> {
@@ -337,7 +339,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No previous track in history to replay.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏮️ Previous Track', 'Replaying previous track from history.');
+    return MusicBuilders.buildSimpleResponse('⏮️ Previous Track', 'Replaying previous track from history.').setAutoDelete(4);
   }
 
   private async skiptoAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
@@ -356,7 +358,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse(`Invalid track position #${pos}. Check \`${context.prefix}queue\`.`);
     }
 
-    return MusicBuilders.buildSimpleResponse('⏭️ Jumped Track', `Skipped to track **#${pos}** in the queue.`);
+    return MusicBuilders.buildSimpleResponse('⏭️ Jumped Track', `Skipped to track **#${pos}** in the queue.`).setAutoDelete(4);
   }
 
   private async moveAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
@@ -376,7 +378,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('Invalid track positions. Please check the queue.');
     }
 
-    return MusicBuilders.buildSimpleResponse('↔️ Moved Track', `Moved track from position **#${from}** to **#${to}**.`);
+    return MusicBuilders.buildSimpleResponse('↔️ Moved Track', `Moved track from position **#${from}** to **#${to}**.`).setAutoDelete(4);
   }
 
   private async replayAsync(context: ContextModel): Promise<ResponseModel> {
@@ -390,7 +392,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
     }
 
-    return MusicBuilders.buildSimpleResponse('🔁 Replay', 'Restarted the current track from the beginning.');
+    return MusicBuilders.buildSimpleResponse('🔁 Replay', 'Restarted the current track from the beginning.').setAutoDelete(4);
   }
 
   private async stopAsync(context: ContextModel): Promise<ResponseModel> {
@@ -400,7 +402,7 @@ export class MusicCommands implements ITextCommandModule {
     }
 
     await this.musicService.stop(info.guildId);
-    return MusicBuilders.buildSimpleResponse('⏹️ Stopped', 'Playback stopped and disconnected from voice.');
+    return MusicBuilders.buildSimpleResponse('⏹️ Stopped', 'Playback stopped and disconnected from voice.').setAutoDelete(4);
   }
 
   private async pauseAsync(context: ContextModel): Promise<ResponseModel> {
@@ -414,7 +416,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏸️ Paused', `Playback paused. Use \`${context.prefix}resume\` to continue.`);
+    return MusicBuilders.buildSimpleResponse('⏸️ Paused', `Playback paused. Use \`${context.prefix}resume\` to continue.`).setAutoDelete(4);
   }
 
   private async resumeAsync(context: ContextModel): Promise<ResponseModel> {
@@ -428,7 +430,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music is currently paused.');
     }
 
-    return MusicBuilders.buildSimpleResponse('▶️ Resumed', 'Playback resumed.');
+    return MusicBuilders.buildSimpleResponse('▶️ Resumed', 'Playback resumed.').setAutoDelete(4);
   }
 
   private async seekAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
@@ -465,7 +467,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No track is currently playing to seek.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏩ Seeked', `Jumped to \`${raw}\` in the current track.`);
+    return MusicBuilders.buildSimpleResponse('⏩ Seeked', `Jumped to \`${raw}\` in the current track.`).setAutoDelete(4);
   }
 
   private async volumeAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
@@ -486,7 +488,7 @@ export class MusicCommands implements ITextCommandModule {
     }
 
     const applied = this.musicService.setVolume(info.guildId, vol);
-    return MusicBuilders.buildSimpleResponse('🔊 Volume Changed', `Volume set to **${applied}%**.`);
+    return MusicBuilders.buildSimpleResponse('🔊 Volume Changed', `Volume set to **${applied}%**.`).setAutoDelete(4);
   }
 
   private async filtersAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
@@ -653,7 +655,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('The queue is empty or has only 1 track — nothing to shuffle.');
     }
 
-    return MusicBuilders.buildSimpleResponse('🔀 Shuffled', 'The music queue has been randomized.');
+    return MusicBuilders.buildSimpleResponse('🔀 Shuffled', 'The music queue has been randomized.').setAutoDelete(4);
   }
 
   private async clearAsync(context: ContextModel): Promise<ResponseModel> {
@@ -667,7 +669,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music player is currently active.');
     }
 
-    return MusicBuilders.buildSimpleResponse('🗑️ Queue Cleared', 'All upcoming tracks have been removed from the queue.');
+    return MusicBuilders.buildSimpleResponse('🗑️ Queue Cleared', 'All upcoming tracks have been removed from the queue.').setAutoDelete(4);
   }
 
   private async removeAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {

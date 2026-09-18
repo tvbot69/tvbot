@@ -70,7 +70,7 @@ export class MusicBuilders {
     totalQueueCount: number,
     accentColor?: number,
   ): ResponseModel {
-    const color = accentColor;
+    const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
     const isNowPlaying = position === 1 && totalQueueCount === 1;
@@ -131,7 +131,7 @@ export class MusicBuilders {
     accentColor?: number,
     source?: string,
   ): ResponseModel {
-    const color = accentColor;
+    const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
     // Backward-compatible fallback embed
@@ -186,7 +186,7 @@ export class MusicBuilders {
     queue: MusicQueueInfo,
     accentColor?: number,
   ): ResponseModel {
-    const color = accentColor;
+    const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
     if (!queue.current) {
@@ -278,7 +278,7 @@ export class MusicBuilders {
     pageSize: number = 10,
     accentColor?: number,
   ): ResponseModel {
-    const color = accentColor;
+    const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
     const totalTracks = queue.tracks.length;
@@ -409,7 +409,7 @@ export class MusicBuilders {
     tracks: MusicTrack[],
     accentColor?: number,
   ): ResponseModel {
-    const color = accentColor;
+    const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
     let desc = `Found **${tracks.length}** results for \`${query}\`:\n\n`;
@@ -464,7 +464,7 @@ export class MusicBuilders {
     page: number = 1,
     totalPages: number = 1,
   ): ResponseModel {
-    const color = accentColor;
+    const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
     response.embed
@@ -500,7 +500,7 @@ export class MusicBuilders {
     activeFilters: string[],
     accentColor?: number,
   ): ResponseModel {
-    const color = accentColor;
+    const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
     let desc = '**Active Audio Filters:**\n';
@@ -599,11 +599,19 @@ export class MusicBuilders {
     description?: string,
     color?: number,
   ): ResponseModel {
-    const response = new ResponseModel(color);
+    const finalColor = color ?? DiscordConstants.LastFmColorRed;
+    const response = new ResponseModel(finalColor);
     response.embed.setTitle(title);
     if (description) {
       response.embed.setDescription(description);
     }
+
+    const container = new ContainerBuilder();
+    container.setAccentColor(finalColor);
+    const content = description ? `### ${title}\n${description}` : `### ${title}`;
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
+    response.setComponentsV2Container(container);
+
     return response;
   }
 }

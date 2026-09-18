@@ -70,8 +70,9 @@ export class MusicHandler {
         if (!msg) return;
 
         const queue = this.queueService.getQueueInfo(player);
+        const currentArtworkUrl = queue.current?.artworkUrl;
         const accentColor = this.colorService
-          ? await this.colorService.getAccentColorAsync(player.guildId)
+          ? await this.colorService.getAccentColorAsync(player.guildId, currentArtworkUrl)
           : undefined;
         const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor);
 
@@ -151,7 +152,7 @@ export class MusicHandler {
 
         const queue = this.queueService.getQueueInfo(player);
         const accentColor = this.colorService
-          ? await this.colorService.getAccentColorAsync(player.guildId)
+          ? await this.colorService.getAccentColorAsync(player.guildId, currentTrack.artworkUrl)
           : undefined;
         const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor);
 

@@ -197,6 +197,17 @@ export class CommandDispatcher {
       this.setReferencedMusic(message.id, response.referencedMusic);
     }
 
+    // Auto-delete feedback messages after specified duration (e.g. 3-5 seconds for music queue/pause/skip)
+    if (sentMessage && response.autoDeleteSeconds && response.autoDeleteSeconds > 0) {
+      const timeoutMs = response.autoDeleteSeconds * 1000;
+      setTimeout(() => {
+        sentMessage?.delete().catch(() => undefined);
+        if (message.guildId) {
+          message.delete().catch(() => undefined);
+        }
+      }, timeoutMs);
+    }
+
     // Apply emoji reactions if requested
     if (sentMessage && response.emoteReactions && response.emoteReactions.length > 0) {
       for (const reaction of response.emoteReactions) {

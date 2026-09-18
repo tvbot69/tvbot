@@ -50,12 +50,6 @@ export class CommandHandler {
     this.client.on(Events.MessageCreate, (message) => {
       void this.handleMessage(message, false);
     });
-
-    this.client.on(Events.MessageUpdate, (_oldMessage, newMessage) => {
-      if (newMessage && 'content' in newMessage && newMessage.content) {
-        void this.handleMessage(newMessage as Message, true);
-      }
-    });
   }
 
   private async handleMessage(message: Message, isUpdate: boolean = false): Promise<void> {

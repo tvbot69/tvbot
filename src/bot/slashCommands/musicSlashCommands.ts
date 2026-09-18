@@ -272,7 +272,8 @@ export class MusicSlashCommands implements ISlashCommandModule {
     };
 
     const result = await this.musicService.play(ctx.guildId, voiceChannelId, textChannelId, query, requester);
-    const accentColor = await this.colorService.getAccentColorAsync(ctx.guildId);
+    const trackArtwork = result.track?.artworkUrl ?? result.artworkUrl;
+    const accentColor = await this.colorService.getAccentColorAsync(ctx.guildId, trackArtwork);
 
     if (result.loadType === 'empty') {
       return GenericEmbedService.buildNotFoundResponse(`No tracks found for: **${query}**.`);
@@ -292,7 +293,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
         result.positionInQueue,
         queue?.totalTracks ?? 1,
         accentColor,
-      );
+      ).setAutoDelete(8);
     }
 
     if (result.tracks && result.tracks.length > 0) {
@@ -306,7 +307,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
         result.positionInQueue,
         accentColor,
         isSpotify ? 'spotify' : 'youtube',
-      );
+      ).setAutoDelete(10);
     }
 
     return MusicBuilders.buildSimpleResponse('🎵 Added to Queue', `Added **${query}** to the queue.`, accentColor);
@@ -385,7 +386,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
     return MusicBuilders.buildSimpleResponse(
       '⏭️ Skipped',
       amount > 1 ? `Skipped **${amount}** tracks.` : 'Skipped to the next track.',
-    );
+    ).setAutoDelete(4);
   }
 
   private async executePrevious(ctx: ContextModel): Promise<ResponseModel> {
@@ -398,7 +399,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No previous track in history to replay.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏮️ Previous Track', 'Replaying previous track from history.');
+    return MusicBuilders.buildSimpleResponse('⏮️ Previous Track', 'Replaying previous track from history.').setAutoDelete(4);
   }
 
   private async executeSkipTo(ctx: ContextModel): Promise<ResponseModel> {
@@ -413,7 +414,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildWrongInputResponse(`Invalid track position #${pos}. Check /queue.`);
     }
 
-    return MusicBuilders.buildSimpleResponse('⏭️ Jumped Track', `Skipped to track **#${pos}** in the queue.`);
+    return MusicBuilders.buildSimpleResponse('⏭️ Jumped Track', `Skipped to track **#${pos}** in the queue.`).setAutoDelete(4);
   }
 
   private async executeMove(ctx: ContextModel): Promise<ResponseModel> {
@@ -429,7 +430,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildWrongInputResponse('Invalid track positions. Please check the queue.');
     }
 
-    return MusicBuilders.buildSimpleResponse('↔️ Moved Track', `Moved track from position **#${from}** to **#${to}**.`);
+    return MusicBuilders.buildSimpleResponse('↔️ Moved Track', `Moved track from position **#${from}** to **#${to}**.`).setAutoDelete(4);
   }
 
   private async executeReplay(ctx: ContextModel): Promise<ResponseModel> {
@@ -442,7 +443,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
     }
 
-    return MusicBuilders.buildSimpleResponse('🔁 Replay', 'Restarted the current track from the beginning.');
+    return MusicBuilders.buildSimpleResponse('🔁 Replay', 'Restarted the current track from the beginning.').setAutoDelete(4);
   }
 
   private async executeStop(ctx: ContextModel): Promise<ResponseModel> {
@@ -451,7 +452,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
     }
 
     await this.musicService.stop(ctx.guildId);
-    return MusicBuilders.buildSimpleResponse('⏹️ Stopped', 'Playback stopped and disconnected.');
+    return MusicBuilders.buildSimpleResponse('⏹️ Stopped', 'Playback stopped and disconnected.').setAutoDelete(4);
   }
 
   private async executePause(ctx: ContextModel): Promise<ResponseModel> {
@@ -464,7 +465,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏸️ Paused', 'Playback paused. Use `/resume` to continue.');
+    return MusicBuilders.buildSimpleResponse('⏸️ Paused', 'Playback paused. Use `/resume` to continue.').setAutoDelete(4);
   }
 
   private async executeResume(ctx: ContextModel): Promise<ResponseModel> {
@@ -477,7 +478,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music is currently paused.');
     }
 
-    return MusicBuilders.buildSimpleResponse('▶️ Resumed', 'Playback resumed.');
+    return MusicBuilders.buildSimpleResponse('▶️ Resumed', 'Playback resumed.').setAutoDelete(4);
   }
 
   private async executeSeek(ctx: ContextModel): Promise<ResponseModel> {
@@ -492,7 +493,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No track is currently playing to seek.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏩ Seeked', `Jumped to **${seconds}** seconds in the current track.`);
+    return MusicBuilders.buildSimpleResponse('⏩ Seeked', `Jumped to **${seconds}** seconds in the current track.`).setAutoDelete(4);
   }
 
   private async executeVolume(ctx: ContextModel): Promise<ResponseModel> {
@@ -508,7 +509,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
     }
 
     const applied = this.musicService.setVolume(ctx.guildId, level);
-    return MusicBuilders.buildSimpleResponse('🔊 Volume Changed', `Volume set to **${applied}%**.`);
+    return MusicBuilders.buildSimpleResponse('🔊 Volume Changed', `Volume set to **${applied}%**.`).setAutoDelete(4);
   }
 
   private async executeFilter(ctx: ContextModel): Promise<ResponseModel> {
@@ -627,7 +628,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
     }
 
-    return MusicBuilders.buildSimpleResponse('🔁 Loop Mode', `Loop mode set to **${applied.toUpperCase()}**.`);
+    return MusicBuilders.buildSimpleResponse('🔁 Loop Mode', `Loop mode set to **${applied.toUpperCase()}**.`).setAutoDelete(4);
   }
 
   private async executeShuffle(ctx: ContextModel): Promise<ResponseModel> {
@@ -640,7 +641,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildWrongInputResponse('The queue is empty or has only 1 track — nothing to shuffle.');
     }
 
-    return MusicBuilders.buildSimpleResponse('🔀 Shuffled', 'The music queue has been randomized.');
+    return MusicBuilders.buildSimpleResponse('🔀 Shuffled', 'The music queue has been randomized.').setAutoDelete(4);
   }
 
   private async executeClear(ctx: ContextModel): Promise<ResponseModel> {
@@ -653,7 +654,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music player is currently active.');
     }
 
-    return MusicBuilders.buildSimpleResponse('🗑️ Queue Cleared', 'All upcoming tracks have been removed from the queue.');
+    return MusicBuilders.buildSimpleResponse('🗑️ Queue Cleared', 'All upcoming tracks have been removed from the queue.').setAutoDelete(4);
   }
 
   private async executeRemove(ctx: ContextModel): Promise<ResponseModel> {

@@ -23,7 +23,7 @@ export class LibrarySearchSlashCommands implements ISlashCommandModule {
     this.commands = [
       {
         data: new SlashCommandBuilder()
-          .setName('search')
+          .setName('librarysearch')
           .setDescription('Search through your stored Last.fm library (tracks, albums, artists, scrobbles).')
           .addStringOption((opt) =>
             opt.setName('query').setDescription('Query to search for').setRequired(true),

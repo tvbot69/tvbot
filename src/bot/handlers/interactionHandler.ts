@@ -537,6 +537,12 @@ export class InteractionHandler {
       if (replyMsg && (response as any)._paginatorSession) {
         this.componentPaginatorService.registerSession(replyMsg.id, (response as any)._paginatorSession);
       }
+      if (response.autoDeleteSeconds && response.autoDeleteSeconds > 0) {
+        const timeoutMs = response.autoDeleteSeconds * 1000;
+        setTimeout(() => {
+          interaction.deleteReply().catch(() => undefined);
+        }, timeoutMs);
+      }
     } catch (err) {
       Logger.warn({ err }, 'Failed to send interaction response');
     }

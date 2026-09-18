@@ -33,12 +33,18 @@ export class ResponseModel {
   public _textContent?: string;
 
   public additionalEmbeds: EmbedBuilder[] = [];
+  public autoDeleteSeconds?: number;
 
   constructor(color?: number | null) {
     this.embed = new EmbedBuilder();
     if (color !== undefined && color !== null) {
       this.embed.setColor(color);
     }
+  }
+
+  public setAutoDelete(seconds: number = 4): this {
+    this.autoDeleteSeconds = seconds;
+    return this;
   }
 
   public setReferencedMusic(music: ReferencedMusic): this {

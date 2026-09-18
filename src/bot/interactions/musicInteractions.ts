@@ -61,7 +61,8 @@ export class MusicInteractions {
       return;
     }
 
-    const accentColor = await this.colorService.getAccentColorAsync(guildId);
+    const currentTrackArtwork = this.musicService.getQueueInfo(guildId)?.current?.artworkUrl;
+    const accentColor = await this.colorService.getAccentColorAsync(guildId, currentTrackArtwork);
 
     // Cancel search menu
     if (customId === 'music:search:cancel') {

@@ -21,8 +21,8 @@ export class LibrarySearchCommands implements ITextCommandModule {
   ) {
     this.commands = [
       {
-        name: 'search',
-        aliases: ['sr', 'find'],
+        name: 'librarysearch',
+        aliases: ['libsearch', 'ls'],
         executeAsync: (context, args) => this.searchAsync(context, args?.join(' ') ?? ''),
       },
     ];
@@ -33,7 +33,7 @@ export class LibrarySearchCommands implements ITextCommandModule {
     if (!query) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.WrongInput,
-        `Please provide a search query, e.g. \`${context.prefix}search daft punk\`.`,
+        `Please provide a search query, e.g. \`${context.prefix}librarysearch daft punk\`.`,
       );
     }
 
