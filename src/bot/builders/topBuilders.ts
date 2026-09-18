@@ -145,6 +145,66 @@ async function resolveBackgroundCovers(
   return covers;
 }
 
+async function resolveArtistImages(
+  topArtists: TopArtist[],
+  seedImage?: string,
+): Promise<string[]> {
+  const images: string[] = [];
+  const seen = new Set<string>();
+
+  if (seedImage && !seedImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+    seen.add(seedImage);
+    images.push(seedImage);
+  }
+
+  // 1. Seed with any valid non-placeholder images already on topArtists
+  for (const a of topArtists) {
+    if (a.imageUrl && !a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(a.imageUrl)) {
+      seen.add(a.imageUrl);
+      images.push(a.imageUrl);
+      if (images.length >= 21) return images;
+    }
+  }
+
+  // 2. Query ArtistsService.fillArtistImages (batch queries DB and ArtworkService)
+  try {
+    const { ArtistsService } = await import('@bot/services/artistsService');
+    if (container.isRegistered(ArtistsService)) {
+      const artistsService = container.resolve(ArtistsService);
+      const hydrated = await artistsService.fillArtistImages(topArtists.slice(0, 21));
+      for (const a of hydrated) {
+        if (a.imageUrl && !a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(a.imageUrl)) {
+          seen.add(a.imageUrl);
+          images.push(a.imageUrl);
+          if (images.length >= 21) return images;
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. Fallback: resolve missing artist images directly via ArtworkService
+  if (images.length < 15 && container.isRegistered(ArtworkService)) {
+    try {
+      const artworkService = container.resolve(ArtworkService);
+      for (const a of topArtists.slice(0, 15)) {
+        if (images.length >= 21) break;
+        if (a.imageUrl && seen.has(a.imageUrl)) continue;
+        const img = await artworkService.getArtistImageUrl(a.name);
+        if (img && !img.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(img)) {
+          seen.add(img);
+          images.push(img);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return images;
+}
+
 
 export class TopBuilders {
   public static async buildTopArtistsResponse(
@@ -177,11 +237,9 @@ export class TopBuilders {
           hasCrown: idx === 0,
         }));
 
-        const backgroundCovers = await resolveBackgroundCovers(
-          userNameLastFm,
-          timeSettings,
-          [],
-          topArtists.slice(0, 10).map((a) => a.name),
+        const backgroundCovers = await resolveArtistImages(
+          topArtists.slice(0, 21),
+          targetImage,
         );
 
         const totalPlays = topArtists.reduce((sum, a) => sum + a.playcount, 0);
