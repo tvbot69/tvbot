@@ -20,6 +20,7 @@ const periodChoices = [
 ];
 
 import { ColorService } from '@bot/services/colorService';
+import { ArtworkService } from '@bot/services/artworkService';
 
 export class TopSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -30,6 +31,7 @@ export class TopSlashCommands implements ISlashCommandModule {
     private readonly lastfmRepository: LastFmRepository,
     private readonly updateService: UpdateService,
     private readonly colorService?: ColorService,
+    private readonly artworkService?: ArtworkService,
   ) {
     this.commands = [
       {
@@ -81,7 +83,8 @@ export class TopSlashCommands implements ISlashCommandModule {
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
     const topArtists = await this.lastfmRepository.getTopArtists(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topArtists || topArtists.length === 0) return GenericEmbedService.buildNotFoundResponse('No top artists found for this time period.');
-    const accentColor = await this.colorService?.getColorFromImageUrl(topArtists[0]?.imageUrl);
+    const topImg = (await this.artworkService?.getArtistImageUrl(topArtists[0]?.name)) ?? (topArtists[0]?.imageUrl && !topArtists[0]?.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topArtists[0]?.imageUrl : undefined);
+    const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;
     return await TopBuilders.buildTopArtistsResponse(userNameLastFm, displayName, topArtists, timeSettings, 0, accentColor, userObj?.mode);
   }
 
@@ -98,7 +101,8 @@ export class TopSlashCommands implements ISlashCommandModule {
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
     const topAlbums = await this.lastfmRepository.getTopAlbums(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topAlbums || topAlbums.length === 0) return GenericEmbedService.buildNotFoundResponse('No top albums found for this time period.');
-    const accentColor = await this.colorService?.getColorFromImageUrl(topAlbums[0]?.imageUrl);
+    const topImg = (await this.artworkService?.getAlbumCoverUrl(topAlbums[0]?.name, topAlbums[0]?.artistName)) ?? (topAlbums[0]?.imageUrl && !topAlbums[0]?.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topAlbums[0]?.imageUrl : undefined);
+    const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;
     return await TopBuilders.buildTopAlbumsResponse(userNameLastFm, displayName, topAlbums, timeSettings, 0, accentColor, userObj?.mode);
   }
 
@@ -115,7 +119,8 @@ export class TopSlashCommands implements ISlashCommandModule {
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
     const topTracks = await this.lastfmRepository.getTopTracks(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
     if (!topTracks || topTracks.length === 0) return GenericEmbedService.buildNotFoundResponse('No top tracks found for this time period.');
-    const accentColor = await this.colorService?.getColorFromImageUrl(topTracks[0]?.imageUrl);
+    const topImg = (await this.artworkService?.getTrackCoverUrl(topTracks[0]?.name, topTracks[0]?.artistName)) ?? (topTracks[0]?.imageUrl && !topTracks[0]?.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topTracks[0]?.imageUrl : undefined);
+    const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;
     return await TopBuilders.buildTopTracksResponse(userNameLastFm, displayName, topTracks, timeSettings, 0, accentColor, userObj?.mode);
   }
 }

@@ -172,7 +172,7 @@ export class ArtistsService {
    * Batch hydrates artist images using ArtworkService or database cache
    */
   public async fillArtistImages(topArtists: TopArtist[]): Promise<TopArtist[]> {
-    const missing = topArtists.filter((a) => !a.imageUrl);
+    const missing = topArtists.filter((a) => !a.imageUrl || a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f'));
     if (missing.length === 0) return topArtists;
 
     if (this.artworkService) {
@@ -180,11 +180,15 @@ export class ArtistsService {
         missing.map(async (artist) => {
           try {
             const url = await this.artworkService!.getArtistImageUrl(artist.name);
-            if (url) {
+            if (url && !url.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
               artist.imageUrl = url;
+            } else if (artist.imageUrl?.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+              artist.imageUrl = undefined;
             }
           } catch {
-            // ignore
+            if (artist.imageUrl?.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+              artist.imageUrl = undefined;
+            }
           }
         }),
       );
@@ -199,21 +203,23 @@ export class ArtistsService {
         },
         select: {
           name: true,
+          imageUrl: true,
           spotifyImageUrl: true,
+          deezerImageUrl: true,
         },
       });
 
       const map = new Map<string, string>();
       for (const r of rows) {
-        if (r.spotifyImageUrl) {
-          map.set(r.name.toLowerCase(), r.spotifyImageUrl);
-        }
+        const cover = r.spotifyImageUrl ?? r.deezerImageUrl ?? r.imageUrl;
+        if (cover && !cover.includes('2a96cbd8b46e442fc41c2b86b821562f')) map.set(r.name.toLowerCase(), cover);
       }
 
       for (const a of topArtists) {
-        if (!a.imageUrl) {
+        if (!a.imageUrl || a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
           const found = map.get(a.name.toLowerCase());
           if (found) a.imageUrl = found;
+          else a.imageUrl = undefined;
         }
       }
     } catch {
@@ -673,10 +679,11 @@ export class ArtistsService {
 
     const info = await this.getArtistInfo(searchArtist, user.userNameLastFm);
     if (info) {
+      const artUrl = (await this.artworkService?.getArtistImageUrl(info.name)) ?? (info.imageUrl && !info.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? info.imageUrl : undefined);
       return {
         artistName: info.name,
         artistUrl: info.url,
-        imageUrl: info.imageUrl,
+        imageUrl: artUrl,
         userPlaycount: info.userPlayCount,
         globalPlaycount: info.playCount,
         globalListeners: info.listeners,
@@ -691,10 +698,11 @@ export class ArtistsService {
       const fallbackName = searchResults[0]!.name;
       const fallbackInfo = await this.getArtistInfo(fallbackName, user.userNameLastFm);
       if (fallbackInfo) {
+        const artUrl = (await this.artworkService?.getArtistImageUrl(fallbackInfo.name)) ?? (fallbackInfo.imageUrl && !fallbackInfo.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? fallbackInfo.imageUrl : undefined);
         return {
           artistName: fallbackInfo.name,
           artistUrl: fallbackInfo.url,
-          imageUrl: fallbackInfo.imageUrl,
+          imageUrl: artUrl,
           userPlaycount: fallbackInfo.userPlayCount,
           globalPlaycount: fallbackInfo.playCount,
           globalListeners: fallbackInfo.listeners,

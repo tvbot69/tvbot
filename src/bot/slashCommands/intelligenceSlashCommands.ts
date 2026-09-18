@@ -245,9 +245,9 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
       if (entityType === 'artist') {
         artUrl = await artSvc.getArtistImageUrl(top.name);
       } else if (entityType === 'album') {
-        artUrl = await artSvc.getAlbumCoverUrl(top.artistName ?? '', top.name);
+        artUrl = await artSvc.getAlbumCoverUrl(top.name, top.artistName ?? '');
       } else {
-        artUrl = await artSvc.getTrackCoverUrl(top.artistName ?? '', top.name);
+        artUrl = await artSvc.getTrackCoverUrl(top.name, top.artistName ?? '');
       }
       if (artUrl) {
         accentColor = await clrSvc.getColorFromImageUrl(artUrl);
@@ -479,7 +479,7 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
 
     const artSvc = this.artworkService ?? container.resolve(ArtworkService);
     const clrSvc = this.colorService ?? container.resolve(ColorService);
-    const trackArtUrl = await artSvc.getTrackCoverUrl(artistName, trackName);
+    const trackArtUrl = await artSvc.getTrackCoverUrl(trackName, artistName);
     const accentColor = trackArtUrl ? await clrSvc.getColorFromImageUrl(trackArtUrl) : DiscordConstants.LastFmColorRed;
 
     return IntelligenceBuilders.buildLoveSuccessResponse(artistName, trackName, true, accentColor);
@@ -552,7 +552,7 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
 
     const artSvc = this.artworkService ?? container.resolve(ArtworkService);
     const clrSvc = this.colorService ?? container.resolve(ColorService);
-    const trackArtUrl = await artSvc.getTrackCoverUrl(artistName, trackName);
+    const trackArtUrl = await artSvc.getTrackCoverUrl(trackName, artistName);
     const accentColor = trackArtUrl ? await clrSvc.getColorFromImageUrl(trackArtUrl) : DiscordConstants.LastFmColorRed;
 
     return IntelligenceBuilders.buildLoveSuccessResponse(artistName, trackName, false, accentColor);
@@ -577,7 +577,7 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
     let accentColor = DiscordConstants.LastFmColorRed;
     if (tracks.length > 0 && tracks[0]) {
       const topTrack = tracks[0];
-      const trackArtUrl = topTrack.imageUrl || await artSvc.getTrackCoverUrl(topTrack.artistName, topTrack.name);
+      const trackArtUrl = (await artSvc.getTrackCoverUrl(topTrack.name, topTrack.artistName)) || (topTrack.imageUrl && !topTrack.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topTrack.imageUrl : undefined);
       if (trackArtUrl) {
         accentColor = await clrSvc.getColorFromImageUrl(trackArtUrl);
       }
@@ -629,7 +629,7 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
 
     const artSvc = this.artworkService ?? container.resolve(ArtworkService);
     const clrSvc = this.colorService ?? container.resolve(ColorService);
-    const trackArtUrl = await artSvc.getTrackCoverUrl(artist, track);
+    const trackArtUrl = await artSvc.getTrackCoverUrl(track, artist);
     const accentColor = trackArtUrl ? await clrSvc.getColorFromImageUrl(trackArtUrl) : DiscordConstants.LastFmColorRed;
 
     return IntelligenceBuilders.buildScrobbleSuccessResponse(artist, track, album, accentColor);

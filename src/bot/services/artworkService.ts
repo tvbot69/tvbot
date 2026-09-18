@@ -439,23 +439,26 @@ export class ArtworkService {
 
     if (!SpotifySearchApi.isRateLimited()) {
       try {
-        const tracks = await this.spotifyApi.searchTracks(
+        let tracks = await this.spotifyApi.searchTracks(
           `track:${cleanTrack} artist:${artistName}`,
         );
-      const url = pickLargest(tracks[0]?.album?.images);
-      if (url) {
-        result = url;
-        const artistRow = await this.artistRepository.getArtistByName(artistName);
-        if (artistRow) {
-          const trackRow = await this.trackRepository.getTrackByNameAndArtist(
-            cleanTrack,
-            artistRow.artistId,
-          );
-          if (trackRow) {
-            await this.trackRepository.setSpotifyImage(trackRow.trackId, url, new Date());
+        if (tracks.length === 0) {
+          tracks = await this.spotifyApi.searchTracks(`${cleanTrack} ${artistName}`);
+        }
+        const url = pickLargest(tracks[0]?.album?.images);
+        if (url) {
+          result = url;
+          const artistRow = await this.artistRepository.getArtistByName(artistName);
+          if (artistRow) {
+            const trackRow = await this.trackRepository.getTrackByNameAndArtist(
+              cleanTrack,
+              artistRow.artistId,
+            );
+            if (trackRow) {
+              await this.trackRepository.setSpotifyImage(trackRow.trackId, url, new Date());
+            }
           }
         }
-      }
       } catch (err) {
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: spotify miss');
       }
@@ -463,7 +466,10 @@ export class ArtworkService {
 
     if (!result) {
       try {
-        const tracks = await this.deezerApi.searchTracks(`${cleanTrack} ${artistName}`);
+        let tracks = await this.deezerApi.searchTracks(`${cleanTrack} ${artistName}`);
+        if (tracks.length === 0) {
+          tracks = await this.deezerApi.searchTracks(`${artistName} ${cleanTrack}`);
+        }
         result = tracks[0]?.album?.cover_xl ?? tracks[0]?.album?.cover_big ?? null;
       } catch (err) {
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: deezer miss');

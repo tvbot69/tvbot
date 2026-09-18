@@ -673,9 +673,9 @@ export const configureContainer = (): void => {
   container.registerInstance(OverviewService, overviewService);
   container.registerInstance(TopInteractions, topInteractions);
   // Top + Overview (no images, paginator embeds)
-  const topSlashCommands = new TopSlashCommands(userService, settingService, lastFmRepository, updateService, colorService);
+  const topSlashCommands = new TopSlashCommands(userService, settingService, lastFmRepository, updateService, colorService, artworkService);
   const overviewSlashCommands = new OverviewSlashCommands(userService, overviewService, updateService, colorService);
-  const topCommands = new TopCommands(userService, settingService, lastFmRepository, updateService, colorService);
+  const topCommands = new TopCommands(userService, settingService, lastFmRepository, updateService, colorService, artworkService);
   const overviewCommands = new OverviewCommands(userService, overviewService, updateService, colorService);
   const updateSlashCommands = new UpdateSlashCommands(userService, updateService, indexService);
   const updateCommands = new UpdateCommands(userService, updateService, indexService);
@@ -833,8 +833,8 @@ export const configureContainer = (): void => {
 
   const gameService = new GameService(puppeteerService);
   const gameInteractions = new GameInteractions(gameService, colorService);
-  const gameCommands = new GameCommands(userService, lastFmRepository, gameService, colorService);
-  const gameSlashCommands = new GameSlashCommands(userService, lastFmRepository, gameService, colorService);
+  const gameCommands = new GameCommands(userService, lastFmRepository, gameService, colorService, artworkService);
+  const gameSlashCommands = new GameSlashCommands(userService, lastFmRepository, gameService, colorService, artworkService);
 
   container.registerInstance(GameService, gameService);
   container.registerInstance(GameInteractions, gameInteractions);

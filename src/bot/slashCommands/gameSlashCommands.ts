@@ -10,6 +10,7 @@ import { GameBuilders } from '@bot/builders/gameBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/colorService';
+import { ArtworkService } from '@bot/services/artworkService';
 
 @injectable()
 export class GameSlashCommands implements ISlashCommandModule {
@@ -20,6 +21,7 @@ export class GameSlashCommands implements ISlashCommandModule {
     @inject(LastFmRepository) private readonly lastfmRepository: LastFmRepository,
     @inject(GameService) private readonly gameService: GameService,
     @inject(ColorService) private readonly colorService?: ColorService,
+    @inject(ArtworkService) private readonly artworkService?: ArtworkService,
   ) {
     this.commands = [
       {
@@ -265,6 +267,7 @@ export class GameSlashCommands implements ISlashCommandModule {
     const eligible = (topAlbums || []).filter(
       (a) =>
         a.imageUrl &&
+        !a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') &&
         a.name &&
         a.name.length >= 2 &&
         a.name.length <= 40 &&
@@ -281,7 +284,11 @@ export class GameSlashCommands implements ISlashCommandModule {
     const chosen = eligible[Math.floor(Math.random() * eligible.length)]!;
     const albumName = chosen.name;
     const artistName = chosen.artistName ?? 'Unknown Artist';
-    const coverUrl = chosen.imageUrl!;
+    let coverUrl = chosen.imageUrl!;
+    const resolvedCover = await this.artworkService?.getAlbumCoverUrl(albumName, artistName);
+    if (resolvedCover && !resolvedCover.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+      coverUrl = resolvedCover;
+    }
 
     const pixelatedBuffer = await this.gameService.pixelateCover(coverUrl, 0.04);
 

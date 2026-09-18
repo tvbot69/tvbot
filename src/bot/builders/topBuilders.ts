@@ -46,51 +46,30 @@ async function resolveBackgroundCovers(
     }
   }
 
-  // 1. Fetch user's top albums for this period WITHOUT from/to so Last.fm returns actual album imageUrls
-  try {
-    const { LastFmRepository } = await import('@lastfm/repositories/lastFmRepository');
-    if (container.isRegistered(LastFmRepository)) {
-      const lastfmRepo = container.resolve(LastFmRepository);
-
-      // Calling getTopAlbums with standard period returns real image URLs (weekly chart doesn't include images)
-      const albums = await lastfmRepo.getTopAlbums(
-        userNameLastFm,
-        timeSettings.timePeriod as any,
-        25,
-        1,
-      ).catch(() => []);
-
-      for (const alb of albums) {
-        if (alb.imageUrl && !alb.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(alb.imageUrl)) {
-          seen.add(alb.imageUrl);
-          covers.push(alb.imageUrl);
-          if (covers.length >= 21) return covers;
-        }
-      }
-
-      // If still fewer than 21, fetch user's overall top albums
-      if (covers.length < 21) {
-        const overallAlbums = await lastfmRepo.getTopAlbums(
-          userNameLastFm,
-          'overall' as any,
-          25,
-          1,
-        ).catch(() => []);
-
-        for (const alb of overallAlbums) {
-          if (alb.imageUrl && !alb.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(alb.imageUrl)) {
-            seen.add(alb.imageUrl);
-            covers.push(alb.imageUrl);
-            if (covers.length >= 21) return covers;
+  // 1. PRIMARY: Query Spotify official discography for the top artist (up to 25 covers in ONE single call)
+  if (covers.length < 21 && artistNames && artistNames.length > 0) {
+    try {
+      const { SpotifySearchApi } = await import('@spotify/api/spotifySearchApi');
+      if (container.isRegistered(SpotifySearchApi)) {
+        const spotifyApi = container.resolve(SpotifySearchApi);
+        const topArtist = artistNames[0];
+        if (topArtist) {
+          const spotifyCovers = await spotifyApi.getArtistDiscographyCovers(topArtist, undefined, 25);
+          for (const c of spotifyCovers) {
+            if (c && !c.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(c)) {
+              seen.add(c);
+              covers.push(c);
+              if (covers.length >= 21) return covers;
+            }
           }
         }
       }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 
-  // 2. Supplement from database indexed album covers for top artists
+  // 2. Supplement from database indexed album covers for top artists (0 HTTP calls)
   if (covers.length < 21 && artistNames && artistNames.length > 0) {
     try {
       const { ArtistsService } = await import('@bot/services/artistsService');
@@ -113,7 +92,7 @@ async function resolveBackgroundCovers(
     }
   }
 
-  // 3. Fallback: query Deezer for the top artists (guarantees diverse high-res covers even on empty DB)
+  // 3. Fallback: query Deezer for the top artists (unlimited, no rate limits, high-res)
   if (covers.length < 21 && artistNames && artistNames.length > 0) {
     try {
       const { DeezerApi } = await import('@deezer/apis/deezerApi');
@@ -129,6 +108,32 @@ async function resolveBackgroundCovers(
               covers.push(cover);
               if (covers.length >= 21) break;
             }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // 4. Emergency Last Resort Fallback ONLY: Last.fm user top albums
+  if (covers.length < 21) {
+    try {
+      const { LastFmRepository } = await import('@lastfm/repositories/lastFmRepository');
+      if (container.isRegistered(LastFmRepository)) {
+        const lastfmRepo = container.resolve(LastFmRepository);
+        const albums = await lastfmRepo.getTopAlbums(
+          userNameLastFm,
+          timeSettings.timePeriod as any,
+          25,
+          1,
+        ).catch(() => []);
+
+        for (const alb of albums) {
+          if (alb.imageUrl && !alb.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(alb.imageUrl)) {
+            seen.add(alb.imageUrl);
+            covers.push(alb.imageUrl);
+            if (covers.length >= 21) return covers;
           }
         }
       }
@@ -155,11 +160,12 @@ export class TopBuilders {
       try {
         const generator = container.resolve(WhoKnowsGenerator);
         const topItem = topArtists[0]!;
-        let targetImage: string | undefined = topItem.imageUrl;
+        let targetImage: string | undefined = undefined;
+        if (container.isRegistered(ArtworkService)) {
+          targetImage = (await container.resolve(ArtworkService).getArtistImageUrl(topItem.name)) ?? undefined;
+        }
         if (!targetImage || targetImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-          if (container.isRegistered(ArtworkService)) {
-            targetImage = (await container.resolve(ArtworkService).getArtistImageUrl(topItem.name)) ?? undefined;
-          }
+          targetImage = topItem.imageUrl && !topItem.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topItem.imageUrl : undefined;
         }
 
         const users: WhoKnowsUser[] = topArtists.slice(0, 10).map((a, idx) => ({
@@ -251,11 +257,12 @@ export class TopBuilders {
       try {
         const generator = container.resolve(WhoKnowsGenerator);
         const topItem = topAlbums[0]!;
-        let targetImage: string | undefined = topItem.imageUrl;
+        let targetImage: string | undefined = undefined;
+        if (container.isRegistered(ArtworkService)) {
+          targetImage = (await container.resolve(ArtworkService).getAlbumCoverUrl(topItem.name, topItem.artistName)) ?? undefined;
+        }
         if (!targetImage || targetImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-          if (container.isRegistered(ArtworkService)) {
-            targetImage = (await container.resolve(ArtworkService).getAlbumCoverUrl(topItem.artistName, topItem.name)) ?? undefined;
-          }
+          targetImage = topItem.imageUrl && !topItem.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topItem.imageUrl : undefined;
         }
 
         const users: WhoKnowsUser[] = topAlbums.slice(0, 10).map((a, idx) => ({
@@ -270,7 +277,7 @@ export class TopBuilders {
         const backgroundCovers = await resolveBackgroundCovers(
           userNameLastFm,
           timeSettings,
-          topAlbums.map((a) => a.imageUrl).filter(Boolean) as string[],
+          targetImage ? [targetImage] : [],
           topAlbums.slice(0, 5).map((a) => a.artistName),
         );
 
@@ -347,11 +354,12 @@ export class TopBuilders {
       try {
         const generator = container.resolve(WhoKnowsGenerator);
         const topItem = topTracks[0]!;
-        let targetImage: string | undefined = topItem.imageUrl;
+        let targetImage: string | undefined = undefined;
+        if (container.isRegistered(ArtworkService)) {
+          targetImage = (await container.resolve(ArtworkService).getTrackCoverUrl(topItem.name, topItem.artistName)) ?? undefined;
+        }
         if (!targetImage || targetImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-          if (container.isRegistered(ArtworkService)) {
-            targetImage = (await container.resolve(ArtworkService).getTrackCoverUrl(topItem.artistName, topItem.name)) ?? undefined;
-          }
+          targetImage = topItem.imageUrl && !topItem.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topItem.imageUrl : undefined;
         }
 
         const users: WhoKnowsUser[] = topTracks.slice(0, 10).map((t, idx) => ({

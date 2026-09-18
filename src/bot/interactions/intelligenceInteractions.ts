@@ -199,9 +199,9 @@ export class IntelligenceInteractions {
       if (entityType === 'artist') {
         artUrl = await artSvc.getArtistImageUrl(top.name);
       } else if (entityType === 'album') {
-        artUrl = await artSvc.getAlbumCoverUrl(top.artistName ?? '', top.name);
+        artUrl = await artSvc.getAlbumCoverUrl(top.name, top.artistName ?? '');
       } else {
-        artUrl = await artSvc.getTrackCoverUrl(top.artistName ?? '', top.name);
+        artUrl = await artSvc.getTrackCoverUrl(top.name, top.artistName ?? '');
       }
       if (artUrl) {
         accentColor = await this.colorService.getColorFromImageUrl(artUrl);
