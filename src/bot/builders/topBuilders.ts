@@ -363,23 +363,10 @@ export class TopBuilders {
           hasCrown: idx === 0,
         }));
 
-        // Resolve diverse covers from top tracks via ArtworkService
-        let trackCovers: string[] = [];
-        if (container.isRegistered(ArtworkService)) {
-          const artworkService = container.resolve(ArtworkService);
-          const coverPromises = topTracks.slice(0, 10).map(async (t) => {
-            if (t.imageUrl && !t.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-              return t.imageUrl;
-            }
-            return await artworkService.getTrackCoverUrl(t.artistName, t.name).catch(() => null);
-          });
-          trackCovers = (await Promise.all(coverPromises)).filter(Boolean) as string[];
-        }
-
         const backgroundCovers = await resolveBackgroundCovers(
           userNameLastFm,
           timeSettings,
-          trackCovers.length > 0 ? trackCovers : (topTracks.map((t) => t.imageUrl).filter(Boolean) as string[]),
+          targetImage ? [targetImage] : [],
           topTracks.slice(0, 5).map((t) => t.artistName),
         );
 
