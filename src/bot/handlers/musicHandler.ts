@@ -1,5 +1,5 @@
 import { Client, Events, VoiceChannel, StageChannel } from 'discord.js';
-import type { Player, Track } from 'moonlink.js';
+import type { Manager, Player, Track } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { QueueService } from '@bot/services/music/queueService';
@@ -7,7 +7,7 @@ import { MusicBuilders } from '@bot/builders/musicBuilders';
 import type { ColorService } from '@bot/services/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
-import { mapMoonlinkTrack } from '@domain/models/music/musicTrack';
+import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTrack';
 
 export class MusicHandler {
   private readonly client: Client;
@@ -93,6 +93,98 @@ export class MusicHandler {
       clearInterval(existing);
       this.updateIntervals.delete(guildId);
     }
+  }
+
+  /**
+   * Builds a low-noise search query for fallback lookups.
+   * Spotify display metadata is noisy ("Rauw Alejandro, Grand Theft Auto VI" as artist,
+   * "(from GTAVI: The Album)" in the title) and full-noise queries return zero
+   * SoundCloud hits. First billed artist + bracket-stripped title matches far better.
+   */
+  private buildFallbackQuery(track: Track): string | null {
+    if (!track.title || !track.author) return null;
+    const firstArtist =
+      track.author
+        .split(/[,/&]/)[0]
+        ?.replace(/\s+(feat\.?|ft\.?|featuring|with|x)\s+.*$/i, '')
+        .trim() || track.author;
+    const strippedTitle =
+      cleanTrackTitle(track.title, track.author)
+        .replace(/\s*[([{\u3010].*?[)\]}\u3011]\s*/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim() || track.title;
+    return `${firstArtist} - ${strippedTitle}`;
+  }
+
+  private adoptFallbackMetadata(fallback: Track, failedTrack: Track, source: string): void {
+    fallback.requester = failedTrack.requester;
+    fallback.title = failedTrack.title;
+    fallback.author = failedTrack.author;
+    if (failedTrack.artworkUrl) fallback.artworkUrl = failedTrack.artworkUrl;
+    const rec = fallback as unknown as Record<string, unknown>;
+    rec.sourceName = source;
+    rec.source = source;
+  }
+
+  /**
+   * Finds an alternate playable upload for a failed/stuck track.
+   * Order matters:
+   *  1. Alternate YouTube upload — official label uploads are the most likely to be
+   *     region/age/embed-blocked for Lavalink; lyric and fan re-uploads of the same
+   *     duration (different video id) usually play fine.
+   *  2. SoundCloud version — last resort; duration-gated so we never silently play a
+   *     wrong song (worse UX than skipping).
+   * Returns null when nothing playable exists so the caller can skip past the poison track.
+   */
+  private async findAlternatePlayableTrack(
+    manager: Manager,
+    failedTrack: Track,
+  ): Promise<Track | null> {
+    const query = this.buildFallbackQuery(failedTrack);
+    if (!query) return null;
+
+    const failedId = failedTrack.identifier;
+    const failedDuration = failedTrack.duration || 0;
+    const matchesDuration = (duration?: number): boolean => {
+      if (!duration || !failedDuration) return true;
+      return Math.abs(duration - failedDuration) <= 30000;
+    };
+
+    try {
+      const yt = await manager.search({ query, source: 'youtube' });
+      const alt = yt?.tracks?.find(
+        (t: Track) => t.identifier !== failedId && matchesDuration(t.duration),
+      );
+      if (alt) {
+        this.adoptFallbackMetadata(alt, failedTrack, 'youtube');
+        Logger.info(
+          { guildId: 'n/a', query, uri: alt.uri },
+          `[Music] Alternate YouTube upload found for "${failedTrack.title}" — retrying without the blocked upload.`,
+        );
+        return alt;
+      }
+    } catch (err) {
+      Logger.debug({ err }, '[Music] Alternate YouTube search failed');
+    }
+
+    try {
+      const sc = await manager.search({ query, source: 'soundcloud' });
+      const alt = sc?.tracks?.find((t: Track) => matchesDuration(t.duration));
+      if (alt) {
+        this.adoptFallbackMetadata(alt, failedTrack, 'soundcloud');
+        return alt;
+      }
+      if (sc?.tracks && sc.tracks.length > 0) {
+        Logger.warn(
+          { query, topHit: sc.tracks[0]?.title },
+          `[Music] SoundCloud top hit duration-mismatched — refusing to play a wrong song.`,
+        );
+      }
+    } catch (err) {
+      Logger.debug({ err }, '[Music] SoundCloud fallback search failed');
+    }
+
+    return null;
   }
 
   private registerMoonlinkEvents(): void {
@@ -194,13 +286,8 @@ export class MusicHandler {
     manager.on('trackStuck', async (player: Player, track: Track, threshold: number) => {
       this.stopProgressUpdater(player.guildId);
 
-      const trackRecord = track as unknown as Record<string, unknown>;
-      const source = String((trackRecord['sourceName'] as string | undefined) ?? (trackRecord['source'] as string | undefined) ?? '').toLowerCase();
-      // Spotify-labeled tracks are still YouTube-encoded under the hood (musicService
-      // resolves Spotify metadata -> YouTube via Lavalink), so they need the fallback too.
-      const isFallbackEligible = !source || source === 'youtube' || source === 'spotify';
       // Guard against double-skip: Moonlink may already have advanced past this track
-      // (e.g. fault-severity auto-skip) while our async SoundCloud search was in flight.
+      // while our async fallback search was in flight.
       const failedKey = track.encoded ?? track.uri ?? track.identifier;
       const stillCurrent = (): boolean => {
         const cur = player.current as unknown as { encoded?: string; uri?: string; identifier?: string } | null;
@@ -208,39 +295,27 @@ export class MusicHandler {
         return (cur.encoded ?? cur.uri ?? cur.identifier) === failedKey;
       };
 
-      if (isFallbackEligible && track.title && track.author) {
-        Logger.warn(
-          { guildId: player.guildId, track: track.title, threshold },
-          `[Music] YouTube track stuck (${threshold}ms) — retrying "${track.title}" on SoundCloud...`,
-        );
-        try {
-          const res = await manager.search({ query: `${track.author} - ${track.title}`, source: 'soundcloud' });
-          if (res?.tracks && res.tracks.length > 0) {
-            const fallback = res.tracks[0]!;
-            fallback.requester = track.requester;
-            fallback.title = track.title;
-            fallback.author = track.author;
-            if (track.artworkUrl) fallback.artworkUrl = track.artworkUrl;
-            const rec = fallback as unknown as Record<string, unknown>;
-            rec.sourceName = 'soundcloud';
-            rec.source = 'soundcloud';
-            player.queue.unshift(fallback);
-            Logger.info({ guildId: player.guildId, track: track.title }, `[Music] SoundCloud fallback queued for stuck track — skipping to it.`);
-            // Moonlink does NOT auto-advance on stuck (it seeks/retries by default), so we
-            // must advance ourselves. Only skip if the stuck track is still current.
-            if (stillCurrent()) {
-              await player.skip().catch((err: unknown) => {
-                Logger.warn({ err, guildId: player.guildId }, '[Music] Skip to SoundCloud fallback failed');
-              });
-            }
-            return;
-          }
-        } catch { /* fall through */ }
+      Logger.warn(
+        { guildId: player.guildId, track: track.title, threshold },
+        `[Music] Track stuck (${threshold}ms) — looking for an alternate upload for "${track.title}"...`,
+      );
+      const fallback = await this.findAlternatePlayableTrack(manager, track);
+      if (fallback) {
+        player.queue.unshift(fallback);
+        Logger.info({ guildId: player.guildId, track: track.title }, `[Music] Alternate upload queued for stuck track — skipping to it.`);
+        // Moonlink does NOT auto-advance on stuck (it seeks/retries by default), so we
+        // must advance ourselves. Only skip if the stuck track is still current.
+        if (stillCurrent()) {
+          await player.skip().catch((err: unknown) => {
+            Logger.warn({ err, guildId: player.guildId }, '[Music] Skip to alternate upload failed');
+          });
+        }
+        return;
       }
 
       Logger.warn(
         { guildId: player.guildId, track: track.title, threshold },
-        `[Music] Track stuck (${threshold}ms) — no fallback, leaving Moonlink recovery to handle it.`,
+        `[Music] Track stuck (${threshold}ms) — no alternate upload, leaving Moonlink recovery to handle it.`,
       );
     });
 
@@ -248,13 +323,8 @@ export class MusicHandler {
     manager.on('trackException', async (player: Player, track: Track, exception: unknown) => {
       this.stopProgressUpdater(player.guildId);
 
-      // Spotify-labeled tracks are still YouTube-encoded under the hood (musicService
-      // resolves Spotify metadata -> YouTube via Lavalink), so they need the fallback too.
-      const trackRecord = track as unknown as Record<string, unknown>;
-      const source = String((trackRecord['sourceName'] as string | undefined) ?? (trackRecord['source'] as string | undefined) ?? '').toLowerCase();
-      const isFallbackEligible = !source || source === 'youtube' || source === 'spotify';
       // Guard against double-skip: Moonlink auto-skips fault-severity exceptions on its
-      // own, which may complete while our async SoundCloud search is in flight.
+      // own, which may complete while our async fallback search is in flight.
       const failedKey = track.encoded ?? track.uri ?? track.identifier;
       const stillCurrent = (): boolean => {
         const cur = player.current as unknown as { encoded?: string; uri?: string; identifier?: string } | null;
@@ -273,44 +343,27 @@ export class MusicHandler {
         }
       };
 
-      if (isFallbackEligible && track.title && track.author) {
-        Logger.warn(
-          { guildId: player.guildId, track: track.title, source },
-          `[Music] YouTube track failed — retrying "${track.title}" on SoundCloud...`,
+      Logger.warn(
+        { guildId: player.guildId, track: track.title },
+        `[Music] Track failed — looking for an alternate upload for "${track.title}"...`,
+      );
+      const fallback = await this.findAlternatePlayableTrack(manager, track);
+      if (fallback) {
+        // Inject at the front of the queue so it plays next, then advance to it —
+        // Moonlink only auto-skips fault-severity exceptions, so common-severity
+        // YouTube failures (unavailable/age-restricted/blocked) would stall forever.
+        player.queue.unshift(fallback);
+        Logger.info(
+          { guildId: player.guildId, track: track.title },
+          `[Music] Alternate upload queued for "${track.title}" — skipping to it.`,
         );
-        try {
-          const query = `${track.author} - ${track.title}`;
-          const res = await manager.search({ query, source: 'soundcloud' });
-          if (res?.tracks && res.tracks.length > 0) {
-            const fallback = res.tracks[0]!;
-            // Preserve original metadata
-            fallback.requester = track.requester;
-            fallback.title = track.title;
-            fallback.author = track.author;
-            if (track.artworkUrl) fallback.artworkUrl = track.artworkUrl;
-            const rec = fallback as unknown as Record<string, unknown>;
-            rec.sourceName = 'soundcloud';
-            rec.source = 'soundcloud';
-
-            // Inject at the front of the queue so it plays next, then advance to it —
-            // Moonlink only auto-skips fault-severity exceptions, so common-severity
-            // YouTube failures (unavailable/age-restricted/blocked) would stall forever.
-            player.queue.unshift(fallback);
-            Logger.info(
-              { guildId: player.guildId, track: track.title },
-              `[Music] SoundCloud fallback queued for "${track.title}" — skipping to it.`,
-            );
-            await skipPastFailed();
-            return;
-          }
-        } catch (retryErr) {
-          Logger.warn({ err: retryErr, guildId: player.guildId }, '[Music] SoundCloud fallback search failed');
-        }
+        await skipPastFailed();
+        return;
       }
 
       Logger.error(
         { err: exception, guildId: player.guildId, track: track.title },
-        `[Music] Track exception in guild ${player.guildId} — skipping past failed track.`,
+        `[Music] Track exception in guild ${player.guildId} — no alternate upload, skipping past failed track.`,
       );
       await skipPastFailed();
     });
