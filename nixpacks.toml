@@ -1,0 +1,17 @@
+[phases.setup]
+nixPkgs = ['nodejs_22', 'openssl', 'ffmpeg', 'chromium']
+
+[phases.install]
+cmds = ['PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm ci']
+
+[phases.build]
+cmds = ['npm run build']
+
+[start]
+cmd = 'node --max-old-space-size=384 dist/bot/index.js'
+
+[variables]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
+PUPPETEER_EXECUTABLE_PATH = '/usr/bin/chromium'
+NODE_ENV = 'production'
+ENVIRONMENT = 'production'

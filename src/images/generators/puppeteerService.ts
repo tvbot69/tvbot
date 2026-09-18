@@ -83,8 +83,12 @@ export class PuppeteerService {
   }
 
   private async launchBrowser(dir: string | null): Promise<Browser> {
+    const isProd = process.env.ENVIRONMENT === 'production' || process.env.NODE_ENV === 'production';
+    const execPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+
     return puppeteer.launch({
       headless: true,
+      ...(execPath ? { executablePath: execPath } : {}),
       ...(dir ? { userDataDir: dir } : {}),
       args: [
         '--no-sandbox',
@@ -95,7 +99,18 @@ export class PuppeteerService {
         '--font-render-hinting=none',
         '--disable-background-networking',
         '--disable-background-timer-throttling',
-        ...(dir ? ['--disk-cache-size=104857600'] as string[] : []),
+        '--disable-extensions',
+        '--disable-default-apps',
+        '--disable-sync',
+        '--disable-translate',
+        '--hide-scrollbars',
+        '--metrics-recording-only',
+        '--mute-audio',
+        '--no-first-run',
+        '--safebrowsing-disable-auto-update',
+        '--js-flags="--max-old-space-size=128"',
+        ...(isProd ? ['--no-zygote', '--single-process'] : []),
+        ...(dir ? ['--disk-cache-size=33554432'] as string[] : []),
       ],
     });
   }

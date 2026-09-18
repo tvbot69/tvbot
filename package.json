@@ -8,9 +8,9 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc && tsc-alias && node scripts/copy-assets.mjs",
+    "build": "npm run db:generate && tsc && tsc-alias && node scripts/copy-assets.mjs",
     "dev": "tsx watch src/bot/index.ts",
-    "start": "node dist/bot/index.js",
+    "start": "node --max-old-space-size=384 dist/bot/index.js",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "lint": "eslint src",

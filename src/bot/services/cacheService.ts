@@ -7,7 +7,7 @@ interface MemoryEntry {
   expiresAt: number | null;
 }
 
-const DEFAULT_MAX_ENTRIES = 5000;
+const DEFAULT_MAX_ENTRIES = 3000;
 const SWEEP_INTERVAL_MS = 60000;
 
 export class CacheService {
@@ -19,18 +19,23 @@ export class CacheService {
   constructor(maxEntries = DEFAULT_MAX_ENTRIES) {
     this.maxEntries = maxEntries;
 
-    try {
-      this.redis = new Redis(ConfigData.Data.redis.url, {
-        lazyConnect: true,
-        maxRetriesPerRequest: 1,
-        enableOfflineQueue: false,
-      });
-      this.redis.on('error', (err) => Logger.warn({ err }, 'Redis error'));
-      void this.redis.connect().catch(() => {
-        Logger.warn('Redis unavailable, continuing with in-memory cache only');
-      });
-    } catch (err) {
-      Logger.warn({ err }, 'Redis initialization failed');
+    const hasExplicitRedis = !!process.env.REDIS_URL;
+    if (hasExplicitRedis) {
+      try {
+        this.redis = new Redis(ConfigData.Data.redis.url, {
+          lazyConnect: true,
+          maxRetriesPerRequest: 1,
+          enableOfflineQueue: false,
+        });
+        this.redis.on('error', (err) => Logger.warn({ err }, 'Redis error'));
+        void this.redis.connect().catch(() => {
+          Logger.warn('Redis unavailable, continuing with in-memory cache only');
+        });
+      } catch (err) {
+        Logger.warn({ err }, 'Redis initialization failed');
+        this.redis = null;
+      }
+    } else {
       this.redis = null;
     }
 

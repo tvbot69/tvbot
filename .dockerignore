@@ -1,0 +1,27 @@
+# Dependencies and build outputs
+node_modules
+dist
+.puppeteer
+.moonlink
+
+# Git and IDE
+.git
+.gitignore
+.vscode
+.agents
+.opencode
+
+# Local reference repositories and documentation
+fmbot-dev
+backup
+logs
+scratch
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Documentation and plan files not needed in runtime
+*.md
