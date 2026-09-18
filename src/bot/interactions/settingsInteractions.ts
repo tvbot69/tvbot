@@ -59,18 +59,32 @@ export class SettingsInteractions {
   private isStaff(
     interaction: ButtonInteraction | import('discord.js').ModalSubmitInteraction,
   ): boolean {
-    if (!interaction.inGuild() || !interaction.member) {
+    if (!interaction.inGuild()) {
       return false;
     }
-    try {
-      const perms = new PermissionsBitField(interaction.member.permissions as never);
-      return (
-        perms.has(PermissionsBitField.Flags.ManageGuild) ||
-        perms.has(PermissionsBitField.Flags.Administrator)
-      );
-    } catch {
-      return false;
+    if (interaction.guild?.ownerId === interaction.user.id) {
+      return true;
     }
+    if (interaction.memberPermissions) {
+      if (
+        interaction.memberPermissions.has(PermissionsBitField.Flags.Administrator) ||
+        interaction.memberPermissions.has(PermissionsBitField.Flags.ManageGuild)
+      ) {
+        return true;
+      }
+    }
+    if (interaction.member) {
+      try {
+        const perms = new PermissionsBitField(interaction.member.permissions as never);
+        return (
+          perms.has(PermissionsBitField.Flags.ManageGuild) ||
+          perms.has(PermissionsBitField.Flags.Administrator)
+        );
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 
   public async handleSettingsButton(interaction: ButtonInteraction): Promise<void> {
