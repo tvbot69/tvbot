@@ -191,22 +191,91 @@ export class MusicHandler {
       }
     });
 
-    manager.on('trackStuck', (player: Player, track: Track, threshold: number) => {
-      Logger.warn(
-        `[Music] Track stuck in guild ${player.guildId}: "${track.title}" (threshold: ${threshold}ms). Skipping...`,
-      );
+    manager.on('trackStuck', async (player: Player, track: Track, threshold: number) => {
       this.stopProgressUpdater(player.guildId);
-      player.skip().catch(() => undefined);
+
+      const trackRecord = track as unknown as Record<string, unknown>;
+      const source = (trackRecord['sourceName'] as string | undefined) ?? (trackRecord['source'] as string | undefined) ?? '';
+      const isYouTube = !source || source === 'youtube';
+
+      if (isYouTube && track.title && track.author) {
+        Logger.warn(
+          { guildId: player.guildId, track: track.title, threshold },
+          `[Music] YouTube track stuck (${threshold}ms) — retrying "${track.title}" on SoundCloud...`,
+        );
+        try {
+          const res = await manager.search({ query: `${track.author} - ${track.title}`, source: 'soundcloud' });
+          if (res?.tracks && res.tracks.length > 0) {
+            const fallback = res.tracks[0]!;
+            fallback.requester = track.requester;
+            fallback.title = track.title;
+            fallback.author = track.author;
+            if (track.artworkUrl) fallback.artworkUrl = track.artworkUrl;
+            const rec = fallback as unknown as Record<string, unknown>;
+            rec.sourceName = 'soundcloud';
+            rec.source = 'soundcloud';
+            player.queue.unshift(fallback);
+            Logger.info({ guildId: player.guildId, track: track.title }, `[Music] SoundCloud fallback queued for stuck track — Lavalink will advance.`);
+            return;
+          }
+        } catch { /* fall through */ }
+      }
+
+      Logger.warn(
+        { guildId: player.guildId, track: track.title, threshold },
+        `[Music] Track stuck (${threshold}ms) — no fallback, Lavalink will auto-advance.`,
+      );
+      // Lavalink v4 fires trackEnd after a stuck track and auto-advances — no manual skip needed.
     });
 
-    manager.on('trackException', (player: Player, track: Track, exception: unknown) => {
+
+    manager.on('trackException', async (player: Player, track: Track, exception: unknown) => {
+      this.stopProgressUpdater(player.guildId);
+
+      // Determine if this was a YouTube track — if so, retry on SoundCloud before giving up
+      const trackRecord = track as unknown as Record<string, unknown>;
+      const source = (trackRecord['sourceName'] as string | undefined) ?? (trackRecord['source'] as string | undefined) ?? '';
+      const isYouTube = !source || source === 'youtube';
+
+      if (isYouTube && track.title && track.author) {
+        Logger.warn(
+          { guildId: player.guildId, track: track.title, source },
+          `[Music] YouTube track failed — retrying "${track.title}" on SoundCloud...`,
+        );
+        try {
+          const query = `${track.author} - ${track.title}`;
+          const res = await manager.search({ query, source: 'soundcloud' });
+          if (res?.tracks && res.tracks.length > 0) {
+            const fallback = res.tracks[0]!;
+            // Preserve original metadata
+            fallback.requester = track.requester;
+            fallback.title = track.title;
+            fallback.author = track.author;
+            if (track.artworkUrl) fallback.artworkUrl = track.artworkUrl;
+            const rec = fallback as unknown as Record<string, unknown>;
+            rec.sourceName = 'soundcloud';
+            rec.source = 'soundcloud';
+
+            // Inject at the front of the queue so it plays next
+            player.queue.unshift(fallback);
+            Logger.info(
+              { guildId: player.guildId, track: track.title },
+              `[Music] SoundCloud fallback queued for "${track.title}" — Lavalink will advance to it.`,
+            );
+            return;
+          }
+        } catch (retryErr) {
+          Logger.warn({ err: retryErr, guildId: player.guildId }, '[Music] SoundCloud fallback search failed');
+        }
+      }
+
       Logger.error(
         { err: exception, guildId: player.guildId, track: track.title },
-        `[Music] Track exception in guild ${player.guildId}`,
+        `[Music] Track exception in guild ${player.guildId} — no fallback available, Lavalink will auto-advance.`,
       );
-      this.stopProgressUpdater(player.guildId);
-      player.skip().catch(() => undefined);
+      // Lavalink v4 fires trackEnd after a track exception and auto-advances — no manual skip needed.
     });
+
 
     manager.on('queueEnd', (player: Player) => {
       Logger.info(`[Music] Queue ended in guild ${player.guildId}`);
