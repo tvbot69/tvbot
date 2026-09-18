@@ -8,7 +8,7 @@ cmds = ['PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm ci']
 cmds = ['npm run build']
 
 [start]
-cmd = 'npx prisma migrate deploy --schema src/persistence/prisma/schema.prisma && node --max-old-space-size=384 dist/bot/index.js'
+cmd = 'npx prisma db push --schema src/persistence/prisma/schema.prisma --skip-generate --accept-data-loss && node --max-old-space-size=384 dist/bot/index.js'
 
 [variables]
 PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
