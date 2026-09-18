@@ -72,5 +72,5 @@ USER node
 # Expose healthcheck probe port (Railway automatically routes $PORT here)
 EXPOSE 3000
 
-# Start with aggressive V8 heap limit tuned for Railway Free/Hobby (512MB RAM ceiling)
-CMD ["node", "--max-old-space-size=384", "dist/bot/index.js"]
+# Run migrations then start with aggressive V8 heap limit tuned for Railway Free/Hobby (512MB RAM ceiling)
+CMD ["sh", "-c", "npx prisma migrate deploy --schema src/persistence/prisma/schema.prisma && node --max-old-space-size=384 dist/bot/index.js"]
