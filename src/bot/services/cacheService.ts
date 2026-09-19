@@ -109,6 +109,68 @@ export class CacheService {
     return this.memory.size;
   }
 
+  public isRedisReady(): boolean {
+    return !!this.redis && this.redis.status === 'ready';
+  }
+
+  private async redisExec<T>(fn: (client: Redis) => Promise<T>, fallback: T): Promise<T> {
+    if (!this.isRedisReady()) return fallback;
+    try {
+      return await fn(this.redis as Redis);
+    } catch {
+      return fallback;
+    }
+  }
+
+  /** Durable FIFO lists (queue mirrors). Values are JSON-serialized. */
+  public async listPush(key: string, values: unknown[]): Promise<void> {
+    if (values.length === 0) return;
+    await this.redisExec(
+      (r) => r.rpush(key, ...values.map((v) => JSON.stringify(v))).then(() => undefined),
+      undefined,
+    );
+  }
+
+  public async listPopCount<T>(key: string, count: number): Promise<T[]> {
+    return this.redisExec(async (r) => {
+      const out: T[] = [];
+      for (let i = 0; i < count; i++) {
+        const raw = await r.lpop(key);
+        if (raw === null || raw === undefined) break;
+        try {
+          out.push(JSON.parse(raw) as T);
+        } catch {
+          // corrupt entry — drop it
+        }
+      }
+      return out;
+    }, []);
+  }
+
+  public async listLength(key: string): Promise<number> {
+    return this.redisExec((r) => r.llen(key), 0);
+  }
+
+  /** Returns true when the member was newly added (cross-process dedup). */
+  public async setAddNX(key: string, member: string, ttlSeconds: number): Promise<boolean> {
+    return this.redisExec(async (r) => {
+      const added = await r.sadd(key, member);
+      if (added === 1) {
+        await r.expire(key, ttlSeconds).catch(() => undefined);
+        return true;
+      }
+      return false;
+    }, true);
+  }
+
+  public async setRemove(key: string, member: string): Promise<void> {
+    await this.redisExec((r) => r.srem(key, member).then(() => undefined), undefined);
+  }
+
+  public async keyDelete(key: string): Promise<void> {
+    await this.delete(key);
+  }
+
   public sweepExpired(): number {
     const now = Date.now();
     let cleaned = 0;

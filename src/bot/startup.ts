@@ -288,8 +288,8 @@ export const configureContainer = (): void => {
   const friendsRepository = new FriendsRepository(prisma);
   const artistGenreRepository = new ArtistGenreRepository(prisma);
 
-  const userUpdateQueue = new UserUpdateQueueService();
-  const userIndexQueue = new UserIndexQueueService();
+  const userUpdateQueue = new UserUpdateQueueService(cache);
+  const userIndexQueue = new UserIndexQueueService(cache);
 
   const prefixService = new PrefixService(cache, guildRepository);
   const userService = new UserService(userRepository, cache, userUpdateQueue);

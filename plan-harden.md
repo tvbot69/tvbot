@@ -43,6 +43,9 @@
 >   2.3 (single-owner global jobs), 2.4 (hot-path index migration, applied
 >   live; pooling documented, directUrl deliberately deferred) — implemented,
 >   484 tests green. 2.2 (Redis externalization) needs an Upstash account.
+> - 2026-09-20: Phase 2.2 core (CacheService list/set/NX primitives, durable
+>   update+index queues with restart rehydrate, REDIS_URL required in prod) —
+>   implemented, 488 tests green. Rate-limit + session stores next.
 
 ---
 

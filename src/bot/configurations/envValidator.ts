@@ -41,7 +41,14 @@ export function validateEnvironment(): EnvValidationResult {
   }
 
   if (!process.env.REDIS_URL) {
-    warnings.push('REDIS_URL not specified — defaulting to in-memory LRU cache.');
+    // Queues, rate limits, and sessions are memory-only without Redis: a
+    // restart wipes them and shards diverge. Tolerable locally, fatal in prod.
+    const message = 'REDIS_URL not specified — defaulting to in-memory LRU cache.';
+    if ((process.env.ENVIRONMENT ?? 'local') !== 'local') {
+      errors.push(`${message} Set REDIS_URL (Upstash free tier works).`);
+    } else {
+      warnings.push(message);
+    }
   }
 
   return {
