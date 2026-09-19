@@ -276,12 +276,13 @@ export class WhoKnowsBuilders {
               const distinctCovers: string[] = [];
               const seenCovers = new Set<string>();
 
-              // 2. Query Spotify verified official discography for this artist (albums, singles, appears_on/features)
+              // 2. Query Spotify verified official discography for this artist (albums, singles, appears_on/features).
+              // The track hint anchors same-name artists to the right entity.
               if (container.isRegistered(SpotifySearchApi)) {
                 try {
                   const spotifyApi = container.resolve(SpotifySearchApi);
                   const trackHint = sampleTrackName || candidateAlbums[0]?.name;
-                  const spotifyCovers = await spotifyApi.getArtistDiscographyCovers(resolvedArtistName, trackHint, 25);
+                  const spotifyCovers = await spotifyApi.getArtistDiscographyCovers(resolvedArtistName, trackHint, 15);
                   for (const c of spotifyCovers) {
                     if (c && !seenCovers.has(c)) {
                       seenCovers.add(c);
@@ -295,12 +296,12 @@ export class WhoKnowsBuilders {
 
               // 3. Database albums with covers for this artist
               try {
-                const dbCovers = await artistsService.getIndexedAlbumCoversForArtist(resolvedArtistName, 21);
+                const dbCovers = await artistsService.getIndexedAlbumCoversForArtist(resolvedArtistName, 10);
                 for (const c of dbCovers) {
                   if (c && !seenCovers.has(c)) {
                     seenCovers.add(c);
                     distinctCovers.push(c);
-                    if (distinctCovers.length >= 21) break;
+                    if (distinctCovers.length >= 10) break;
                   }
                 }
               } catch {
@@ -321,22 +322,28 @@ export class WhoKnowsBuilders {
                 // ignore
               }
 
-              // 4. Fill background covers using Deezer (unlimited/no tokens) if fewer than 15 covers
-              if (distinctCovers.length < 15 && container.isRegistered(DeezerApi)) {
+              // 4. Fill background covers using Deezer (unlimited/no tokens) if fewer than 8 covers.
+              // Deezer search is fuzzy — only albums actually credited to the
+              // artist are accepted, otherwise wrong-artist covers (and DB rows)
+              // leak into the mosaic.
+              if (distinctCovers.length < 8 && container.isRegistered(DeezerApi)) {
                 try {
                   const deezerApi = container.resolve(DeezerApi);
-                  const deezerAlbums = await deezerApi.searchAlbums(resolvedArtistName, 25);
-                  for (const da of deezerAlbums) {
+                  const deezerAlbums = await deezerApi.searchAlbums(resolvedArtistName, 15);
+                  const verifiedAlbums = deezerAlbums.filter((da) =>
+                    matchesArtistName(da.artist?.name ?? '', resolvedArtistName),
+                  );
+                  for (const da of verifiedAlbums) {
                     const cover = da.cover_xl ?? da.cover_big ?? da.cover_medium;
                     if (cover && !seenCovers.has(cover)) {
                       seenCovers.add(cover);
                       distinctCovers.push(cover);
-                      if (distinctCovers.length >= 21) break;
+                      if (distinctCovers.length >= 10) break;
                     }
                   }
 
                   // Index discovered covers into PostgreSQL database in the background
-                  if (deezerAlbums.length > 0) {
+                  if (verifiedAlbums.length > 0) {
                     setImmediate(async () => {
                       try {
                         const { ArtistRepository } = await import('@persistence/repositories/artistRepository');
@@ -345,7 +352,7 @@ export class WhoKnowsBuilders {
                           const artistRepo = container.resolve(ArtistRepository);
                           const albumRepo = container.resolve(AlbumRepository);
                           const artist = await artistRepo.getOrCreateArtist(resolvedArtistName);
-                          for (const da of deezerAlbums) {
+                          for (const da of verifiedAlbums) {
                             const cover = da.cover_xl ?? da.cover_big ?? da.cover_medium;
                             if (cover && da.title) {
                               const alb = await albumRepo.getOrCreateAlbum(da.title, artist.artistId, cover);
@@ -366,12 +373,12 @@ export class WhoKnowsBuilders {
               }
 
               // 5. Supplement from candidate albums with pre-existing directImage
-              if (distinctCovers.length < 21 && candidateAlbums.length > 0) {
+              if (distinctCovers.length < 10 && candidateAlbums.length > 0) {
                 for (const alb of candidateAlbums) {
                   if (alb.directImage && !alb.directImage.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seenCovers.has(alb.directImage)) {
                     seenCovers.add(alb.directImage);
                     distinctCovers.push(alb.directImage);
-                    if (distinctCovers.length >= 21) break;
+                    if (distinctCovers.length >= 10) break;
                   }
                 }
               }

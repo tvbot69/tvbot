@@ -260,7 +260,7 @@ export class HelpBuilders {
             `In Image Mode (\`mode: 2\`), Top Lists generate stunning full-card infographics featuring:\n` +
             `• Period listening totals and average scrobbles\n` +
             `• Mini top 3 summary card\n` +
-            `• Dynamic 21-tile album cover mosaic wallpaper`,
+            `• Dynamic 10-tile album cover mosaic wallpaper`,
         );
         break;
       }

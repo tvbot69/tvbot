@@ -49,6 +49,28 @@ export const normalizeArtistKey = (s: string): string =>
     .replace(/&/g, 'and')
     .replace(/[^\p{L}\p{N}]/gu, '');
 
+const normalizeTitleKey = (s: string): string =>
+  s.toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]/gu, '');
+
+const stripBracketed = (s: string): string =>
+  s.replace(/\s*[([{\u3010].*?[)\]}\u3011]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+/**
+ * Strict recording-title match: normalized equality, tolerating edition tags
+ * ("Song (Remastered)" vs "Song"). Never use substring matching here — "Song"
+ * must not match "Song 2" or a same-title recording by another artist.
+ */
+export const matchesTrackTitle = (candidate: string, target: string): boolean => {
+  if (!candidate || !target) return false;
+  const c = normalizeTitleKey(candidate);
+  const t = normalizeTitleKey(target);
+  if (!c || !t) return false;
+  if (c === t) return true;
+  const cs = normalizeTitleKey(stripBracketed(candidate));
+  const ts = normalizeTitleKey(stripBracketed(target));
+  return cs.length > 0 && ts.length > 0 && (cs === ts || cs === t || c === ts);
+};
+
 export const matchesArtistName = (candidate: string, target: string): boolean => {
   const cLow = candidate.toLowerCase().trim();
   const tLow = target.toLowerCase().trim();
@@ -164,12 +186,13 @@ export class ArtworkService {
 
         let url = pickLargest(match?.images);
         if (!url && cleanAlbum !== `${cleanAlbum} ${artistName}`) {
-          // Retry with album-only query for Arabic / transliteration mismatches
+          // Retry with album-only query for Arabic / transliteration mismatches.
+          // Only a verified artist match is accepted — never the first result.
           const retryAlbums = await this.spotifyApi.searchAlbums(cleanAlbum);
           const retryMatch = retryAlbums.find((a) =>
             a.artists?.some((art: any) => matchesArtistName(art.name, artistName)),
           );
-          url = pickLargest(retryMatch?.images ?? retryAlbums[0]?.images);
+          url = pickLargest(retryMatch?.images);
         }
         if (url && isValidImageUrl(url)) {
           result = url;
@@ -203,13 +226,15 @@ export class ArtworkService {
 
         let url = match?.cover_xl ?? match?.cover_big;
         if (!url || !isValidImageUrl(url)) {
-          // Retry album-only — Deezer is strongest for Arabic catalog
+          // Retry album-only — Deezer is strongest for Arabic catalog.
+          // Only a verified artist match is accepted AND persisted — never the
+          // first result (persistence of a wrong cover poisons the DB for 90d).
           const retryAlbums = await this.deezerApi.searchAlbums(cleanAlbum);
           const retryMatch = retryAlbums.find((a) =>
             a.artist?.name ? matchesArtistName(a.artist.name, artistName) : false,
           );
-          url = retryMatch?.cover_xl ?? retryMatch?.cover_big ?? retryAlbums[0]?.cover_xl;
-          match = retryMatch ?? retryAlbums[0];
+          url = retryMatch?.cover_xl ?? retryMatch?.cover_big;
+          match = retryMatch;
         }
         if (url && match && isValidImageUrl(url)) {
           result = url;
@@ -225,7 +250,8 @@ export class ArtworkService {
     if (!result) {
       try {
         const albums = await this.appleMusicWebApi.searchAlbums(cleanAlbum, artistName);
-        const art = albums[0]?.artwork;
+        const match = albums.find((a) => matchesArtistName(a.artistName ?? '', artistName));
+        const art = match?.artwork;
         if (art?.url && isValidImageUrl(art.url)) {
           result = art.url;
           if (existing) {
@@ -240,7 +266,9 @@ export class ArtworkService {
     if (!result) {
       try {
         const albums = await this.appleMusicApi.searchAlbums(cleanAlbum, artistName);
-        const match = albums.find((a) => a.artworkUrl100);
+        const match = albums.find(
+          (a) => a.artworkUrl100 && matchesArtistName(a.artistName ?? '', artistName),
+        );
         if (match?.artworkUrl100) {
           const upscaled = upscaleArtwork(match.artworkUrl100);
           if (isValidImageUrl(upscaled)) {
@@ -469,6 +497,16 @@ export class ArtworkService {
 
     let result: string | null = null;
 
+    // Every provider below must match BOTH artist and title. First-result
+    // trust is what produced wrong covers (same-title recordings, covers,
+    // remixes by other artists) — a miss falls through to the next provider.
+    const trackMatches = (
+      candidateArtist: string | undefined,
+      candidateTitle: string | undefined,
+    ): boolean =>
+      matchesArtistName(candidateArtist ?? '', artistName) &&
+      matchesTrackTitle(candidateTitle ?? '', cleanTrack);
+
     if (!SpotifySearchApi.isRateLimited()) {
       try {
         let tracks = await this.spotifyApi.searchTracks(
@@ -477,7 +515,11 @@ export class ArtworkService {
         if (tracks.length === 0) {
           tracks = await this.spotifyApi.searchTracks(`${cleanTrack} ${artistName}`);
         }
-        const url = pickLargest(tracks[0]?.album?.images);
+        const match = tracks.find((t) =>
+          (t.artists ?? []).some((a) => matchesArtistName(a.name, artistName)) &&
+          matchesTrackTitle(t.name, cleanTrack),
+        );
+        const url = pickLargest(match?.album?.images);
         if (url) {
           result = url;
           const artistRow = await this.artistRepository.getArtistByName(artistName);
@@ -502,7 +544,8 @@ export class ArtworkService {
         if (tracks.length === 0) {
           tracks = await this.deezerApi.searchTracks(`${artistName} ${cleanTrack}`);
         }
-        result = tracks[0]?.album?.cover_xl ?? tracks[0]?.album?.cover_big ?? null;
+        const match = tracks.find((t) => trackMatches(t.artist?.name, t.title));
+        result = match?.album?.cover_xl ?? match?.album?.cover_big ?? null;
       } catch (err) {
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: deezer miss');
       }
@@ -511,7 +554,8 @@ export class ArtworkService {
     if (!result) {
       try {
         const songs = await this.appleMusicWebApi.searchSongs(cleanTrack, artistName);
-        result = songs[0]?.artwork?.url ?? null;
+        const match = songs.find((s) => trackMatches(s.artistName, s.name));
+        result = match?.artwork?.url ?? null;
       } catch (err) {
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: am-web miss');
       }
@@ -520,7 +564,9 @@ export class ArtworkService {
     if (!result) {
       try {
         const songs = await this.appleMusicApi.searchSongs(cleanTrack, artistName);
-        const match = songs.find((s) => s.artworkUrl100);
+        const match = songs.find(
+          (s) => s.artworkUrl100 && trackMatches(s.artistName, s.trackName),
+        );
         if (match?.artworkUrl100) {
           const upscaled = upscaleArtwork(match.artworkUrl100);
           if (isValidImageUrl(upscaled)) result = upscaled;

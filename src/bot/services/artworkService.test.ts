@@ -10,8 +10,11 @@ interface ProviderOverrides {
 const makeService = (overrides: ProviderOverrides) => {
   const service = new ArtworkService(
     {
+      // Real Spotify album results always carry artists — validation requires it.
       searchAlbums: async () =>
-        overrides.spotify ? [{ images: [{ url: 'spotify-url', height: 640 }] }] : [],
+        overrides.spotify
+          ? [{ artists: [{ name: 'Daft Punk' }], images: [{ url: 'spotify-url', height: 640 }] }]
+          : [],
       searchArtists: async () => [],
       searchTracks: async () => [],
     } as never,

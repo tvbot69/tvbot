@@ -220,7 +220,7 @@ export class WhoKnowsGenerator {
         ? backgroundCovers
         : [fallbackImage];
 
-    const TOTAL_TILES = 21; // 7 columns x 3 rows = 21
+    const TOTAL_TILES = 10; // 5 columns x 2 rows = 10 large tiles
     const mosaicTilesHtml = Array.from({ length: TOTAL_TILES }, (_, idx) => {
       const url = covers[idx % covers.length] ?? fallbackImage;
       return `<div class="mosaic-tile"><img class="mosaic-tile-img" src="${escapeHtml(url)}" alt="Album" onerror="this.style.display='none';"></div>`;

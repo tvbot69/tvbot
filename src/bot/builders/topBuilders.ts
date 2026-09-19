@@ -7,7 +7,7 @@ import { ResponseMode } from '@domain/enums/responseMode';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { container } from 'tsyringe';
 import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService, matchesArtistName } from '@bot/services/artworkService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { Logger } from '@domain/logger';
 
@@ -29,11 +29,15 @@ function buildPaginatorRow(page: number, totalPages: number, prefix: string, use
   return row;
 }
 
+// Mosaic wallpaper target: 10 large tiles (5 columns x 2 rows).
+const MOSAIC_COVER_TARGET = 10;
+
 async function resolveBackgroundCovers(
   userNameLastFm: string,
   timeSettings: TimeSettingsModel,
   preferredCovers: string[],
   artistNames?: string[],
+  sampleTrackHint?: string,
 ): Promise<string[]> {
   const seen = new Set<string>();
   const covers: string[] = [];
@@ -42,24 +46,37 @@ async function resolveBackgroundCovers(
     if (c && !c.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(c)) {
       seen.add(c);
       covers.push(c);
-      if (covers.length >= 21) return covers;
+      if (covers.length >= MOSAIC_COVER_TARGET) return covers;
     }
   }
 
-  // 1. PRIMARY: Query Spotify official discography for the top artist (up to 25 covers in ONE single call)
-  if (covers.length < 21 && artistNames && artistNames.length > 0) {
+  // 1. PRIMARY: Query Spotify official discography for the top artist.
+  // Anchored with a track hint when available so same-name artists resolve to
+  // the right entity (bare name search picks the most popular namesake).
+  if (covers.length < MOSAIC_COVER_TARGET && artistNames && artistNames.length > 0) {
     try {
       const { SpotifySearchApi } = await import('@spotify/api/spotifySearchApi');
+      const { ArtistsService } = await import('@bot/services/artistsService');
       if (container.isRegistered(SpotifySearchApi)) {
         const spotifyApi = container.resolve(SpotifySearchApi);
         const topArtist = artistNames[0];
         if (topArtist) {
-          const spotifyCovers = await spotifyApi.getArtistDiscographyCovers(topArtist, undefined, 25);
+          let hint = sampleTrackHint;
+          if (!hint && container.isRegistered(ArtistsService)) {
+            try {
+              const artistsService = container.resolve(ArtistsService);
+              const globalTop = await artistsService.getTopTracksForArtistGlobal(topArtist, 1);
+              hint = globalTop[0]?.name;
+            } catch {
+              // ignore — name-only discography lookup below
+            }
+          }
+          const spotifyCovers = await spotifyApi.getArtistDiscographyCovers(topArtist, hint, 15);
           for (const c of spotifyCovers) {
             if (c && !c.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(c)) {
               seen.add(c);
               covers.push(c);
-              if (covers.length >= 21) return covers;
+              if (covers.length >= MOSAIC_COVER_TARGET) return covers;
             }
           }
         }
@@ -70,19 +87,19 @@ async function resolveBackgroundCovers(
   }
 
   // 2. Supplement from database indexed album covers for top artists (0 HTTP calls)
-  if (covers.length < 21 && artistNames && artistNames.length > 0) {
+  if (covers.length < MOSAIC_COVER_TARGET && artistNames && artistNames.length > 0) {
     try {
       const { ArtistsService } = await import('@bot/services/artistsService');
       if (container.isRegistered(ArtistsService)) {
         const artistsService = container.resolve(ArtistsService);
         for (const name of artistNames) {
-          if (covers.length >= 21) break;
+          if (covers.length >= MOSAIC_COVER_TARGET) break;
           const dbCovers = await artistsService.getIndexedAlbumCoversForArtist(name, 5);
           for (const c of dbCovers) {
             if (c && !c.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(c)) {
               seen.add(c);
               covers.push(c);
-              if (covers.length >= 21) return covers;
+              if (covers.length >= MOSAIC_COVER_TARGET) return covers;
             }
           }
         }
@@ -92,21 +109,24 @@ async function resolveBackgroundCovers(
     }
   }
 
-  // 3. Fallback: query Deezer for the top artists (unlimited, no rate limits, high-res)
-  if (covers.length < 21 && artistNames && artistNames.length > 0) {
+  // 3. Fallback: query Deezer for the top artists (unlimited, no rate limits, high-res).
+  // Deezer search is fuzzy — only accept albums actually credited to the artist,
+  // otherwise same-name/wrong-artist covers leak into the mosaic.
+  if (covers.length < MOSAIC_COVER_TARGET && artistNames && artistNames.length > 0) {
     try {
       const { DeezerApi } = await import('@deezer/apis/deezerApi');
       if (container.isRegistered(DeezerApi)) {
         const deezerApi = container.resolve(DeezerApi);
         for (const name of artistNames.slice(0, 5)) {
-          if (covers.length >= 21) break;
+          if (covers.length >= MOSAIC_COVER_TARGET) break;
           const deezerAlbums = await deezerApi.searchAlbums(name, 5).catch(() => []);
           for (const da of deezerAlbums) {
+            if (!matchesArtistName(da.artist?.name ?? '', name)) continue;
             const cover = da.cover_xl ?? da.cover_big ?? da.cover_medium ?? da.cover;
             if (cover && !seen.has(cover)) {
               seen.add(cover);
               covers.push(cover);
-              if (covers.length >= 21) break;
+              if (covers.length >= MOSAIC_COVER_TARGET) break;
             }
           }
         }
@@ -117,7 +137,7 @@ async function resolveBackgroundCovers(
   }
 
   // 4. Emergency Last Resort Fallback ONLY: Last.fm user top albums
-  if (covers.length < 21) {
+  if (covers.length < MOSAIC_COVER_TARGET) {
     try {
       const { LastFmRepository } = await import('@lastfm/repositories/lastFmRepository');
       if (container.isRegistered(LastFmRepository)) {
@@ -133,7 +153,7 @@ async function resolveBackgroundCovers(
           if (alb.imageUrl && !alb.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(alb.imageUrl)) {
             seen.add(alb.imageUrl);
             covers.push(alb.imageUrl);
-            if (covers.length >= 21) return covers;
+            if (covers.length >= MOSAIC_COVER_TARGET) return covers;
           }
         }
       }
@@ -162,7 +182,7 @@ async function resolveArtistImages(
     if (a.imageUrl && !a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(a.imageUrl)) {
       seen.add(a.imageUrl);
       images.push(a.imageUrl);
-      if (images.length >= 21) return images;
+      if (images.length >= MOSAIC_COVER_TARGET) return images;
     }
   }
 
@@ -171,12 +191,12 @@ async function resolveArtistImages(
     const { ArtistsService } = await import('@bot/services/artistsService');
     if (container.isRegistered(ArtistsService)) {
       const artistsService = container.resolve(ArtistsService);
-      const hydrated = await artistsService.fillArtistImages(topArtists.slice(0, 21));
+      const hydrated = await artistsService.fillArtistImages(topArtists.slice(0, MOSAIC_COVER_TARGET));
       for (const a of hydrated) {
         if (a.imageUrl && !a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(a.imageUrl)) {
           seen.add(a.imageUrl);
           images.push(a.imageUrl);
-          if (images.length >= 21) return images;
+          if (images.length >= MOSAIC_COVER_TARGET) return images;
         }
       }
     }
@@ -185,11 +205,11 @@ async function resolveArtistImages(
   }
 
   // 3. Fallback: resolve missing artist images directly via ArtworkService
-  if (images.length < 15 && container.isRegistered(ArtworkService)) {
+  if (images.length < MOSAIC_COVER_TARGET && container.isRegistered(ArtworkService)) {
     try {
       const artworkService = container.resolve(ArtworkService);
-      for (const a of topArtists.slice(0, 15)) {
-        if (images.length >= 21) break;
+      for (const a of topArtists.slice(0, MOSAIC_COVER_TARGET)) {
+        if (images.length >= MOSAIC_COVER_TARGET) break;
         if (a.imageUrl && seen.has(a.imageUrl)) continue;
         const img = await artworkService.getArtistImageUrl(a.name);
         if (img && !img.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(img)) {
@@ -238,7 +258,7 @@ export class TopBuilders {
         }));
 
         const backgroundCovers = await resolveArtistImages(
-          topArtists.slice(0, 21),
+          topArtists.slice(0, 10),
           targetImage,
         );
 
@@ -337,6 +357,7 @@ export class TopBuilders {
           timeSettings,
           targetImage ? [targetImage] : [],
           topAlbums.slice(0, 5).map((a) => a.artistName),
+          topAlbums[0]?.name,
         );
 
         const totalPlays = topAlbums.reduce((sum, a) => sum + a.playcount, 0);
@@ -434,6 +455,7 @@ export class TopBuilders {
           timeSettings,
           targetImage ? [targetImage] : [],
           topTracks.slice(0, 5).map((t) => t.artistName),
+          topTracks[0]?.name,
         );
 
         const totalPlays = topTracks.reduce((sum, t) => sum + t.playcount, 0);
