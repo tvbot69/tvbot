@@ -1,5 +1,6 @@
 import type { IUserIndexQueue, IndexUserQueueItem } from '@domain/interfaces/iuserIndexQueue';
 import type { IPlayRepository } from '@domain/interfaces/iplayRepository';
+import { PlayRepository } from '@persistence/repositories/playRepository';
 import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
 import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
@@ -78,7 +79,10 @@ export class IndexService {
       return;
     }
 
-    await this.modularUpdate(user, UpdateType.Automatic);
+    // Full (not Automatic): Automatic matches no step bits, so an interrupted
+    // register-index would never resume. Full re-runs all steps; play inserts
+    // are idempotent, so this only fills gaps instead of redoing work.
+    await this.modularUpdate(user, UpdateType.Full);
   }
 
   public async indexUser(userId: number): Promise<void> {
@@ -115,9 +119,11 @@ export class IndexService {
     const stats: IndexedUserStats = { durationSec: '0.0' };
 
     // 1) AllPlays / Full / Command
+    // NOTE: no wipe — inserts are idempotent (deduplicated against stored rows
+    // in fetchAndStorePlays), so an interrupted index (redeploy, SIGTERM,
+    // Last.fm hiccup) simply resumes on the next run instead of losing history.
     if ((updateType & (UpdateType.AllPlays | UpdateType.Full | UpdateType.Command)) !== 0) {
       try {
-        await this.playRepository.deleteAllPlaysForUser(user.userId);
         const result = await this.fetchAndStorePlays(
           user.userId,
           user.userNameLastFm,
@@ -220,7 +226,9 @@ export class IndexService {
       }
     }
 
-    // Update user stats & timestamp
+    // Update user stats & timestamp.
+    // lastIndexed is only touched on success: a failed/interrupted run must stay
+    // stale so the next stale-index sweep retries it instead of skipping it.
     const lastFmUser = await this.lastfmRepository.getUserInfo(user.userNameLastFm);
     if (lastFmUser) {
       stats.totalScrobbles = lastFmUser.playCount;
@@ -229,7 +237,11 @@ export class IndexService {
         await this.userRepository.setUserRegisteredLfm(user.userId, lastFmUser.registeredAt);
       }
     }
-    await this.touchLastIndexed(user.userId);
+    if (!stats.error) {
+      await this.touchLastIndexed(user.userId);
+    } else {
+      Logger.warn(`Index: not marking ${user.userNameLastFm} as indexed due to errors — will retry`);
+    }
 
     const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1);
     stats.durationSec = durationSec;
@@ -303,7 +315,7 @@ export class IndexService {
       pagesSinceFlush++;
 
       if (pagesSinceFlush >= FLUSH_EVERY_PAGES) {
-        const flushed = await this.playRepository.batchInsertPlays(pendingPlays);
+        const flushed = await this.flushPendingPlays(userId, pendingPlays);
         totalInserted += flushed;
         pendingPlays.length = 0;
         pagesSinceFlush = 0;
@@ -321,7 +333,7 @@ export class IndexService {
     }
 
     if (pendingPlays.length > 0) {
-      totalInserted += await this.playRepository.batchInsertPlays(pendingPlays);
+      totalInserted += await this.flushPendingPlays(userId, pendingPlays);
     }
 
     Logger.info(
@@ -330,6 +342,43 @@ export class IndexService {
 
     return { inserted: totalInserted, pages: page - 1, seen: seen };
   }
+  /**
+   * Inserts one accumulated batch, skipping plays that are already stored.
+   * Makes the full index resumable: re-fetching from page 1 after an
+   * interruption only fills the gaps instead of creating duplicates.
+   */
+  private async flushPendingPlays(
+    userId: number,
+    pendingPlays: Array<{
+      userId: number;
+      artistName: string;
+      albumName?: string;
+      trackName?: string;
+      timePlayed: Date;
+      playSource: 'LastFm';
+    }>,
+  ): Promise<number> {
+    if (pendingPlays.length === 0) return 0;
+
+    let times = pendingPlays.map((p) => p.timePlayed.getTime());
+    const existing = await this.playRepository.findExistingPlayKeys(
+      userId,
+      new Date(Math.min(...times)),
+      new Date(Math.max(...times)),
+    );
+
+    const seenInBatch = new Set<string>();
+    const fresh = pendingPlays.filter((p) => {
+      const key = PlayRepository.playKey(p.timePlayed, p.artistName, p.trackName);
+      if (seenInBatch.has(key) || existing.has(key)) return false;
+      seenInBatch.add(key);
+      return true;
+    });
+
+    if (fresh.length === 0) return 0;
+    return this.playRepository.batchInsertPlays(fresh);
+  }
+
   public async recalculateTopLists(userId: number): Promise<void> {
     const recalcStart = Date.now();
     const [rawArtists, rawAlbums, rawTracks] = await Promise.all([

@@ -264,6 +264,40 @@ export class PlayRepository implements IPlayRepository {
     await this.prisma.userPlay.deleteMany({ where: { userId: userId } });
   }
 
+  /**
+   * Returns the identity keys of already-stored plays in a time window.
+   * Used to make full-library indexing idempotent: an interrupted index can
+   * simply re-fetch from page 1 and skip rows that are already stored, instead
+   * of wiping the table first (a wipe + redeploy/SIGTERM midway = permanent
+   * history loss, since nothing ever resumes the fetch).
+   */
+  public async findExistingPlayKeys(
+    userId: number,
+    since: Date,
+    until: Date,
+  ): Promise<Set<string>> {
+    const rows = await this.prisma.userPlay.findMany({
+      where: {
+        userId: userId,
+        timePlayed: { gte: since, lte: until },
+      },
+      select: { timePlayed: true, artistName: true, trackName: true },
+    });
+    const keys = new Set<string>();
+    for (const r of rows) {
+      keys.add(PlayRepository.playKey(r.timePlayed, r.artistName, r.trackName));
+    }
+    return keys;
+  }
+
+  public static playKey(
+    timePlayed: Date,
+    artistName: string,
+    trackName?: string | null,
+  ): string {
+    return `${new Date(timePlayed).getTime()}|${artistName}|${trackName ?? ''}`;
+  }
+
   public async getRecentPlays(userId: number, limit: number): Promise<Array<{
     userPlayId: bigint;
     userId: number;

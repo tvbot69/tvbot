@@ -30,6 +30,8 @@ export interface StoredPlay {
 export interface IPlayRepository {
   batchInsertPlays(plays: PlayInsert[]): Promise<number>;
 
+  findExistingPlayKeys(userId: number, since: Date, until: Date): Promise<Set<string>>;
+
   getPlayCountSince(userId: number, since?: Date): Promise<number>;
 
   getTopArtists(userId: number, since?: Date, limit?: number): Promise<TopEntityResult[]>;
