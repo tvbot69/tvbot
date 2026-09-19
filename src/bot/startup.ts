@@ -974,7 +974,7 @@ const configureProcessErrorHandling = (): void => {
   process.on('SIGHUP', () => { void ShutdownService.shutdown('SIGHUP'); });
 };
 
-class Startup {
+export class Startup {
   public static async runAsync(): Promise<void> {
     Logger.banner();
     const settings = ConfigData.Data;
@@ -988,8 +988,3 @@ class Startup {
     await new Promise(() => undefined);
   }
 }
-
-Startup.runAsync().catch((err) => {
-  Logger.fatal({ err }, 'Fatal error during startup, exiting...');
-  process.exit(1);
-});

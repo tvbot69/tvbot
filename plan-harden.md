@@ -39,6 +39,10 @@
 >   3-per-track/5-per-guild with tried-id loop protection; playlist fan-out
 >   per-track 8s race + SoundCloud second chance + partial flag; typed play
 >   errors) — implemented, 482 tests green. Self-hosted pool stays NEEDS-$.
+> - 2026-09-19: Phase 2.1 (ShardingManager + worker entry, off by default),
+>   2.3 (single-owner global jobs), 2.4 (hot-path index migration, applied
+>   live; pooling documented, directUrl deliberately deferred) — implemented,
+>   484 tests green. 2.2 (Redis externalization) needs an Upstash account.
 
 ---
 

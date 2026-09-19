@@ -8,10 +8,13 @@ import { PuppeteerService } from '@images/generators/puppeteerService';
 export class HealthServer {
   private server: http.Server | null = null;
   private port: number = 3000;
+  private basePort: number = 3000;
+  private static readonly PORT_PROBE_RANGE = 16;
 
   public start(port = 3000): void {
     if (this.server) return;
-    this.port = Number(process.env.HEALTH_PORT || process.env.PORT || port);
+    this.basePort = Number(process.env.HEALTH_PORT || process.env.PORT || port);
+    this.port = this.basePort;
 
     this.server = http.createServer(async (req, res) => {
       const url = req.url?.split('?')[0] || '/';
@@ -89,8 +92,16 @@ export class HealthServer {
     });
 
     this.server.on('error', (err: NodeJS.ErrnoException) => {
+      // Same-host shard workers share the port range: walk upward instead of
+      // going dark. Shard 0 keeps the canonical port for the orchestrator.
+      if (err.code === 'EADDRINUSE' && this.port < this.basePort + HealthServer.PORT_PROBE_RANGE) {
+        this.port++;
+        Logger.info(`Health check port taken, trying ${this.port}...`);
+        this.server?.listen(this.port);
+        return;
+      }
       if (err.code === 'EADDRINUSE') {
-        Logger.warn(`Health check port ${this.port} is already in use; health endpoint skipped.`);
+        Logger.warn(`Health check ports ${this.basePort}-${this.port} all in use; health endpoint skipped.`);
       } else {
         Logger.warn({ err }, 'Health server error');
       }

@@ -5,6 +5,10 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // NOTE: no directUrl on purpose — DIRECT_URL is unset in most environments
+  // and Prisma fails hard on missing env vars. When a pooled URL is adopted
+  // (Phase 2.4 fleet), add `directUrl = env("DIRECT_URL")` together with the
+  // Railway/service variable, never alone.
 }
 
 enum privacy_level {

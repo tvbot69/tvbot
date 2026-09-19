@@ -16,6 +16,29 @@ import { LyricStatusService } from './lyricStatusService';
 export class TimerService {
   private readonly tasks: Map<string, ScheduledTask> = new Map();
 
+  /**
+   * True when this process owns global jobs: unsharded single process, or
+   * shard 0 under a ShardingManager. Non-zero shards skip fan-out jobs
+   * (autoposts, queue seeding, purges) so they run exactly once.
+   */
+  private isGlobalJobOwner(): boolean {
+    try {
+      if (!container.isRegistered(Client)) return true;
+      const ids = container.resolve(Client).shard?.ids;
+      if (!ids || ids.length === 0) return true;
+      return ids[0] === 0;
+    } catch {
+      return true;
+    }
+  }
+
+  private onlyOwner(job: () => void | Promise<void>): () => void | Promise<void> {
+    return () => {
+      if (!this.isGlobalJobOwner()) return;
+      return job();
+    };
+  }
+
   public startAsync(): void {
     this.registerJob('user-update-queue', '*/5 * * * *', () =>
       container.resolve(UpdateQueueHandler).processAsync(),
@@ -25,17 +48,17 @@ export class TimerService {
       container.resolve(UserIndexQueueService).pump(),
     );
 
-    this.registerJob('add-users-to-update-queue', '0 6,14 * * *', () =>
+    this.registerJob('add-users-to-update-queue', '0 6,14 * * *', this.onlyOwner(() =>
       this.enqueueOutdatedUsers(),
-    );
+    ));
 
-    this.registerJob('add-users-to-index-queue', '0 8 * * *', () =>
+    this.registerJob('add-users-to-index-queue', '0 8 * * *', this.onlyOwner(() =>
       this.enqueueStaleIndexedUsers(),
-    );
+    ));
 
-    this.registerJob('remove-hidden-user-plays', '0 4 * * *', () =>
+    this.registerJob('remove-hidden-user-plays', '0 4 * * *', this.onlyOwner(() =>
       this.removePrivacyHiddenPlays(),
-    );
+    ));
 
     this.registerJob('statistics-log', '*/10 * * * *', () => {
       const snapshot = Statistics.snapshot();
@@ -43,7 +66,7 @@ export class TimerService {
       container.resolve(LastfmErrorRateTracker).logAndReset();
     });
 
-    this.registerJob('autopost-runner', '*/15 * * * *', async () => {
+    this.registerJob('autopost-runner', '*/15 * * * *', this.onlyOwner(async () => {
       try {
         if (container.isRegistered(Client)) {
           const client = container.resolve(Client);
@@ -52,9 +75,9 @@ export class TimerService {
       } catch (err) {
         Logger.error({ err }, 'Autopost runner job failed');
       }
-    });
+    }));
 
-    this.registerJob('lyric-status-updater', '*/10 * * * *', async () => {
+    this.registerJob('lyric-status-updater', '*/10 * * * *', this.onlyOwner(async () => {
       try {
         if (container.isRegistered(LyricStatusService)) {
           await container.resolve(LyricStatusService).updateLyricStatusAsync();
@@ -62,7 +85,7 @@ export class TimerService {
       } catch (err) {
         Logger.error({ err }, 'Lyric status updater scheduled job failed');
       }
-    });
+    }));
 
     Logger.info('Timer service started');
   }
