@@ -407,11 +407,13 @@ export class CountryService {
         FROM user_artists ua
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN artists a ON a.artist_id = ua.artist_id
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
         WHERE gu.guild_id = ${gIdBigInt}
           AND ua.artist_id IS NOT NULL
           AND a.country_code IS NOT NULL
           AND (gu.who_knows_whitelisted = true OR gu.who_knows_whitelisted IS NULL)
           AND (gu.who_knows_banned = false OR gu.who_knows_banned IS NULL)
+          AND (gu.self_block_from_who_knows = false OR gu.self_block_from_who_knows IS NULL)
         GROUP BY a.country_code
         ORDER BY "listenerCount" DESC, "totalPlaycount" DESC
         LIMIT ${limit}
@@ -440,10 +442,12 @@ export class CountryService {
         FROM user_artists ua
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN artists a ON a.artist_id = ua.artist_id
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
         WHERE gu.guild_id = ${gIdBigInt}
           AND ua.artist_id IS NOT NULL
           AND LOWER(a.country_code) = LOWER(${countryCode.trim()})
           AND (gu.who_knows_banned = false OR gu.who_knows_banned IS NULL)
+          AND (gu.self_block_from_who_knows = false OR gu.self_block_from_who_knows IS NULL)
         GROUP BY ua.name
         ORDER BY "playcount" DESC
         LIMIT ${limit}
@@ -473,8 +477,10 @@ export class CountryService {
         WHERE gu.guild_id = ${gIdBigInt}
           AND ua.artist_id IS NOT NULL
           AND LOWER(a.country_code) = LOWER(${countryCode.trim()})
+          AND u.privacy_level <> 'Hide'
           AND (gu.who_knows_whitelisted = true OR gu.who_knows_whitelisted IS NULL)
           AND (gu.who_knows_banned = false OR gu.who_knows_banned IS NULL)
+          AND (gu.self_block_from_who_knows = false OR gu.self_block_from_who_knows IS NULL)
         GROUP BY ua.user_id, u.discord_user_id, u.user_name_last_fm
         ORDER BY "playcount" DESC
         LIMIT 50

@@ -19,6 +19,13 @@
 > GitHub Actions (free), Neon (free). Explicitly **won't-do: censor/NSFW
 > scoring** — no moderation budget/tooling; official provider artwork + Discord's
 > own explicit-content handling is the backstop.
+>
+> **Progress log:**
+> - 2026-09-19: Phase 0.2 (slash register once), 0.5 (delta composite dedup +
+>   hole escalation + sane failure backoff), 0.4 (crown live recheck + atomic
+>   steal + outage kill-switch), 0.3 (privacy read-path in wk/crown/guild
+>   rankings + full purge + `users.privacy_level` index) — implemented, 464
+>   tests green. 0.1 (migrate deploy) pending prod baseline.
 
 ---
 

@@ -16,6 +16,16 @@ export class LastfmErrorRateTracker {
     this.errorsByCode.set(error.code, (this.errorsByCode.get(error.code) ?? 0) + 1);
   }
 
+  /**
+   * True when Last.fm is currently erroring hard — callers gate destructive or
+   * money-shot decisions (crown steals, index backfill, autoposts) on this
+   * instead of acting on stale data during an outage.
+   */
+  public isElevated(errorRateThresholdPercent = 25, minCalls = 20): boolean {
+    if (this.totalCalls < minCalls) return false;
+    return (this.errorCalls / this.totalCalls) * 100 >= errorRateThresholdPercent;
+  }
+
   public logAndReset(): void {
     if (this.totalCalls === 0) {
       return;

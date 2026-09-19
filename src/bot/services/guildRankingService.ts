@@ -277,10 +277,12 @@ export class GuildRankingService {
                SUM(ua.playcount)::int AS "totalPlaycount",
                COUNT(DISTINCT ua.user_id)::int AS "listenerCount"
         FROM user_artists ua
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         WHERE gu.guild_id = ${gId}
           AND ua.name IS NOT NULL AND ua.name != ''
           AND NOT gu.who_knows_banned
+          AND NOT gu.self_block_from_who_knows
         GROUP BY ua.name
         ORDER BY ${orderBy}
         LIMIT 120;
@@ -303,12 +305,14 @@ export class GuildRankingService {
                COUNT(*)::int AS "totalPlaycount",
                COUNT(DISTINCT up.user_id)::int AS "listenerCount"
         FROM user_plays up
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
         INNER JOIN guild_users gu ON gu.user_id = up.user_id
         WHERE gu.guild_id = ${gId}
           AND up.time_played >= ${settings.startDateTime}
           ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
           AND up.artist_name IS NOT NULL AND up.artist_name != ''
           AND NOT gu.who_knows_banned
+          AND NOT gu.self_block_from_who_knows
         GROUP BY up.artist_name
         ORDER BY ${orderBy}
         LIMIT 120;
@@ -359,11 +363,13 @@ export class GuildRankingService {
                SUM(ub.playcount)::int AS "totalPlaycount",
                COUNT(DISTINCT ub.user_id)::int AS "listenerCount"
         FROM user_albums ub
+        INNER JOIN users u ON u.user_id = ub.user_id AND u.privacy_level <> 'Hide'
         INNER JOIN guild_users gu ON gu.user_id = ub.user_id
         INNER JOIN albums al ON al.album_id = ub.album_id
         INNER JOIN artists a ON a.artist_id = al.artist_id
         WHERE gu.guild_id = ${gId}
           AND NOT gu.who_knows_banned
+          AND NOT gu.self_block_from_who_knows
           ${filter ? Prisma.sql`AND LOWER(a.name) = LOWER(${filter})` : Prisma.empty}
         GROUP BY a.name, al.name, ub.album_id
         ORDER BY ${orderBy}
@@ -391,12 +397,14 @@ export class GuildRankingService {
                COUNT(*)::int AS "totalPlaycount",
                COUNT(DISTINCT up.user_id)::int AS "listenerCount"
         FROM user_plays up
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
         INNER JOIN guild_users gu ON gu.user_id = up.user_id
         WHERE gu.guild_id = ${gId}
           AND up.time_played >= ${settings.startDateTime}
           ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
           AND up.album_name IS NOT NULL AND up.album_name != ''
           AND NOT gu.who_knows_banned
+          AND NOT gu.self_block_from_who_knows
           ${filter ? Prisma.sql`AND LOWER(up.artist_name) = LOWER(${filter})` : Prisma.empty}
         GROUP BY up.artist_name, up.album_name
         ORDER BY ${orderBy}
@@ -449,11 +457,13 @@ export class GuildRankingService {
                SUM(ut.playcount)::int AS "totalPlaycount",
                COUNT(DISTINCT ut.user_id)::int AS "listenerCount"
         FROM user_tracks ut
+        INNER JOIN users u ON u.user_id = ut.user_id AND u.privacy_level <> 'Hide'
         INNER JOIN guild_users gu ON gu.user_id = ut.user_id
         INNER JOIN tracks t ON t.track_id = ut.track_id
         INNER JOIN artists a ON a.artist_id = t.artist_id
         WHERE gu.guild_id = ${gId}
           AND NOT gu.who_knows_banned
+          AND NOT gu.self_block_from_who_knows
           ${filter ? Prisma.sql`AND LOWER(a.name) = LOWER(${filter})` : Prisma.empty}
         GROUP BY a.name, t.name, ut.track_id
         ORDER BY ${orderBy}
@@ -481,12 +491,14 @@ export class GuildRankingService {
                COUNT(*)::int AS "totalPlaycount",
                COUNT(DISTINCT up.user_id)::int AS "listenerCount"
         FROM user_plays up
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
         INNER JOIN guild_users gu ON gu.user_id = up.user_id
         WHERE gu.guild_id = ${gId}
           AND up.time_played >= ${settings.startDateTime}
           ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
           AND up.track_name IS NOT NULL AND up.track_name != ''
           AND NOT gu.who_knows_banned
+          AND NOT gu.self_block_from_who_knows
           ${filter ? Prisma.sql`AND LOWER(up.artist_name) = LOWER(${filter})` : Prisma.empty}
         GROUP BY up.artist_name, up.track_name
         ORDER BY ${orderBy}
@@ -533,11 +545,13 @@ export class GuildRankingService {
                SUM(ua.playcount)::int AS "totalPlaycount",
                COUNT(DISTINCT ua.user_id)::int AS "listenerCount"
         FROM user_artists ua
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN artists a ON UPPER(a.name) = UPPER(ua.name)
         INNER JOIN artist_genres ag ON ag.artist_id = a.artist_id
         WHERE gu.guild_id = ${gId}
           AND NOT gu.who_knows_banned
+          AND NOT gu.self_block_from_who_knows
         GROUP BY ag.name
         ORDER BY ${orderBy}
         LIMIT 120;
@@ -560,6 +574,7 @@ export class GuildRankingService {
                COUNT(*)::int AS "totalPlaycount",
                COUNT(DISTINCT up.user_id)::int AS "listenerCount"
         FROM user_plays up
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
         INNER JOIN guild_users gu ON gu.user_id = up.user_id
         INNER JOIN artists a ON UPPER(a.name) = UPPER(up.artist_name)
         INNER JOIN artist_genres ag ON ag.artist_id = a.artist_id
@@ -567,6 +582,7 @@ export class GuildRankingService {
           AND up.time_played >= ${settings.startDateTime}
           ${settings.endDateTime ? Prisma.sql`AND up.time_played < ${settings.endDateTime}` : Prisma.empty}
           AND NOT gu.who_knows_banned
+          AND NOT gu.self_block_from_who_knows
         GROUP BY ag.name
         ORDER BY ${orderBy}
         LIMIT 120;

@@ -44,6 +44,14 @@ export class CrownRepository {
     return rows.length > 0 ? (rows[0] as UserCrownDto) : null;
   }
 
+  public async deactivateCrownsForUser(userId: number): Promise<number> {
+    const res = await this.prisma.userCrown.updateMany({
+      where: { userId, active: true },
+      data: { active: false, modified: new Date() },
+    });
+    return res.count;
+  }
+
   public async deactivateCrown(crownId: number): Promise<void> {
     await this.prisma.userCrown.update({
       where: { crownId },
@@ -91,6 +99,64 @@ export class CrownRepository {
       userNameLastFm: created.user.userNameLastFm,
       discordUserId: created.user.discordUserId.toString(),
     };
+  }
+
+  /**
+   * Atomically steals a crown: only deactivates + recreates when the expected
+   * holder row is still active. Returns null when a concurrent steal got there
+   * first — the caller must re-read instead of creating a second active crown.
+   */
+  public async replaceCrown(
+    currentCrownId: number,
+    data: {
+      guildId: string;
+      userId: number;
+      artistName: string;
+      startPlaycount: number;
+      currentPlaycount: number;
+      seededCrown?: boolean;
+    },
+  ): Promise<UserCrownDto | null> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const current = await tx.userCrown.findUnique({
+          where: { crownId: currentCrownId },
+          select: { active: true },
+        });
+        if (!current?.active) return null;
+        await tx.userCrown.update({
+          where: { crownId: currentCrownId },
+          data: { active: false, modified: new Date() },
+        });
+        const created = await tx.userCrown.create({
+          data: {
+            guildId: BigInt(data.guildId),
+            userId: data.userId,
+            artistName: data.artistName,
+            startPlaycount: data.startPlaycount,
+            currentPlaycount: data.currentPlaycount,
+            active: true,
+            seededCrown: data.seededCrown ?? false,
+          },
+          include: { user: true },
+        });
+        return {
+          crownId: created.crownId,
+          guildId: created.guildId.toString(),
+          userId: created.userId,
+          artistName: created.artistName,
+          currentPlaycount: created.currentPlaycount,
+          startPlaycount: created.startPlaycount,
+          created: created.created,
+          modified: created.modified,
+          active: created.active,
+          seededCrown: created.seededCrown,
+          userNameLastFm: created.user.userNameLastFm,
+          discordUserId: created.user.discordUserId.toString(),
+        };
+      },
+      { timeout: 15000, maxWait: 5000 },
+    );
   }
 
   public async updateCrownPlaycount(crownId: number, playcount: number): Promise<void> {

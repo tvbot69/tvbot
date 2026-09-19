@@ -52,12 +52,32 @@ export class WhoKnowsService {
       endCount: users.length,
     };
 
+    // Privacy is not a quality filter: hidden and self-blocked users are always
+    // excluded, even when quality filtering is disabled. Counted silently —
+    // rendering the count would leak who opted out.
+    const isPrivacyExcluded = (u: WhoKnowsUser): boolean => {
+      const gu = guildUsers.get(u.userId);
+      if (!gu) return false;
+      if (gu.selfBlockFromWhoKnows) return true;
+      if (gu.privacyLevel === 'Hide') return true;
+      return false;
+    };
+
     if (filterDisabled) {
+      const preCount = users.length;
       const active = users.filter((u) => {
         const gu = guildUsers.get(u.userId);
-        return !gu?.whoKnowsBanned;
+        return !gu?.whoKnowsBanned && !isPrivacyExcluded(u);
       });
       stats.endCount = active.length;
+      if (preCount !== active.length) {
+        // Bans were already impossible to distinguish here; privacy count stays exact.
+        const privacyOnly = users.filter((u) => {
+          const gu = guildUsers.get(u.userId);
+          return !gu?.whoKnowsBanned && isPrivacyExcluded(u);
+        }).length;
+        if (privacyOnly > 0) stats.privacyFiltered = privacyOnly;
+      }
       return { filterStats: stats, filteredUsers: active };
     }
 
@@ -71,6 +91,13 @@ export class WhoKnowsService {
     });
     if (preBanCount !== filtered.length) {
       stats.blockedFiltered = preBanCount - filtered.length;
+    }
+
+    // Filter privacy opt-outs (silent count)
+    const prePrivacyCount = filtered.length;
+    filtered = filtered.filter((u) => !isPrivacyExcluded(u));
+    if (prePrivacyCount !== filtered.length) {
+      stats.privacyFiltered = prePrivacyCount - filtered.length;
     }
 
     // Filter by activity if guild setting exists

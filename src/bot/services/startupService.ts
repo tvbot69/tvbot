@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { container } from 'tsyringe';
 import { Client, Events, ActivityType } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
@@ -111,9 +112,37 @@ export class StartupService {
     if (!this.client.application) {
       return;
     }
+    // Exactly one writer: only shard 0 (or a single unsharded process) may
+    // publish global commands. N shards × every boot = global 429s + races.
+    const shardId = this.client.shard?.ids?.[0] ?? 0;
+    if (shardId !== 0) {
+      Logger.debug('Skipping slash command registration on non-zero shard');
+      return;
+    }
+    if (process.env.SKIP_SLASH_REGISTER === 'true') {
+      Logger.info('SKIP_SLASH_REGISTER=true — skipping slash command registration');
+      return;
+    }
     const payloads = getSlashCommandPayloads();
-    await this.client.application.commands.set(payloads);
-    Logger.info(`Registered ${payloads.length} global slash commands`);
+    // Skip the PUT entirely when nothing changed (global commands propagate
+    // slowly; redundant sets only burn rate-limit budget).
+    try {
+      const { CacheService } = await import('./cacheService');
+      const cache = container.resolve(CacheService);
+      const hash = createHash('sha256').update(JSON.stringify(payloads)).digest('hex');
+      const prev = await cache.get<string>('slash-commands-payload-hash').catch(() => null);
+      if (prev === hash) {
+        Logger.info(`Slash commands unchanged (${payloads.length}), skipping registration`);
+        return;
+      }
+      await this.client.application.commands.set(payloads);
+      await cache.set('slash-commands-payload-hash', hash, 86400).catch(() => undefined);
+      Logger.info(`Registered ${payloads.length} global slash commands`);
+    } catch {
+      // Cache unavailable — register unconditionally rather than risk stale commands.
+      await this.client.application.commands.set(payloads);
+      Logger.info(`Registered ${payloads.length} global slash commands (uncached)`);
+    }
   }
 }
 

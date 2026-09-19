@@ -113,15 +113,41 @@ export class TimerService {
   private async removePrivacyHiddenPlays(): Promise<void> {
     const repository = container.resolve(UserRepository);
     const playRepository = container.resolve(PlayRepository);
+    const { CrownRepository } = await import('@persistence/repositories/crownRepository');
+    const { CacheService } = await import('./cacheService');
     const hiddenIds = await repository.getPrivacyHiddenUserIds();
     let cleaned = 0;
     for (const userId of hiddenIds) {
-      await playRepository.deleteAllPlaysForUser(userId);
-      cleaned++;
+      try {
+        // Plays + all derived aggregates + crowns + cached rollups. Read-path
+        // filters (wk/crowns/rankings) already hide these users instantly; the
+        // purge removes the underlying rows so nothing resurfaces.
+        await playRepository.deleteAllPlaysForUser(userId);
+        await this.prismaDeleteUserAggregates(userId);
+        await container.resolve(CrownRepository).deactivateCrownsForUser(userId);
+        const cache = container.resolve(CacheService);
+        await cache.delete(`user-${userId}-topartists-alltime`).catch(() => undefined);
+        const user = await repository.getUserById(userId).catch(() => null);
+        if (user) {
+          await cache.delete(`user-discord:${user.discordUserId}`).catch(() => undefined);
+        }
+        cleaned++;
+      } catch (err) {
+        Logger.warn({ err, userId }, 'Privacy purge failed for user, will retry next sweep');
+      }
     }
     if (cleaned > 0) {
       Logger.info(`Removed stored plays for ${cleaned} privacy-hidden users`);
     }
+  }
+
+  private async prismaDeleteUserAggregates(userId: number): Promise<void> {
+    const { prisma } = await import('@persistence/prismaClient');
+    await prisma.$transaction([
+      prisma.userArtist.deleteMany({ where: { userId } }),
+      prisma.userAlbum.deleteMany({ where: { userId } }),
+      prisma.userTrack.deleteMany({ where: { userId } }),
+    ]);
   }
 
   private registerJob(

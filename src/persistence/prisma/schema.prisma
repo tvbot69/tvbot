@@ -58,6 +58,7 @@ model User {
   userCrowns        UserCrown[]
 
   @@index([lastUpdate])
+  @@index([privacyLevel])
   @@map("users")
 }
 

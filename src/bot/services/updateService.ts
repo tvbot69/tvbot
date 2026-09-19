@@ -1,5 +1,8 @@
 import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
 import type { IPlayRepository, PlayInsert } from '@domain/interfaces/iplayRepository';
+import { PlayRepository } from '@persistence/repositories/playRepository';
+import { container } from 'tsyringe';
+import { IndexService } from './indexService';
 import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
 import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
@@ -12,7 +15,9 @@ import type { GenreService } from './genreService';
 const UPDATE_DEDUP_TTL_SECONDS = 2;
 const STALE_THRESHOLD_HOURS = 48;
 const OVERLAP_HOURS = 3;
-const BACKOFF_HOURS = 2;
+// Failed syncs stamp lastUpdate just outside the queue-skip window so the next
+// scheduled sweep retries instead of silencing the user for ~46h.
+const FAILURE_RETRY_AFTER_HOURS = STALE_THRESHOLD_HOURS - 1;
 
 export interface UpdateResult {
   newPlays: number;
@@ -161,10 +166,12 @@ export class UpdateService {
       return await this.performDeltaSync(user, opts);
     } catch (err) {
       Logger.error({ err }, `Delta sync failed for ${user.userNameLastFm}`);
-      // Backoff: set lastUpdate to now-2h so we don't retry too aggressively
+      // Backoff that actually retries: queue mode skips users updated within
+      // STALE_THRESHOLD_HOURS, so stamp just outside it — the next scheduled
+      // sweep picks the user up instead of silencing them for ~46h.
       await this.userRepository.setLastUpdate(
         userId,
-        new Date(Date.now() - BACKOFF_HOURS * 3600 * 1000),
+        new Date(Date.now() - FAILURE_RETRY_AFTER_HOURS * 3600 * 1000),
       ).catch(() => undefined);
       return { newPlays: 0, removedPlays: 0 };
     } finally {
@@ -266,12 +273,40 @@ export class UpdateService {
     );
 
     if (incomingPlays.length === 0) {
-      // No plays fetched — update timestamp and return
-      await this.userRepository.setLastUpdate(user.userId, new Date());
+      // Empty fetch with a nonzero library total smells like a private/deleted
+      // profile or a truncated response — do NOT mark fresh, or the gap is
+      // never revisited. Only a confirmed-empty library advances the cursor.
+      if ((totalScrobbles ?? 0) > 0) {
+        await this.userRepository.setLastUpdate(
+          user.userId,
+          new Date(Date.now() - FAILURE_RETRY_AFTER_HOURS * 3600 * 1000),
+        );
+      } else {
+        await this.userRepository.setLastUpdate(user.userId, new Date());
+      }
       return {
         updateResult: { newPlays: 0, removedPlays: 0, totalScrobbles },
         recentTracks: allTracks,
       };
+    }
+
+    // Hole escalation: the delta window is capped (1–2 pages). If Last.fm
+    // reports far more scrobbles than we could have fetched, schedule a full
+    // index instead of silently dropping history and advancing the cursor.
+    if (totalScrobbles !== undefined && user.totalPlayCount !== undefined) {
+      const expectedNew = totalScrobbles - user.totalPlayCount;
+      if (expectedNew > allTracks.length + 50) {
+        Logger.warn(
+          `Delta sync gap for ${user.userNameLastFm}: expected ~${expectedNew} new plays, fetched ${allTracks.length} — escalating to full index`,
+        );
+        try {
+          if (container.isRegistered(IndexService)) {
+            container.resolve(IndexService).enqueueUser(user.userId);
+          }
+        } catch {
+          // ignore — next stale sweep will catch it
+        }
+      }
     }
 
     // === InsertLatestPlays equivalent ===
@@ -293,17 +328,22 @@ export class UpdateService {
       ? incomingPlays.filter((t) => t.timePlayed! >= firstExistingTime!)
       : incomingPlays;
 
-    // Build timestamp sets for O(1) lookups
-    const existingTimeSet = new Set(
-      existingPlays.map((p) => p.timePlayed.getTime()),
+    // Build composite identity sets for O(1) lookups. Timestamp-only keys
+    // collide (two scrobbles in the same second) and drift (1s Last.fm
+    // corrections cause false delete + duplicate insert) — time|artist|track
+    // is the same key space the full index uses (PlayRepository.playKey).
+    const toKey = (timeMs: number, artist: string, track?: string | null): string =>
+      PlayRepository.playKey(new Date(timeMs), artist, track ?? undefined);
+    const existingKeySet = new Set(
+      existingPlays.map((p) => toKey(p.timePlayed.getTime(), p.artistName, p.trackName)),
     );
-    const incomingTimeSet = new Set(
-      relevantPlays.map((t) => t.timePlayed!.getTime()),
+    const incomingKeySet = new Set(
+      relevantPlays.map((t) => toKey(t.timePlayed!.getTime(), t.artistName, t.name)),
     );
 
-    // New plays = incoming where no existing play has same timestamp
+    // New plays = incoming whose identity is not already stored
     const newPlays: PlayInsert[] = relevantPlays
-      .filter((t) => !existingTimeSet.has(t.timePlayed!.getTime()))
+      .filter((t) => !existingKeySet.has(toKey(t.timePlayed!.getTime(), t.artistName, t.name)))
       .map((t) => ({
         userId: user.userId,
         artistName: t.artistName,
@@ -314,7 +354,7 @@ export class UpdateService {
       }));
 
     // Removed plays = existing plays >= first new play's timestamp
-    // where no incoming play has same timestamp
+    // whose identity no longer appears upstream (user deleted the scrobble)
     let removedPlayIds: bigint[] = [];
     if (relevantPlays.length > 0) {
       const firstNewTime = Math.min(
@@ -324,7 +364,7 @@ export class UpdateService {
         .filter(
           (p) =>
             p.timePlayed.getTime() >= firstNewTime &&
-            !incomingTimeSet.has(p.timePlayed.getTime()),
+            !incomingKeySet.has(toKey(p.timePlayed.getTime(), p.artistName, p.trackName)),
         )
         .map((p) => p.userPlayId);
     }

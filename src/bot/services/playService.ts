@@ -554,7 +554,9 @@ export class PlayService {
         SELECT up.track_name, up.artist_name, COUNT(*)::bigint AS playcount, COUNT(DISTINCT up.user_id)::bigint AS listeners
         FROM user_plays up
         INNER JOIN guild_users gu ON up.user_id = gu.user_id
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
         WHERE gu.guild_id = $1 AND up.time_played >= $2 AND up.time_played <= $3 AND up.track_name IS NOT NULL
+          AND NOT gu.who_knows_banned AND NOT gu.self_block_from_who_knows
         GROUP BY up.track_name, up.artist_name
         ORDER BY playcount DESC
         LIMIT 50
@@ -581,7 +583,9 @@ export class PlayService {
         SELECT up.artist_name, COUNT(*)::bigint AS playcount, COUNT(DISTINCT up.user_id)::bigint AS listeners
         FROM user_plays up
         INNER JOIN guild_users gu ON up.user_id = gu.user_id
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
         WHERE gu.guild_id = $1 AND up.time_played >= $2 AND up.time_played <= $3
+          AND NOT gu.who_knows_banned AND NOT gu.self_block_from_who_knows
         GROUP BY up.artist_name
         ORDER BY playcount DESC
         LIMIT 50
@@ -608,7 +612,9 @@ export class PlayService {
         SELECT up.album_name, up.artist_name, COUNT(*)::bigint AS playcount, COUNT(DISTINCT up.user_id)::bigint AS listeners
         FROM user_plays up
         INNER JOIN guild_users gu ON up.user_id = gu.user_id
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
         WHERE gu.guild_id = $1 AND up.time_played >= $2 AND up.time_played <= $3 AND up.album_name IS NOT NULL AND up.album_name != ''
+          AND NOT gu.who_knows_banned AND NOT gu.self_block_from_who_knows
         GROUP BY up.album_name, up.artist_name
         ORDER BY playcount DESC
         LIMIT 50

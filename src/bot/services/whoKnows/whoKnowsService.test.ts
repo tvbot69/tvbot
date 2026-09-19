@@ -99,6 +99,47 @@ describe('WhoKnowsService', () => {
     expect(filteredUsers[0]!.userId).toBe(1);
   });
 
+  it('always excludes hidden and self-blocked users, even with filters disabled', () => {
+    const users: WhoKnowsUser[] = [
+      { userId: 1, playcount: 100, lastFmUsername: 'visible' },
+      { userId: 2, playcount: 200, lastFmUsername: 'hidden' },
+      { userId: 3, playcount: 150, lastFmUsername: 'selfblocked' },
+    ];
+
+    const guildUserMap = new Map<number, FullGuildUserDetails>();
+    guildUserMap.set(1, {
+      userId: 1, discordUserId: 'd1', userNameLastFm: 'visible',
+      whoKnowsWhitelisted: false, whoKnowsBanned: false, lastUsed: new Date(),
+    });
+    guildUserMap.set(2, {
+      userId: 2, discordUserId: 'd2', userNameLastFm: 'hidden',
+      whoKnowsWhitelisted: false, whoKnowsBanned: false, lastUsed: new Date(),
+      privacyLevel: 'Hide',
+    });
+    guildUserMap.set(3, {
+      userId: 3, discordUserId: 'd3', userNameLastFm: 'selfblocked',
+      whoKnowsWhitelisted: false, whoKnowsBanned: false, lastUsed: new Date(),
+      selfBlockFromWhoKnows: true,
+    });
+
+    const guild: Guild = {
+      guildId: 'g1',
+      guildName: 'Test Guild',
+      guildCreatedOn: new Date(),
+      commandsDisabled: false,
+      emotesDisabled: false,
+      whoKnowsActivityThreshold: 0,
+    };
+
+    for (const filterDisabled of [false, true]) {
+      const { filterStats, filteredUsers } = WhoKnowsService.filterWhoKnowsObjects(
+        users, guildUserMap, guild, 1, filterDisabled,
+      );
+      expect(filteredUsers.map((u) => u.userId)).toEqual([1]);
+      expect(filterStats.privacyFiltered).toBe(2);
+    }
+  });
+
   it('addOrReplaceUserToIndexList updates caller live playcount in list', () => {
     const users: WhoKnowsUser[] = [
       { userId: 1, playcount: 10, lastFmUsername: 'alice' },

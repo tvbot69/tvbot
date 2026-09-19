@@ -55,6 +55,7 @@ export class GuildUserRepository implements IGuildUserRepository {
             discordUserId: true,
             userNameLastFm: true,
             lastUsed: true,
+            privacyLevel: true,
           },
         },
       },
@@ -67,6 +68,9 @@ export class GuildUserRepository implements IGuildUserRepository {
       lastUsed: r.user.lastUsed ?? undefined,
       whoKnowsWhitelisted: r.whoKnowsWhitelisted,
       whoKnowsBanned: r.whoKnowsBanned,
+      blockedFromCrowns: r.blockedFromCrowns,
+      selfBlockFromWhoKnows: r.selfBlockFromWhoKnows,
+      privacyLevel: String(r.user.privacyLevel),
     }));
   }
 

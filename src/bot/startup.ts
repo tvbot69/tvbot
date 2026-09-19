@@ -308,7 +308,7 @@ export const configureContainer = (): void => {
   const genreService = new GenreService(cache, artistGenreRepository, artistRepository, lastFmRepository, prisma);
   const friendsService = new FriendsService(friendsRepository, userRepository);
   const crownRepository = new CrownRepository(prisma);
-  const crownService = new CrownService(crownRepository, userService);
+  const crownService = new CrownService(crownRepository, userService, lastFmRepository, errorRateTracker);
   const whoKnowsArtistService = new WhoKnowsArtistService(
     whoKnowsRepository,
     guildUserRepository,

@@ -24,6 +24,8 @@ export interface FilterStats {
   activityThresholdFiltered?: number;
   blockedFiltered?: number;
   requesterFiltered?: boolean;
+  /** Privacy opt-outs removed silently (never rendered — the count itself leaks). */
+  privacyFiltered?: number;
 }
 
 export interface WhoKnowsArtistContext {

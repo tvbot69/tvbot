@@ -12,6 +12,9 @@ export interface FullGuildUserDetails {
   lastUsed?: Date;
   whoKnowsWhitelisted: boolean;
   whoKnowsBanned: boolean;
+  blockedFromCrowns?: boolean;
+  selfBlockFromWhoKnows?: boolean;
+  privacyLevel?: string;
 }
 
 export interface IGuildUserRepository {

@@ -5,12 +5,18 @@ import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserReposito
 import type { Guild } from '@persistence/domain/models/guild';
 import type { UserCrownDto, CrownModel, CrownViewType, CrownLeaderboardEntry } from '@domain/models/crownModels';
 import { UserService } from '@bot/services/userService';
+import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
+import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { Logger } from '@domain/logger';
 
 @injectable()
 export class CrownService {
   constructor(
     @inject(CrownRepository) private readonly crownRepository: CrownRepository,
     @inject(UserService) private readonly userService: UserService,
+    @inject(LastFmRepository) private readonly lastfmRepository?: ILastfmRepository,
+    @inject(LastfmErrorRateTracker) private readonly errorRateTracker?: LastfmErrorRateTracker,
   ) {}
 
   public async getAndUpdateCrownForArtist(
@@ -28,12 +34,14 @@ export class CrownService {
     const minPlaycount = (guild as any).crownsMinimumPlaycountThreshold ?? 30;
     const activityDays = (guild as any).crownsActivityThresholdDays;
 
-    // 1. Filter eligible users
+    // 1. Filter eligible users (privacy opt-outs can never hold crowns)
     const now = Date.now();
     const eligibleUsers = users.filter((u) => {
       const gu = guildUsers.get(u.userId);
       if (gu?.whoKnowsBanned) return false;
-      if ((gu as any)?.blockedFromCrowns) return false;
+      if (gu?.blockedFromCrowns) return false;
+      if (gu?.selfBlockFromWhoKnows) return false;
+      if (gu?.privacyLevel === 'Hide') return false;
 
       if (activityDays && activityDays > 0) {
         if (!u.lastUsed) return false;
@@ -74,14 +82,38 @@ export class CrownService {
         } else {
           // Different owner - did topUser overtake?
           if (topUser.playcount > currentCrown.currentPlaycount) {
-            await this.crownRepository.deactivateCrown(currentCrown.crownId);
-            const newCrown = await this.crownRepository.createCrown({
+            // Kill switch: never dethrone on possibly-stale data mid-outage.
+            if (this.errorRateTracker?.isElevated()) {
+              Logger.warn(
+                { guildId: guildIdStr, artist: effectiveName },
+                'Crown steal skipped — Last.fm error rate elevated',
+              );
+              return { crown: currentCrown };
+            }
+            // Live recheck: the holder may have scrobbled past the challenger
+            // since their last index. Fail-open (proceed) when Last.fm is
+            // unreachable — the atomic replace below still guards double-steals.
+            const holderLive = await this.getHolderLivePlaycount(
+              effectiveName,
+              currentCrown.userNameLastFm,
+            );
+            if (holderLive !== null && holderLive >= topUser.playcount) {
+              await this.crownRepository.updateCrownPlaycount(currentCrown.crownId, holderLive);
+              currentCrown.currentPlaycount = holderLive;
+              return { crown: currentCrown };
+            }
+            const newCrown = await this.crownRepository.replaceCrown(currentCrown.crownId, {
               guildId: guildIdStr,
               userId: topUser.userId,
               artistName: effectiveName,
               startPlaycount: topUser.playcount,
               currentPlaycount: topUser.playcount,
             });
+            if (!newCrown) {
+              // Lost the race — re-read whoever won instead of double-creating.
+              const winner = await this.crownRepository.getCurrentCrown(guildIdStr, artistName);
+              return { crown: winner ?? currentCrown };
+            }
 
             return {
               crown: newCrown,
@@ -135,6 +167,24 @@ export class CrownService {
         };
       }
 
+      return null;
+    }
+  }
+
+  /**
+   * Live holder playcount from Last.fm (artist.getInfo with username carries
+   * userplaycount). Null when unreachable or unknown — callers fail open.
+   */
+  private async getHolderLivePlaycount(
+    artistName: string,
+    holderLastFmUsername?: string | null,
+  ): Promise<number | null> {
+    if (!this.lastfmRepository || !holderLastFmUsername) return null;
+    try {
+      const info = await this.lastfmRepository.getArtistInfo(artistName, holderLastFmUsername);
+      const plays = (info as unknown as { userPlayCount?: unknown })?.userPlayCount;
+      return typeof plays === 'number' && Number.isFinite(plays) ? plays : null;
+    } catch {
       return null;
     }
   }

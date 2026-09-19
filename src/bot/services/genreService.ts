@@ -259,10 +259,12 @@ export class GenreService {
         FROM user_artists ua
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN artist_genres ag ON ag.artist_id = ua.artist_id
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
         WHERE gu.guild_id = ${gIdBigInt}
           AND ua.artist_id IS NOT NULL
           AND (gu.who_knows_whitelisted = true OR gu.who_knows_whitelisted IS NULL)
           AND (gu.who_knows_banned = false OR gu.who_knows_banned IS NULL)
+          AND (gu.self_block_from_who_knows = false OR gu.self_block_from_who_knows IS NULL)
         GROUP BY ag.name
         ORDER BY "listenerCount" DESC, "totalPlaycount" DESC
         LIMIT ${limit}
@@ -290,10 +292,12 @@ export class GenreService {
         FROM user_artists ua
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN artist_genres ag ON ag.artist_id = ua.artist_id
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
         WHERE gu.guild_id = ${gIdBigInt}
           AND ua.artist_id IS NOT NULL
           AND LOWER(ag.name) = LOWER(${genreName.trim()})
           AND (gu.who_knows_banned = false OR gu.who_knows_banned IS NULL)
+          AND (gu.self_block_from_who_knows = false OR gu.self_block_from_who_knows IS NULL)
         GROUP BY ua.name
         ORDER BY "userPlaycount" DESC
         LIMIT ${limit}
@@ -323,8 +327,10 @@ export class GenreService {
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN users u ON u.user_id = ua.user_id
         WHERE gu.guild_id = ${gIdBigInt}
+          AND u.privacy_level <> 'Hide'
           AND (gu.who_knows_whitelisted = true OR gu.who_knows_whitelisted IS NULL)
           AND (gu.who_knows_banned = false OR gu.who_knows_banned IS NULL)
+          AND (gu.self_block_from_who_knows = false OR gu.self_block_from_who_knows IS NULL)
           AND ua.artist_id IN (
             SELECT ag.artist_id FROM artist_genres ag
             WHERE LOWER(ag.name) = LOWER(${genreName.trim()})
