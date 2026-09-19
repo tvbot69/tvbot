@@ -25,7 +25,8 @@
 >   hole escalation + sane failure backoff), 0.4 (crown live recheck + atomic
 >   steal + outage kill-switch), 0.3 (privacy read-path in wk/crown/guild
 >   rankings + full purge + `users.privacy_level` index) — implemented, 464
->   tests green. 0.1 (migrate deploy) pending prod baseline.
+>   tests green. 0.1 (migrate deploy): prod baseline recorded 2026-09-19, boot
+>   paths converted.
 
 ---
 
