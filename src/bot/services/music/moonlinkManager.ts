@@ -63,14 +63,18 @@ export class MoonlinkManager {
     // Master-class: public nodes hate parallel connects. Retry with backoff for 4000.
     // We keep retryAmount low and add cooldown in nodeDisconnect handler.
     this.manager = new Manager({
+      // Preserve per-node retry policy from config: publics use 0/60s (never
+      // hammer rate-limited shared hosts), self-hosted nodes keep their own
+      // aggressive reconnect (e.g. 5/3s). Overriding everything to 0 neuters
+      // operator-configured recovery.
       nodes: nodes.map((n: LavalinkNodeConfig) => ({
         identifier: n.identifier,
         host: n.host,
         port: n.port,
         password: n.password,
         secure: n.secure ?? n.port === 443,
-        retryAmount: 0,
-        retryDelay: 60000,
+        retryAmount: n.retryAmount ?? 0,
+        retryDelay: n.retryDelay ?? 60000,
       })),
       options: {
         clientName: 'tvbot/1.0.0 (Moonlink v5)',

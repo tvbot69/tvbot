@@ -15,7 +15,23 @@ export interface PlayResult {
   artworkUrl?: string;
   totalTracksAdded: number;
   positionInQueue: number;
+  /** True when fewer tracks resolved than the source listed (blocked/missing). */
+  partial?: boolean;
+  errorReason?: 'no-nodes' | 'voice' | 'search' | 'empty-spotify';
 }
+
+export const playErrorMessage = (reason?: PlayResult['errorReason']): string => {
+  switch (reason) {
+    case 'no-nodes':
+      return 'All music nodes are rate-limited right now. Try again in 30–60 seconds.';
+    case 'voice':
+      return 'I could not join your voice channel. Check my permissions and try again.';
+    case 'empty-spotify':
+      return 'Could not resolve that Spotify link (private, deleted, or region-locked?).';
+    default:
+      return 'An error occurred while communicating with the music node. Try again in a few seconds.';
+  }
+};
 
 export class MusicService {
   public readonly moonlinkManager: MoonlinkManager;
@@ -89,6 +105,7 @@ export class MusicService {
       Logger.warn({ guildId }, 'All Lavalink nodes are on cooldown (4000 rate-limit). Try again in 30-60s.');
       return {
         loadType: 'error',
+        errorReason: 'no-nodes',
         totalTracksAdded: 0,
         positionInQueue: 0,
       };
@@ -102,9 +119,9 @@ export class MusicService {
       } catch (err) {
         Logger.error({ err, guildId }, 'Failed to connect player to voice');
         if (!this.moonlinkManager.hasHealthyNode()) {
-          return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
+          return { loadType: 'error', errorReason: 'no-nodes', totalTracksAdded: 0, positionInQueue: 0 };
         }
-        throw err;
+        return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: 0 };
       }
     }
 
@@ -347,23 +364,20 @@ export class MusicService {
       }
     }
 
-    // Resolve remaining tracks in parallel batches
+    // Resolve remaining tracks in parallel batches. Each track gets a bounded
+    // YouTube attempt plus one SoundCloud second chance — a blocked uploader
+    // or a hung search must not silently drop (or stall) the whole playlist.
     const remainingTracks = resolution.tracks.slice(1);
     const BATCH_SIZE = 5;
     for (let i = 0; i < remainingTracks.length; i += BATCH_SIZE) {
       const batch = remainingTracks.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
-        batch.map((t) =>
-          manager
-            .search({ query: t.searchQuery, source: 'youtube' })
-            .then((r) => ({ result: r, spTrack: t }))
-            .catch(() => null),
-        ),
+        batch.map((t) => this.resolvePlaylistTrack(manager, t)),
       );
 
       for (const item of batchResults) {
-        if (!item || !item.result?.tracks || item.result.tracks.length === 0) continue;
-        const lavalinkTrack = item.result.tracks[0]!;
+        if (!item) continue;
+        const lavalinkTrack = item.lavalinkTrack;
         lavalinkTrack.requester = requester;
         lavalinkTrack.title = item.spTrack.name;
         lavalinkTrack.author = item.spTrack.artist;
@@ -406,6 +420,14 @@ export class MusicService {
       }
     }
 
+    const partial = addedTracks.length < resolution.tracks.length;
+    if (partial) {
+      Logger.warn(
+        { guildId: player.guildId, added: addedTracks.length, total: resolution.tracks.length },
+        '[Music] Playlist partially resolved — unresolvable tracks skipped',
+      );
+    }
+
     return {
       loadType,
       playlistName: resolution.title,
@@ -413,7 +435,54 @@ export class MusicService {
       tracks: addedTracks,
       totalTracksAdded: addedTracks.length,
       positionInQueue: player.queue.size - addedTracks.length + 1,
+      partial,
     };
+  }
+
+  /**
+   * Resolves one playlist track to a playable Lavalink track: bounded YouTube
+   * search first, one SoundCloud second chance, null when unresolvable.
+   */
+  private async resolvePlaylistTrack(
+    manager: { search: (args: { query: string; source: string }) => Promise<{ tracks?: Array<import('moonlink.js').Track> } | null> },
+    spTrack: SpotifyResolvedTrack,
+  ): Promise<{ lavalinkTrack: import('moonlink.js').Track; spTrack: SpotifyResolvedTrack } | null> {
+    const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T | null> => {
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<T | null>((resolve) => {
+            timer = setTimeout(() => resolve(null), ms);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    try {
+      const yt = await withTimeout(
+        manager.search({ query: spTrack.searchQuery, source: 'youtube' }),
+        8000,
+      );
+      const ytHit = yt?.tracks?.[0];
+      if (ytHit) return { lavalinkTrack: ytHit, spTrack };
+    } catch {
+      // fall through to SoundCloud
+    }
+
+    try {
+      const sc = await withTimeout(
+        manager.search({ query: spTrack.searchQuery, source: 'soundcloud' }),
+        8000,
+      );
+      const scHit = sc?.tracks?.[0];
+      if (scHit) return { lavalinkTrack: scHit, spTrack };
+    } catch {
+      // unresolvable
+    }
+    return null;
   }
 
   public getQueueInfo(guildId: string): MusicQueueInfo | null {

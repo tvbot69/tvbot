@@ -126,6 +126,57 @@ export class MusicHandler {
     rec.source = source;
   }
 
+  // Fallback budgets: every failure runs up to 2 node searches. A poison
+  // playlist must never turn that into a search storm or an infinite
+  // fallback-that-fails loop.
+  private readonly fallbackAttempts = new Map<string, number>();
+  private readonly guildFallbackBudget = new Map<string, { count: number; windowStart: number }>();
+  private readonly triedFallbackIds = new Map<string, Set<string>>();
+  private static readonly MAX_FALLBACKS_PER_TRACK = 3;
+  private static readonly MAX_FALLBACKS_PER_GUILD_WINDOW = 5;
+  private static readonly FALLBACK_BUDGET_WINDOW_MS = 60000;
+
+  private fallbackTrackKey(guildId: string, failedKey: string): string {
+    return `${guildId}|${failedKey}`;
+  }
+
+  private checkFallbackBudget(guildId: string, failedKey: string): boolean {
+    const attempts = this.fallbackAttempts.get(this.fallbackTrackKey(guildId, failedKey)) ?? 0;
+    if (attempts >= MusicHandler.MAX_FALLBACKS_PER_TRACK) return false;
+    const now = Date.now();
+    const budget = this.guildFallbackBudget.get(guildId);
+    if (!budget || now - budget.windowStart > MusicHandler.FALLBACK_BUDGET_WINDOW_MS) {
+      this.guildFallbackBudget.set(guildId, { count: 0, windowStart: now });
+    } else if (budget.count >= MusicHandler.MAX_FALLBACKS_PER_GUILD_WINDOW) {
+      return false;
+    }
+    return true;
+  }
+
+  private recordFallbackAttempt(guildId: string, failedKey: string, fallbackId?: string): void {
+    const trackKey = this.fallbackTrackKey(guildId, failedKey);
+    this.fallbackAttempts.set(trackKey, (this.fallbackAttempts.get(trackKey) ?? 0) + 1);
+    const budget = this.guildFallbackBudget.get(guildId);
+    if (budget) budget.count++;
+    if (fallbackId) {
+      let tried = this.triedFallbackIds.get(guildId);
+      if (!tried) {
+        tried = new Set();
+        this.triedFallbackIds.set(guildId, tried);
+      }
+      if (tried.size >= 10) tried.clear();
+      tried.add(fallbackId);
+    }
+  }
+
+  private clearFallbackState(guildId: string): void {
+    this.guildFallbackBudget.delete(guildId);
+    this.triedFallbackIds.delete(guildId);
+    for (const key of this.fallbackAttempts.keys()) {
+      if (key.startsWith(`${guildId}|`)) this.fallbackAttempts.delete(key);
+    }
+  }
+
   /**
    * Finds an alternate playable upload for a failed/stuck track.
    * Order matters:
@@ -134,31 +185,36 @@ export class MusicHandler {
    *     duration (different video id) usually play fine.
    *  2. SoundCloud version — last resort; duration-gated so we never silently play a
    *     wrong song (worse UX than skipping).
+   * Previously-tried uploads are excluded so a failing fallback can't loop.
    * Returns null when nothing playable exists so the caller can skip past the poison track.
    */
   private async findAlternatePlayableTrack(
     manager: Manager,
     failedTrack: Track,
+    guildId: string,
+    failedKey: string,
   ): Promise<Track | null> {
     const query = this.buildFallbackQuery(failedTrack);
     if (!query) return null;
 
     const failedId = failedTrack.identifier;
+    const tried = this.triedFallbackIds.get(guildId) ?? new Set<string>();
     const failedDuration = failedTrack.duration || 0;
     const matchesDuration = (duration?: number): boolean => {
       if (!duration || !failedDuration) return true;
       return Math.abs(duration - failedDuration) <= 30000;
     };
+    const isFreshCandidate = (t: Track): boolean =>
+      t.identifier !== failedId && !tried.has(t.identifier) && matchesDuration(t.duration);
 
     try {
       const yt = await manager.search({ query, source: 'youtube' });
-      const alt = yt?.tracks?.find(
-        (t: Track) => t.identifier !== failedId && matchesDuration(t.duration),
-      );
+      const alt = yt?.tracks?.find((t: Track) => isFreshCandidate(t));
       if (alt) {
         this.adoptFallbackMetadata(alt, failedTrack, 'youtube');
+        this.recordFallbackAttempt(guildId, failedKey, alt.identifier);
         Logger.info(
-          { guildId: 'n/a', query, uri: alt.uri },
+          { guildId, query, uri: alt.uri },
           `[Music] Alternate YouTube upload found for "${failedTrack.title}" — retrying without the blocked upload.`,
         );
         return alt;
@@ -169,9 +225,10 @@ export class MusicHandler {
 
     try {
       const sc = await manager.search({ query, source: 'soundcloud' });
-      const alt = sc?.tracks?.find((t: Track) => matchesDuration(t.duration));
+      const alt = sc?.tracks?.find((t: Track) => isFreshCandidate(t));
       if (alt) {
         this.adoptFallbackMetadata(alt, failedTrack, 'soundcloud');
+        this.recordFallbackAttempt(guildId, failedKey, alt.identifier);
         return alt;
       }
       if (sc?.tracks && sc.tracks.length > 0) {
@@ -184,6 +241,7 @@ export class MusicHandler {
       Logger.debug({ err }, '[Music] SoundCloud fallback search failed');
     }
 
+    this.recordFallbackAttempt(guildId, failedKey);
     return null;
   }
 
@@ -295,11 +353,20 @@ export class MusicHandler {
         return (cur.encoded ?? cur.uri ?? cur.identifier) === failedKey;
       };
 
+      const failedKeyStr = String(failedKey ?? 'unknown');
+      if (!this.checkFallbackBudget(player.guildId, failedKeyStr)) {
+        Logger.warn(
+          { guildId: player.guildId, track: track.title },
+          `[Music] Fallback budget exhausted for stuck track — leaving Moonlink recovery to handle it.`,
+        );
+        return;
+      }
+
       Logger.warn(
         { guildId: player.guildId, track: track.title, threshold },
         `[Music] Track stuck (${threshold}ms) — looking for an alternate upload for "${track.title}"...`,
       );
-      const fallback = await this.findAlternatePlayableTrack(manager, track);
+      const fallback = await this.findAlternatePlayableTrack(manager, track, player.guildId, failedKeyStr);
       if (fallback) {
         player.queue.unshift(fallback);
         Logger.info({ guildId: player.guildId, track: track.title }, `[Music] Alternate upload queued for stuck track — advancing to it.`);
@@ -349,11 +416,21 @@ export class MusicHandler {
         }
       };
 
+      const failedKeyStr = String(failedKey ?? 'unknown');
+      if (!this.checkFallbackBudget(player.guildId, failedKeyStr)) {
+        Logger.warn(
+          { guildId: player.guildId, track: track.title },
+          `[Music] Fallback budget exhausted for failed track — skipping past it.`,
+        );
+        await skipPastFailed();
+        return;
+      }
+
       Logger.warn(
         { guildId: player.guildId, track: track.title },
         `[Music] Track failed — looking for an alternate upload for "${track.title}"...`,
       );
-      const fallback = await this.findAlternatePlayableTrack(manager, track);
+      const fallback = await this.findAlternatePlayableTrack(manager, track, player.guildId, failedKeyStr);
       if (fallback) {
         // Inject at the front of the queue so it plays next, then advance to it —
         // Moonlink only auto-skips fault-severity exceptions, so common-severity
@@ -389,6 +466,7 @@ export class MusicHandler {
     manager.on('queueEnd', (player: Player) => {
       Logger.info(`[Music] Queue ended in guild ${player.guildId}`);
       this.stopProgressUpdater(player.guildId);
+      this.clearFallbackState(player.guildId);
 
       if (player.voiceChannelId && this.voiceChannelStatusService) {
         void this.voiceChannelStatusService.clearStatus(player.voiceChannelId);
@@ -409,6 +487,7 @@ export class MusicHandler {
 
     manager.on('playerDestroy', async (player: Player) => {
       this.stopProgressUpdater(player.guildId);
+      this.clearFallbackState(player.guildId);
 
       if (player.voiceChannelId && this.voiceChannelStatusService) {
         void this.voiceChannelStatusService.clearStatus(player.voiceChannelId);

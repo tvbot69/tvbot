@@ -4,7 +4,7 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { MusicService } from '@bot/services/music/musicService';
+import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { ColorService } from '@bot/services/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
@@ -215,7 +215,7 @@ export class MusicCommands implements ITextCommandModule {
     if (result.loadType === 'error') {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
-        'An error occurred while communicating with the music node. Try again in a few seconds.',
+        playErrorMessage(result.errorReason),
       );
     }
 
@@ -245,6 +245,7 @@ export class MusicCommands implements ITextCommandModule {
         result.positionInQueue,
         accentColor,
         isSpotify ? 'spotify' : 'youtube',
+        result.partial ?? false,
       ).setAutoDelete(10);
     }
 

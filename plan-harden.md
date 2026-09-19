@@ -33,6 +33,12 @@
 >   auto-defer safety net), 1.5 (`fetchWithTimeout` across Deezer/iTunes/Apple
 >   Web/Spotify API+scraper+token paths; Last.fm + lyrics already covered) —
 >   implemented, 474 tests green.
+> - 2026-09-19: Phase 3.1/3.2 FREE halves (public pool live-probed: 8 candidates
+>   dead/hung, keeping the 2 verified nodes + verification procedure documented;
+>   per-node retry preserved; healthy-count in /nodes; fallback budgets
+>   3-per-track/5-per-guild with tried-id loop protection; playlist fan-out
+>   per-track 8s race + SoundCloud second chance + partial flag; typed play
+>   errors) — implemented, 482 tests green. Self-hosted pool stays NEEDS-$.
 
 ---
 

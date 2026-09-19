@@ -130,6 +130,7 @@ export class MusicBuilders {
     position?: number,
     accentColor?: number,
     source?: string,
+    partial: boolean = false,
   ): ResponseModel {
     const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
@@ -162,7 +163,8 @@ export class MusicBuilders {
     }
     const header = `-# 📑 PLAYLIST ADDED TO QUEUE`;
     const sourceBadge = source ? ` • ${getSourceBadge(source)}` : '';
-    const mainContent = `### ${name}\n**${count} tracks** • \`${formatDuration(totalDuration)}\`${sourceBadge}${position && position > 1 ? ` • Starts at #${position}` : ''}`;
+    const partialNote = partial ? `\n-# Partial load — some tracks were unresolvable and skipped` : '';
+    const mainContent = `### ${name}\n**${count} tracks** • \`${formatDuration(totalDuration)}\`${sourceBadge}${position && position > 1 ? ` • Starts at #${position}` : ''}${partialNote}`;
 
     if (artworkUrl) {
       const section = new SectionBuilder()
@@ -566,10 +568,12 @@ export class MusicBuilders {
 
     let totalPlayers = 0;
     let totalPlaying = 0;
+    let healthyNodes = 0;
 
     for (const node of stats) {
       totalPlayers += node.players;
       totalPlaying += node.playingPlayers;
+      if (node.connected) healthyNodes++;
 
       const statusIcon = node.connected ? '🟢 Connected' : '🔴 Disconnected';
       const value = [
@@ -588,7 +592,7 @@ export class MusicBuilders {
     }
 
     response.embed.setFooter({
-      text: `Total Nodes: ${stats.length} • Total Players: ${totalPlayers} (${totalPlaying} playing)`,
+      text: `Healthy Nodes: ${healthyNodes}/${stats.length} • Total Players: ${totalPlayers} (${totalPlaying} playing)`,
     });
 
     return response;

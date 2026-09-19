@@ -4,7 +4,7 @@ import {
   type InteractionUpdateOptions,
   GuildMember,
 } from 'discord.js';
-import { MusicService } from '@bot/services/music/musicService';
+import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
 import { LyricsService } from '@bot/services/music/lyricsService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { ColorService } from '@bot/services/colorService';
@@ -455,7 +455,7 @@ export class MusicInteractions {
       if (result.loadType === 'error') {
         if (interaction.channel && 'send' in interaction.channel) {
           await (interaction.channel as any).send({
-            content: '❌ Failed to load track due to rate limits or voice connection error.',
+            content: `❌ ${playErrorMessage(result.errorReason)}`,
           });
         }
         return;

@@ -1,5 +1,18 @@
 import { Logger } from '@domain/logger';
 
+// Pool management notes (verified live 2026-09-19):
+// - Only the two defaults below completed websocket + search handshakes.
+//   Public lists are rotten: v4.lavalink.rocks, lavalink-v4.huntolls-bot.xyz,
+//   us/eu.lavalink.heavencloud.in are DNS-dead; lavalink.heavencloud.in times
+//   out; lavalink.serentia.com is DNS-dead; lavalinkv4-id/eu.serentia.com hang.
+// - NEVER add a node without verifying it first: point scratch/probe-nodes.ts
+//   at the candidate (identifier/host/port/password/secure), run it with
+//   `node node_modules/tsx/dist/cli.mjs scratch/probe-nodes.ts`, and require
+//   both [connected] and a nonzero [search] count before listing it here.
+// - Operators add/replace nodes without code changes via LAVALINK_NODES JSON:
+//   [{"identifier":"Self","host":"1.2.3.4","port":2333,"password":"youshallnotpass","secure":false}]
+//   Custom entries are unshifted ahead of the defaults.
+
 export interface LavalinkNodeConfig {
   identifier: string;
   host: string;
