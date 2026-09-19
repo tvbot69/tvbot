@@ -1,4 +1,5 @@
 import { container } from 'tsyringe';
+import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import { SpotifyTokenManager } from './spotifyTokenManager';
 import { TelemetryService } from '@bot/services/telemetryService';
 import { Logger } from '@domain/logger';
@@ -107,7 +108,7 @@ export class SpotifySearchApi {
       if (SpotifySearchApi.isRateLimited()) return null;
       const token = await this.tokenManager.getToken();
       if (!token) return null;
-      const res = await fetch(`https://api.spotify.com/v1/artists/${artistId}`, {
+      const res = await fetchWithTimeout(`https://api.spotify.com/v1/artists/${artistId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) {
@@ -192,7 +193,7 @@ export class SpotifySearchApi {
     if (!token) return null;
 
     try {
-      const response = await fetch(`https://api.spotify.com/v1/albums/${spotifyId}`, {
+      const response = await fetchWithTimeout(`https://api.spotify.com/v1/albums/${spotifyId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.status === 401) {
@@ -274,7 +275,7 @@ export class SpotifySearchApi {
     const startTime = Date.now();
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetchWithTimeout(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const durationMs = Date.now() - startTime;
@@ -365,7 +366,7 @@ export class SpotifySearchApi {
 
       // 3. Query official albums, singles, and features (appears_on)
       const url = `https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single,appears_on&limit=${Math.min(limit, 50)}`;
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) {
@@ -423,7 +424,7 @@ export class SpotifySearchApi {
       const albumId = albums[0]?.id;
       if (!albumId) return [];
 
-      const res = await fetch(`https://api.spotify.com/v1/albums/${albumId}/tracks?limit=${Math.min(limit, 50)}`, {
+      const res = await fetchWithTimeout(`https://api.spotify.com/v1/albums/${albumId}/tracks?limit=${Math.min(limit, 50)}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) {

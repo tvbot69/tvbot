@@ -1,6 +1,8 @@
 import type { ITunesSearchResult } from '@applemusic/models/itunesModels';
+import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 
 const SEARCH_ENDPOINT = 'https://itunes.apple.com/search';
+const ITUNES_TIMEOUT_MS = 8000;
 
 export class AppleMusicSearchApi {
   public async searchAlbums(
@@ -35,9 +37,11 @@ export class AppleMusicSearchApi {
     url.searchParams.set('entity', entity);
     url.searchParams.set('limit', String(limit));
 
-    const response = await fetch(url, {
-      headers: { 'User-Agent': 'tvbot' },
-    });
+    const response = await fetchWithTimeout(
+      url,
+      { headers: { 'User-Agent': 'tvbot' } },
+      ITUNES_TIMEOUT_MS,
+    );
     if (!response.ok) {
       throw new Error(`iTunes HTTP ${response.status}`);
     }

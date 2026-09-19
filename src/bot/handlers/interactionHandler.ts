@@ -134,6 +134,7 @@ export class InteractionHandler {
   }
 
   private async onInteractionCreated(interaction: Interaction): Promise<void> {
+    let ackGuard: NodeJS.Timeout | undefined;
     try {
       if (interaction.isChatInputCommand()) {
         await this.executeSlashCommand(interaction);
@@ -146,6 +147,14 @@ export class InteractionHandler {
     }
 
     if (interaction.isButton() || interaction.isAnySelectMenu()) {
+      // Safety net: acknowledge slow components before Discord's 3s interaction
+      // window closes. Fast handlers finish first and clear the timer below;
+      // only stragglers get auto-deferred (a working follow-up beats a 10062).
+      ackGuard = setTimeout(() => {
+        if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+          void interaction.deferUpdate().catch(() => undefined);
+        }
+      }, 2500);
       if (this.userSettingsInteractions.isUserSettingsInteraction(interaction)) {
         await this.userSettingsInteractions.handle(interaction as any);
         return;
@@ -342,6 +351,8 @@ export class InteractionHandler {
           .reply({ content: 'Sorry, something went wrong while processing this interaction.', flags: MessageFlags.Ephemeral })
           .catch(() => undefined);
       }
+    } finally {
+      if (ackGuard) clearTimeout(ackGuard);
     }
   }
 

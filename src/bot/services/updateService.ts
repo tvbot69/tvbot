@@ -3,6 +3,7 @@ import type { IPlayRepository, PlayInsert } from '@domain/interfaces/iplayReposi
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { container } from 'tsyringe';
 import { IndexService } from './indexService';
+import { normalizeStoredName } from '@domain/textNormalize';
 import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
 import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
@@ -267,10 +268,16 @@ export class UpdateService {
       if (list.tracks.length < count - 5) break;
     }
 
-    // Filter: only non-nowPlaying tracks with valid timestamps
-    const incomingPlays = allTracks.filter(
-      (t) => !t.nowPlaying && t.timePlayed,
-    );
+    // Filter: only non-nowPlaying tracks with valid timestamps, normalized so
+    // "Mond " and "Mond" key identically everywhere downstream.
+    const incomingPlays = allTracks
+      .filter((t) => !t.nowPlaying && t.timePlayed)
+      .map((t) => ({
+        ...t,
+        artistName: normalizeStoredName(t.artistName),
+        albumName: t.albumName ? normalizeStoredName(t.albumName) : t.albumName,
+        name: normalizeStoredName(t.name),
+      }));
 
     if (incomingPlays.length === 0) {
       // Empty fetch with a nonzero library total smells like a private/deleted
@@ -346,9 +353,9 @@ export class UpdateService {
       .filter((t) => !existingKeySet.has(toKey(t.timePlayed!.getTime(), t.artistName, t.name)))
       .map((t) => ({
         userId: user.userId,
-        artistName: t.artistName,
-        albumName: t.albumName || undefined,
-        trackName: t.name,
+        artistName: normalizeStoredName(t.artistName),
+        albumName: normalizeStoredName(t.albumName) || undefined,
+        trackName: normalizeStoredName(t.name),
         timePlayed: t.timePlayed!,
         playSource: 'LastFm' as const,
       }));

@@ -18,6 +18,7 @@ describe('DiscogsAndImportBuilders', () => {
       displayName: 'Alice',
       summary: {
         totalScrobblesImported: 5000,
+        newRowsInserted: 4800,
         uniqueArtistsCount: 250,
         dateRange: { from: new Date('2020-01-01'), to: new Date('2023-01-01') },
         topArtists: [{ name: 'Radiohead', count: 1200 }],

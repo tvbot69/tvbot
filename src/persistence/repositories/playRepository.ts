@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import type {
   IPlayRepository,
   PlayInsert,
@@ -347,77 +347,99 @@ export class PlayRepository implements IPlayRepository {
     return result.count;
   }
 
-  // Incremental counters — mirrors fmbot UpdateArtists/Albums/TracksForUser batched deltas
+  // Incremental counters — mirrors fmbot UpdateArtists/Albums/TracksForUser batched deltas.
+  // Batched: one read + one transaction per call instead of 2 round-trips per delta row.
   public async applyArtistDeltas(userId: number, deltas: Array<{ name: string; artistId: number; delta: number }>): Promise<void> {
+    const merged = new Map<number, { name: string; delta: number }>();
     for (const d of deltas) {
       if (d.delta === 0) continue;
-      const existing = await this.prisma.userArtist.findUnique({
-        where: { userId_artistId: { userId, artistId: d.artistId } },
-      });
-      if (existing) {
-        const next = existing.playcount + d.delta;
+      const cur = merged.get(d.artistId);
+      merged.set(d.artistId, { name: cur?.name ?? d.name, delta: (cur?.delta ?? 0) + d.delta });
+    }
+    if (merged.size === 0) return;
+    const existing = await this.prisma.userArtist.findMany({
+      where: { userId, artistId: { in: [...merged.keys()] } },
+      select: { artistId: true, playcount: true },
+    });
+    const byId = new Map(existing.map((e) => [e.artistId, e.playcount]));
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    for (const [artistId, { name, delta }] of merged) {
+      if (delta === 0) continue;
+      const cur = byId.get(artistId);
+      if (cur !== undefined) {
+        const next = cur + delta;
         if (next <= 0) {
-          await this.prisma.userArtist.delete({ where: { userId_artistId: { userId, artistId: d.artistId } } });
+          ops.push(this.prisma.userArtist.delete({ where: { userId_artistId: { userId, artistId } } }));
         } else {
-          await this.prisma.userArtist.update({
-            where: { userId_artistId: { userId, artistId: d.artistId } },
-            data: { playcount: next },
-          });
+          ops.push(this.prisma.userArtist.update({ where: { userId_artistId: { userId, artistId } }, data: { playcount: next } }));
         }
-      } else if (d.delta > 0) {
-        await this.prisma.userArtist.create({
-          data: { userId, artistId: d.artistId, name: d.name.toLowerCase(), playcount: d.delta },
-        });
+      } else if (delta > 0) {
+        ops.push(this.prisma.userArtist.create({ data: { userId, artistId, name: name.toLowerCase(), playcount: delta } }));
       }
     }
+    if (ops.length > 0) await this.prisma.$transaction(ops);
   }
 
   public async applyAlbumDeltas(userId: number, deltas: Array<{ name: string; artistId: number; albumId: number; delta: number }>): Promise<void> {
+    const merged = new Map<number, { name: string; artistId: number; delta: number }>();
     for (const d of deltas) {
       if (d.delta === 0) continue;
-      const existing = await this.prisma.userAlbum.findUnique({
-        where: { userId_albumId: { userId, albumId: d.albumId } },
-      });
-      if (existing) {
-        const next = existing.playcount + d.delta;
+      const cur = merged.get(d.albumId);
+      merged.set(d.albumId, { name: cur?.name ?? d.name, artistId: d.artistId, delta: (cur?.delta ?? 0) + d.delta });
+    }
+    if (merged.size === 0) return;
+    const existing = await this.prisma.userAlbum.findMany({
+      where: { userId, albumId: { in: [...merged.keys()] } },
+      select: { albumId: true, playcount: true },
+    });
+    const byId = new Map(existing.map((e) => [e.albumId, e.playcount]));
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    for (const [albumId, { name, artistId, delta }] of merged) {
+      if (delta === 0) continue;
+      const cur = byId.get(albumId);
+      if (cur !== undefined) {
+        const next = cur + delta;
         if (next <= 0) {
-          await this.prisma.userAlbum.delete({ where: { userId_albumId: { userId, albumId: d.albumId } } });
+          ops.push(this.prisma.userAlbum.delete({ where: { userId_albumId: { userId, albumId } } }));
         } else {
-          await this.prisma.userAlbum.update({
-            where: { userId_albumId: { userId, albumId: d.albumId } },
-            data: { playcount: next },
-          });
+          ops.push(this.prisma.userAlbum.update({ where: { userId_albumId: { userId, albumId } }, data: { playcount: next } }));
         }
-      } else if (d.delta > 0) {
-        await this.prisma.userAlbum.create({
-          data: { userId, albumId: d.albumId, name: d.name.toLowerCase(), playcount: d.delta },
-        });
+      } else if (delta > 0) {
+        ops.push(this.prisma.userAlbum.create({ data: { userId, albumId, name: name.toLowerCase(), playcount: delta } }));
       }
     }
+    if (ops.length > 0) await this.prisma.$transaction(ops);
   }
 
   public async applyTrackDeltas(userId: number, deltas: Array<{ name: string; artistId: number; trackId: number; delta: number }>): Promise<void> {
+    const merged = new Map<number, { name: string; trackId: number; delta: number }>();
     for (const d of deltas) {
       if (d.delta === 0) continue;
-      const existing = await this.prisma.userTrack.findUnique({
-        where: { userId_trackId: { userId, trackId: d.trackId } },
-      });
-      if (existing) {
-        const next = existing.playcount + d.delta;
+      const cur = merged.get(d.trackId);
+      merged.set(d.trackId, { name: cur?.name ?? d.name, trackId: d.trackId, delta: (cur?.delta ?? 0) + d.delta });
+    }
+    if (merged.size === 0) return;
+    const existing = await this.prisma.userTrack.findMany({
+      where: { userId, trackId: { in: [...merged.keys()] } },
+      select: { trackId: true, playcount: true },
+    });
+    const byId = new Map(existing.map((e) => [e.trackId, e.playcount]));
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    for (const [trackId, { name, delta }] of merged) {
+      if (delta === 0) continue;
+      const cur = byId.get(trackId);
+      if (cur !== undefined) {
+        const next = cur + delta;
         if (next <= 0) {
-          await this.prisma.userTrack.delete({ where: { userId_trackId: { userId, trackId: d.trackId } } });
+          ops.push(this.prisma.userTrack.delete({ where: { userId_trackId: { userId, trackId } } }));
         } else {
-          await this.prisma.userTrack.update({
-            where: { userId_trackId: { userId, trackId: d.trackId } },
-            data: { playcount: next },
-          });
+          ops.push(this.prisma.userTrack.update({ where: { userId_trackId: { userId, trackId } }, data: { playcount: next } }));
         }
-      } else if (d.delta > 0) {
-        await this.prisma.userTrack.create({
-          data: { userId, trackId: d.trackId, name: d.name.toLowerCase(), playcount: d.delta },
-        });
+      } else if (delta > 0) {
+        ops.push(this.prisma.userTrack.create({ data: { userId, trackId, name: name.toLowerCase(), playcount: delta } }));
       }
     }
+    if (ops.length > 0) await this.prisma.$transaction(ops);
   }
 
   public async getRecentEntityPlaycounts(

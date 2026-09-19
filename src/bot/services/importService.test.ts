@@ -1,6 +1,9 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { container } from 'tsyringe';
 import { ImportService } from './importService';
+import { PlayRepository } from '@persistence/repositories/playRepository';
+import { IndexService } from './indexService';
 import type { PrismaClient } from '@prisma/client';
 
 describe('ImportService', () => {
@@ -12,8 +15,15 @@ describe('ImportService', () => {
       user: {
         update: vi.fn().mockResolvedValue({}),
       },
+      userPlay: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
     };
     service = new ImportService(mockPrisma as PrismaClient);
+  });
+
+  afterEach(() => {
+    container.clearInstances();
   });
 
   describe('getInstructions', () => {
@@ -112,6 +122,74 @@ describe('ImportService', () => {
         where: { userId: 123 },
         data: { totalPlayCount: 0 },
       });
+    });
+
+    it('deletes imported rows so the library matches the counter', async () => {
+      await service.resetImport(123);
+      expect(mockPrisma.userPlay.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 123, playSource: { in: ['SpotifyImport', 'AppleMusicImport'] } },
+      });
+    });
+  });
+
+  describe('persistence (Phase 1.1)', () => {
+    const sample = [
+      {
+        ts: '2023-01-01T12:00:00Z',
+        master_metadata_track_name: 'Paranoid Android',
+        master_metadata_album_artist_name: 'Radiohead',
+        master_metadata_album_album_name: 'OK Computer',
+        ms_played: 380000,
+      },
+      {
+        ts: '2023-01-02T15:00:00Z',
+        master_metadata_track_name: 'One More Time',
+        master_metadata_album_artist_name: 'Daft Punk',
+        master_metadata_album_album_name: 'Discovery',
+        ms_played: 320000,
+      },
+    ];
+
+    const wireRepos = (existingKeys: Set<string>) => {
+      const batchInsertPlays = vi.fn(async (rows: unknown[]) => rows.length);
+      const recalculateTopLists = vi.fn(async () => undefined);
+      container.registerInstance(
+        PlayRepository,
+        { findExistingPlayKeys: vi.fn(async () => existingKeys), batchInsertPlays } as never,
+      );
+      container.registerInstance(IndexService, { recalculateTopLists } as never);
+      return { batchInsertPlays, recalculateTopLists };
+    };
+
+    it('stores parsed scrobbles and rebuilds aggregates', async () => {
+      const { batchInsertPlays, recalculateTopLists } = wireRepos(new Set());
+
+      const result = await service.parseAndImport(123, JSON.stringify(sample));
+
+      expect(result.newRowsInserted).toBe(2);
+      expect(batchInsertPlays).toHaveBeenCalledTimes(1);
+      const rows = batchInsertPlays.mock.calls[0]![0] as Array<{ playSource: string }>;
+      expect(rows.every((r) => r.playSource === 'SpotifyImport')).toBe(true);
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { userId: 123 },
+        data: { totalPlayCount: { increment: 2 } },
+      });
+      expect(recalculateTopLists).toHaveBeenCalledWith(123);
+    });
+
+    it('treats re-uploads as no-ops without moving the counter', async () => {
+      const { batchInsertPlays } = wireRepos(
+        new Set([
+          `${new Date('2023-01-01T12:00:00Z').getTime()}|Radiohead|Paranoid Android`,
+          `${new Date('2023-01-02T15:00:00Z').getTime()}|Daft Punk|One More Time`,
+        ]),
+      );
+
+      const result = await service.parseAndImport(123, JSON.stringify(sample));
+
+      expect(result.newRowsInserted).toBe(0);
+      expect(batchInsertPlays).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,6 @@
 import { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
 import { Logger } from '@domain/logger';
+import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import { SpotifyScraperService } from './spotifyScraperService';
 
 export interface SpotifyResolvedTrack {
@@ -159,7 +160,7 @@ export class SpotifyResolver {
 
   private async fetchSpotify<T>(endpoint: string, token: string): Promise<T | null> {
     try {
-      const response = await fetch(endpoint, {
+      const response = await fetchWithTimeout(endpoint, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -169,7 +170,7 @@ export class SpotifyResolver {
         this.tokenManager.invalidate();
         const newToken = await this.tokenManager.getToken();
         if (newToken) {
-          const retryRes = await fetch(endpoint, {
+          const retryRes = await fetchWithTimeout(endpoint, {
             headers: { Authorization: `Bearer ${newToken}` },
           });
           if (retryRes.ok) {

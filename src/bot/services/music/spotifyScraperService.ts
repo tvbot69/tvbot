@@ -1,4 +1,5 @@
 import { Logger } from '@domain/logger';
+import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 
 export interface ScrapedTrack {
   name: string;
@@ -50,7 +51,7 @@ export class SpotifyScraperService {
       for (const headers of headersList) {
         try {
           const isClientToken = endpoint.includes('clienttoken');
-          const res = await fetch(endpoint, {
+          const res = await fetchWithTimeout(endpoint, {
             method: isClientToken ? 'POST' : 'GET',
             headers: isClientToken ? { ...headers, 'Content-Type': 'application/json' } : headers,
             body: isClientToken
@@ -112,7 +113,7 @@ export class SpotifyScraperService {
     for (const url of urls) {
       try {
         const isSpclient = url.includes('spclient');
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: isSpclient
             ? {
                 'Authorization': `Bearer ${token}`,
@@ -178,7 +179,7 @@ export class SpotifyScraperService {
     ];
     for (const url of urls) {
       try {
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: {
             'User-Agent': this.userAgent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -212,7 +213,7 @@ export class SpotifyScraperService {
         let totalMatch = html.match(/(\d+)\s+items/);
         if (!totalMatch) {
           try {
-            const totalRes = await fetch(`https://open.spotify.com/playlist/${playlistId}`, {
+            const totalRes = await fetchWithTimeout(`https://open.spotify.com/playlist/${playlistId}`, {
               headers: { 'User-Agent': this.userAgent, 'Accept': 'text/html' },
             });
             if (totalRes.ok) {
@@ -249,7 +250,7 @@ export class SpotifyScraperService {
     ];
     for (const url of queries) {
       try {
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: {
             'User-Agent': this.userAgent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -277,7 +278,7 @@ export class SpotifyScraperService {
       const directId = idMatch?.[1];
       if (directId) {
         const embedUrl = `https://open.spotify.com/embed/track/${directId}`;
-        const eRes = await fetch(embedUrl, { headers: { 'User-Agent': this.userAgent, Accept: 'text/html' } });
+        const eRes = await fetchWithTimeout(embedUrl, { headers: { 'User-Agent': this.userAgent, Accept: 'text/html' } });
         if (eRes.ok) {
           const eHtml = await eRes.text();
           const idx = eHtml.indexOf('p.scdn.co/mp3-preview/');
@@ -298,7 +299,7 @@ export class SpotifyScraperService {
     try {
       const token = await this.getWebPlayerToken();
       if (token) {
-        const res = await fetch(`https://spclient.wg.spotify.com/search/suggest/v1/query?query=${encodeURIComponent(`${artist} ${track}`)}&type=track&market=US`, {
+        const res = await fetchWithTimeout(`https://spclient.wg.spotify.com/search/suggest/v1/query?query=${encodeURIComponent(`${artist} ${track}`)}&type=track&market=US`, {
           headers: { Authorization: `Bearer ${token}`, 'App-Platform': 'WebPlayer', Accept: 'application/json', 'User-Agent': this.userAgent, Origin: 'https://open.spotify.com', Referer: 'https://open.spotify.com/' },
         });
         if (res.ok) {
@@ -321,7 +322,7 @@ export class SpotifyScraperService {
   public async getPreviewById(trackId: string): Promise<{ previewUrl: string; trackName: string; artistName: string; durationMs: number; artworkUrl?: string; spotifyUrl?: string } | null> {
     try {
       const embedUrl = `https://open.spotify.com/embed/track/${trackId}`;
-      const eRes = await fetch(embedUrl, { headers: { 'User-Agent': this.userAgent, Accept: 'text/html' } });
+      const eRes = await fetchWithTimeout(embedUrl, { headers: { 'User-Agent': this.userAgent, Accept: 'text/html' } });
       if (!eRes.ok) return null;
       const eHtml = await eRes.text();
       // First try to parse NEXT_DATA for accurate names

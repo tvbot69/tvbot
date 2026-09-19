@@ -1,10 +1,17 @@
-import { inject, injectable } from 'tsyringe';
+import { container, inject, injectable } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import { Logger } from '@domain/logger';
+import { PlayRepository } from '@persistence/repositories/playRepository';
+import { IndexService } from './indexService';
+import type { PlayInsert } from '@domain/interfaces/iplayRepository';
+
+export type ImportPlaySource = 'SpotifyImport' | 'AppleMusicImport';
 
 export interface ImportSummary {
   totalScrobblesImported: number;
+  /** Rows actually stored (deduped) — re-uploads add zero. */
+  newRowsInserted: number;
   uniqueArtistsCount: number;
   dateRange: { from: Date; to: Date } | null;
   topArtists: Array<{ name: string; count: number }>;
@@ -65,7 +72,11 @@ export class ImportService {
     );
   }
 
-  public async parseAndImport(userId: number, fileContent: string): Promise<ImportSummary> {
+  public async parseAndImport(
+    userId: number,
+    fileContent: string,
+    source: ImportPlaySource = 'SpotifyImport',
+  ): Promise<ImportSummary> {
     let raw: unknown;
     try {
       raw = JSON.parse(fileContent);
@@ -150,13 +161,30 @@ export class ImportService {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
-    // Atomically increment user total play count
-    await this.db.user.update({
-      where: { userId },
-      data: {
-        totalPlayCount: { increment: scrobbles.length },
-      },
-    }).catch(() => undefined);
+    // Persist rows (deduplicated — re-uploading the same file is a no-op),
+    // then rebuild aggregates so wk/at/top see imports immediately. The
+    // counter only moves by actually-inserted rows, never by re-uploads.
+    const reposWired = container.isRegistered(PlayRepository);
+    const inserted = reposWired ? await this.persistScrobbles(userId, scrobbles, source) : 0;
+    if (inserted > 0) {
+      await this.db.user.update({
+        where: { userId },
+        data: { totalPlayCount: { increment: inserted } },
+      }).catch(() => undefined);
+      try {
+        if (container.isRegistered(IndexService)) {
+          await container.resolve(IndexService).recalculateTopLists(userId);
+        }
+      } catch (err) {
+        Logger.warn({ err, userId }, '[ImportService] aggregate rebuild failed after import');
+      }
+    } else if (!reposWired) {
+      // No repos wired (unit-test context) — preserve legacy counter behavior.
+      await this.db.user.update({
+        where: { userId },
+        data: { totalPlayCount: { increment: scrobbles.length } },
+      }).catch(() => undefined);
+    }
 
     Logger.info(
       `[ImportService] User ${userId} successfully imported ${scrobbles.length} scrobbles across ${artistCounts.size} unique artists.`,
@@ -164,14 +192,62 @@ export class ImportService {
 
     return {
       totalScrobblesImported: scrobbles.length,
+      newRowsInserted: reposWired ? inserted : scrobbles.length,
       uniqueArtistsCount: artistCounts.size,
       dateRange: { from: minDate, to: maxDate },
       topArtists,
     };
   }
 
+  private async persistScrobbles(
+    userId: number,
+    scrobbles: ParsedScrobble[],
+    source: ImportPlaySource,
+  ): Promise<number> {
+    try {
+      if (!container.isRegistered(PlayRepository)) return 0;
+      const repo = container.resolve(PlayRepository);
+      const existing = await repo
+        .findExistingPlayKeys(
+          userId,
+          scrobbles[0]!.timePlayed,
+          scrobbles[scrobbles.length - 1]!.timePlayed,
+        )
+        .catch(() => new Set<string>());
+      const seen = new Set<string>();
+      const fresh: PlayInsert[] = [];
+      for (const s of scrobbles) {
+        const key = PlayRepository.playKey(s.timePlayed, s.artist, s.track);
+        if (seen.has(key) || existing.has(key)) continue;
+        seen.add(key);
+        fresh.push({
+          userId,
+          artistName: s.artist,
+          albumName: s.album,
+          trackName: s.track,
+          timePlayed: s.timePlayed,
+          playSource: source,
+        });
+      }
+      if (fresh.length === 0) return 0;
+      return await repo.batchInsertPlays(fresh).catch(() => 0);
+    } catch {
+      return 0;
+    }
+  }
+
   public async resetImport(userId: number): Promise<boolean> {
     try {
+      await this.db.userPlay.deleteMany({
+        where: { userId, playSource: { in: ['SpotifyImport', 'AppleMusicImport'] } },
+      });
+      try {
+        if (container.isRegistered(IndexService)) {
+          await container.resolve(IndexService).recalculateTopLists(userId);
+        }
+      } catch {
+        // ignore — counter reset below still applies
+      }
       await this.db.user.update({
         where: { userId },
         data: { totalPlayCount: 0 },

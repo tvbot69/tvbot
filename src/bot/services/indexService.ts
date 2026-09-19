@@ -13,6 +13,7 @@ import { UpdateType } from '@domain/enums/updateType';
 import { Logger } from '@domain/logger';
 import { prisma } from '@persistence/prismaClient';
 import { TimePeriod } from '@domain/enums/timePeriod';
+import { normalizeStoredName } from '@domain/textNormalize';
 
 const RECENT_TRACKS_PAGE_SIZE = 1000;
 const RECENT_TRACKS_ERROR_RETRIES = 5;
@@ -299,9 +300,9 @@ export class IndexService {
         }
         pendingPlays.push({
           userId: userId,
-          artistName: track.artistName,
-          albumName: track.albumName || undefined,
-          trackName: track.name,
+          artistName: normalizeStoredName(track.artistName),
+          albumName: normalizeStoredName(track.albumName) || undefined,
+          trackName: normalizeStoredName(track.name),
           timePlayed: track.timePlayed,
           playSource: 'LastFm',
         });

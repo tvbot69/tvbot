@@ -1,4 +1,5 @@
 import { AppleMusicTokenScraper } from './appleMusicTokenScraper';
+import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import type {
   AmAlbumAttributes,
   AmArtistAttributes,
@@ -104,7 +105,7 @@ export class AppleMusicWebApi {
     url.searchParams.set('limit', String(limit));
     url.searchParams.set('l', 'en-us');
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         Origin: 'https://music.apple.com',

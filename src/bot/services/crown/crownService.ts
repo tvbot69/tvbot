@@ -214,19 +214,13 @@ export class CrownService {
       this.crownRepository.getTotalActiveCrownsInGuild(guildId),
     ]);
 
-    const entries: CrownLeaderboardEntry[] = [];
-    for (const h of rawHolders) {
-      const user = await this.userService.getUserById(h.userId);
-      if (user) {
-        entries.push({
-          userId: h.userId,
-          discordUserId: user.discordUserId,
-          userNameLastFm: user.userNameLastFm,
-          displayName: user.userNameLastFm,
-          crownCount: h.crownCount,
-        });
-      }
-    }
+    const entries: CrownLeaderboardEntry[] = rawHolders.map((h) => ({
+      userId: h.userId,
+      discordUserId: h.discordUserId,
+      userNameLastFm: h.userNameLastFm,
+      displayName: h.userNameLastFm,
+      crownCount: h.crownCount,
+    }));
 
     return { entries, totalActiveCrowns };
   }

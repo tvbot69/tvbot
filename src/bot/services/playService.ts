@@ -524,25 +524,6 @@ export class PlayService {
   }
 
   // --- Guild aggregation methods ---
-  public async getGuildUsersPlays(guildId: string, amountOfDays: number = 7): Promise<any[]> {
-    const cutoff = new Date(Date.now() - amountOfDays * 24 * 3600 * 1000);
-    try {
-      return await this.db.userPlay.findMany({
-        where: {
-          timePlayed: { gte: cutoff },
-          user: {
-            guildUsers: {
-              some: { guildId: BigInt(guildId) },
-            },
-          },
-        },
-        take: 5000,
-      });
-    } catch {
-      return [];
-    }
-  }
-
   public async getGuildTopTracksPlays(guildId: string, startDateTime: Date, endDateTime: Date): Promise<Array<{ trackName: string; artistName: string; playcount: number; listeners: number }>> {
     try {
       const rows = await this.db.$queryRawUnsafe<Array<{

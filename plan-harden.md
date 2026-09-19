@@ -27,6 +27,12 @@
 >   rankings + full purge + `users.privacy_level` index) — implemented, 464
 >   tests green. 0.1 (migrate deploy): prod baseline recorded 2026-09-19, boot
 >   paths converted.
+> - 2026-09-19: Phase 1.1 (imports persist + dedupe + recalc + honest counts),
+>   1.2 (batched counter deltas, single-query crown leaderboard, dead 5000-row
+>   reader deleted), 1.3 (ingest name normalization), 1.4 (2.5s button
+>   auto-defer safety net), 1.5 (`fetchWithTimeout` across Deezer/iTunes/Apple
+>   Web/Spotify API+scraper+token paths; Last.fm + lyrics already covered) —
+>   implemented, 474 tests green.
 
 ---
 

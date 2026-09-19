@@ -1,4 +1,5 @@
 import { Logger } from '@domain/logger';
+import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 
 export interface ExtractedToken {
   token: string;
@@ -60,7 +61,7 @@ export class AppleMusicTokenScraper {
     };
 
     try {
-      const pageResponse = await fetch('https://music.apple.com/us/browse', { headers: headers });
+      const pageResponse = await fetchWithTimeout('https://music.apple.com/us/browse', { headers: headers });
       if (!pageResponse.ok) {
         Logger.warn(`Apple Music token scrape failed with HTTP ${pageResponse.status}`);
         return null;
@@ -75,7 +76,7 @@ export class AppleMusicTokenScraper {
       for (const bundleUrl of extractBundleUrls(html)) {
         const absolute = new URL(bundleUrl, 'https://music.apple.com').toString();
         try {
-          const jsResponse = await fetch(absolute, { headers: headers });
+          const jsResponse = await fetchWithTimeout(absolute, { headers: headers });
           if (!jsResponse.ok) {
             continue;
           }

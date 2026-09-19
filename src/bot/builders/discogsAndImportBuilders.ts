@@ -54,8 +54,12 @@ export class DiscogsAndImportBuilders {
       (a, idx) => `${idx + 1}. **${a.name}** — **${a.count.toLocaleString()} plays**`,
     );
 
+    const added = (summary.newRowsInserted ?? summary.totalScrobblesImported).toLocaleString();
     const content =
-      `• **${summary.totalScrobblesImported.toLocaleString()}** valid scrobbles added\n` +
+      `• **${added}** valid scrobbles added` +
+      (summary.newRowsInserted !== undefined && summary.newRowsInserted < summary.totalScrobblesImported
+        ? ` (${summary.totalScrobblesImported.toLocaleString()} parsed, rest already in your library)\n`
+        : '\n') +
       `• **${summary.uniqueArtistsCount.toLocaleString()}** unique artists\n` +
       `• **Date Range:** \`${dateRangeStr}\`\n\n` +
       `**Top Imported Artists:**\n${topLines.join('\n')}`;

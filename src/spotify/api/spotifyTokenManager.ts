@@ -1,5 +1,6 @@
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
+import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 
 interface CachedToken {
   accessToken: string;
@@ -70,7 +71,7 @@ export class SpotifyTokenManager {
   }
 
   private async requestToken(clientId: string, clientSecret: string, index: number): Promise<string> {
-    const response = await fetch(TOKEN_ENDPOINT, {
+    const response = await fetchWithTimeout(TOKEN_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',

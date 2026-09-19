@@ -212,18 +212,21 @@ export class CrownRepository {
     return rows as UserCrownDto[];
   }
 
-  public async getTopCrownHoldersInGuild(guildId: string): Promise<{ userId: number; crownCount: number }[]> {
+  public async getTopCrownHoldersInGuild(guildId: string): Promise<Array<{ userId: number; crownCount: number; userNameLastFm: string; discordUserId: string }>> {
     const gid = this.safeBigInt(guildId);
     if (!gid) return [];
 
-    const rows = await this.prisma.$queryRaw<{ userId: number; crownCount: number }[]>`
-      SELECT 
+    const rows = await this.prisma.$queryRaw<Array<{ userId: number; crownCount: number; userNameLastFm: string; discordUserId: string }>>`
+      SELECT
         c.user_id as "userId",
-        COUNT(*)::int as "crownCount"
+        COUNT(*)::int as "crownCount",
+        u.user_name_last_fm as "userNameLastFm",
+        u.discord_user_id::text as "discordUserId"
       FROM user_crowns c
+      JOIN users u ON u.user_id = c.user_id
       WHERE c.guild_id = ${gid}
         AND c.active = true
-      GROUP BY c.user_id
+      GROUP BY c.user_id, u.user_name_last_fm, u.discord_user_id
       ORDER BY "crownCount" DESC
     `;
     return rows;
