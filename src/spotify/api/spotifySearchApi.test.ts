@@ -70,6 +70,70 @@ describe('SpotifySearchApi', () => {
     expect(artists[0]?.name).toBe('Travis Scott');
   });
 
+  it('anchors the exact artist id via a track sample (same-name disambiguation)', async () => {
+    const mock200 = {
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({
+        tracks: {
+          items: [
+            {
+              name: 'Esme',
+              artists: [
+                { name: 'Mond', id: 'egypt-mond-id' },
+                { name: 'EVO', id: 'evo-id' },
+              ],
+            },
+          ],
+        },
+      }),
+    } as unknown as Response;
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(mock200);
+
+    const id = await api.getArtistIdViaTrackSample('mond', 'Esme');
+    expect(id).toBe('egypt-mond-id');
+  });
+
+  it('returns null from track anchoring when no artist matches exactly', async () => {
+    const mock200 = {
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({
+        tracks: {
+          items: [{ name: 'Esme', artists: [{ name: 'Someone Else', id: 'other-id' }] }],
+        },
+      }),
+    } as unknown as Response;
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(mock200);
+
+    await expect(api.getArtistIdViaTrackSample('Mond', 'Esme')).resolves.toBeNull();
+  });
+
+  it('fetches the canonical artist entity by id', async () => {
+    const mock200 = {
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({
+        id: 'egypt-mond-id',
+        name: 'Mond',
+        genres: ['hip-hop'],
+        images: [{ url: 'https://i.scdn.co/image/egypt-mond', height: 640 }],
+      }),
+    } as unknown as Response;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(mock200);
+
+    const artist = await api.getArtistById('egypt-mond-id');
+    expect(artist?.name).toBe('Mond');
+    expect(artist?.genres).toEqual(['hip-hop']);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.spotify.com/v1/artists/egypt-mond-id',
+      expect.anything(),
+    );
+  });
+
   it('rotates credential and retries immediately when backup credential is available', async () => {
     const mock429 = {
       status: 429,

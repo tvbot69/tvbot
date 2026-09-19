@@ -14,6 +14,7 @@ export class ArtistTrackBuilders {
     artistId?: number | string,
     targetUserId?: string,
     authorUserId?: string,
+    partialIndexNotice: boolean = false,
   ): ResponseModel {
     const perPage = 10;
     const totalPages = Math.max(1, Math.ceil(tracks.length / perPage));
@@ -35,7 +36,7 @@ export class ArtistTrackBuilders {
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines));
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
 
-    const footer = `-# Page ${page + 1}/${totalPages} — ${distinctCount} different tracks\n-# ${displayName} has ${totalArtistPlays} total artist ${totalArtistPlays === 1 ? 'play' : 'plays'}\n-# Some tracks outside of top 6000 might not be visible`;
+    const footer = `-# Page ${page + 1}/${totalPages} — ${distinctCount} different tracks\n-# ${displayName} has ${totalArtistPlays} total artist ${totalArtistPlays === 1 ? 'play' : 'plays'}\n-# Some tracks outside of top 6000 might not be visible${partialIndexNotice ? '\n-# Library still indexing — showing partial results, run this again in a bit' : ''}`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
 
     const aId = artistId ?? encodeURIComponent(artistName);

@@ -318,6 +318,52 @@ describe('MusicService', () => {
     expect(res.track?.source).toBe('youtube');
   });
 
+  it('falls back to SoundCloud when YouTube search returns nothing for a text query', async () => {
+    const mgr = mockMoonlinkManager.getManager() as unknown as { search: ReturnType<typeof vi.fn> };
+    mgr.search.mockImplementation(async ({ source }: { source: string }) => {
+      if (source === 'youtube') return { loadType: 'empty', tracks: [] };
+      return {
+        loadType: 'track',
+        tracks: [
+          {
+            title: 'Pussy & Millions (feat. Travis Scott)',
+            author: 'octobersveryown',
+            duration: 242077,
+            uri: 'https://soundcloud.com/octobersveryown/drake-21-savage-pussy-millions',
+            identifier: 'sc123',
+          },
+        ],
+      };
+    });
+
+    const res = await musicService.play(
+      '123456789',
+      'vc-1',
+      'tc-1',
+      'pussy and millions',
+      { id: 'user-1', tag: 'TestUser' },
+    );
+
+    expect(res.loadType).toBe('track');
+    expect(res.track?.source).toBe('soundcloud');
+    expect(res.track?.title).toContain('Pussy');
+
+    mgr.search.mockImplementation(() =>
+      Promise.resolve({
+        loadType: 'track',
+        tracks: [
+          {
+            title: 'Bohemian Rhapsody',
+            author: 'Queen',
+            duration: 354000,
+            uri: 'https://youtube.com/watch?v=fJ9rUzIMcZQ',
+            identifier: 'fJ9rUzIMcZQ',
+          },
+        ],
+      }),
+    );
+  });
+
   it('rejects an invalid Spotify match and preserves original YouTube metadata', async () => {
     (mockSpotifyResolver.searchTrack as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       name: 'Mo City Don',

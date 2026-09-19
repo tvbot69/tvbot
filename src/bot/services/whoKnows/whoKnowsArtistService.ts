@@ -36,6 +36,9 @@ export class WhoKnowsArtistService {
     artistName: string,
     contextUserPlaycount?: number | null,
     filterDisabled: boolean = false,
+    // Representative track title for disambiguating same-name artists
+    // (see ArtistTrackService.getSampleTrackForArtist).
+    sampleTrack?: string,
   ): Promise<WhoKnowsArtistContext> {
     const guild = discordGuild ? await this.guildService.getGuild(discordGuild.id) : null;
     const guildUserList = discordGuild
@@ -96,7 +99,7 @@ export class WhoKnowsArtistService {
 
     let genres: string[] | undefined;
     if (this.genreService) {
-      try { genres = await this.genreService.getGenresForArtist(artistName); } catch { genres = undefined; }
+      try { genres = await this.genreService.getGenresForArtist(artistName, sampleTrack); } catch { genres = undefined; }
     }
 
     let crownModel: CrownModel | null = null;

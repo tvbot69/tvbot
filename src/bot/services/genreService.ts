@@ -6,6 +6,7 @@ import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
+import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 export interface TopGenreItem {
   genreName: string;
@@ -40,8 +41,44 @@ export class GenreService {
     return genres.join(' · ');
   }
 
-  public async getGenresForArtist(artistName: string): Promise<string[]> {
+  public async getGenresForArtist(artistName: string, sampleTrack?: string): Promise<string[]> {
     if (!artistName) return [];
+
+    // Track-anchored resolution (same rationale as ArtworkService.getArtistImageUrl):
+    // pin the exact Spotify entity via one of the user's own scrobbles. Anchored
+    // results use a track-scoped cache key and never touch the global name-keyed
+    // genre table, so same-name artists can't pollute each other.
+    if (sampleTrack?.trim()) {
+      const anchoredKey = `genres:${artistName.toLowerCase().trim()}:via:${sampleTrack.toLowerCase().trim()}`;
+      const anchoredCached = await this.cache.get<string[]>(anchoredKey);
+      if (anchoredCached) return anchoredCached;
+
+      try {
+        const api = container.resolve(SpotifySearchApi);
+        const anchoredId = await api.getArtistIdViaTrackSample(artistName, sampleTrack);
+        if (anchoredId) {
+          const artist = await api.getArtistById(anchoredId);
+          const spotifyGenres = (artist?.genres ?? []).map((g) => String(g).toLowerCase().trim()).filter(Boolean).slice(0, 4);
+          if (spotifyGenres.length > 0) {
+            await this.cache.set(anchoredKey, spotifyGenres, 3600);
+            return spotifyGenres;
+          }
+          // Spotify knows the entity but lists no genres: prove a name collision
+          // before suppressing Last.fm tags (which would belong to the other entity).
+          const naive = await api.searchArtists(artistName, 5);
+          const target = artistName.toLowerCase().trim();
+          const naiveId = naive.find((a) => a.name.toLowerCase().trim() === target)?.id ?? naive[0]?.id;
+          if (naiveId && naiveId !== anchoredId) {
+            await this.cache.set(anchoredKey, [], 3600);
+            return [];
+          }
+        }
+      } catch {
+        // fall through to the name-based flow
+      }
+      // No anchor (or anchor matches naive winner): fall through to name-based flow.
+    }
+
     const key = `genres:${artistName.toLowerCase().trim()}`;
     const cached = await this.cache.get<string[]>(key);
     if (cached) return cached;

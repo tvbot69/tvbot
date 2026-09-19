@@ -275,8 +275,40 @@ export class ArtworkService {
     return result;
   }
 
-  public async getArtistImageUrl(artistName?: string): Promise<string | null> {
+  public async getArtistImageUrl(artistName?: string, sampleTrack?: string): Promise<string | null> {
     if (!artistName) return null;
+
+    // Track-anchored resolution: when the caller's own scrobble (Artist + Track) is
+    // known, pin the exact Spotify artist entity instead of trusting a bare
+    // name search (which returns the globally-most-popular same-name artist).
+    // Anchored results are cached under a track-scoped key and NEVER persisted to
+    // the global name-keyed artist row, so colliding artists can't pollute each other.
+    if (sampleTrack?.trim()) {
+      const anchoredKey = `art:artist:${artistName.toLowerCase()}:via:${sampleTrack.toLowerCase().trim()}`;
+      const anchoredCached = await this.cache.get<string>(anchoredKey);
+      if (anchoredCached) {
+        if (anchoredCached === 'none') return null;
+        if (!isPlaceholderImageUrl(anchoredCached)) return anchoredCached;
+      }
+      if (!SpotifySearchApi.isRateLimited()) {
+        try {
+          const artistId = await this.spotifyApi.getArtistIdViaTrackSample(artistName, sampleTrack);
+          if (artistId) {
+            const artist = await this.spotifyApi.getArtistById(artistId);
+            const url = pickLargest(artist?.images);
+            if (url && isValidImageUrl(url)) {
+              await this.cache.set(anchoredKey, url, MEMORY_CACHE_TTL_SECONDS);
+              return url;
+            }
+          }
+        } catch (err) {
+          Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: anchored miss');
+        }
+      }
+      await this.cache.set(anchoredKey, 'none', 600);
+      // Fall through to the name-based flow as a last resort.
+    }
+
     const key = `art:artist:${artistName.toLowerCase()}`;
     // Hotfix for Jordana — Deezer/Spotify search conflates with Jordana Bryant; force correct Spotify image
     if (artistName.toLowerCase().trim() === 'jordana') {

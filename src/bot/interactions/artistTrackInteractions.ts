@@ -1,6 +1,6 @@
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
-import { ArtistTrackService } from '@bot/services/artistTrackService';
+import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/artistTrackService';
 import { ColorService } from '@bot/services/colorService';
 import { container } from 'tsyringe';
 
@@ -71,6 +71,7 @@ export class ArtistTrackInteractions {
       artistId,
       targetUserId,
       authorUserId,
+      isArtistIndexPartial(tracks, totalPlays),
     );
     await interaction.update({ components: [response.componentsV2Container as any], flags: MessageFlags.IsComponentsV2 } as any).catch(() => undefined);
   }

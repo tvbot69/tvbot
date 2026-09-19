@@ -2,7 +2,7 @@ import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/comm
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
-import { ArtistTrackService } from '@bot/services/artistTrackService';
+import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/artistTrackService';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -56,10 +56,11 @@ export class ArtistTrackCommands implements ITextCommandModule {
 
     const artService = this.artworkService ?? container.resolve(ArtworkService);
     const colorService = this.colorService ?? container.resolve(ColorService);
-    const imgUrl = await artService.getArtistImageUrl(artistName);
+    // Anchor the image to the user's own top scrobble so same-name artists resolve correctly.
+    const imgUrl = await artService.getArtistImageUrl(artistName, tracks[0]?.name);
     const accentColor = await colorService.getColorFromImageUrl(imgUrl);
 
-    return ArtistTrackBuilders.buildArtistTopTracksResponse(artistName, displayName, tracks, totalPlays, distinct, 0, accentColor);
+    return ArtistTrackBuilders.buildArtistTopTracksResponse(artistName, displayName, tracks, totalPlays, distinct, 0, accentColor, undefined, undefined, undefined, isArtistIndexPartial(tracks, totalPlays));
   }
 }
 

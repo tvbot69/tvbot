@@ -19,6 +19,9 @@ import { UpdateService } from '@bot/services/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
+import { container } from 'tsyringe';
+import { ArtistTrackService } from '@bot/services/artistTrackService';
+import { GenreService } from '@bot/services/genreService';
 
 const lastfmArtistUrl = (artist: string): string =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -240,16 +243,42 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     }
 
     const resolvedName = artistInfo?.name ?? artistName;
+
+    // Disambiguate same-name artists by anchoring artwork/genre lookups to a
+    // real scrobble (see text-command twin for rationale).
+    const artistTrackService = container.resolve(ArtistTrackService);
+    const callerSampleTrack = await artistTrackService
+      .getSampleTrackForArtist(user.userId, resolvedName)
+      .catch(() => undefined);
+
     const result = await this.whoKnowsArtistService.getFilteredUsersForArtist(
       context.guild,
       user,
       resolvedName,
       livePlaycount,
       filterDisabled,
+      callerSampleTrack,
     );
 
+    let sampleTrack = callerSampleTrack;
+    const topListenerId = result.filteredUsersWithArtist[0]?.userId;
+    if (!sampleTrack && topListenerId !== undefined) {
+      sampleTrack = await artistTrackService
+        .getSampleTrackForArtist(topListenerId, resolvedName)
+        .catch(() => undefined);
+      if (sampleTrack) {
+        const anchoredGenres = await container
+          .resolve(GenreService)
+          .getGenresForArtist(resolvedName, sampleTrack)
+          .catch(() => undefined);
+        if (anchoredGenres !== undefined) {
+          result.genres = anchoredGenres;
+        }
+      }
+    }
+
     const [imgUrl, alsoPlaying, closeFriends] = await Promise.all([
-      this.artworkService.getArtistImageUrl(resolvedName),
+      this.artworkService.getArtistImageUrl(resolvedName, sampleTrack),
       this.whoKnowsPlayService.getGuildAlsoPlayingArtist(user.userId, result.guildUsers, resolvedName),
       this.friendsService.getCloseFriendUserIds(user.userId),
     ]);

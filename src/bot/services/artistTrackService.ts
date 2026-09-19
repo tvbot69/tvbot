@@ -6,6 +6,20 @@ export interface ArtistTopTrack {
   playcount: number;
 }
 
+/**
+ * Detects a still-indexing library: the authoritative total (Last.fm-synced
+ * userArtist playcount) dwarfs the sum of locally-indexed per-track plays.
+ * Callers should tell the user results are partial instead of looking broken.
+ */
+export const isArtistIndexPartial = (
+  tracks: Array<{ playcount: number }>,
+  totalPlays: number,
+): boolean => {
+  if (totalPlays < 10 || tracks.length === 0) return false;
+  const indexed = tracks.reduce((sum, t) => sum + (t.playcount || 0), 0);
+  return indexed < totalPlays * 0.5;
+};
+
 export class ArtistTrackService {
   public async getTopTracksForArtist(userId: number, artistName: string, timePeriod: TimePeriod = TimePeriod.AllTime): Promise<ArtistTopTrack[]> {
     // 1) Find canonical artist in DB
@@ -121,6 +135,34 @@ export class ArtistTrackService {
   public async getDistinctTrackCount(userId: number, artistName: string): Promise<number> {
     const tracks = await this.getTopTracksForArtist(userId, artistName);
     return tracks.length;
+  }
+
+  /**
+   * Returns one representative track title for (user, artist) — used to anchor
+   * external metadata (Spotify/Apple) to the exact same-name artist the user
+   * actually listens to, instead of the globally-most-popular namesake.
+   * Falls back to a second user's top track when the primary user has none.
+   */
+  public async getSampleTrackForArtist(
+    userId: number,
+    artistName: string,
+    fallbackUserId?: number,
+  ): Promise<string | undefined> {
+    try {
+      const mine = await this.getTopTracksForArtist(userId, artistName);
+      if (mine[0]?.name) return mine[0].name;
+    } catch {
+      // fall through to fallback user
+    }
+    if (fallbackUserId && fallbackUserId !== userId) {
+      try {
+        const theirs = await this.getTopTracksForArtist(fallbackUserId, artistName);
+        if (theirs[0]?.name) return theirs[0].name;
+      } catch {
+        // no sample available — callers fall back to name-only resolution
+      }
+    }
+    return undefined;
   }
 
   public async getTopAlbumsForArtist(userId: number, artistName: string, timePeriod: TimePeriod = TimePeriod.AllTime): Promise<Array<{ name: string; playcount: number }>> {

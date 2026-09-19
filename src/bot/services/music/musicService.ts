@@ -119,13 +119,29 @@ export class MusicService {
     const isSoundcloud = /^(https?:\/\/)?(www\.)?soundcloud\.com\/.+$/i.test(trimmedQuery);
     const isYoutubeUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i.test(trimmedQuery);
     const isDirectUrl = isYoutubeUrl || isSoundcloud || /^https?:\/\//i.test(trimmedQuery);
-    const searchSource = isSoundcloud ? 'soundcloud' : 'youtube';
+    let searchSource: 'soundcloud' | 'youtube' = isSoundcloud ? 'soundcloud' : 'youtube';
 
     try {
-      const res = await manager.search({
+      let res = await manager.search({
         query: trimmedQuery,
         source: searchSource,
       });
+
+      // YouTube search returns zero hits for some text queries (explicit terms,
+      // obscure spellings) while SoundCloud has them — retry there before giving
+      // up. Never second-guess a direct URL the user pasted.
+      if ((!res || !res.tracks || res.tracks.length === 0) && !isDirectUrl && searchSource === 'youtube') {
+        try {
+          const scRes = await manager.search({ query: trimmedQuery, source: 'soundcloud' });
+          if (scRes?.tracks && scRes.tracks.length > 0) {
+            Logger.info({ query: trimmedQuery }, '[Music] YouTube search empty — falling back to SoundCloud');
+            res = scRes;
+            searchSource = 'soundcloud';
+          }
+        } catch {
+          // fall through to empty below
+        }
+      }
 
       if (!res || !res.tracks || res.tracks.length === 0) {
         return {

@@ -69,6 +69,62 @@ export class SpotifySearchApi {
     return s.toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]/gu, '');
   }
 
+  /**
+   * Resolves the exact Spotify artist ID by anchoring on one of the user's own
+   * scrobbles (`Artist + Track`). Name-only artist search silently picks the
+   * globally-most-popular same-name entity (e.g. metal band "Mond" instead of the
+   * Egyptian rapper "Mond"); a track search disambiguates via the recording's
+   * credited artists. Returns null when nothing matches exactly.
+   */
+  public async getArtistIdViaTrackSample(
+    artistName: string,
+    sampleTrack: string,
+  ): Promise<string | null> {
+    try {
+      if (SpotifySearchApi.isRateLimited()) return null;
+      const target = artistName.toLowerCase().trim();
+      if (!target || !sampleTrack?.trim()) return null;
+      const tracks = await this.searchTracks(`${artistName} ${sampleTrack}`, 5);
+      for (const t of tracks) {
+        const matching = t.artists?.find(
+          (a) =>
+            a.name.toLowerCase().trim() === target ||
+            SpotifySearchApi.clean(a.name) === SpotifySearchApi.clean(artistName),
+        );
+        if (matching?.id) return matching.id;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Fetches the canonical Spotify artist entity (images, genres, followers).
+   */
+  public async getArtistById(artistId: string): Promise<SpotifySearchArtist | null> {
+    try {
+      if (SpotifySearchApi.isRateLimited()) return null;
+      const token = await this.tokenManager.getToken();
+      if (!token) return null;
+      const res = await fetch(`https://api.spotify.com/v1/artists/${artistId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        this.tokenManager.invalidate();
+        return null;
+      }
+      if (res.status === 429) {
+        SpotifySearchApi.handleRateLimit(res);
+        return null;
+      }
+      if (!res.ok) return null;
+      return (await res.json()) as SpotifySearchArtist;
+    } catch {
+      return null;
+    }
+  }
+
   public async getSpotifyTrackUrl(artistName: string, trackName: string): Promise<string | null> {
     try {
       // Use limit 5 — limit 15 triggers HTTP 400 for some Arabic queries (e.g. Lege-Cy)
