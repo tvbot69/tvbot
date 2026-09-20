@@ -48,6 +48,7 @@ import { IntelligenceInteractions } from '@bot/interactions/intelligenceInteract
 import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
 import { HelpInteractions } from '@bot/interactions/helpInteractions';
 import { TelemetryService } from '@bot/services/telemetryService';
+import { RateLimitService } from '@bot/services/rateLimitService';
 import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
 import { tryHandleModal } from '@bot/interactions';
@@ -89,6 +90,7 @@ export class InteractionHandler {
   private readonly nowPlayingInteractions: NowPlayingInteractions;
   private readonly userSettingsInteractions: UserSettingsInteractions;
   private readonly helpInteractions: HelpInteractions;
+  private readonly rateLimitService: RateLimitService;
 
   constructor() {
     this.client = container.resolve(Client);
@@ -127,6 +129,7 @@ export class InteractionHandler {
     this.gameInteractions = container.resolve(GameInteractions);
     this.userHubInteractions = container.resolve(UserHubInteractions);
     this.intelligenceInteractions = container.resolve(IntelligenceInteractions);
+    this.rateLimitService = container.resolve(RateLimitService);
 
     this.client.on(Events.InteractionCreate, (interaction) => {
       void this.onInteractionCreated(interaction);
@@ -385,6 +388,20 @@ export class InteractionHandler {
 
     const command = getSlashCommand(commandName);
     if (!command) {
+      return;
+    }
+
+    // Same two-tier rate limit as text commands (previously slash was unchecked)
+    const rateLimit = await this.rateLimitService.checkUserRateLimitAsync(interaction.user.id);
+    if (rateLimit.rateLimited) {
+      if (!rateLimit.messageSent) {
+        await interaction
+          .reply({
+            content: `⏳ You are using commands too fast! Please slow down (${rateLimit.retryAfterSeconds ?? 8}s cooldown).`,
+            flags: MessageFlags.Ephemeral,
+          })
+          .catch(() => undefined);
+      }
       return;
     }
 

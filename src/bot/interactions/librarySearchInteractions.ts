@@ -3,6 +3,7 @@ import { injectable, inject } from 'tsyringe';
 import { LibrarySearchService, SearchTab } from '@bot/services/librarySearchService';
 import { LibrarySearchBuilders } from '@bot/builders/librarySearchBuilders';
 import { ColorService } from '@bot/services/colorService';
+import { TtlStore } from '@bot/services/ttlStore';
 
 interface CachedSearch {
   query: string;
@@ -10,32 +11,18 @@ interface CachedSearch {
   expiresAt: number;
 }
 
-const searchCache = new Map<string, CachedSearch>();
+const searchStore = new TtlStore<CachedSearch>('session:library-search:', 30 * 60);
 
 export function storeSearchQuery(cacheKey: string, query: string, userId: number): void {
-  searchCache.set(cacheKey, {
+  searchStore.set(cacheKey, {
     query,
     userId,
     expiresAt: Date.now() + 30 * 60 * 1000,
   });
-
-  // Cleanup old entries
-  if (searchCache.size > 200) {
-    const now = Date.now();
-    for (const [key, val] of searchCache.entries()) {
-      if (val.expiresAt < now) searchCache.delete(key);
-    }
-  }
 }
 
-export function getCachedSearchQuery(cacheKey: string): CachedSearch | undefined {
-  const cached = searchCache.get(cacheKey);
-  if (!cached) return undefined;
-  if (cached.expiresAt < Date.now()) {
-    searchCache.delete(cacheKey);
-    return undefined;
-  }
-  return cached;
+export function getCachedSearchQuery(cacheKey: string): Promise<CachedSearch | undefined> {
+  return searchStore.get(cacheKey);
 }
 
 @injectable()
@@ -68,7 +55,7 @@ export class LibrarySearchInteractions {
       return;
     }
 
-    const cached = getCachedSearchQuery(cacheKey);
+    const cached = await getCachedSearchQuery(cacheKey);
     if (!cached) {
       await interaction.reply({
         content: 'This search session has expired. Please run the command again.',

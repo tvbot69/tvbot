@@ -3,6 +3,7 @@ import { injectable, inject } from 'tsyringe';
 import { GenreService, TopGenreItem, WhoKnowsGenreItem } from '@bot/services/genreService';
 import { GenreBuilders } from '@bot/builders/genreBuilders';
 import { UserService } from '@bot/services/userService';
+import { TtlStore } from '@bot/services/ttlStore';
 
 export type GenreInteractionType = 'top' | 'info' | 'whoknows';
 
@@ -23,33 +24,20 @@ export interface CachedGenreQuery {
   expiresAt: number;
 }
 
-const genreQueryCache = new Map<string, CachedGenreQuery>();
+const genreQueryStore = new TtlStore<CachedGenreQuery>('session:genre-query:', 30 * 60);
 
 export function storeGenreQuery(
   cacheKey: string,
   data: Omit<CachedGenreQuery, 'expiresAt'>,
 ): void {
-  genreQueryCache.set(cacheKey, {
+  genreQueryStore.set(cacheKey, {
     ...data,
     expiresAt: Date.now() + 30 * 60 * 1000,
   });
-
-  if (genreQueryCache.size > 200) {
-    const now = Date.now();
-    for (const [key, val] of genreQueryCache.entries()) {
-      if (val.expiresAt < now) genreQueryCache.delete(key);
-    }
-  }
 }
 
-export function getCachedGenreQuery(cacheKey: string): CachedGenreQuery | undefined {
-  const cached = genreQueryCache.get(cacheKey);
-  if (!cached) return undefined;
-  if (cached.expiresAt < Date.now()) {
-    genreQueryCache.delete(cacheKey);
-    return undefined;
-  }
-  return cached;
+export function getCachedGenreQuery(cacheKey: string): Promise<CachedGenreQuery | undefined> {
+  return genreQueryStore.get(cacheKey);
 }
 
 @injectable()
@@ -81,7 +69,7 @@ export class GenreInteractions {
         return;
       }
 
-      const cached = getCachedGenreQuery(cacheKey);
+      const cached = await getCachedGenreQuery(cacheKey);
       if (!cached || !cached.genreName) {
         await interaction.reply({
           content: 'This interaction has expired. Please run the command again.',
@@ -135,7 +123,7 @@ export class GenreInteractions {
         return;
       }
 
-      const cached = getCachedGenreQuery(cacheKey);
+      const cached = await getCachedGenreQuery(cacheKey);
       if (!cached) {
         await interaction.reply({
           content: 'This interaction has expired. Please run the command again.',

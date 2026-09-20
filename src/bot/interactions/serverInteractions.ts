@@ -10,6 +10,7 @@ import {
   ServerRankingType,
 } from '@bot/builders/serverBuilders';
 import { ColorService } from '@bot/services/colorService';
+import { TtlStore } from '@bot/services/ttlStore';
 
 export interface CachedServerRanking {
   type: ServerRankingType;
@@ -21,33 +22,35 @@ export interface CachedServerRanking {
   expiresAt: number;
 }
 
-const serverRankingCache = new Map<string, CachedServerRanking>();
+const DATE_KEYS = ['startDateTime', 'endDateTime', 'billboardStartDateTime', 'billboardEndDateTime'] as const;
+
+// Dual-layer session store (memory + Redis mirror) so ranking pagination
+// survives restarts. Dates are revived after the JSON round-trip.
+const serverRankingStore = new TtlStore<CachedServerRanking>(
+  'session:server-ranking:',
+  30 * 60,
+  (value) => {
+    const settings = { ...(value.settings as unknown as Record<string, unknown>) };
+    for (const key of DATE_KEYS) {
+      const raw = settings[key];
+      if (typeof raw === 'string' && raw) settings[key] = new Date(raw);
+    }
+    return { ...value, settings: settings as unknown as GuildRankingSettings };
+  },
+);
 
 export function storeServerRankingQuery(
   cacheKey: string,
   data: Omit<CachedServerRanking, 'expiresAt'>,
 ): void {
-  serverRankingCache.set(cacheKey, {
+  serverRankingStore.set(cacheKey, {
     ...data,
     expiresAt: Date.now() + 30 * 60 * 1000,
   });
-
-  if (serverRankingCache.size > 200) {
-    const now = Date.now();
-    for (const [key, val] of serverRankingCache.entries()) {
-      if (val.expiresAt < now) serverRankingCache.delete(key);
-    }
-  }
 }
 
-export function getCachedServerRankingQuery(cacheKey: string): CachedServerRanking | undefined {
-  const cached = serverRankingCache.get(cacheKey);
-  if (!cached) return undefined;
-  if (cached.expiresAt < Date.now()) {
-    serverRankingCache.delete(cacheKey);
-    return undefined;
-  }
-  return cached;
+export function getCachedServerRankingQuery(cacheKey: string): Promise<CachedServerRanking | undefined> {
+  return serverRankingStore.get(cacheKey);
 }
 
 @injectable()
@@ -93,7 +96,7 @@ export class ServerInteractions {
       return;
     }
 
-    const cached = getCachedServerRankingQuery(cacheKey);
+    const cached = await getCachedServerRankingQuery(cacheKey);
     if (!cached) {
       await interaction.reply({
         content: 'This server chart interaction has expired. Please run the command again.',

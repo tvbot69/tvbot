@@ -1,4 +1,5 @@
-import { singleton } from 'tsyringe';
+import { container, singleton } from 'tsyringe';
+import { CacheService } from './cacheService';
 
 interface RateLimitEntry {
   count: number;
@@ -27,9 +28,65 @@ export class RateLimitService {
 
   // Optional bypass set for bot administrators / internal testing
   private readonly bypassUserIds = new Set<string>();
+  private cache: CacheService | null | undefined;
 
   public addBypassUser(userId: string): void {
     this.bypassUserIds.add(userId);
+  }
+
+  private getCache(): CacheService | null {
+    if (this.cache === undefined) {
+      try {
+        this.cache = container.isRegistered(CacheService) ? container.resolve(CacheService) : null;
+      } catch {
+        this.cache = null;
+      }
+    }
+    return this.cache;
+  }
+
+  /**
+   * Async entry: Redis fixed-window counters when available (shared across
+   * processes/shards/restarts), memory fallback otherwise.
+   */
+  public async checkUserRateLimitAsync(discordUserId: string): Promise<RateLimitResult> {
+    if (this.bypassUserIds.has(discordUserId)) {
+      return { rateLimited: false, messageSent: false };
+    }
+    const cache = this.getCache();
+    if (!cache?.isRedisReady()) {
+      return this.checkUserRateLimit(discordUserId);
+    }
+    try {
+      return await this.checkRedis(discordUserId, cache);
+    } catch {
+      return this.checkUserRateLimit(discordUserId);
+    }
+  }
+
+  private async checkRedis(discordUserId: string, cache: CacheService): Promise<RateLimitResult> {
+    const errSent = (await cache.get<number>(`rl:err:${discordUserId}`)) !== null;
+
+    const shortCount = await cache.incrWithExpiry(`rl:short:${discordUserId}`, 10);
+    if (shortCount === 0) {
+      // Redis blipped mid-call — degrade to memory rather than fail open.
+      return this.checkUserRateLimit(discordUserId);
+    }
+    if (shortCount > this.shortMaxRequests) {
+      await cache.set(`rl:err:${discordUserId}`, 1, this.shortPenaltyCooldownMs / 1000).catch(() => undefined);
+      return { rateLimited: true, messageSent: errSent, retryAfterSeconds: this.shortPenaltyCooldownMs / 1000 };
+    }
+
+    const longCount = await cache.incrWithExpiry(`rl:long:${discordUserId}`, 40);
+    if (longCount === 0) {
+      return this.checkUserRateLimit(discordUserId);
+    }
+    if (longCount > this.longMaxRequests) {
+      await cache.set(`rl:err:${discordUserId}`, 1, this.longPenaltyCooldownMs / 1000).catch(() => undefined);
+      return { rateLimited: true, messageSent: errSent, retryAfterSeconds: this.longPenaltyCooldownMs / 1000 };
+    }
+
+    return { rateLimited: false, messageSent: errSent };
   }
 
   public checkUserRateLimit(discordUserId: string): RateLimitResult {

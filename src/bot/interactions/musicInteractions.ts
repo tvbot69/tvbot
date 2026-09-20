@@ -10,6 +10,7 @@ import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { ColorService } from '@bot/services/colorService';
 import type { FilterName } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
+import { TtlStore } from '@bot/services/ttlStore';
 
 export const MUSIC_INTERACTION_PREFIXES = [
   'music:queue:',
@@ -24,8 +25,9 @@ export class MusicInteractions {
   private readonly colorService: ColorService;
   private readonly lyricsService?: LyricsService;
 
-  // Ephemeral memory cache for active search results per message/user
-  private readonly activeSearches = new Map<string, MusicTrack[]>();
+  // Active search results per message/user (memory + Redis mirror so search
+  // picks survive restarts; 2-minute life like before).
+  private readonly activeSearches = new TtlStore<MusicTrack[]>('session:music-search:', 120);
 
   constructor(
     musicService: MusicService,
@@ -39,8 +41,6 @@ export class MusicInteractions {
 
   public storeSearchResults(key: string, tracks: MusicTrack[]): void {
     this.activeSearches.set(key, tracks);
-    // Expire after 2 minutes
-    setTimeout(() => this.activeSearches.delete(key), 120000);
   }
 
   public async handleButton(interaction: ButtonInteraction): Promise<void> {
@@ -412,8 +412,8 @@ export class MusicInteractions {
       const selectedIndex = selectedIndexStr ? Number(selectedIndexStr) : NaN;
 
       const cachedTracks =
-        this.activeSearches.get(interaction.message.id) ??
-        this.activeSearches.get(interaction.user.id);
+        (await this.activeSearches.get(interaction.message.id)) ??
+        (await this.activeSearches.get(interaction.user.id));
 
       if (!cachedTracks || Number.isNaN(selectedIndex) || !cachedTracks[selectedIndex]) {
         await interaction.reply({

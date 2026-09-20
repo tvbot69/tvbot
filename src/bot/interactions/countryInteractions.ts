@@ -4,6 +4,7 @@ import { CountryService, CountryInfo, TopCountryItem, WhoKnowsCountryItem } from
 import { CountryBuilders } from '@bot/builders/countryBuilders';
 import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
 import { UserService } from '@bot/services/userService';
+import { TtlStore } from '@bot/services/ttlStore';
 
 export type CountryInteractionType = 'top' | 'info' | 'wkc' | 'chart';
 
@@ -26,33 +27,20 @@ export interface CachedCountryQuery {
   expiresAt: number;
 }
 
-const countryQueryCache = new Map<string, CachedCountryQuery>();
+const countryQueryStore = new TtlStore<CachedCountryQuery>('session:country-query:', 30 * 60);
 
 export function storeCountryQuery(
   cacheKey: string,
   data: Omit<CachedCountryQuery, 'expiresAt'>,
 ): void {
-  countryQueryCache.set(cacheKey, {
+  countryQueryStore.set(cacheKey, {
     ...data,
     expiresAt: Date.now() + 30 * 60 * 1000,
   });
-
-  if (countryQueryCache.size > 200) {
-    const now = Date.now();
-    for (const [key, val] of countryQueryCache.entries()) {
-      if (val.expiresAt < now) countryQueryCache.delete(key);
-    }
-  }
 }
 
-export function getCachedCountryQuery(cacheKey: string): CachedCountryQuery | undefined {
-  const cached = countryQueryCache.get(cacheKey);
-  if (!cached) return undefined;
-  if (cached.expiresAt < Date.now()) {
-    countryQueryCache.delete(cacheKey);
-    return undefined;
-  }
-  return cached;
+export function getCachedCountryQuery(cacheKey: string): Promise<CachedCountryQuery | undefined> {
+  return countryQueryStore.get(cacheKey);
 }
 
 @injectable()
@@ -85,7 +73,7 @@ export class CountryInteractions {
         return;
       }
 
-      const cached = getCachedCountryQuery(cacheKey);
+      const cached = await getCachedCountryQuery(cacheKey);
       if (!cached) {
         await interaction.reply({
           content: 'This interaction has expired. Please run the command again.',
@@ -184,7 +172,7 @@ export class CountryInteractions {
         return;
       }
 
-      const cached = getCachedCountryQuery(cacheKey);
+      const cached = await getCachedCountryQuery(cacheKey);
       if (!cached) {
         await interaction.reply({
           content: 'This interaction has expired. Please run the command again.',
@@ -286,7 +274,7 @@ export class CountryInteractions {
       return;
     }
 
-    const cached = getCachedCountryQuery(cacheKey);
+    const cached = await getCachedCountryQuery(cacheKey);
     if (!cached || !cached.countries) {
       await interaction.reply({
         content: 'This interaction has expired. Please run the command again.',

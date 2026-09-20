@@ -140,8 +140,8 @@ export class CommandHandler {
       return;
     }
 
-    // Two-tier Rate limit check
-    const rateLimit = this.rateLimitService.checkUserRateLimit(message.author.id);
+    // Two-tier Rate limit check (Redis-backed across processes when available)
+    const rateLimit = await this.rateLimitService.checkUserRateLimitAsync(message.author.id);
     if (rateLimit.rateLimited) {
       if (!rateLimit.messageSent && message.channel && 'send' in message.channel) {
         const embed = new EmbedBuilder()

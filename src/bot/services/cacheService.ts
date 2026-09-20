@@ -168,6 +168,24 @@ export class CacheService {
     await this.redisExec((r) => r.srem(key, member).then(() => undefined), undefined);
   }
 
+  /**
+   * Atomic fixed-window counter (INCR + EXPIRE-on-first via Lua). Used for
+   * cross-process rate limits — never falls back to a wrong answer, only to
+   * zero (caller treats zero as "no Redis, use memory path").
+   */
+  public async incrWithExpiry(key: string, ttlSeconds: number): Promise<number> {
+    return this.redisExec(
+      (r) =>
+        r.eval(
+          `local c = redis.call('INCR', KEYS[1]); if c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end; return c;`,
+          1,
+          key,
+          String(ttlSeconds),
+        ) as Promise<number>,
+      0,
+    );
+  }
+
   public async keyDelete(key: string): Promise<void> {
     await this.delete(key);
   }
