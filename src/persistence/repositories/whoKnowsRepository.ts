@@ -24,6 +24,7 @@ export class WhoKnowsRepository implements IWhoKnowsRepository {
       FROM user_artists AS ua
       WHERE UPPER(ua.name) = UPPER(${artistName})
       AND ua.user_id = ANY(SELECT user_id FROM guild_users WHERE guild_id = ${BigInt(guildId)})
+      AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ua.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
       ORDER BY ua.playcount DESC;
     `;
 
@@ -42,6 +43,7 @@ export class WhoKnowsRepository implements IWhoKnowsRepository {
       FROM user_albums AS ub
       WHERE ub.album_id = ${albumId}
       AND ub.user_id = ANY(SELECT user_id FROM guild_users WHERE guild_id = ${BigInt(guildId)})
+      AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ub.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
       ORDER BY ub.playcount DESC;
     `;
 
@@ -60,6 +62,7 @@ export class WhoKnowsRepository implements IWhoKnowsRepository {
       FROM user_tracks AS ut
       WHERE ut.track_id = ${trackId}
       AND ut.user_id = ANY(SELECT user_id FROM guild_users WHERE guild_id = ${BigInt(guildId)})
+      AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ut.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
       ORDER BY ut.playcount DESC;
     `;
 

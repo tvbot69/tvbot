@@ -91,6 +91,14 @@ export class StartupService {
       } catch (err) {
         Logger.warn({ err }, 'Failed to restore scrobbling opt-ins');
       }
+      try {
+        const { AbuseFilterService } = await import('./abuseFilterService');
+        if (container.isRegistered(AbuseFilterService)) {
+          await container.resolve(AbuseFilterService).refresh();
+        }
+      } catch (err) {
+        Logger.warn({ err }, 'Failed to load abuse flags');
+      }
 
       this.timerService.startAsync();
 

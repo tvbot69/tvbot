@@ -27,13 +27,15 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
       {
         data: new SlashCommandBuilder()
           .setName('serversettings')
-          .setDescription('View server configuration and crown dashboard'),
+          .setDescription('View server configuration and crown dashboard')
+          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
         executeAsync: (ctx) => this.serverSettingsSlashAsync(ctx),
       },
       {
         data: new SlashCommandBuilder()
           .setName('members')
-          .setDescription('View server members that have connected a Last.fm account'),
+          .setDescription('View server members that have connected a Last.fm account')
+          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
         executeAsync: (ctx) => this.membersSlashAsync(ctx),
       },
       {
@@ -99,6 +101,16 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
     ];
   }
 
+  private requireGuildAdmin(context: ContextModel): ResponseModel | null {
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to view server admin info.',
+      );
+    }
+    return null;
+  }
+
   private async serverSettingsSlashAsync(context: ContextModel): Promise<ResponseModel> {
     if (!context.guildId) {
       return GenericEmbedService.buildCommandErrorResponse(
@@ -106,6 +118,9 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
         'This command can only be used in a server.',
       );
     }
+
+    const adminBlock = this.requireGuildAdmin(context);
+    if (adminBlock) return adminBlock;
 
     const guild = await this.guildService.getGuild(context.guildId);
     if (!guild) {
@@ -139,6 +154,9 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
         'This command can only be used in a server.',
       );
     }
+
+    const adminBlock = this.requireGuildAdmin(context);
+    if (adminBlock) return adminBlock;
 
     const guildName = context.guild?.name || 'this server';
     const members = await this.guildAdminService.getMembersOverview(context.guildId);

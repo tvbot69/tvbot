@@ -123,4 +123,39 @@ export class AutopostRepository {
       data: { lastPosted },
     });
   }
+
+  public async countForGuild(guildId: string): Promise<number> {
+    return this.prisma.guildAutopost.count({ where: { guildId: BigInt(guildId) } });
+  }
+
+  /**
+   * Atomic due-claim: stamps lastPosted=now only when the row is still due.
+   * Returns the previous lastPosted when this caller won the claim, null when
+   * another runner claimed it first (or it is not due). The caller rolls back
+   * to the previous value on post failure so the next sweep retries.
+   */
+  public async claimDueAutopost(id: number, dueBefore: Date): Promise<Date | null | undefined> {
+    const current = await this.prisma.guildAutopost.findUnique({
+      where: { id },
+      select: { lastPosted: true, enabled: true },
+    });
+    if (!current?.enabled) return null;
+    if (current.lastPosted && current.lastPosted > dueBefore) return null;
+    const res = await this.prisma.guildAutopost.updateMany({
+      where: {
+        id,
+        enabled: true,
+        OR: [{ lastPosted: null }, { lastPosted: { lte: dueBefore } }],
+      },
+      data: { lastPosted: new Date() },
+    });
+    return res.count > 0 ? (current.lastPosted ?? undefined) : null;
+  }
+
+  public async releaseClaim(id: number, previousLastPosted: Date | null | undefined): Promise<void> {
+    await this.prisma.guildAutopost.update({
+      where: { id },
+      data: { lastPosted: previousLastPosted ?? null },
+    }).catch(() => undefined);
+  }
 }

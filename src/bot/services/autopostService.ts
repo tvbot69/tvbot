@@ -61,11 +61,21 @@ export class AutopostService {
     Logger.info(`[Autopost] Configured ${config.contentType} (${config.schedule}) for guild ${config.guildId} in #${config.channelId}`);
   }
 
+  public static readonly MAX_AUTOPOSTS_PER_GUILD = 10;
+
   /**
-   * Create an autopost asynchronously with database persistence
+   * Create an autopost asynchronously with database persistence.
+   * Returns null when the guild already has the maximum (spam guard).
    */
-  public async createAutopost(config: Omit<AutopostConfig, 'id'>): Promise<AutopostConfig> {
+  public async createAutopost(config: Omit<AutopostConfig, 'id'>): Promise<AutopostConfig | null> {
     if (this.autopostRepository) {
+      const existing = await this.autopostRepository
+        .countForGuild(config.guildId)
+        .catch(() => 0);
+      if (existing >= AutopostService.MAX_AUTOPOSTS_PER_GUILD) {
+        Logger.warn(`[Autopost] Guild ${config.guildId} at autopost cap, refusing new one`);
+        return null;
+      }
       const created = await this.autopostRepository.createAutopost({
         guildId: config.guildId,
         channelId: config.channelId,
@@ -159,19 +169,14 @@ export class AutopostService {
   }
 
   /**
-   * Post an individual autopost immediately
+   * Post an individual autopost immediately. Never touches lastPosted — the
+   * runner owns the claim (stamp) and the rollback, so failures retry next
+   * sweep instead of being silently skipped until the following cycle.
    */
   public async postAutopost(autopost: AutopostConfig, client: Client): Promise<boolean> {
     const channel = await client.channels.fetch(autopost.channelId).catch(() => null);
     if (!channel || !channel.isTextBased()) {
       Logger.warn(`[Autopost] Channel ${autopost.channelId} not found or not text-based for guild ${autopost.guildId}`);
-      autopost.lastPosted = new Date();
-      if (this.autopostRepository) {
-        const numId = parseInt(autopost.id, 10);
-        if (!isNaN(numId)) {
-          void this.autopostRepository.updateLastPosted(numId, autopost.lastPosted);
-        }
-      }
       return false;
     }
 
@@ -200,28 +205,30 @@ export class AutopostService {
       }
     } catch (err: any) {
       Logger.warn({ err: err?.message }, `[Autopost] Failed to send message to channel ${autopost.channelId}`);
-      autopost.lastPosted = new Date();
-      if (this.autopostRepository) {
-        const numId = parseInt(autopost.id, 10);
-        if (!isNaN(numId)) {
-          await this.autopostRepository.updateLastPosted(numId, autopost.lastPosted);
-        }
-      }
       return false;
     }
 
     autopost.lastPosted = new Date();
-    if (this.autopostRepository) {
-      const numId = parseInt(autopost.id, 10);
-      if (!isNaN(numId)) {
-        await this.autopostRepository.updateLastPosted(numId, autopost.lastPosted);
-      }
-    }
     return true;
   }
 
+  private dueCutoff(schedule: AutopostConfig['schedule'], now: Date): Date | null {
+    switch (schedule) {
+      case 'Daily':
+        return new Date(now.getTime() - 24 * 3600 * 1000);
+      case 'Weekly':
+        return new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+      case 'Monthly':
+        return new Date(now.getTime() - 28 * 24 * 3600 * 1000);
+      default:
+        return null;
+    }
+  }
+
   /**
-   * Execute scheduled autoposts across all registered guilds
+   * Execute scheduled autoposts across all registered guilds. Each due post is
+   * atomically claimed first (double runners / restarts can't double-post);
+   * failures roll the claim back so the next sweep retries.
    */
   public async runScheduledAutoposts(client: Client): Promise<{ executed: number; failed: number }> {
     const now = new Date();
@@ -240,6 +247,18 @@ export class AutopostService {
         continue;
       }
 
+      // Atomic claim: losers (second runner, stale re-run) skip silently.
+      let previousLastPosted: Date | null | undefined;
+      const numId = parseInt(autopost.id, 10);
+      if (this.autopostRepository && !isNaN(numId)) {
+        const cutoff = this.dueCutoff(autopost.schedule, now);
+        if (!cutoff) continue;
+        const claimed = await this.autopostRepository.claimDueAutopost(numId, cutoff).catch(() => null);
+        if (claimed === null) continue;
+        previousLastPosted = claimed;
+        autopost.lastPosted = new Date();
+      }
+
       const start = Date.now();
       try {
         const success = await this.postAutopost(autopost, client);
@@ -249,9 +268,15 @@ export class AutopostService {
           this.telemetryService.recordCommandExecution(`autopost:${autopost.contentType.toLowerCase()}`, duration, true);
         } else {
           failed++;
+          if (this.autopostRepository && !isNaN(numId)) {
+            await this.autopostRepository.releaseClaim(numId, previousLastPosted);
+          }
         }
       } catch (err: any) {
         failed++;
+        if (this.autopostRepository && !isNaN(numId)) {
+          await this.autopostRepository.releaseClaim(numId, previousLastPosted).catch(() => undefined);
+        }
         const duration = Date.now() - start;
         this.telemetryService.recordCommandExecution(`autopost:${autopost.contentType.toLowerCase()}`, duration, false);
         Logger.error({ err: err?.message }, `[Autopost] Failed to post ${autopost.contentType} for guild ${autopost.guildId}`);

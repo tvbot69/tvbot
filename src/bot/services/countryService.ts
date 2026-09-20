@@ -407,7 +407,7 @@ export class CountryService {
         FROM user_artists ua
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN artists a ON a.artist_id = ua.artist_id
-        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ua.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         WHERE gu.guild_id = ${gIdBigInt}
           AND ua.artist_id IS NOT NULL
           AND a.country_code IS NOT NULL
@@ -442,7 +442,7 @@ export class CountryService {
         FROM user_artists ua
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN artists a ON a.artist_id = ua.artist_id
-        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ua.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         WHERE gu.guild_id = ${gIdBigInt}
           AND ua.artist_id IS NOT NULL
           AND LOWER(a.country_code) = LOWER(${countryCode.trim()})
@@ -478,6 +478,7 @@ export class CountryService {
           AND ua.artist_id IS NOT NULL
           AND LOWER(a.country_code) = LOWER(${countryCode.trim()})
           AND u.privacy_level <> 'Hide'
+          AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ua.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
           AND (gu.who_knows_whitelisted = true OR gu.who_knows_whitelisted IS NULL)
           AND (gu.who_knows_banned = false OR gu.who_knows_banned IS NULL)
           AND (gu.self_block_from_who_knows = false OR gu.self_block_from_who_knows IS NULL)

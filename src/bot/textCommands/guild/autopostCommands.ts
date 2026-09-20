@@ -9,6 +9,7 @@ import { ColorService } from '@bot/services/colorService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { AutopostBuilders } from '@bot/builders/autopostBuilders';
+import { auditAdminAction } from '@domain/adminAudit';
 
 @injectable()
 export class AutopostCommands implements ITextCommandModule {
@@ -131,6 +132,13 @@ export class AutopostCommands implements ITextCommandModule {
       enabled: true,
     });
 
+    if (!created) {
+      return GenericEmbedService.buildWrongInputResponse(
+        `This server already has the maximum of ${AutopostService.MAX_AUTOPOSTS_PER_GUILD} autoposts. Remove one first.`,
+      );
+    }
+
+    auditAdminAction(context.guildId, context.discordUserId, 'autopost-add', `#${created.id} ${contentType}/${schedule} <#${channelId}>`);
     return GenericEmbedService.buildSuccessResponse(
       `✅ Autopost **#${created.id}** created!\nPosting **${contentType.replace('Top', 'Top ')}** on a **${schedule}** schedule to <#${channelId}>.`,
     );
@@ -147,6 +155,7 @@ export class AutopostCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse(`Could not find an autopost with ID **#${id}** in this server.`);
     }
 
+    auditAdminAction(context.guildId, context.discordUserId, 'autopost-remove', `#${id}`);
     return GenericEmbedService.buildSuccessResponse(`🗑️ Autopost **#${id}** has been removed.`);
   }
 

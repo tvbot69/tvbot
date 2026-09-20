@@ -124,6 +124,12 @@ export class LoginSlashCommands implements ISlashCommandModule {
           await interaction.editReply('This login link expired. Run `/login` again.');
           return;
         }
+        if (result.status === LoginStatus.AltLimitExceeded) {
+          await interaction.editReply(
+            `**${result.userName}** is already linked to the maximum number of Discord accounts. Ask a bot owner for help if this is a mistake.`,
+          );
+          return;
+        }
         await interaction.editReply(
           'Last.fm does not show an authorized session yet. Did you click **Allow access** on their page? Wait a few seconds and try Confirm again.',
         );

@@ -51,6 +51,11 @@
 >   skip/previous semantics proven, durable 247/prefs/opt-ins via migration,
 >   15s dirty-checked progress edits, voice-status 429 backoff) — implemented,
 >   509 tests green, migration applied live.
+> - 2026-09-20: Phase 4 batch A (abuse_flags table + nightly velocity scan +
+>   WK/crown/leaderboard enforcement, 5-per-name alt cap at login, autopost
+>   atomic claim/rollback + 10-per-guild cap, admin gates on all read paths,
+>   audit trail on destructive mutations) — implemented, 516 tests green,
+>   migration applied live.
 > - 2026-09-20: Phase 2.2 core (CacheService list/set/NX primitives, durable
 >   update+index queues with restart rehydrate, REDIS_URL required in prod) —
 >   implemented, 488 tests green. Rate-limit + session stores next.

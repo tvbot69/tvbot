@@ -277,7 +277,7 @@ export class GuildRankingService {
                SUM(ua.playcount)::int AS "totalPlaycount",
                COUNT(DISTINCT ua.user_id)::int AS "listenerCount"
         FROM user_artists ua
-        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ua.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         WHERE gu.guild_id = ${gId}
           AND ua.name IS NOT NULL AND ua.name != ''
@@ -305,7 +305,7 @@ export class GuildRankingService {
                COUNT(*)::int AS "totalPlaycount",
                COUNT(DISTINCT up.user_id)::int AS "listenerCount"
         FROM user_plays up
-        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = up.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         INNER JOIN guild_users gu ON gu.user_id = up.user_id
         WHERE gu.guild_id = ${gId}
           AND up.time_played >= ${settings.startDateTime}
@@ -363,7 +363,7 @@ export class GuildRankingService {
                SUM(ub.playcount)::int AS "totalPlaycount",
                COUNT(DISTINCT ub.user_id)::int AS "listenerCount"
         FROM user_albums ub
-        INNER JOIN users u ON u.user_id = ub.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = ub.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ub.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         INNER JOIN guild_users gu ON gu.user_id = ub.user_id
         INNER JOIN albums al ON al.album_id = ub.album_id
         INNER JOIN artists a ON a.artist_id = al.artist_id
@@ -397,7 +397,7 @@ export class GuildRankingService {
                COUNT(*)::int AS "totalPlaycount",
                COUNT(DISTINCT up.user_id)::int AS "listenerCount"
         FROM user_plays up
-        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = up.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         INNER JOIN guild_users gu ON gu.user_id = up.user_id
         WHERE gu.guild_id = ${gId}
           AND up.time_played >= ${settings.startDateTime}
@@ -457,7 +457,7 @@ export class GuildRankingService {
                SUM(ut.playcount)::int AS "totalPlaycount",
                COUNT(DISTINCT ut.user_id)::int AS "listenerCount"
         FROM user_tracks ut
-        INNER JOIN users u ON u.user_id = ut.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = ut.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ut.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         INNER JOIN guild_users gu ON gu.user_id = ut.user_id
         INNER JOIN tracks t ON t.track_id = ut.track_id
         INNER JOIN artists a ON a.artist_id = t.artist_id
@@ -491,7 +491,7 @@ export class GuildRankingService {
                COUNT(*)::int AS "totalPlaycount",
                COUNT(DISTINCT up.user_id)::int AS "listenerCount"
         FROM user_plays up
-        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = up.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         INNER JOIN guild_users gu ON gu.user_id = up.user_id
         WHERE gu.guild_id = ${gId}
           AND up.time_played >= ${settings.startDateTime}
@@ -545,7 +545,7 @@ export class GuildRankingService {
                SUM(ua.playcount)::int AS "totalPlaycount",
                COUNT(DISTINCT ua.user_id)::int AS "listenerCount"
         FROM user_artists ua
-        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = ua.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ua.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
         INNER JOIN artists a ON UPPER(a.name) = UPPER(ua.name)
         INNER JOIN artist_genres ag ON ag.artist_id = a.artist_id
@@ -574,7 +574,7 @@ export class GuildRankingService {
                COUNT(*)::int AS "totalPlaycount",
                COUNT(DISTINCT up.user_id)::int AS "listenerCount"
         FROM user_plays up
-        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide'
+        INNER JOIN users u ON u.user_id = up.user_id AND u.privacy_level <> 'Hide' AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = up.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         INNER JOIN guild_users gu ON gu.user_id = up.user_id
         INNER JOIN artists a ON UPPER(a.name) = UPPER(up.artist_name)
         INNER JOIN artist_genres ag ON ag.artist_id = a.artist_id

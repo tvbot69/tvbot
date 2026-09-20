@@ -87,6 +87,16 @@ export class GuildAdminCommands implements ITextCommandModule {
     ];
   }
 
+  private requireGuildAdmin(context: ContextModel): ResponseModel | null {
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to view server admin info.',
+      );
+    }
+    return null;
+  }
+
   private async serverSettingsAsync(context: ContextModel): Promise<ResponseModel> {
     if (!context.guildId) {
       return GenericEmbedService.buildCommandErrorResponse(
@@ -94,6 +104,9 @@ export class GuildAdminCommands implements ITextCommandModule {
         'This command can only be used in a server.',
       );
     }
+
+    const adminBlock = this.requireGuildAdmin(context);
+    if (adminBlock) return adminBlock;
 
     const guild = await this.guildService.getGuild(context.guildId);
     if (!guild) {
@@ -127,6 +140,9 @@ export class GuildAdminCommands implements ITextCommandModule {
         'This command can only be used in a server.',
       );
     }
+
+    const adminBlock = this.requireGuildAdmin(context);
+    if (adminBlock) return adminBlock;
 
     const guildName = context.guild?.name || 'this server';
     const members = await this.guildAdminService.getMembersOverview(context.guildId);
@@ -236,6 +252,9 @@ export class GuildAdminCommands implements ITextCommandModule {
         'This command can only be used in a server.',
       );
     }
+
+    const adminBlock = this.requireGuildAdmin(context);
+    if (adminBlock) return adminBlock;
 
     const guildName = context.guild?.name || 'this server';
     const blocked = await this.guildAdminService.getBlockedUsers(context.guildId);

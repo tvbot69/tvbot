@@ -359,6 +359,15 @@ model BotScrobbleOptIn {
   @@map("bot_scrobble_opt_ins")
 }
 
+model AbuseFlag {
+  userId    Int       @id @map("user_id")
+  reason    String    @map("reason") @db.VarChar(50)
+  flaggedAt DateTime  @default(now()) @map("flagged_at") @db.Timestamptz(6)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
+
+  @@map("abuse_flags")
+}
+
 model GuildAutopost {
   id          Int       @id @default(autoincrement()) @map("id")
   guildId     BigInt    @map("guild_id")

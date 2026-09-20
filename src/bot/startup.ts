@@ -122,6 +122,7 @@ import { OverviewService } from './services/overviewService';
 import { TopSlashCommands } from './slashCommands/topSlashCommands';
 import { CrownRepository } from '@persistence/repositories/crownRepository';
 import { GuildMusicSettingsRepository } from '@persistence/repositories/guildMusicSettingsRepository';
+import { AbuseFilterService } from '@bot/services/abuseFilterService';
 import { CrownService } from './services/crown/crownService';
 import { CrownInteractions } from './interactions/crownInteractions';
 import { CrownCommands } from './textCommands/guild/crownCommands';
@@ -309,7 +310,9 @@ export const configureContainer = (): void => {
   const genreService = new GenreService(cache, artistGenreRepository, artistRepository, lastFmRepository, prisma);
   const friendsService = new FriendsService(friendsRepository, userRepository);
   const crownRepository = new CrownRepository(prisma);
-  const crownService = new CrownService(crownRepository, userService, lastFmRepository, errorRateTracker);
+  const abuseFilterService = new AbuseFilterService(prisma);
+  container.registerInstance(AbuseFilterService, abuseFilterService);
+  const crownService = new CrownService(crownRepository, userService, lastFmRepository, errorRateTracker, abuseFilterService);
   const whoKnowsArtistService = new WhoKnowsArtistService(
     whoKnowsRepository,
     guildUserRepository,

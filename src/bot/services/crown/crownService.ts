@@ -9,6 +9,7 @@ import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 import { Logger } from '@domain/logger';
+import { AbuseFilterService } from '@bot/services/abuseFilterService';
 
 @injectable()
 export class CrownService {
@@ -17,6 +18,7 @@ export class CrownService {
     @inject(UserService) private readonly userService: UserService,
     @inject(LastFmRepository) private readonly lastfmRepository?: ILastfmRepository,
     @inject(LastfmErrorRateTracker) private readonly errorRateTracker?: LastfmErrorRateTracker,
+    @inject(AbuseFilterService) private readonly abuseFilter?: AbuseFilterService,
   ) {}
 
   public async getAndUpdateCrownForArtist(
@@ -34,7 +36,8 @@ export class CrownService {
     const minPlaycount = (guild as any).crownsMinimumPlaycountThreshold ?? 30;
     const activityDays = (guild as any).crownsActivityThresholdDays;
 
-    // 1. Filter eligible users (privacy opt-outs can never hold crowns)
+    // 1. Filter eligible users (privacy opt-outs and abuse-flagged farmers
+    // can never hold crowns)
     const now = Date.now();
     const eligibleUsers = users.filter((u) => {
       const gu = guildUsers.get(u.userId);
@@ -42,6 +45,7 @@ export class CrownService {
       if (gu?.blockedFromCrowns) return false;
       if (gu?.selfBlockFromWhoKnows) return false;
       if (gu?.privacyLevel === 'Hide') return false;
+      if (this.abuseFilter?.isFlagged(u.userId)) return false;
 
       if (activityDays && activityDays > 0) {
         if (!u.lastUsed) return false;

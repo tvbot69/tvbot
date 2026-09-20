@@ -16,6 +16,8 @@ export interface IUserRepository {
   getUsersWithStaleIndex(cutoff: Date, limit?: number): Promise<User[]>;
   getPrivacyHiddenUserIds(limit?: number): Promise<number[]>;
   getUsersByDiscordIds(discordUserIds: string[]): Promise<Map<string, User>>;
+  /** Sybil guard: how many Discord rows share one Last.fm name (case-insensitive) */
+  countUsersByLastFmName(userNameLastFm: string): Promise<number>;
 
   /** Delta sync: set the timestamp of the user's most recent scrobble */
   setLastScrobbleUpdate(userId: number, date: Date): Promise<void>;

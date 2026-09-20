@@ -10,6 +10,7 @@ import { UpdateService } from '@bot/services/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { ArtistsService } from '@bot/services/artistsService';
+import { auditAdminAction } from '@domain/adminAudit';
 
 import { container } from 'tsyringe';
 import { ColorService } from '@bot/services/colorService';
@@ -302,6 +303,7 @@ export class CrownCommands implements ITextCommandModule {
     }
 
     const killed = await this.crownService.killCrown(context.guildId, artistName);
+    auditAdminAction(context.guildId, context.discordUserId, 'killcrown', artistName);
     if (!killed) {
       return GenericEmbedService.buildNotFoundResponse(`No active crown was found for **${artistName}** in this server.`);
     }
@@ -332,6 +334,7 @@ export class CrownCommands implements ITextCommandModule {
     }
 
     const count = await this.crownService.removeUserCrowns(context.guildId, targetUser.userId);
+    auditAdminAction(context.guildId, context.discordUserId, 'removeusercrowns', `${targetUser.userNameLastFm} (${count})`);
     return GenericEmbedService.buildSuccessResponse(
       `👑 Removed **${count.toLocaleString()}** active crown(s) from **${targetUser.userNameLastFm}** in this server.`,
     );
@@ -360,6 +363,7 @@ export class CrownCommands implements ITextCommandModule {
     }
 
     await this.crownService.setCrownBlock(context.guildId, targetUser.userId, block);
+    auditAdminAction(context.guildId, context.discordUserId, block ? 'crownblock' : 'crownunblock', targetUser.userNameLastFm);
 
     if (block) {
       return GenericEmbedService.buildSuccessResponse(
@@ -375,6 +379,9 @@ export class CrownCommands implements ITextCommandModule {
   private async crownBlockedUsersAsync(context: ContextModel): Promise<ResponseModel> {
     if (!context.guildId) {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildWrongInputResponse('You need the **Manage Server** permission to view the crown block list.');
     }
 
     const blocked = await this.crownService.getBlockedCrownUsers(context.guildId);

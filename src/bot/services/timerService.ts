@@ -60,6 +60,17 @@ export class TimerService {
       this.removePrivacyHiddenPlays(),
     ));
 
+    this.registerJob('abuse-scan', '0 5 * * *', this.onlyOwner(async () => {
+      try {
+        const { AbuseFilterService } = await import('./abuseFilterService');
+        if (container.isRegistered(AbuseFilterService)) {
+          await container.resolve(AbuseFilterService).scanAndFlag();
+        }
+      } catch (err) {
+        Logger.error({ err }, 'Abuse scan job failed');
+      }
+    }));
+
     this.registerJob('statistics-log', '*/10 * * * *', () => {
       const snapshot = Statistics.snapshot();
       Logger.info({ stats: snapshot }, 'Statistics snapshot');

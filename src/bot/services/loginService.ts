@@ -10,7 +10,12 @@ export enum LoginStatus {
   Success = 'Success',
   NoPendingLogin = 'NoPendingLogin',
   NotAuthorizedYet = 'NotAuthorizedYet',
+  AltLimitExceeded = 'AltLimitExceeded',
 }
+
+// Sybil guard: one Last.fm library may back a handful of Discord rows
+// (re-links, alt accounts), but unbounded rows break leaderboards.
+const MAX_DISCORD_ROWS_PER_LASTFM = 5;
 
 const PENDING_TOKEN_TTL_SECONDS = 3300;
 const MAX_CONFIRM_ATTEMPTS = 5;
@@ -65,6 +70,18 @@ export class LoginService {
       const session = await this.lastfmRepository.getAuthSession(token);
       if (session) {
         Logger.info(`LastfmAuth: ${session.name} logged in (discordUserId: ${discordUserId})`);
+
+        const linkedCount = await this.userRepository.countUsersByLastFmName(session.name).catch(() => 0);
+        const alreadyLinked = await this.userService.getUserByDiscordId(discordUserId).catch(() => null);
+        const isRelink = alreadyLinked?.userNameLastFm.toLowerCase() === session.name.toLowerCase();
+        if (!isRelink && linkedCount >= MAX_DISCORD_ROWS_PER_LASTFM) {
+          Logger.warn(
+            { discordUserId, lastFm: session.name, linkedCount },
+            'Login refused — too many Discord rows share this Last.fm account',
+          );
+          await this.cache.delete(`auth-pending:${discordUserId}`);
+          return { status: LoginStatus.AltLimitExceeded, userName: session.name };
+        }
 
         const user = await this.userService.setUserLastFm(discordUserId, session.name);
         await this.userRepository.setSessionKey(user.userId, session.key);

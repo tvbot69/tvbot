@@ -34,6 +34,12 @@ export class UserRepository implements IUserRepository {
     return entity ? this.map(entity) : null;
   }
 
+  public async countUsersByLastFmName(userNameLastFm: string): Promise<number> {
+    return this.prisma.user.count({
+      where: { userNameLastFm: { equals: userNameLastFm, mode: 'insensitive' } },
+    });
+  }
+
   public async getUserById(userId: number): Promise<User | null> {
     const entity = await this.prisma.user.findUnique({ where: { userId: userId } });
     return entity ? this.map(entity) : null;
