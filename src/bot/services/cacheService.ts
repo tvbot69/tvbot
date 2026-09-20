@@ -28,6 +28,7 @@ export class CacheService {
           enableOfflineQueue: false,
         });
         this.redis.on('error', (err) => Logger.warn({ err }, 'Redis error'));
+        this.redis.once('ready', () => Logger.info('Redis connected — durable queues/sessions active'));
         void this.redis.connect().catch(() => {
           Logger.warn('Redis unavailable, continuing with in-memory cache only');
         });

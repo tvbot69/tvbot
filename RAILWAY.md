@@ -46,7 +46,7 @@ Before the first deployment boots up, navigate to the **Variables** tab in your 
 | `ENVIRONMENT` | `production` |
 | `NODE_ENV` | `production` |
 | `BOT_PREFIX` | `.` (or your preferred prefix) |
-| `ENABLE_LAVALINK` | `false` *(Keep false unless you have a persistent Lavalink node configured)* |
+| `ENABLE_LAVALINK` | `false` = music fully off in **every** env (use during push-heavy periods to spare public nodes); unset/`true` = on in production, off in local dev |
 | `SPOTIFY_CLIENT_ID` | Your Spotify Client ID *(for album cover resolution)* |
 | `SPOTIFY_CLIENT_SECRET`| Your Spotify Client Secret |
 

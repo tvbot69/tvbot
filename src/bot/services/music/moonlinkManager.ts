@@ -33,11 +33,17 @@ export class MoonlinkManager {
 
   constructor(cache?: CacheService) {
     this.cache = cache ?? null;
-    // Dev no-connect: in local env, lavalink is disabled unless ENABLE_LAVALINK=true
-    // This prevents thundering herd on public nodes during rapid `npm run dev` restarts
+    // Explicit operator intent wins in every environment: ENABLE_LAVALINK=false
+    // disables music even in production (push-heavy periods), 'true' enables
+    // even locally. Unset defaults to enabled everywhere except local, where
+    // staying dark prevents thundering herd on public nodes during rapid reloads.
     const env = process.env.ENVIRONMENT ?? 'local';
     const flag = process.env.ENABLE_LAVALINK;
-    this.lavalinkEnabled = flag === 'true' || env !== 'local';
+    if (flag === 'false') {
+      this.lavalinkEnabled = false;
+    } else {
+      this.lavalinkEnabled = flag === 'true' || env !== 'local';
+    }
     if (!this.lavalinkEnabled) {
       Logger.info('[Lavalink] Disabled in dev (ENVIRONMENT=local, ENABLE_LAVALINK != true) — skipping node connections. Set ENABLE_LAVALINK=true to enable music locally.');
       // Moonlink.js validates nodes array non-empty, so use a dummy that we never init()
