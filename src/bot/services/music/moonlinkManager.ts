@@ -45,7 +45,7 @@ export class MoonlinkManager {
       this.lavalinkEnabled = flag === 'true' || env !== 'local';
     }
     if (!this.lavalinkEnabled) {
-      Logger.info('[Lavalink] Disabled in dev (ENVIRONMENT=local, ENABLE_LAVALINK != true) — skipping node connections. Set ENABLE_LAVALINK=true to enable music locally.');
+      Logger.info(`[Lavalink] Disabled (ENVIRONMENT=${env}, ENABLE_LAVALINK=${flag ?? 'unset'}) — skipping node connections.`);
       // Moonlink.js validates nodes array non-empty, so use a dummy that we never init()
       this.manager = new Manager({
         nodes: [{ identifier: 'dummy-disabled', host: '127.0.0.1', port: 2333, password: 'dummy', secure: false, retryAmount: 0, retryDelay: 60000 }],

@@ -51,6 +51,11 @@
 >   skip/previous semantics proven, durable 247/prefs/opt-ins via migration,
 >   15s dirty-checked progress edits, voice-status 429 backoff) — implemented,
 >   509 tests green, migration applied live.
+> - 2026-09-20: Phase 5 FREE parts (livez/readyz + readiness gates, 30s
+>   graceful drain with queue/player/lavalink teardown, render semaphore(2) +
+>   identical-render cache, misleading Lavalink-disabled message fixed,
+>   Discord-webhook error feed instead of Sentry) — implemented, 521 tests
+>   green. Sentry dropped: account/trial unwanted; webhook is free forever.
 > - 2026-09-20: Phase 4 batch A (abuse_flags table + nightly velocity scan +
 >   WK/crown/leaderboard enforcement, 5-per-name alt cap at login, autopost
 >   atomic claim/rollback + 10-per-guild cap, admin gates on all read paths,
@@ -301,9 +306,11 @@ Small, surgical, highest regret-if-skipped. Ship first.
 - **Render safety (FREE; farm deferred NEEDS-$):** in-process concurrency cap +
   result cache `(user,period,size,hash)` 1h + existing 4s kill-switch — kills the
   OOM class without new infra. Dedicated render workers only if funded.
-- **Error tracking + dashboards:** Sentry (or OTel) for unhandled paths, RED
-  metrics per command, Last.fm/Spotify/Discord 429 dashboards, index-lag gauge
-  (the Mond-class metric: `totalScrobbles - stored`).
+- **Error tracking + dashboards:** Discord-webhook error feed for unhandled
+  paths (free forever, no accounts — `ERROR_WEBHOOK_URL`), RED metrics per
+  command, Last.fm/Spotify/Discord 429 dashboards, index-lag gauge (the
+  Mond-class metric: `totalScrobbles - stored`). Sentry explicitly rejected
+  (account/trial unwanted).
 - **Load + chaos suite:** k6/gatling for wk/top/autocomplete at 100 rps;
   blackholed-provider chaos (already survivable per Phase 1.5 — prove it);
   500k-play user soak for index/memory.

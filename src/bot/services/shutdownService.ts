@@ -6,36 +6,80 @@ import { TimerService } from './timerService';
 import { CacheService } from './cacheService';
 import { PuppeteerService } from '@images/generators/puppeteerService';
 import { HealthServer } from './healthServer';
+import { MoonlinkManager } from './music/moonlinkManager';
+import { UserUpdateQueueService } from './userUpdateQueueService';
+import { UserIndexQueueService } from './userIndexQueueService';
+
+const DRAIN_TIMEOUT_MS = 30000;
 
 export class ShutdownService {
   private static shuttingDown = false;
+
+  private static async withTimeout<T>(label: string, ms: number, fn: () => Promise<T>): Promise<void> {
+    try {
+      await Promise.race([
+        fn(),
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms)),
+      ]);
+    } catch (err) {
+      Logger.warn({ err }, `Shutdown step skipped: ${label}`);
+    }
+  }
 
   public static async shutdown(signal: string, exitCode = 0): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
 
-    Logger.info(`Received ${signal}. Initiating graceful shutdown...`);
+    Logger.info(`Received ${signal}. Draining up to ${DRAIN_TIMEOUT_MS / 1000}s...`);
 
-    // Safety fallback: force exit after 5 seconds if teardown hangs
     const forceExitTimer = setTimeout(() => {
-      Logger.warn('Graceful shutdown timed out after 5s — forcing exit');
+      Logger.warn(`Graceful shutdown timed out after ${DRAIN_TIMEOUT_MS / 1000}s — forcing exit`);
       process.exit(exitCode);
-    }, 5000);
+    }, DRAIN_TIMEOUT_MS);
     if (typeof forceExitTimer.unref === 'function') {
       forceExitTimer.unref();
     }
 
     try {
-      // 1. Stop scheduled timers and cron jobs
+      // 0. Fail readiness first so no new traffic/deploys route here mid-drain
       try {
-        const timerService = container.resolve(TimerService);
-        timerService.stopAsync();
+        container.resolve(HealthServer).setDraining();
+      } catch {
+        // ignore
+      }
+
+      // 1. Stop scheduled timers and cron jobs (no new work enqueued)
+      try {
+        container.resolve(TimerService).stopAsync();
         Logger.info('Timer service stopped');
       } catch (err) {
         Logger.warn({ err }, 'Error stopping timer service');
       }
 
-      // 2. Disconnect Discord client to immediately mark bot as offline
+      // 2. One last queue drain so in-memory items aren't lost (Redis mirrors
+      // cover the rest on next boot)
+      await ShutdownService.withTimeout('queue drain', 8000, async () => {
+        const tasks: Array<Promise<unknown>> = [];
+        try {
+          tasks.push(container.resolve(UserUpdateQueueService).pump());
+        } catch { /* ignore */ }
+        try {
+          tasks.push(container.resolve(UserIndexQueueService).pump());
+        } catch { /* ignore */ }
+        await Promise.allSettled(tasks);
+      });
+
+      // 3. Leave voice channels cleanly before the socket dies
+      await ShutdownService.withTimeout('player teardown', 8000, async () => {
+        const manager = container.resolve(MoonlinkManager).getManager();
+        const players = manager.players?.all ?? [];
+        await Promise.allSettled(
+          players.map((p) => p.destroy('Process shutting down').catch(() => undefined)),
+        );
+        container.resolve(MoonlinkManager).stop();
+      });
+
+      // 4. Disconnect Discord client to immediately mark bot as offline
       try {
         const client = container.resolve(Client);
         client.destroy();
@@ -44,19 +88,13 @@ export class ShutdownService {
         Logger.warn({ err }, 'Error destroying Discord client');
       }
 
-      // 3. Close Puppeteer browser instance
-      try {
-        const puppeteerService = container.resolve(PuppeteerService);
-        await Promise.race([
-          puppeteerService.close(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Puppeteer close timeout')), 3000)),
-        ]).catch(() => undefined);
+      // 5. Close Puppeteer browser instance
+      await ShutdownService.withTimeout('puppeteer close', 5000, async () => {
+        await container.resolve(PuppeteerService).close();
         Logger.info('Puppeteer browser closed');
-      } catch (err) {
-        Logger.warn({ err }, 'Error closing Puppeteer browser');
-      }
+      });
 
-      // 4. Disconnect CacheService (Redis & eviction timers)
+      // 6. Disconnect CacheService (Redis & eviction timers)
       try {
         const cacheService = container.resolve(CacheService);
         await cacheService.disconnect();
@@ -65,7 +103,7 @@ export class ShutdownService {
         Logger.warn({ err }, 'Error disconnecting cache service');
       }
 
-      // 5. Stop health probe HTTP server
+      // 7. Stop health probe HTTP server
       try {
         const healthServer = container.resolve(HealthServer);
         await healthServer.stop();
@@ -74,7 +112,7 @@ export class ShutdownService {
         Logger.warn({ err }, 'Error stopping health server');
       }
 
-      // 6. Disconnect Prisma database pool
+      // 8. Disconnect Prisma database pool
       try {
         await prisma.$disconnect();
         Logger.info('Database connection closed');

@@ -10,6 +10,12 @@ export class HealthServer {
   private port: number = 3000;
   private basePort: number = 3000;
   private static readonly PORT_PROBE_RANGE = 16;
+  private draining = false;
+
+  /** Called on SIGTERM: readiness fails closed while in-flight work drains. */
+  public setDraining(): void {
+    this.draining = true;
+  }
 
   public start(port = 3000): void {
     if (this.server) return;
@@ -19,9 +25,16 @@ export class HealthServer {
     this.server = http.createServer(async (req, res) => {
       const url = req.url?.split('?')[0] || '/';
 
-      if (url === '/ping') {
+      if (url === '/ping' || url === '/livez') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('pong');
+        return;
+      }
+
+      if (url === '/readyz') {
+        const readiness = await this.checkReadiness();
+        res.writeHead(readiness.ready ? 200 : 503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(readiness));
         return;
       }
 
@@ -48,11 +61,12 @@ export class HealthServer {
           }
 
           const mem = process.memoryUsage();
-          const isHealthy = dbHealth.healthy;
+          const isHealthy = dbHealth.healthy && !this.draining;
           const statusCode = isHealthy ? 200 : 503;
 
           const response = {
-            status: isHealthy ? 'healthy' : 'unhealthy',
+            status: this.draining ? 'draining' : isHealthy ? 'healthy' : 'unhealthy',
+            draining: this.draining,
             timestamp: new Date().toISOString(),
             uptimeSeconds: Math.round(process.uptime()),
             database: {
@@ -110,6 +124,51 @@ export class HealthServer {
 
     // Unref server so it doesn't block node exit if shutdown is initiated
     this.server.unref();
+  }
+
+  private async checkReadiness(): Promise<{
+    ready: boolean;
+    draining: boolean;
+    discord: string;
+    lavalinkHealthyNodes: number;
+    database: string;
+    dbLatencyMs?: number;
+  }> {
+    if (this.draining) {
+      return { ready: false, draining: true, discord: 'draining', lavalinkHealthyNodes: 0, database: 'draining' };
+    }
+
+    let discordStatus = 'not_initialized';
+    try {
+      const client = container.resolve(Client);
+      discordStatus = client.isReady() ? 'ready' : 'connecting';
+    } catch {
+      // client not yet registered
+    }
+
+    let lavalinkHealthyNodes = 0;
+    try {
+      const { MoonlinkManager } = await import('./music/moonlinkManager');
+      if (container.isRegistered(MoonlinkManager)) {
+        lavalinkHealthyNodes = container.resolve(MoonlinkManager).getHealthyNodeCount();
+      }
+    } catch {
+      // music disabled or not wired
+    }
+
+    let dbStatus = 'unknown';
+    let dbLatencyMs: number | undefined;
+    try {
+      const dbHealth = await checkDatabaseHealth();
+      dbStatus = dbHealth.healthy ? 'connected' : 'error';
+      dbLatencyMs = dbHealth.latencyMs;
+    } catch {
+      dbStatus = 'error';
+    }
+
+    // Lavalink at zero is degraded, not unready: music pauses but commands work.
+    const ready = discordStatus === 'ready' && dbStatus === 'connected';
+    return { ready, draining: false, discord: discordStatus, lavalinkHealthyNodes, database: dbStatus, dbLatencyMs };
   }
 
   public stop(): Promise<void> {

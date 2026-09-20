@@ -1,5 +1,6 @@
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import type { ChildProcess } from 'child_process';
+import { createHash } from 'crypto';
 import { mkdirSync } from 'fs';
 import path from 'path';
 import { Logger } from '@domain/logger';
@@ -9,6 +10,21 @@ export class PuppeteerService {
   private launching: Promise<Browser> | null = null;
   private readonly userDataDir: string | null;
   private ProcessListenersRegistered = false;
+
+  // Render backpressure: one Chromium serves the whole process. Unbounded
+  // concurrent screenshots OOM the 384MB container; extras wait or fail fast
+  // (callers fall back to embeds).
+  private activeRenders = 0;
+  private readonly renderWaiters: Array<() => void> = [];
+  private static readonly MAX_CONCURRENT_RENDERS = 2;
+  private static readonly RENDER_SLOT_TIMEOUT_MS = 30000;
+
+  // Identical-render dedup (button mashing, autopost retries): sha256 of the
+  // exact bytes, 1h TTL, 20-entry LRU. In-process by design — PNGs are too
+  // large to mirror into Redis on every render.
+  private readonly renderCache = new Map<string, { buf: Buffer; exp: number }>();
+  private static readonly RENDER_CACHE_TTL_MS = 3600000;
+  private static readonly RENDER_CACHE_MAX = 20;
 
   constructor() {
     // No persistent profile in dev — .puppeteer lock causes 40 chrome leak on tsx watch restarts
@@ -157,17 +173,77 @@ export class PuppeteerService {
     return this.launching;
   }
 
+  private renderCacheKey(html: string, width: number, height: number): string {
+    return createHash('sha256').update(`${width}x${height}:`).update(html).digest('hex');
+  }
+
+  private getCachedRender(key: string): Buffer | null {
+    const entry = this.renderCache.get(key);
+    if (!entry) return null;
+    if (entry.exp <= Date.now()) {
+      this.renderCache.delete(key);
+      return null;
+    }
+    return entry.buf;
+  }
+
+  private putCachedRender(key: string, buf: Buffer): void {
+    if (this.renderCache.size >= PuppeteerService.RENDER_CACHE_MAX) {
+      const oldest = this.renderCache.keys().next().value;
+      if (oldest !== undefined) this.renderCache.delete(oldest);
+    }
+    this.renderCache.set(key, { buf, exp: Date.now() + PuppeteerService.RENDER_CACHE_TTL_MS });
+  }
+
+  private async acquireRenderSlot(): Promise<void> {
+    if (this.activeRenders < PuppeteerService.MAX_CONCURRENT_RENDERS) {
+      this.activeRenders++;
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const idx = this.renderWaiters.indexOf(release);
+        if (idx >= 0) this.renderWaiters.splice(idx, 1);
+        reject(new Error('Render queue timed out (too many concurrent charts)'));
+      }, PuppeteerService.RENDER_SLOT_TIMEOUT_MS);
+      const release = () => {
+        clearTimeout(timer);
+        this.activeRenders++;
+        resolve();
+      };
+      this.renderWaiters.push(release);
+    });
+  }
+
+  private releaseRenderSlot(): void {
+    this.activeRenders = Math.max(0, this.activeRenders - 1);
+    const next = this.renderWaiters.shift();
+    if (next) next();
+  }
+
   public async screenshotHtml(
     html: string,
     width: number,
     height: number,
   ): Promise<Buffer> {
+    const key = this.renderCacheKey(html, width, height);
+    const cached = this.getCachedRender(key);
+    if (cached) return cached;
+    await this.acquireRenderSlot();
     try {
-      return await this.renderHtmlOnce(html, width, height);
-    } catch (err) {
-      Logger.warn({ err }, 'Puppeteer render error; reinitializing browser and retrying...');
-      this.browser = null;
-      return await this.renderHtmlOnce(html, width, height);
+      try {
+        const buf = await this.renderHtmlOnce(html, width, height);
+        this.putCachedRender(key, buf);
+        return buf;
+      } catch (err) {
+        Logger.warn({ err }, 'Puppeteer render error; reinitializing browser and retrying...');
+        this.browser = null;
+        const buf = await this.renderHtmlOnce(html, width, height);
+        this.putCachedRender(key, buf);
+        return buf;
+      }
+    } finally {
+      this.releaseRenderSlot();
     }
   }
 
@@ -199,12 +275,24 @@ export class PuppeteerService {
     width: number,
     height: number,
   ): Promise<Buffer> {
+    const key = this.renderCacheKey(html, width, height);
+    const cached = this.getCachedRender(key);
+    if (cached) return cached;
+    await this.acquireRenderSlot();
     try {
-      return await this.renderRainbowOnce(html, width, height);
-    } catch (err) {
-      Logger.warn({ err }, 'Puppeteer rainbow render error; reinitializing browser and retrying...');
-      this.browser = null;
-      return await this.renderRainbowOnce(html, width, height);
+      try {
+        const buf = await this.renderRainbowOnce(html, width, height);
+        this.putCachedRender(key, buf);
+        return buf;
+      } catch (err) {
+        Logger.warn({ err }, 'Puppeteer rainbow render error; reinitializing browser and retrying...');
+        this.browser = null;
+        const buf = await this.renderRainbowOnce(html, width, height);
+        this.putCachedRender(key, buf);
+        return buf;
+      }
+    } finally {
+      this.releaseRenderSlot();
     }
   }
 

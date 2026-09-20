@@ -4,6 +4,7 @@ import { Client, GatewayIntentBits, ActivityType } from 'discord.js';
 import { PrismaClient } from '@prisma/client';
 import { ConfigData } from './configurations/configData';
 import { Logger } from '@domain/logger';
+import { reportFatalToDiscord } from '@domain/errorFeed';
 import { prisma } from '@persistence/prismaClient';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 import { StartupService } from './services/startupService';
@@ -970,9 +971,11 @@ export const configureContainer = (): void => {
 const configureProcessErrorHandling = (): void => {
   process.on('unhandledRejection', (reason) => {
     Logger.error({ err: reason }, 'Unhandled promise rejection');
+    reportFatalToDiscord('unhandledRejection', reason);
   });
   process.on('uncaughtException', (error) => {
     Logger.fatal({ err: error }, 'Uncaught exception');
+    reportFatalToDiscord('uncaughtException', error);
   });
 
   process.on('SIGINT', () => { void ShutdownService.shutdown('SIGINT'); });
