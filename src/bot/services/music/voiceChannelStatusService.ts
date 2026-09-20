@@ -5,6 +5,7 @@ import { cleanArtistName, cleanTrackTitle } from '@domain/models/music/musicTrac
 export class VoiceChannelStatusService {
   private readonly client: Client;
   private readonly channelStatuses = new Map<string, string>();
+  private readonly rateLimitCooldownUntil = new Map<string, number>();
 
   constructor(client: Client) {
     this.client = client;
@@ -40,6 +41,11 @@ export class VoiceChannelStatusService {
       return true;
     }
 
+    // Back off after a 429 instead of retrying every track change into the wall
+    if ((this.rateLimitCooldownUntil.get(channelId) ?? 0) > Date.now()) {
+      return false;
+    }
+
     try {
       await this.client.rest.put(Routes.channelVoiceStatus(channelId), {
         body: { status: statusText },
@@ -49,6 +55,13 @@ export class VoiceChannelStatusService {
       return true;
     } catch (err: unknown) {
       // Missing permissions (50013), rate limited (429), or not a voice channel (400)
+      const status = (err as { status?: number })?.status;
+      const retryAfterSec = (err as { rawError?: { retry_after?: number }; retryAfter?: number })?.rawError?.retry_after
+        ?? (err as { retryAfter?: number })?.retryAfter
+        ?? 60;
+      if (status === 429) {
+        this.rateLimitCooldownUntil.set(channelId, Date.now() + Math.max(1, retryAfterSec) * 1000);
+      }
       Logger.debug({ err, channelId }, '[VoiceStatus] Could not set voice channel status (missing permission or rate-limited)');
       return false;
     }

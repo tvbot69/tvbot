@@ -46,6 +46,11 @@
 >   TtlStore for all five interaction session caches (server/genre/country/
 >   library-search/music-search, with Date revive) — implemented, 499 tests
 >   green. Paginator render-closures stay in-memory by design (not serializable).
+> - 2026-09-20: Phase 3.3/3.4 (kick rejoin grace, text/guild-delete cleanup,
+>   split timer maps, chunk destroy-guards + chain cap, failover state restore,
+>   skip/previous semantics proven, durable 247/prefs/opt-ins via migration,
+>   15s dirty-checked progress edits, voice-status 429 backoff) — implemented,
+>   509 tests green, migration applied live.
 > - 2026-09-20: Phase 2.2 core (CacheService list/set/NX primitives, durable
 >   update+index queues with restart rehydrate, REDIS_URL required in prod) —
 >   implemented, 488 tests green. Rate-limit + session stores next.

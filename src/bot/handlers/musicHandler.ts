@@ -17,7 +17,10 @@ export class MusicHandler {
   private readonly voiceChannelStatusService?: VoiceChannelStatusService;
   private readonly botScrobblingService?: BotScrobblingService;
   private readonly emptyChannelTimeouts = new Map<string, NodeJS.Timeout>();
+  private readonly inactivityTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly updateIntervals = new Map<string, NodeJS.Timeout>();
+  private readonly kickGraceTimeouts = new Map<string, NodeJS.Timeout>();
+  private static readonly KICK_GRACE_MS = 180000;
 
   constructor(
     client: Client,
@@ -38,15 +41,31 @@ export class MusicHandler {
     this.registerDiscordEvents();
   }
 
+  private readonly progressFingerprints = new Map<string, string>();
+  private static readonly PROGRESS_UPDATE_MS = 15000;
+
   private startProgressUpdater(player: Player): void {
     this.stopProgressUpdater(player.guildId);
 
     const interval = setInterval(async () => {
       try {
-        if (!player.playing || player.paused || !player.textChannelId) return;
+        if (!player.playing || !player.textChannelId) return;
 
         const msgId = player.get<string>('nowPlayingMessageId');
         if (!msgId) return;
+
+        const queue = this.queueService.getQueueInfo(player);
+        // Dirty check: skip the edit when nothing visible changed (same track,
+        // pause state, queue size, loop, volume, and 15s position bucket).
+        const fingerprint = [
+          queue.current?.identifier ?? queue.current?.uri ?? 'none',
+          queue.isPaused ? 'p' : 'r',
+          queue.tracks.length,
+          queue.loopMode,
+          queue.volume,
+          Math.floor(queue.position / MusicHandler.PROGRESS_UPDATE_MS),
+        ].join('|');
+        if (this.progressFingerprints.get(player.guildId) === fingerprint) return;
 
         const channel =
           this.client.channels.cache.get(player.textChannelId) ??
@@ -69,7 +88,6 @@ export class MusicHandler {
 
         if (!msg) return;
 
-        const queue = this.queueService.getQueueInfo(player);
         const currentArtworkUrl = queue.current?.artworkUrl;
         const accentColor = this.colorService
           ? await this.colorService.getAccentColorAsync(player.guildId, currentArtworkUrl)
@@ -78,11 +96,12 @@ export class MusicHandler {
 
         await msg
           .edit(response.toMessagePayload() as unknown as Record<string, unknown>)
+          .then(() => this.progressFingerprints.set(player.guildId, fingerprint))
           .catch(() => undefined);
       } catch {
         // Silently skip if rate limited or network hiccup
       }
-    }, 5000);
+    }, MusicHandler.PROGRESS_UPDATE_MS);
 
     this.updateIntervals.set(player.guildId, interval);
   }
@@ -92,6 +111,22 @@ export class MusicHandler {
     if (existing) {
       clearInterval(existing);
       this.updateIntervals.delete(guildId);
+    }
+  }
+
+  private clearKickGrace(guildId: string): void {
+    const grace = this.kickGraceTimeouts.get(guildId);
+    if (grace) {
+      clearTimeout(grace);
+      this.kickGraceTimeouts.delete(guildId);
+    }
+  }
+
+  private clearInactivityTimeout(guildId: string): void {
+    const timeout = this.inactivityTimeouts.get(guildId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.inactivityTimeouts.delete(guildId);
     }
   }
 
@@ -249,6 +284,8 @@ export class MusicHandler {
     const manager = this.moonlinkManager.getManager();
 
     manager.on('trackStart', async (player: Player, track: Track) => {
+      // New activity cancels any pending idle disconnect.
+      this.clearInactivityTimeout(player.guildId);
       // Prioritize player.current which retains clean Spotify / custom metadata and artwork
       const currentTrack = player.current ? mapMoonlinkTrack(player.current) : mapMoonlinkTrack(track);
 
@@ -474,20 +511,26 @@ export class MusicHandler {
 
       const is247 = this.queueService.is247(player.guildId);
       if (!is247 && !player.autoPlay) {
-        // Auto-disconnect after 3 minutes of inactivity
+        // Auto-disconnect after 3 minutes of inactivity (own map — never
+        // clobbered by the empty-voice-channel timer, and always cleaned up).
+        this.clearInactivityTimeout(player.guildId);
         const timeout = setTimeout(() => {
+          this.inactivityTimeouts.delete(player.guildId);
           if (player.queue.isEmpty && !player.playing) {
             Logger.info(`[Music] Inactivity timeout: disconnecting player in guild ${player.guildId}`);
             player.destroy('Inactivity timeout').catch(() => undefined);
           }
         }, 180000);
-        this.emptyChannelTimeouts.set(player.guildId, timeout);
+        this.inactivityTimeouts.set(player.guildId, timeout);
       }
     });
 
     manager.on('playerDestroy', async (player: Player) => {
       this.stopProgressUpdater(player.guildId);
       this.clearFallbackState(player.guildId);
+      this.clearKickGrace(player.guildId);
+      this.clearInactivityTimeout(player.guildId);
+      this.progressFingerprints.delete(player.guildId);
 
       if (player.voiceChannelId && this.voiceChannelStatusService) {
         void this.voiceChannelStatusService.clearStatus(player.voiceChannelId);
@@ -528,15 +571,49 @@ export class MusicHandler {
 
       // 1. Bot voice state changed
       if (newState.id === botId) {
-        // Bot disconnected from voice
+        // Bot disconnected from voice (kick or manual disconnect). Grace period:
+        // keep the player + queue for 3 minutes — a rejoin resumes playback
+        // instead of wiping the queue. Only the voice link drops here.
         if (!newState.channelId) {
-          Logger.info(`[Music] Bot was disconnected from voice in guild ${guildId}`);
+          Logger.info(`[Music] Bot was disconnected from voice in guild ${guildId} — starting 3-min rejoin grace`);
           if (oldState.channelId && this.voiceChannelStatusService) {
             void this.voiceChannelStatusService.clearStatus(oldState.channelId);
           }
-          this.queueService.set247(guildId, false);
-          player.destroy('Disconnected from voice channel').catch(() => undefined);
+          player.set('kickedWhilePlaying', player.playing && !player.paused);
+          void player.disconnect().catch(() => undefined);
+          this.clearKickGrace(guildId);
+          const timeout = setTimeout(() => {
+            this.kickGraceTimeouts.delete(guildId);
+            Logger.info(`[Music] Rejoin grace expired in guild ${guildId} — destroying player`);
+            player.destroy('Rejoin grace expired after disconnect').catch(() => undefined);
+          }, MusicHandler.KICK_GRACE_MS);
+          this.kickGraceTimeouts.set(guildId, timeout);
           return;
+        }
+
+        // Bot (re)joined a voice channel — resume if returning inside the grace window
+        if (!oldState.channelId && newState.channelId) {
+          const grace = this.kickGraceTimeouts.get(guildId);
+          if (grace) {
+            this.clearKickGrace(guildId);
+            Logger.info(`[Music] Bot rejoined voice in guild ${guildId} within grace — resuming`);
+            player.setVoiceChannelId(newState.channelId);
+            void (async () => {
+              try {
+                await player.connect({ selfDeaf: true });
+                if (player.current && player.get<boolean>('kickedWhilePlaying')) {
+                  player.set('kickedWhilePlaying', false);
+                  const restarted = await player.restart().catch(() => false);
+                  if (!restarted) {
+                    await player.resume().catch(() => undefined);
+                  }
+                }
+              } catch (err) {
+                Logger.warn({ err, guildId }, '[Music] Failed to resume after rejoin');
+              }
+            })();
+            return;
+          }
         }
 
         // Bot moved to another voice channel
@@ -621,6 +698,31 @@ export class MusicHandler {
           Logger.info(`[Music] Voice channel was deleted in guild ${guildId}`);
           player.destroy('Voice channel deleted').catch(() => undefined);
         }
+        // Text channel gone: stop the progress updater hammering a dead fetch.
+        if (player && player.textChannelId === channel.id) {
+          Logger.info(`[Music] Text channel was deleted in guild ${guildId} — detaching updater`);
+          this.stopProgressUpdater(guildId);
+          player.setTextChannelId('');
+        }
+      }
+    });
+
+    this.client.on(Events.GuildDelete, (guild) => {
+      const guildId = guild.id;
+      Logger.info(`[Music] Left/kicked from guild ${guildId} — cleaning player state`);
+      this.stopProgressUpdater(guildId);
+      this.clearFallbackState(guildId);
+      this.clearKickGrace(guildId);
+      const timeout = this.emptyChannelTimeouts.get(guildId);
+      if (timeout) {
+        clearTimeout(timeout);
+        this.emptyChannelTimeouts.delete(guildId);
+      }
+      this.clearInactivityTimeout(guildId);
+      const manager = this.moonlinkManager.getManager();
+      const player = manager.players.get(guildId);
+      if (player) {
+        player.destroy('Guild removed').catch(() => undefined);
       }
     });
   }

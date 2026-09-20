@@ -37,6 +37,12 @@ export class PlaylistChunkManager {
     if (this.bound) return;
     this.bound = true;
 
+    // Player gone (destroy, kick-timeout, guild removal) — drop chunk state so
+    // a stale entry can't append to a future player or leak forever.
+    this.manager.on('playerDestroy', (player: Player) => {
+      this.clear(player.guildId);
+    });
+
     // When a track ends, check if we should prefetch next chunk
     this.manager.on('trackEnd', async (player: Player) => {
       const state = this.chunks.get(player.guildId);
@@ -81,7 +87,12 @@ export class PlaylistChunkManager {
     this.chunks.delete(guildId);
   }
 
-  private async fetchNext(guildId: string): Promise<void> {
+  private isPlayerAlive(guildId: string): boolean {
+    const player = this.manager.players.get(guildId);
+    return !!player && !(player as unknown as { destroyed?: boolean }).destroyed;
+  }
+
+  private async fetchNext(guildId: string, chainDepth = 0): Promise<void> {
     const state = this.chunks.get(guildId);
     if (!state || state.isFetching) return;
     if (state.nextOffset >= state.total) {
@@ -103,6 +114,11 @@ export class PlaylistChunkManager {
       Logger.info({ guildId, playlistId: state.playlistId, offset: state.nextOffset }, 'Fetching next playlist chunk');
 
       const page = await this.scraper.fetchPlaylistPage(state.playlistId, state.nextOffset, 100);
+      if (!this.isPlayerAlive(guildId)) {
+        this.chunks.delete(guildId);
+        Logger.info({ guildId }, 'Playlist chunk aborted — player destroyed mid-fetch');
+        return;
+      }
       if (!page || page.tracks.length === 0) {
         Logger.warn({ guildId, playlistId: state.playlistId }, 'Scraper returned no more tracks');
         this.chunks.delete(guildId);
@@ -114,6 +130,11 @@ export class PlaylistChunkManager {
       let added = 0;
 
       for (let i = 0; i < page.tracks.length; i += BATCH_SIZE) {
+        if (!this.isPlayerAlive(guildId)) {
+          this.chunks.delete(guildId);
+          Logger.info({ guildId }, 'Playlist chunk aborted — player destroyed mid-fetch');
+          return;
+        }
         const batch = page.tracks.slice(i, i + BATCH_SIZE);
         const results = await Promise.all(
           batch.map(t =>
@@ -124,6 +145,12 @@ export class PlaylistChunkManager {
           ),
         );
 
+        const livePlayer = manager.players.get(guildId);
+        if (!livePlayer || (livePlayer as unknown as { destroyed?: boolean }).destroyed) {
+          this.chunks.delete(guildId);
+          Logger.info({ guildId }, 'Playlist chunk aborted — player destroyed mid-fetch');
+          return;
+        }
         for (const item of results) {
           if (!item?.r?.tracks?.[0]) continue;
           const lavalinkTrack = item.r.tracks[0];
@@ -139,7 +166,7 @@ export class PlaylistChunkManager {
           }
           trackRecord.sourceName = 'spotify';
           trackRecord.source = 'spotify';
-          player.queue.add(lavalinkTrack);
+          livePlayer.queue.add(lavalinkTrack);
           added++;
         }
       }
@@ -153,9 +180,11 @@ export class PlaylistChunkManager {
         state.nextOffset = page.nextOffset;
         state.isFetching = false;
 
-        // If still low, chain next
-        if (player.queue.size < 20) {
-          await this.fetchNext(guildId);
+        // If still low, chain at most one more chunk per event — deep chains
+        // inside a single trackEnd starve the event loop on huge playlists.
+        const chainedPlayer = manager.players.get(guildId);
+        if (chainDepth < 1 && chainedPlayer && chainedPlayer.queue.size < 20) {
+          await this.fetchNext(guildId, chainDepth + 1);
         }
         return;
       }

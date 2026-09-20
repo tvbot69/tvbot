@@ -121,6 +121,7 @@ import { TrackPreviewInteractions } from './interactions/trackPreviewInteraction
 import { OverviewService } from './services/overviewService';
 import { TopSlashCommands } from './slashCommands/topSlashCommands';
 import { CrownRepository } from '@persistence/repositories/crownRepository';
+import { GuildMusicSettingsRepository } from '@persistence/repositories/guildMusicSettingsRepository';
 import { CrownService } from './services/crown/crownService';
 import { CrownInteractions } from './interactions/crownInteractions';
 import { CrownCommands } from './textCommands/guild/crownCommands';
@@ -585,7 +586,9 @@ export const configureContainer = (): void => {
   const moonlinkManager = new MoonlinkManager(cache);
   const spotifyScraperService = new SpotifyScraperService();
   const spotifyResolver = new SpotifyResolver(spotifyTokenManager, spotifyScraperService);
-  const queueService = new QueueService(musicHistoryRepository);
+  const guildMusicSettingsRepository = new GuildMusicSettingsRepository(prisma);
+  container.registerInstance(GuildMusicSettingsRepository, guildMusicSettingsRepository);
+  const queueService = new QueueService(musicHistoryRepository, guildMusicSettingsRepository);
   const playlistChunkManager = new PlaylistChunkManager(moonlinkManager, spotifyScraperService);
   const musicService = new MusicService(moonlinkManager, spotifyResolver, queueService, playlistChunkManager);
   const voiceChannelStatusService = new VoiceChannelStatusService(client);
@@ -881,7 +884,7 @@ export const configureContainer = (): void => {
   container.registerInstance(GuildAdminSlashCommands, guildAdminSlashCommands);
 
   const aiJudgeService = new AiJudgeService(lastFmRepository);
-  const botScrobblingService = new BotScrobblingService(lastFmRepository, userRepository);
+  const botScrobblingService = new BotScrobblingService(lastFmRepository, userRepository, guildMusicSettingsRepository);
   const featuredService = new FeaturedService(lastFmRepository, prisma);
   const shortcutService = new ShortcutService();
   const userHubInteractions = new UserHubInteractions(aiJudgeService, botScrobblingService, userService, colorService);

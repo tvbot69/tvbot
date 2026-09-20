@@ -2,6 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import type { Client, VoiceBasedChannel } from 'discord.js';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { IUserRepository } from '@domain/interfaces/iuserRepository';
+import { GuildMusicSettingsRepository } from '@persistence/repositories/guildMusicSettingsRepository';
 import { Logger } from '@domain/logger';
 
 export interface PlayingVoiceTrack {
@@ -21,7 +22,22 @@ export class BotScrobblingService {
   constructor(
     @inject('ILastfmRepository') private readonly lastFmRepository: ILastfmRepository,
     @inject('IUserRepository') private readonly userRepository: IUserRepository,
+    @inject(GuildMusicSettingsRepository) private readonly settingsRepo?: GuildMusicSettingsRepository,
   ) {}
+
+  /** Restore opt-ins after a restart (memory set is rebuilt from the table). */
+  public async loadOptIns(): Promise<void> {
+    if (!this.settingsRepo) return;
+    try {
+      const ids = await this.settingsRepo.getOptedInDiscordIds();
+      for (const id of ids) this.optedInUsers.add(id);
+      if (ids.length > 0) {
+        Logger.info(`Restored ${ids.length} bot-scrobbling opt-ins`);
+      }
+    } catch {
+      // memory set continues to work for this session
+    }
+  }
 
   public isUserOptedIn(discordUserId: string): boolean {
     return this.optedInUsers.has(discordUserId);
@@ -33,6 +49,9 @@ export class BotScrobblingService {
       this.optedInUsers.add(discordUserId);
     } else {
       this.optedInUsers.delete(discordUserId);
+    }
+    if (this.settingsRepo) {
+      void this.settingsRepo.setOptIn(discordUserId, newState).catch(() => undefined);
     }
     return newState;
   }

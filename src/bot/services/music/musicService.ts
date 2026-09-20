@@ -65,14 +65,34 @@ export class MusicService {
     const manager = this.moonlinkManager.getManager();
     let player = manager.players.get(guildId);
     if (!player) {
+      // Re-apply persisted guild prefs so a recreate (rejoin, failover,
+      // restart) doesn't reset volume/loop/autoplay/filters.
+      const prefs = this.queueService.getSettings(guildId);
       player = manager.players.create({
         guildId,
         voiceChannelId,
         textChannelId,
-        autoPlay: false,
-        volume: 100,
+        autoPlay: prefs.autoplay,
+        volume: prefs.volume,
         selfDeaf: true,
       });
+      if (prefs.loopMode !== 'off') {
+        try {
+          player.setLoop(prefs.loopMode as 'track' | 'queue');
+        } catch {
+          // ignore invalid stored loop values
+        }
+      }
+      if (prefs.filters.length > 0) {
+        for (const filter of prefs.filters) {
+          try {
+            player.filters.enable(filter as Parameters<typeof player.filters.enable>[0]);
+          } catch {
+            // ignore unknown filter names
+          }
+        }
+        void player.filters.apply().catch(() => undefined);
+      }
     }
 
     if (player.voiceChannelId !== voiceChannelId) {
@@ -495,8 +515,11 @@ export class MusicService {
     const player = this.getPlayer(guildId);
     if (!player) return false;
 
-    if (amount > 1 && player.queue.size >= amount - 1) {
-      player.queue.removeRange(0, amount - 1);
+    // removeRange is inclusive on both ends: to land on the Nth upcoming
+    // track, drop the N-1 before it (indices 0..amount-2), then skip().
+    if (amount > 1) {
+      if (amount - 1 > player.queue.size) return false;
+      player.queue.removeRange(0, amount - 2);
     }
 
     return await player.skip();
@@ -514,6 +537,10 @@ export class MusicService {
 
   public async leave(guildId: string): Promise<void> {
     await this.stop(guildId);
+  }
+
+  public clearPlaylistChunks(guildId: string): void {
+    this.playlistChunkManager?.clear(guildId);
   }
 
   public async pause(guildId: string): Promise<boolean> {
@@ -555,6 +582,7 @@ export class MusicService {
     if (!player) return null;
     const clamped = Math.max(0, Math.min(150, Math.round(volume)));
     player.setVolume(clamped);
+    this.queueService.saveSettings(guildId, { volume: clamped });
     return clamped;
   }
 
@@ -568,6 +596,7 @@ export class MusicService {
       player.filters.disable(filter);
     }
     await player.filters.apply();
+    this.queueService.saveSettings(guildId, { filters: [...player.filters.enabled] });
     return true;
   }
 
@@ -576,6 +605,7 @@ export class MusicService {
     if (!player) return false;
     player.filters.clear();
     await player.filters.apply();
+    this.queueService.saveSettings(guildId, { filters: [] });
     return true;
   }
 
@@ -590,6 +620,7 @@ export class MusicService {
     const player = this.getPlayer(guildId);
     if (!player) return null;
     player.setLoop(mode);
+    this.queueService.saveSettings(guildId, { loopMode: mode });
     return mode;
   }
 
@@ -598,6 +629,7 @@ export class MusicService {
     if (!player) return null;
     const nextState = enabled !== undefined ? enabled : !player.autoPlay;
     player.setAutoPlay(nextState);
+    this.queueService.saveSettings(guildId, { autoplay: nextState });
     return nextState;
   }
 
@@ -625,15 +657,13 @@ export class MusicService {
   public async previous(guildId: string): Promise<boolean> {
     const player = this.getPlayer(guildId);
     if (!player) return false;
-    if (player.previous && player.previous.length > 0) {
-      const prevTrack = player.previous.pop()!;
-      if (player.current) {
-        player.queue.unshift(player.current);
-      }
-      player.queue.unshift(prevTrack);
-      return await player.skip();
-    }
-    return false;
+    if (!player.previous || player.previous.length === 0) return false;
+    const prevTrack = player.previous.pop()!;
+    // Do NOT re-queue current: player.skip()/play() already pushes the old
+    // current into history, so re-adding it duplicates the queue on every
+    // toggle. Just front the previous track and advance to it.
+    player.queue.unshift(prevTrack);
+    return await player.skip();
   }
 
   public async skipto(guildId: string, position: number): Promise<boolean> {
@@ -670,6 +700,7 @@ export class MusicService {
     const current = player.volume ?? 100;
     const nextVol = Math.max(0, Math.min(150, current + delta));
     player.setVolume(nextVol);
+    this.queueService.saveSettings(guildId, { volume: nextVol });
     return nextVol;
   }
 
@@ -681,6 +712,7 @@ export class MusicService {
     else if (player.loop === 'track') nextMode = 'queue';
     else if (player.loop === 'queue') nextMode = 'off';
     player.setLoop(nextMode);
+    this.queueService.saveSettings(guildId, { loopMode: nextMode });
     return nextMode;
   }
 

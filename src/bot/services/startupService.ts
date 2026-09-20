@@ -14,6 +14,8 @@ import { getSlashCommandPayloads } from '@bot/slashCommands';
 import { MoonlinkManager } from './music/moonlinkManager';
 import { MusicHandler } from '@bot/handlers/musicHandler';
 import { LyricStatusService } from './lyricStatusService';
+import { QueueService } from './music/queueService';
+import { BotScrobblingService } from './music/botScrobblingService';
 
 export class StartupService {
   private readonly client: Client;
@@ -72,6 +74,22 @@ export class StartupService {
       } catch (err: any) {
         const details = err?.rawError ? JSON.stringify(err.rawError) : err?.message;
         Logger.error({ err, details }, `Failed to register slash commands: ${details || err}`);
+      }
+
+      // Restore durable music state (247/prefs/opt-ins survive restarts now)
+      try {
+        if (container.isRegistered(QueueService)) {
+          await container.resolve(QueueService).loadPersistedState();
+        }
+      } catch (err) {
+        Logger.warn({ err }, 'Failed to restore persisted music settings');
+      }
+      try {
+        if (container.isRegistered(BotScrobblingService)) {
+          await container.resolve(BotScrobblingService).loadOptIns();
+        }
+      } catch (err) {
+        Logger.warn({ err }, 'Failed to restore scrobbling opt-ins');
       }
 
       this.timerService.startAsync();

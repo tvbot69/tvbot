@@ -99,6 +99,7 @@ model Guild {
   disabledCommands GuildDisabledCommand[]
   userCrowns       UserCrown[]
   autoposts        GuildAutopost[]
+  musicSettings    GuildMusicSettings?
 
   @@map("guilds")
 }
@@ -336,6 +337,26 @@ model UserCrown {
   @@index([guildId, active])
   @@index([userId])
   @@map("user_crowns")
+}
+
+model GuildMusicSettings {
+  guildId  BigInt  @id @map("guild_id")
+  stay247  Boolean @default(false) @map("stay_247")
+  volume   Int     @default(100)
+  loopMode String  @default("off") @map("loop_mode") @db.VarChar(10)
+  autoplay Boolean @default(false)
+  filters  String[] @map("filters")
+
+  guild Guild @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  @@map("guild_music_settings")
+}
+
+model BotScrobbleOptIn {
+  discordUserId BigInt   @id @map("discord_user_id")
+  created       DateTime @default(now()) @map("created") @db.Timestamptz(6)
+
+  @@map("bot_scrobble_opt_ins")
 }
 
 model GuildAutopost {

@@ -376,8 +376,40 @@ export class MoonlinkManager {
         Logger.info(
           `[Lavalink] Moving player ${player.guildId} from failed node "${failedNode.identifier}" to "${targetNode.identifier}"`,
         );
+        // Node state (volume, loop, filters, position) is per-session: snapshot
+        // before the move and re-apply after, or playback silently resets to
+        // 100%/no-filter/from-zero on the new node.
+        const snapshot = {
+          volume: player.volume ?? 100,
+          loop: player.loop ?? 'off',
+          autoPlay: player.autoPlay,
+          filters: [...(player.filters?.enabled ?? [])],
+          position: player.current?.position ?? 0,
+        };
         player
           .transferNode(targetNode)
+          .then(async () => {
+            try {
+              if (snapshot.volume !== 100) player.setVolume(snapshot.volume);
+              if (snapshot.loop && snapshot.loop !== 'off') player.setLoop(snapshot.loop);
+              if (snapshot.autoPlay) player.setAutoPlay(true);
+              for (const filter of snapshot.filters) {
+                try {
+                  player.filters.enable(filter as Parameters<typeof player.filters.enable>[0]);
+                } catch {
+                  // ignore unknown filter names across versions
+                }
+              }
+              if (snapshot.filters.length > 0) {
+                await player.filters.apply().catch(() => undefined);
+              }
+              if (snapshot.position > 5000) {
+                await player.seek(snapshot.position).catch(() => undefined);
+              }
+            } catch (err) {
+              Logger.warn({ err, guildId: player.guildId }, 'Failed to restore player state after node transfer');
+            }
+          })
           .catch((err) => {
             Logger.error({ err, guildId: player.guildId }, 'Failed to move player to backup node');
           });
