@@ -577,7 +577,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
     }
 
     const textChannelId = ctx.interaction?.channelId ?? '';
-    const player = this.musicService.getOrCreatePlayer(ctx.guildId, voiceChannelId, textChannelId);
+    const player = await this.musicService.getOrCreatePlayer(ctx.guildId, voiceChannelId, textChannelId);
     if (!player.connected) {
       await player.connect({ selfDeaf: true });
     }

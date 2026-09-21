@@ -567,7 +567,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('You must be in a voice channel to summon the bot.');
     }
 
-    const player = this.musicService.getOrCreatePlayer(info.guildId, info.voiceChannelId, info.textChannelId);
+    const player = await this.musicService.getOrCreatePlayer(info.guildId, info.voiceChannelId, info.textChannelId);
     if (!player.connected) {
       await player.connect({ selfDeaf: true });
     }

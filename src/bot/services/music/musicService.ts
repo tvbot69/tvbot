@@ -1,4 +1,5 @@
-import type { Player } from 'moonlink.js';
+import type { Player, Track } from 'moonlink.js';
+import { Track as MoonlinkTrack } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import type { FilterName, LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
@@ -6,6 +7,8 @@ import { MoonlinkManager, type LavalinkNodeStats } from './moonlinkManager';
 import { SpotifyResolver, type SpotifyResolvedTrack } from './spotifyResolver';
 import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
+import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
+import { resolveViaHome, resolverEnabled } from './ytResolver';
 
 export interface PlayResult {
   loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'empty' | 'error';
@@ -57,13 +60,14 @@ export class MusicService {
     return manager.players.get(guildId);
   }
 
-  public getOrCreatePlayer(
+  public async getOrCreatePlayer(
     guildId: string,
     voiceChannelId: string,
     textChannelId: string,
-  ): Player {
+  ): Promise<Player> {
     const manager = this.moonlinkManager.getManager();
     let player = manager.players.get(guildId);
+    let created = false;
     if (!player) {
       // Re-apply persisted guild prefs so a recreate (rejoin, failover,
       // restart) doesn't reset volume/loop/autoplay/filters.
@@ -93,6 +97,18 @@ export class MusicService {
         }
         void player.filters.apply().catch(() => undefined);
       }
+      created = true;
+    }
+
+    // Fresh players start on Home when the resolver is configured: local
+    // files only exist there, and Home-first is the standing preference.
+    // Existing (playing) players are never moved here — failover owns that.
+    if (created && resolverEnabled()) {
+      try {
+        await player.transferNode(HOME_NODE).catch(() => undefined);
+      } catch {
+        // Home down or missing — least-load pick stands
+      }
     }
 
     if (player.voiceChannelId !== voiceChannelId) {
@@ -103,6 +119,86 @@ export class MusicService {
     }
 
     return player;
+  }
+
+  private async searchWithTimeout(
+    args: { query: string; source: string },
+    ms: number = 8000,
+  ): Promise<{ tracks?: Track[] } | null> {
+    const manager = this.moonlinkManager.getManager();
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const raced = await Promise.race([
+        manager.search(args),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), ms);
+        }),
+      ]);
+      return raced as { tracks?: Track[] } | null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * One YouTube attempt shared by the plugin + resolver rungs, then per-rung
+   * selection. Resolver hits are labeled 'local' so failure handling treats
+   * them as resolver output, never as YouTube plugin output.
+   */
+  private async searchTrackWithLadder(
+    player: Player,
+    query: string,
+  ): Promise<{ track: Track; rung: Rung } | null> {
+    const rungs = ladderFor(player);
+    let ytHit: Track | undefined;
+    if (rungs.includes('plugin') || rungs.includes('resolver')) {
+      try {
+        const yt = await this.searchWithTimeout({ query, source: 'youtube' });
+        ytHit = yt?.tracks?.[0];
+      } catch {
+        // fall through to remaining rungs
+      }
+    }
+    for (const rung of rungs) {
+      if (rung === 'soundcloud') {
+        try {
+          const sc = await this.searchWithTimeout({ query, source: 'soundcloud' });
+          if (sc?.tracks?.[0]) return { track: sc.tracks[0], rung };
+        } catch {
+          // next rung
+        }
+        continue;
+      }
+      if (!ytHit) continue;
+      if (rung === 'plugin') return { track: ytHit, rung };
+      const local = await this.tryResolverTrack(player, ytHit);
+      if (local) return { track: local, rung };
+    }
+    return null;
+  }
+
+  private async tryResolverTrack(player: Player, ytTrack: Track): Promise<Track | null> {
+    if (player.node?.identifier !== HOME_NODE) return null;
+    if (!/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) return null;
+    const path = await resolveViaHome(ytTrack.identifier);
+    if (!path) return null;
+    let res: unknown;
+    try {
+      res = await player.node.rest.loadTracks(path);
+    } catch {
+      return null;
+    }
+    const typed = res as { loadType?: string; data?: { encoded?: string } };
+    if (typed?.loadType !== 'track' || !typed.data?.encoded) return null;
+    try {
+      return new MoonlinkTrack(typed.data, ytTrack.requester);
+    } catch (err) {
+      Logger.debug(
+        { err, keys: typed.data ? Object.keys(typed.data) : [] },
+        '[Music] Track construction from resolver data failed',
+      );
+      return null;
+    }
   }
 
   public async play(
@@ -131,7 +227,7 @@ export class MusicService {
       };
     }
 
-    const player = this.getOrCreatePlayer(guildId, voiceChannelId, textChannelId);
+    const player = await this.getOrCreatePlayer(guildId, voiceChannelId, textChannelId);
 
     if (!player.connected) {
       try {
@@ -156,118 +252,72 @@ export class MusicService {
     const isSoundcloud = /^(https?:\/\/)?(www\.)?soundcloud\.com\/.+$/i.test(trimmedQuery);
     const isYoutubeUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i.test(trimmedQuery);
     const isDirectUrl = isYoutubeUrl || isSoundcloud || /^https?:\/\//i.test(trimmedQuery);
-    let searchSource: 'soundcloud' | 'youtube' = isSoundcloud ? 'soundcloud' : 'youtube';
+
+    // Direct SoundCloud URLs always go straight there; everything else runs
+    // the health ladder (plugin → resolver → soundcloud, SoundCloud-first
+    // while YouTube is declared down).
+    if (isSoundcloud) {
+      try {
+        const res = await manager.search({ query: trimmedQuery, source: 'soundcloud' });
+        if (!res?.tracks || res.tracks.length === 0) {
+          return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
+        }
+        return await this.enqueueLavalinkTracks(player, res.tracks, requester, trackOverride, 'soundcloud');
+      } catch (err) {
+        Logger.error({ err, query: trimmedQuery }, 'Lavalink play search error');
+        return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
+      }
+    }
 
     try {
-      let res = await manager.search({
-        query: trimmedQuery,
-        source: searchSource,
-      });
-
-      // YouTube search returns zero hits for some text queries (explicit terms,
-      // obscure spellings) while SoundCloud has them — retry there before giving
-      // up. Never second-guess a direct URL the user pasted.
-      if ((!res || !res.tracks || res.tracks.length === 0) && !isDirectUrl && searchSource === 'youtube') {
+      // A pasted YouTube URL loads metadata first; when YouTube is down the
+      // same ladder replays it from SoundCloud (or the local resolver).
+      if (isYoutubeUrl) {
+        let urlRes: { tracks?: Track[]; loadType?: string } | null = null;
         try {
-          const scRes = await manager.search({ query: trimmedQuery, source: 'soundcloud' });
-          if (scRes?.tracks && scRes.tracks.length > 0) {
-            Logger.info({ query: trimmedQuery }, '[Music] YouTube search empty — falling back to SoundCloud');
-            res = scRes;
-            searchSource = 'soundcloud';
-          }
+          urlRes = await this.searchWithTimeout({ query: trimmedQuery, source: 'youtube' });
         } catch {
-          // fall through to empty below
+          urlRes = null;
         }
-      }
-
-      if (!res || !res.tracks || res.tracks.length === 0) {
-        return {
-          loadType: 'empty',
-          totalTracksAdded: 0,
-          positionInQueue: 0,
-        };
-      }
-
-      if (res.loadType === 'playlist') {
-        const addedTracks: MusicTrack[] = [];
-        for (const rawTrack of res.tracks) {
-          rawTrack.requester = requester;
-          const trackRecord = rawTrack as unknown as Record<string, unknown>;
-          trackRecord.sourceName = searchSource;
-          trackRecord.source = searchSource;
-          player.queue.add(rawTrack);
-          const domain = mapMoonlinkTrack(rawTrack, requester);
-          domain.source = searchSource;
-          addedTracks.push(domain);
+        if (!urlRes?.tracks || urlRes.tracks.length === 0) {
+          return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
         }
-
-        if (!player.playing && !player.paused) {
-          await player.play();
+        if (urlRes.loadType === 'playlist') {
+          return await this.enqueueLavalinkTracks(player, urlRes.tracks, requester, trackOverride, 'youtube');
         }
-
-        return {
-          loadType: 'playlist',
-          playlistName: res.playlistInfo?.name || 'Playlist',
-          tracks: addedTracks,
-          totalTracksAdded: addedTracks.length,
-          positionInQueue: player.queue.size - addedTracks.length + 1,
-        };
-      }
-
-      // Single track or search result list
-      const chosenTrack = res.tracks[0]!;
-      chosenTrack.requester = requester;
-      if (trackOverride?.title) chosenTrack.title = trackOverride.title;
-      if (trackOverride?.author) chosenTrack.author = trackOverride.author;
-      if (trackOverride?.artworkUrl) chosenTrack.artworkUrl = trackOverride.artworkUrl;
-      const chosenRecord = chosenTrack as unknown as Record<string, unknown>;
-      const chosenSource = trackOverride?.source || searchSource;
-      chosenRecord.sourceName = chosenSource;
-      chosenRecord.source = chosenSource;
-      if (trackOverride?.artworkUrl) {
-        chosenRecord.artworkUrl = trackOverride.artworkUrl;
-      }
-
-      // Query Spotify for clean canonical song name and artist (only if not soundcloud, not direct url, and not overridden)
-      if (!isSoundcloud && !isDirectUrl && !trackOverride?.title) {
-        try {
-          const queryToSearch = cleanTrackTitle(chosenTrack.title);
-          const spotifyMatch = await Promise.race([
-            this.spotifyResolver.searchTrack(queryToSearch),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
-          ]);
-          if (spotifyMatch && isSpotifyMatchValid(chosenTrack, spotifyMatch)) {
-            chosenTrack.title = spotifyMatch.name;
-            chosenTrack.author = spotifyMatch.artist;
-            if (spotifyMatch.artworkUrl) {
-              chosenTrack.artworkUrl = spotifyMatch.artworkUrl;
-            }
-            if (spotifyMatch.spotifyUri) {
-              chosenTrack.uri = spotifyMatch.spotifyUri;
-            }
+        const meta = urlRes.tracks[0]!;
+        const rungs = ladderFor(player);
+        if (!rungs.includes('plugin')) {
+          const scQuery = `${meta.author} - ${meta.title}`;
+          const swapped = await this.searchTrackWithLadder(player, scQuery);
+          if (swapped) {
+            const hit = swapped.track;
+            hit.requester = requester;
+            hit.title = trackOverride?.title || meta.title;
+            hit.author = trackOverride?.author || meta.author;
+            const rungSource = swapped.rung === 'resolver' ? 'local' : 'soundcloud';
+            const rec = hit as unknown as Record<string, unknown>;
+            rec.sourceName = trackOverride?.source || rungSource;
+            rec.source = trackOverride?.source || rungSource;
+            return await this.enqueueLavalinkTracks(player, [hit], requester, trackOverride, rungSource);
           }
-        } catch {
-          // Fallback safely to Lavalink track info
+          return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
         }
+        return await this.enqueueLavalinkTracks(player, [meta], requester, trackOverride, 'youtube');
       }
 
-      player.queue.add(chosenTrack);
-
-      const domainTrack = mapMoonlinkTrack(chosenTrack, requester);
-      domainTrack.source = chosenSource;
-      if (trackOverride?.artworkUrl) {
-        domainTrack.artworkUrl = trackOverride.artworkUrl;
+      // Text query (or anything else): full ladder.
+      const found = await this.searchTrackWithLadder(player, trimmedQuery);
+      if (!found) {
+        return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
       }
-
-      if (!player.playing && !player.paused) {
-        await player.play();
-      }
+      const ladderSource = found.rung === 'resolver' ? 'local' : found.rung === 'soundcloud' ? 'soundcloud' : 'youtube';
+      return await this.enqueueLavalinkTracks(player, [found.track], requester, trackOverride, ladderSource, undefined, true);
 
       return {
-        loadType: 'track',
-        track: domainTrack,
-        totalTracksAdded: 1,
-        positionInQueue: player.queue.size,
+        loadType: 'empty',
+        totalTracksAdded: 0,
+        positionInQueue: 0,
       };
     } catch (err) {
       Logger.error({ err, query: trimmedQuery }, 'Lavalink play search error');
@@ -277,6 +327,75 @@ export class MusicService {
         positionInQueue: 0,
       };
     }
+  }
+
+  /**
+   * Queues already-resolved Lavalink tracks (playlist arrays or single hits).
+   * `source` is the ladder rung that produced them — resolver output stays
+   * 'local' so failure handling never mistakes it for plugin output.
+   */
+  private async enqueueLavalinkTracks(
+    player: Player,
+    tracks: Track[],
+    requester: MusicTrackRequester,
+    trackOverride: { title?: string; author?: string; artworkUrl?: string; source?: string } | undefined,
+    source: string,
+    playlistName?: string,
+    enrichWithSpotify = false,
+  ): Promise<PlayResult> {
+    const addedTracks: MusicTrack[] = [];
+    for (const rawTrack of tracks) {
+      rawTrack.requester = requester;
+      if (trackOverride?.title) rawTrack.title = trackOverride.title;
+      if (trackOverride?.author) rawTrack.author = trackOverride.author;
+      if (trackOverride?.artworkUrl) rawTrack.artworkUrl = trackOverride.artworkUrl;
+      const trackRecord = rawTrack as unknown as Record<string, unknown>;
+      const finalSource = trackOverride?.source || source;
+      trackRecord.sourceName = finalSource;
+      trackRecord.source = finalSource;
+      if (enrichWithSpotify && source === 'youtube' && !trackOverride?.title) {
+        try {
+          const queryToSearch = cleanTrackTitle(rawTrack.title);
+          const spotifyMatch = await Promise.race([
+            this.spotifyResolver.searchTrack(queryToSearch),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+          ]);
+          if (spotifyMatch && isSpotifyMatchValid(rawTrack, spotifyMatch)) {
+            rawTrack.title = spotifyMatch.name;
+            rawTrack.author = spotifyMatch.artist;
+            if (spotifyMatch.artworkUrl) rawTrack.artworkUrl = spotifyMatch.artworkUrl;
+            if (spotifyMatch.spotifyUri) rawTrack.uri = spotifyMatch.spotifyUri;
+          }
+        } catch {
+          // Fallback safely to Lavalink track info
+        }
+      }
+      player.queue.add(rawTrack);
+      const domain = mapMoonlinkTrack(rawTrack, requester);
+      domain.source = finalSource;
+      if (trackOverride?.artworkUrl) domain.artworkUrl = trackOverride.artworkUrl;
+      addedTracks.push(domain);
+    }
+
+    if (!player.playing && !player.paused) {
+      await player.play();
+    }
+
+    if (tracks.length > 1 || playlistName) {
+      return {
+        loadType: 'playlist',
+        playlistName: playlistName || 'Playlist',
+        tracks: addedTracks,
+        totalTracksAdded: addedTracks.length,
+        positionInQueue: player.queue.size - addedTracks.length + 1,
+      };
+    }
+    return {
+      loadType: 'track',
+      track: addedTracks[0],
+      totalTracksAdded: addedTracks.length,
+      positionInQueue: player.queue.size,
+    };
   }
 
   private async playSpotify(
@@ -303,12 +422,9 @@ export class MusicService {
 
     if (resolution.type === 'track') {
       const spotifyTrack = resolution.tracks[0]!;
-      const res = await manager.search({
-        query: spotifyTrack.searchQuery,
-        source: 'youtube',
-      });
+      const found = await this.searchTrackWithLadder(player, spotifyTrack.searchQuery);
 
-      if (!res || !res.tracks || res.tracks.length === 0) {
+      if (!found) {
         return {
           loadType: 'empty',
           totalTracksAdded: 0,
@@ -316,7 +432,7 @@ export class MusicService {
         };
       }
 
-      const chosenTrack = res.tracks[0]!;
+      const chosenTrack = found.track;
       chosenTrack.requester = requester;
       chosenTrack.title = trackOverride?.title || spotifyTrack.name;
       chosenTrack.author = trackOverride?.author || spotifyTrack.artist;
@@ -326,7 +442,8 @@ export class MusicService {
       }
       chosenTrack.uri = spotifyTrack.spotifyUri || spotifyUrl;
       const trackRecord = chosenTrack as unknown as Record<string, unknown>;
-      const finalSource = trackOverride?.source || 'spotify';
+      const backend = found.rung === 'resolver' ? 'local' : 'spotify';
+      const finalSource = trackOverride?.source || backend;
       trackRecord.sourceName = finalSource;
       trackRecord.source = finalSource;
       if (finalArtwork) {
@@ -335,7 +452,7 @@ export class MusicService {
       player.queue.add(chosenTrack);
 
       const domainTrack = mapMoonlinkTrack(chosenTrack, requester);
-      domainTrack.source = finalSource;
+      domainTrack.source = 'spotify';
       if (finalArtwork) {
         domainTrack.artworkUrl = finalArtwork;
       }
@@ -356,27 +473,37 @@ export class MusicService {
     const addedTracks: MusicTrack[] = [];
     const firstTrack = resolution.tracks[0]!;
 
-    // Resolve first track immediately so playback begins with minimum delay
-    const firstSearchRes = await manager.search({
-      query: firstTrack.searchQuery,
-      source: 'youtube',
-    });
-
-    if (firstSearchRes && firstSearchRes.tracks && firstSearchRes.tracks.length > 0) {
-      const firstLavalinkTrack = firstSearchRes.tracks[0]!;
-      firstLavalinkTrack.requester = requester;
-      firstLavalinkTrack.title = firstTrack.name;
-      firstLavalinkTrack.author = firstTrack.artist;
-      if (firstTrack.artworkUrl) {
-        firstLavalinkTrack.artworkUrl = firstTrack.artworkUrl;
+    // Resolve first track immediately so playback begins with minimum delay.
+    // The moonlink track keeps its true backend label ('local' for resolver
+    // output) so failure handling routes correctly; the display model keeps
+    // the familiar 'spotify' badge.
+    const adoptSpotifyTrack = (lavalinkTrack: Track, spTrack: SpotifyResolvedTrack, rung: Rung): void => {
+      lavalinkTrack.requester = requester;
+      lavalinkTrack.title = spTrack.name;
+      lavalinkTrack.author = spTrack.artist;
+      if (spTrack.artworkUrl) {
+        lavalinkTrack.artworkUrl = spTrack.artworkUrl;
       }
-      firstLavalinkTrack.uri = firstTrack.spotifyUri || spotifyUrl;
-      const firstRecord = firstLavalinkTrack as unknown as Record<string, unknown>;
-      firstRecord.sourceName = 'spotify';
-      firstRecord.source = 'spotify';
+      lavalinkTrack.uri = spTrack.spotifyUri || spotifyUrl;
+      const record = lavalinkTrack as unknown as Record<string, unknown>;
+      const backend = rung === 'resolver' ? 'local' : 'spotify';
+      record.sourceName = trackOverride?.source || backend;
+      record.source = trackOverride?.source || backend;
+      if (trackOverride?.artworkUrl) {
+        record.artworkUrl = trackOverride.artworkUrl;
+      }
+    };
+
+    const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery);
+    if (firstFound) {
+      const firstLavalinkTrack = firstFound.track;
+      adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung);
       player.queue.add(firstLavalinkTrack);
       const firstDomainTrack = mapMoonlinkTrack(firstLavalinkTrack, requester);
       firstDomainTrack.source = 'spotify';
+      if (trackOverride?.artworkUrl) {
+        firstDomainTrack.artworkUrl = trackOverride.artworkUrl;
+      }
       addedTracks.push(firstDomainTrack);
 
       if (!player.playing && !player.paused) {
@@ -384,32 +511,19 @@ export class MusicService {
       }
     }
 
-    // Resolve remaining tracks in parallel batches. Each track gets a bounded
-    // YouTube attempt plus one SoundCloud second chance — a blocked uploader
-    // or a hung search must not silently drop (or stall) the whole playlist.
+    // Resolve remaining tracks in parallel batches through the same ladder.
     const remainingTracks = resolution.tracks.slice(1);
     const BATCH_SIZE = 5;
     for (let i = 0; i < remainingTracks.length; i += BATCH_SIZE) {
       const batch = remainingTracks.slice(i, i + BATCH_SIZE);
       const batchResults = await Promise.all(
-        batch.map((t) => this.resolvePlaylistTrack(manager, t)),
+        batch.map((t) => this.resolvePlaylistTrack(player, t)),
       );
 
       for (const item of batchResults) {
         if (!item) continue;
         const lavalinkTrack = item.lavalinkTrack;
-        lavalinkTrack.requester = requester;
-        lavalinkTrack.title = item.spTrack.name;
-        lavalinkTrack.author = item.spTrack.artist;
-        if (item.spTrack.artworkUrl) {
-          lavalinkTrack.artworkUrl = item.spTrack.artworkUrl;
-        }
-        if (item.spTrack.spotifyUri) {
-          lavalinkTrack.uri = item.spTrack.spotifyUri;
-        }
-        const remRecord = lavalinkTrack as unknown as Record<string, unknown>;
-        remRecord.sourceName = 'spotify';
-        remRecord.source = 'spotify';
+        adoptSpotifyTrack(lavalinkTrack, item.spTrack, item.rung);
         player.queue.add(lavalinkTrack);
         const domainTrack = mapMoonlinkTrack(lavalinkTrack, requester);
         domainTrack.source = 'spotify';
@@ -460,49 +574,16 @@ export class MusicService {
   }
 
   /**
-   * Resolves one playlist track to a playable Lavalink track: bounded YouTube
-   * search first, one SoundCloud second chance, null when unresolvable.
+   * Resolves one playlist track through the health ladder
+   * (plugin → resolver → soundcloud, SoundCloud-first while down).
    */
   private async resolvePlaylistTrack(
-    manager: { search: (args: { query: string; source: string }) => Promise<{ tracks?: Array<import('moonlink.js').Track> } | null> },
+    player: Player,
     spTrack: SpotifyResolvedTrack,
-  ): Promise<{ lavalinkTrack: import('moonlink.js').Track; spTrack: SpotifyResolvedTrack } | null> {
-    const withTimeout = async <T>(promise: Promise<T>, ms: number): Promise<T | null> => {
-      let timer: NodeJS.Timeout | undefined;
-      try {
-        return await Promise.race([
-          promise,
-          new Promise<T | null>((resolve) => {
-            timer = setTimeout(() => resolve(null), ms);
-          }),
-        ]);
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-    };
-
-    try {
-      const yt = await withTimeout(
-        manager.search({ query: spTrack.searchQuery, source: 'youtube' }),
-        8000,
-      );
-      const ytHit = yt?.tracks?.[0];
-      if (ytHit) return { lavalinkTrack: ytHit, spTrack };
-    } catch {
-      // fall through to SoundCloud
-    }
-
-    try {
-      const sc = await withTimeout(
-        manager.search({ query: spTrack.searchQuery, source: 'soundcloud' }),
-        8000,
-      );
-      const scHit = sc?.tracks?.[0];
-      if (scHit) return { lavalinkTrack: scHit, spTrack };
-    } catch {
-      // unresolvable
-    }
-    return null;
+  ): Promise<{ lavalinkTrack: Track; spTrack: SpotifyResolvedTrack; rung: Rung } | null> {
+    const found = await this.searchTrackWithLadder(player, spTrack.searchQuery);
+    if (!found) return null;
+    return { lavalinkTrack: found.track, spTrack, rung: found.rung };
   }
 
   public getQueueInfo(guildId: string): MusicQueueInfo | null {

@@ -1,0 +1,102 @@
+import { resolverEnabled } from './ytResolver';
+
+export type Rung = 'plugin' | 'resolver' | 'soundcloud';
+
+export const HOME_NODE = 'Home';
+
+// Matches source-outage failures (login walls, bot checks, cipher death).
+// Anything else (user errors, network blips) must NOT trip the breaker.
+const OUTAGE_RE =
+  /requires login|sign in to confirm|not a bot|all clients failed|no supported audio|sig function|page needs to be reloaded|player configuration error/i;
+
+const errText = (e: unknown): string => {
+  if (typeof e === 'string') return e;
+  const parts: string[] = [];
+  const rec = e as Record<string, unknown> | null;
+  if (rec) {
+    for (const key of ['message', 'cause', 'causeStackTrace']) {
+      const v = rec[key];
+      if (typeof v === 'string' && v) parts.push(v);
+    }
+  }
+  try {
+    const json = JSON.stringify(e);
+    if (json && json !== '{}') parts.push(json);
+  } catch {
+    // ignore unserializable exceptions
+  }
+  return parts.join(' ');
+};
+
+/**
+ * Per-node YouTube health: after N distinct songs die with outage-type
+ * errors inside a short window, YouTube is declared down for a while.
+ * While down, new plays go SoundCloud-first (resolver rung only on Home)
+ * and failure handlers skip the pointless alternate-YouTube-upload search.
+ * One probe per minute is let through to detect recovery; any 15s-surviving
+ * playback clears the state immediately.
+ */
+export class YoutubeHealth {
+  private downUntil = 0;
+  private probeUntil = 0;
+  private recent: Array<{ song: string; at: number }> = [];
+
+  constructor(
+    private readonly o = { distinctSongs: 3, windowMs: 120_000, downMs: 600_000 },
+  ) {}
+
+  public static isOutage(e: unknown): boolean {
+    return OUTAGE_RE.test(errText(e));
+  }
+
+  /** Rungs to try for a NEW play request, in order. */
+  public ladder(opts: { resolver: boolean }, now: number = Date.now()): Rung[] {
+    const rest: Rung[] = opts.resolver ? ['resolver', 'soundcloud'] : ['soundcloud'];
+    if (!this.downUntil) return ['plugin', ...rest];
+    if (now < this.downUntil || now < this.probeUntil) return rest;
+    this.probeUntil = now + 60_000;
+    return ['plugin', ...rest];
+  }
+
+  public recordFailure(song: string, e: unknown, now: number = Date.now()): void {
+    if (!YoutubeHealth.isOutage(e)) return;
+    if (this.downUntil) {
+      if (now >= this.downUntil) {
+        this.downUntil = now + this.o.downMs;
+        this.probeUntil = 0;
+      }
+      return;
+    }
+    this.recent = this.recent.filter((f) => now - f.at < this.o.windowMs);
+    this.recent.push({ song, at: now });
+    if (new Set(this.recent.map((f) => f.song)).size >= this.o.distinctSongs) {
+      this.downUntil = now + this.o.downMs;
+      this.recent = [];
+    }
+  }
+
+  public recordSuccess(): void {
+    this.downUntil = 0;
+    this.probeUntil = 0;
+    this.recent = [];
+  }
+
+  public isDown(now: number = Date.now()): boolean {
+    return this.downUntil > now;
+  }
+}
+
+const byNode = new Map<string, YoutubeHealth>();
+
+export const healthFor = (nodeId: string): YoutubeHealth => {
+  const existing = byNode.get(nodeId);
+  if (existing) return existing;
+  const created = new YoutubeHealth();
+  byNode.set(nodeId, created);
+  return created;
+};
+
+export const ladderFor = (player: { node?: { identifier?: string } | null }): Rung[] => {
+  const id = player.node?.identifier ?? 'unknown';
+  return healthFor(id).ladder({ resolver: resolverEnabled() && id === HOME_NODE });
+};

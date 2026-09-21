@@ -17,12 +17,16 @@ const makeHandler = () => {
     clearFallbackState: (guildId: string) => void;
     findAlternatePlayableTrack: (
       manager: unknown,
+      player: unknown,
       track: unknown,
       guildId: string,
       key: string,
+      err?: unknown,
     ) => Promise<unknown>;
   };
 };
+
+const mockPlayer = (nodeId = 'test-node') => ({ node: { identifier: nodeId } });
 
 const failedTrack = {
   identifier: 'yt-blocked',
@@ -81,6 +85,7 @@ describe('MusicHandler fallback budgets (Phase 3.2)', () => {
 
     const first = (await handler.findAlternatePlayableTrack(
       { search },
+      mockPlayer(),
       failedTrack,
       'g4',
       'enc-blocked',
@@ -90,6 +95,7 @@ describe('MusicHandler fallback budgets (Phase 3.2)', () => {
     // yt-alt already failed too: second lookup must skip both known ids
     const second = (await handler.findAlternatePlayableTrack(
       { search },
+      mockPlayer(),
       failedTrack,
       'g4',
       'enc-blocked',
@@ -98,37 +104,44 @@ describe('MusicHandler fallback budgets (Phase 3.2)', () => {
   });
 });
 
-describe('resolvePlaylistTrack (Phase 3.2)', () => {
-  const svc = new MusicService({} as never, {} as never, {} as never) as unknown as {
-    resolvePlaylistTrack: (
-      manager: unknown,
-      spTrack: { searchQuery: string; name: string; artist: string },
-    ) => Promise<{ lavalinkTrack: { identifier: string } } | null>;
+describe('resolvePlaylistTrack (ladder)', () => {
+  const makeSvc = (searchImpl: (args: { query: string; source: string }) => Promise<unknown>) => {
+    const search = vi.fn(searchImpl);
+    const svc = new MusicService(
+      { getManager: () => ({ search }) } as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      resolvePlaylistTrack: (
+        player: unknown,
+        spTrack: { searchQuery: string; name: string; artist: string },
+      ) => Promise<{ lavalinkTrack: { identifier: string }; rung: string } | null>;
+    };
+    return { svc, search };
   };
   const spTrack = { searchQuery: 'Mond - Esme', name: 'Esme', artist: 'Mond' };
+  const player = { node: { identifier: 'test-node' } };
 
   it('takes the YouTube hit when present', async () => {
-    const manager = {
-      search: vi.fn(async () => ({ tracks: [{ identifier: 'yt1' }] })),
-    };
-    const res = await svc.resolvePlaylistTrack(manager, spTrack);
+    const { svc, search } = makeSvc(async () => ({ tracks: [{ identifier: 'yt1' }] }));
+    const res = await svc.resolvePlaylistTrack(player, spTrack);
     expect(res?.lavalinkTrack.identifier).toBe('yt1');
-    expect(manager.search).toHaveBeenCalledTimes(1);
+    expect(res?.rung).toBe('plugin');
+    expect(search).toHaveBeenCalledTimes(1);
   });
 
   it('tries SoundCloud when YouTube misses', async () => {
-    const manager = {
-      search: vi.fn(async ({ source }: { source: string }) =>
-        source === 'youtube' ? { tracks: [] } : { tracks: [{ identifier: 'sc1' }] },
-      ),
-    };
-    const res = await svc.resolvePlaylistTrack(manager, spTrack);
+    const { svc } = makeSvc(async ({ source }: { query: string; source: string }) =>
+      source === 'youtube' ? { tracks: [] } : { tracks: [{ identifier: 'sc1' }] },
+    );
+    const res = await svc.resolvePlaylistTrack(player, spTrack);
     expect(res?.lavalinkTrack.identifier).toBe('sc1');
+    expect(res?.rung).toBe('soundcloud');
   });
 
   it('returns null when both sources miss', async () => {
-    const manager = { search: vi.fn(async () => ({ tracks: [] })) };
-    await expect(svc.resolvePlaylistTrack(manager, spTrack)).resolves.toBeNull();
+    const { svc } = makeSvc(async () => ({ tracks: [] }));
+    await expect(svc.resolvePlaylistTrack(player, spTrack)).resolves.toBeNull();
   });
 });
 

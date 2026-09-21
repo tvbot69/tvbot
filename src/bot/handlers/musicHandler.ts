@@ -1,5 +1,6 @@
 import { Client, Events, VoiceChannel, StageChannel } from 'discord.js';
-import type { Manager, Player, Track } from 'moonlink.js';
+import type { Manager, Player } from 'moonlink.js';
+import { Track } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { QueueService } from '@bot/services/music/queueService';
@@ -8,6 +9,8 @@ import type { ColorService } from '@bot/services/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTrack';
+import { healthFor, ladderFor, YoutubeHealth, HOME_NODE } from '@bot/services/music/youtubeHealth';
+import { resolveViaHome } from '@bot/services/music/ytResolver';
 
 export class MusicHandler {
   private readonly client: Client;
@@ -43,6 +46,15 @@ export class MusicHandler {
 
   private readonly progressFingerprints = new Map<string, string>();
   private static readonly PROGRESS_UPDATE_MS = 15000;
+  private readonly okTimers = new Map<string, NodeJS.Timeout>();
+
+  private clearOkTimer(guildId: string): void {
+    const timer = this.okTimers.get(guildId);
+    if (timer) {
+      clearTimeout(timer);
+      this.okTimers.delete(guildId);
+    }
+  }
 
   private startProgressUpdater(player: Player): void {
     this.stopProgressUpdater(player.guildId);
@@ -250,32 +262,33 @@ export class MusicHandler {
    * Previously-tried uploads are excluded so a failing fallback can't loop.
    * Returns null when nothing playable exists so the caller can skip past the poison track.
    */
-  private async findAlternatePlayableTrack(
+  private matchesFallbackDuration(failedTrack: Track, duration?: number): boolean {
+    const failedDuration = failedTrack.duration || 0;
+    if (!duration || !failedDuration) return true;
+    return Math.abs(duration - failedDuration) <= 30000;
+  }
+
+  private isFreshCandidate(failedTrack: Track, guildId: string, t: Track): boolean {
+    const tried = this.triedFallbackIds.get(guildId) ?? new Set<string>();
+    return (
+      t.identifier !== failedTrack.identifier &&
+      !tried.has(t.identifier) &&
+      this.matchesFallbackDuration(failedTrack, t.duration)
+    );
+  }
+
+  private async searchYoutubeAlternate(
     manager: Manager,
-    failedTrack: Track | null | undefined,
+    failedTrack: Track,
     guildId: string,
-    failedKey: string,
   ): Promise<Track | null> {
-    if (!failedTrack) return null;
     const query = this.buildFallbackQuery(failedTrack);
     if (!query) return null;
-
-    const failedId = failedTrack.identifier;
-    const tried = this.triedFallbackIds.get(guildId) ?? new Set<string>();
-    const failedDuration = failedTrack.duration || 0;
-    const matchesDuration = (duration?: number): boolean => {
-      if (!duration || !failedDuration) return true;
-      return Math.abs(duration - failedDuration) <= 30000;
-    };
-    const isFreshCandidate = (t: Track): boolean =>
-      t.identifier !== failedId && !tried.has(t.identifier) && matchesDuration(t.duration);
-
     try {
       const yt = await manager.search({ query, source: 'youtube' });
-      const alt = yt?.tracks?.find((t: Track) => isFreshCandidate(t));
+      const alt = yt?.tracks?.find((t: Track) => this.isFreshCandidate(failedTrack, guildId, t));
       if (alt) {
         this.adoptFallbackMetadata(alt, failedTrack, 'youtube');
-        this.recordFallbackAttempt(guildId, failedKey, alt.identifier);
         Logger.info(
           { guildId, query, uri: alt.uri },
           `[Music] Alternate YouTube upload found for "${failedTrack.title}" — retrying without the blocked upload.`,
@@ -285,13 +298,21 @@ export class MusicHandler {
     } catch (err) {
       Logger.debug({ err }, '[Music] Alternate YouTube search failed');
     }
+    return null;
+  }
 
+  private async searchSoundcloudAlternate(
+    manager: Manager,
+    failedTrack: Track,
+    guildId: string,
+  ): Promise<Track | null> {
+    const query = this.buildFallbackQuery(failedTrack);
+    if (!query) return null;
     try {
       const sc = await manager.search({ query, source: 'soundcloud' });
-      const alt = sc?.tracks?.find((t: Track) => isFreshCandidate(t));
+      const alt = sc?.tracks?.find((t: Track) => this.isFreshCandidate(failedTrack, guildId, t));
       if (alt) {
         this.adoptFallbackMetadata(alt, failedTrack, 'soundcloud');
-        this.recordFallbackAttempt(guildId, failedKey, alt.identifier);
         return alt;
       }
       if (sc?.tracks && sc.tracks.length > 0) {
@@ -303,7 +324,73 @@ export class MusicHandler {
     } catch (err) {
       Logger.debug({ err }, '[Music] SoundCloud fallback search failed');
     }
+    return null;
+  }
 
+  /**
+   * Resolves the exact video through the home PC's yt-dlp resolver and loads
+   * it as a local file on the Home node. Only for Home players and YouTube
+   * tracks; everything else returns null so the ladder moves on.
+   */
+  private async tryResolver(player: Player, src: Track): Promise<Track | null> {
+    if (player.node?.identifier !== HOME_NODE) return null;
+    if (src.sourceName !== 'youtube' || !/^[\w-]{11}$/.test(src.identifier ?? '')) return null;
+    const path = await resolveViaHome(src.identifier);
+    if (!path) return null;
+    let res: unknown;
+    try {
+      res = await player.node.rest.loadTracks(path);
+    } catch {
+      return null;
+    }
+    const typed = res as { loadType?: string; data?: { encoded?: string } };
+    if (typed?.loadType !== 'track' || !typed.data?.encoded) return null;
+    try {
+      const t = new Track(typed.data, src.requester);
+      t.title = src.title;
+      t.author = src.author;
+      t.artworkUrl = src.artworkUrl;
+      t.uri = src.uri;
+      if (!t.duration || t.isStream) t.duration = src.duration;
+      return t;
+    } catch (err) {
+      Logger.debug(
+        { err, keys: typed.data ? Object.keys(typed.data) : [] },
+        '[Music] Track construction from resolver data failed',
+      );
+      return null;
+    }
+  }
+
+  private async findAlternatePlayableTrack(
+    manager: Manager,
+    player: Player,
+    failedTrack: Track | null | undefined,
+    guildId: string,
+    failedKey: string,
+    err?: unknown,
+  ): Promise<Track | null> {
+    if (!failedTrack) return null;
+    const nodeId = player.node?.identifier ?? 'unknown';
+    let rungs = ladderFor(player).filter(
+      (r) => !(err && YoutubeHealth.isOutage(err) && r === 'plugin'),
+    );
+    // A resolved local file that failed must not be re-resolved.
+    if (failedTrack.sourceName === 'local') {
+      rungs = rungs.filter((r) => r !== 'resolver');
+    }
+    for (const rung of rungs) {
+      const alt =
+        rung === 'resolver'
+          ? await this.tryResolver(player, failedTrack)
+          : rung === 'plugin'
+            ? await this.searchYoutubeAlternate(manager, failedTrack, guildId)
+            : await this.searchSoundcloudAlternate(manager, failedTrack, guildId);
+      if (alt) {
+        this.recordFallbackAttempt(guildId, failedKey, alt.identifier);
+        return alt;
+      }
+    }
     this.recordFallbackAttempt(guildId, failedKey);
     return null;
   }
@@ -320,6 +407,24 @@ export class MusicHandler {
       Logger.info(
         `[Music] Track started in guild ${player.guildId} via node "${player.node?.identifier ?? 'unknown'}": "${currentTrack.title}" by "${currentTrack.author}"`,
       );
+
+      // Success tracking for the YouTube health ladder: only a track that
+      // survives 15s counts (log lines prove starts die at ~2s otherwise).
+      // Resolver ('local') tracks never feed YouTube health either way.
+      const startedSource = (player.current ?? track)?.sourceName;
+      if (startedSource === 'youtube') {
+        const nodeId = player.node?.identifier ?? 'unknown';
+        const existingOk = this.okTimers.get(player.guildId);
+        if (existingOk) clearTimeout(existingOk);
+        this.okTimers.set(
+          player.guildId,
+          setTimeout(() => {
+            this.okTimers.delete(player.guildId);
+            healthFor(nodeId).recordSuccess();
+          }, 15000),
+        );
+      }
+
       this.queueService.recordTrackStart(player.guildId, player.current ?? track);
 
       player.set('trackStartedAt', Date.now());
@@ -400,6 +505,7 @@ export class MusicHandler {
         `[Music] Track ended in guild ${player.guildId}: "${track.title}" (reason: ${reason})`,
       );
       this.stopProgressUpdater(player.guildId);
+      this.clearOkTimer(player.guildId);
 
       if (player.voiceChannelId && this.botScrobblingService) {
         void this.botScrobblingService.handleTrackEnd(this.client, player.guildId, player.voiceChannelId);
@@ -408,6 +514,7 @@ export class MusicHandler {
 
     manager.on('trackStuck', async (player: Player, track: Track, threshold: number) => {
       this.stopProgressUpdater(player.guildId);
+      this.clearOkTimer(player.guildId);
 
       // Moonlink can emit with a null track when the failure arrives after the
       // player already moved on (stop/skip/queueEnd). Property access on null
@@ -453,7 +560,7 @@ export class MusicHandler {
         { guildId: player.guildId, track: track.title, threshold },
         `[Music] Track stuck (${threshold}ms) — looking for an alternate upload for "${track.title}"...`,
       );
-      const fallback = await this.findAlternatePlayableTrack(manager, track, player.guildId, failedKeyStr);
+      const fallback = await this.findAlternatePlayableTrack(manager, player, track, player.guildId, failedKeyStr);
       if (fallback) {
         player.queue.unshift(fallback);
         Logger.info({ guildId: player.guildId, track: track.title }, `[Music] Alternate upload queued for stuck track — advancing to it.`);
@@ -491,6 +598,18 @@ export class MusicHandler {
           '[Music] Track exception event with no track — leaving advancement to Moonlink.',
         );
         return;
+      }
+
+      // A 15s survival was pending for this track — a failure means it never
+      // gets to count as healthy.
+      this.clearOkTimer(player.guildId);
+
+      // Feed the per-node outage detector (YouTube-source tracks only).
+      if (track?.sourceName === 'youtube') {
+        healthFor(player.node?.identifier ?? 'unknown').recordFailure(
+          `${track.author} - ${track.title}`,
+          exception,
+        );
       }
 
       // Guard against double-skip: Moonlink auto-skips fault-severity exceptions on its
@@ -548,7 +667,7 @@ export class MusicHandler {
         },
         `[Music] Track failed — looking for an alternate upload for "${track.title}"...`,
       );
-      const fallback = await this.findAlternatePlayableTrack(manager, track, player.guildId, failedKeyStr);
+      const fallback = await this.findAlternatePlayableTrack(manager, player, track, player.guildId, failedKeyStr, exception);
       if (fallback) {
         // Inject at the front of the queue so it plays next, then advance to it —
         // Moonlink only auto-skips fault-severity exceptions, so common-severity
@@ -608,6 +727,7 @@ export class MusicHandler {
 
     manager.on('playerDestroy', async (player: Player) => {
       this.stopProgressUpdater(player.guildId);
+      this.clearOkTimer(player.guildId);
       this.clearFallbackState(player.guildId);
       this.clearKickGrace(player.guildId);
       this.clearInactivityTimeout(player.guildId);

@@ -51,6 +51,11 @@
 >   skip/previous semantics proven, durable 247/prefs/opt-ins via migration,
 >   15s dirty-checked progress edits, voice-status 429 backoff) — implemented,
 >   509 tests green, migration applied live.
+> - 2026-09-21: Home-resolver path (youtubeHealth ladder + ytResolver client +
+>   rung-ordered search/fallback in handler + service + Home pinning on fresh
+>   players; local proven via REST + moonlink mapping probes) — implemented,
+>   537 tests green. Needs: sources.local on Home, resolver NSSM service,
+>   Funnel :8443, HOME_RESOLVER_URL/TOKEN Railway vars.
 > - 2026-09-20: Phase 5 FREE parts (livez/readyz + readiness gates, 30s
 >   graceful drain with queue/player/lavalink teardown, render semaphore(2) +
 >   identical-render cache, misleading Lavalink-disabled message fixed,
