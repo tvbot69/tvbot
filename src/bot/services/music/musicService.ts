@@ -2,7 +2,7 @@ import type { Player, Track } from 'moonlink.js';
 import { Track as MoonlinkTrack } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import type { FilterName, LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
-import { cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
+import { cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, spotifyUriToUrl, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
 import { MoonlinkManager, type LavalinkNodeStats } from './moonlinkManager';
 import { SpotifyResolver, type SpotifyResolvedTrack } from './spotifyResolver';
 import { QueueService } from './queueService';
@@ -535,7 +535,7 @@ export class MusicService {
       if (finalArtwork) {
         chosenTrack.artworkUrl = finalArtwork;
       }
-      chosenTrack.uri = spotifyTrack.spotifyUri || spotifyUrl;
+      chosenTrack.uri = spotifyUriToUrl(spotifyTrack.spotifyUri) || spotifyUrl;
       const trackRecord = chosenTrack as unknown as Record<string, unknown>;
       const backend = found.rung === 'resolver' ? 'local' : 'spotify';
       const finalSource = trackOverride?.source || backend;
@@ -763,7 +763,7 @@ export class MusicService {
     if (spTrack.artworkUrl) {
       lavalinkTrack.artworkUrl = spTrack.artworkUrl;
     }
-    lavalinkTrack.uri = spTrack.spotifyUri || spotifyUrl;
+    lavalinkTrack.uri = spotifyUriToUrl(spTrack.spotifyUri) || spotifyUrl;
     const record = lavalinkTrack as unknown as Record<string, unknown>;
     const backend = rung === 'resolver' ? 'local' : 'spotify';
     record.sourceName = trackOverride?.source || backend;
@@ -826,7 +826,7 @@ export class MusicService {
       identifier: e.spTrack.spotifyUri || '',
       title: e.override?.title || e.spTrack.name,
       author: e.override?.author || e.spTrack.artist,
-      uri: e.spTrack.spotifyUri || '',
+      uri: spotifyUriToUrl(e.spTrack.spotifyUri) || '',
       duration: e.spTrack.durationMs || 0,
       isSeekable: true,
       isStream: false,

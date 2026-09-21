@@ -44,6 +44,17 @@ export const cleanArtistName = (author?: string): string => {
 };
 
 /**
+ * Converts spotify: URIs (track/album/playlist/artist) to open.spotify.com
+ * URLs. Discord does not hyperlink spotify: URIs, so embeds linking them
+ * render dead text. Passes everything else (including empty) through.
+ */
+export const spotifyUriToUrl = (uri?: string | null): string => {
+  if (!uri) return '';
+  const m = uri.match(/^spotify:(track|album|playlist|artist):([A-Za-z0-9]+)$/);
+  return m ? `https://open.spotify.com/${m[1]}/${m[2]}` : uri;
+};
+
+/**
  * Trims release tags, video/audio cruft, and redundant author prefixes from track titles.
  * e.g. "Lancey Foux - ALL MY GIRLS (Official Audio)" -> "ALL MY GIRLS"
  */
@@ -64,6 +75,9 @@ export const cleanTrackTitle = (title: string, author?: string): string => {
   const cruftPatterns = [
     // Bracketed / parenthesized release tags: (Official Audio), [Official Video], (Visualizer), etc.
     /\s*[([{\u3010][^()\[\]{}\u3010\u3011]*?(?:official\s*(?:audio|video|music\s*video|visualizer|lyric\s*video|track|stream|release)?|music\s*video|audio|video|visualizer|lyric\s*video|lyrics|hd|hq|4k|remaster(?:ed)?(?:\s*\d{4})?|clip\s*officiel|video\s*oficial|audio\s*oficial|explicit(?:\s*version)?|clean(?:\s*version)?)[^()\[\]{}\u3010\u3011]*?[)\]}\u3011]/gi,
+    // Bracketed collaborator credits: (w/ X), (with X), (feat. X), (ft. X).
+    // Display-only: the artists stay on the author field (stats untouched).
+    /\s*[([{\u3010]\s*(?:w\/|with|feat\.?|ft\.?|featuring)\s+[^()\[\]{}\u3010\u3011]*?[)\]}\u3011]/gi,
     // Trailing unbracketed cruft like "- Official Audio" or "| Official Video"
     /\s*[-–—|/]\s*(?:official\s*(?:audio|video|music\s*video|visualizer|lyric\s*video|track|release)?|music\s*video|visualizer|lyric\s*video|audio)\s*$/gi,
     // Unbracketed trailing "Official Audio"

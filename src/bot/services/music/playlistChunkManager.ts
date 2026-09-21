@@ -1,4 +1,5 @@
 import { Logger } from '@domain/logger';
+import { spotifyUriToUrl } from '@domain/models/music/musicTrack';
 import type { Manager, Player } from 'moonlink.js';
 import type { SpotifyScraperService } from './spotifyScraperService';
 import type { MoonlinkManager } from './moonlinkManager';
@@ -162,7 +163,7 @@ export class PlaylistChunkManager {
             trackRecord.artworkUrl = item.t.artworkUrl;
           }
           if (item.t.spotifyUri) {
-            trackRecord.uri = item.t.spotifyUri;
+            trackRecord.uri = spotifyUriToUrl(item.t.spotifyUri);
           }
           trackRecord.sourceName = 'spotify';
           trackRecord.source = 'spotify';

@@ -4,6 +4,7 @@ import {
   cleanArtistName,
   mapMoonlinkTrack,
   isSpotifyMatchValid,
+  spotifyUriToUrl,
 } from '@domain/models/music/musicTrack';
 import type { Track as MoonlinkTrack } from 'moonlink.js';
 
@@ -60,6 +61,17 @@ describe('cleanTrackTitle', () => {
   it('handles empty or missing input gracefully', () => {
     expect(cleanTrackTitle('')).toBe('Unknown Title');
     expect(cleanTrackTitle('Normal Track Title')).toBe('Normal Track Title');
+  });
+
+  it('strips bracketed collaborator credits but keeps authors intact', () => {
+    expect(cleanTrackTitle('YEAT - CANADA (w/ jnhygs)', 'YEAT')).toBe('CANADA');
+    expect(cleanTrackTitle('A - Song (feat. X)', 'A')).toBe('Song');
+    expect(cleanTrackTitle('A - Song [ft. Y]', 'A')).toBe('Song');
+    expect(cleanTrackTitle('A - Song (Featuring Z)', 'A')).toBe('Song');
+    // Unbracketed credits stay (author-prefix rule territory, not this one).
+    expect(
+      cleanTrackTitle('A$AP Rocky - Praise The Lord (Da Shine) (Official Video) ft. Skepta', 'A$AP Rocky'),
+    ).toBe('Praise The Lord (Da Shine) ft. Skepta');
   });
 });
 
@@ -146,6 +158,24 @@ describe('mapMoonlinkTrack', () => {
 
     const mapped = mapMoonlinkTrack(ytTrack);
     expect(mapped.artworkUrl).toBe('https://i.ytimg.com/vi/cxk-1zsy_W8/hqdefault.jpg');
+  });
+});
+
+describe('spotifyUriToUrl', () => {
+  it('converts spotify: URIs to open URLs for clickable embeds', () => {
+    expect(spotifyUriToUrl('spotify:track:2c8SrKXIBNrEiG4eLfk6XD')).toBe(
+      'https://open.spotify.com/track/2c8SrKXIBNrEiG4eLfk6XD',
+    );
+    expect(spotifyUriToUrl('spotify:playlist:73VZK7BqgCVuZr5Z3rv40k')).toBe(
+      'https://open.spotify.com/playlist/73VZK7BqgCVuZr5Z3rv40k',
+    );
+  });
+
+  it('passes through open URLs, video URLs, and empties', () => {
+    expect(spotifyUriToUrl('https://open.spotify.com/track/abc')).toBe('https://open.spotify.com/track/abc');
+    expect(spotifyUriToUrl('https://youtube.com/watch?v=abc')).toBe('https://youtube.com/watch?v=abc');
+    expect(spotifyUriToUrl(undefined)).toBe('');
+    expect(spotifyUriToUrl('')).toBe('');
   });
 });
 
