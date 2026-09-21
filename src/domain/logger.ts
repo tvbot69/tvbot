@@ -306,7 +306,7 @@ export class CustomLogger {
       `CommandUsed: Error ${referenceId} | ${userText} | ${guildText} #${shard} | Error (${err.message}) | ${contentText}`
     );
     if (err.stack) {
-      const stackLines = err.stack.split('\n').slice(1).map((l: string) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
+      const stackLines = err.stack.split('\n').map((l: string) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
       console.log(stackLines.join('\n'));
     }
 
@@ -330,15 +330,23 @@ export class CustomLogger {
       errObject = msgOrObj;
       message = msgOrObj.message;
     } else if (typeof msgOrObj === 'object' && msgOrObj !== null) {
-      if (msgOrObj.err) {
-        errObject = msgOrObj.err;
-        message = extraArgs[0] ?? (msgOrObj.err.message || 'Error occurred');
-      } else if (msgOrObj.msg) {
-        message = msgOrObj.msg;
+      // Pino-style (context, message): never drop the context object — its
+      // fields (guildId, severity, reason, ...) are the actual diagnostics.
+      const { err: errField, msg: msgField, ...contextRest } = msgOrObj as Record<string, unknown>;
+      if (errField) {
+        errObject = errField as any;
+        message =
+          extraArgs[0] ??
+          ((errObject as Error)?.message || 'Error occurred');
+      } else if (msgField) {
+        message = msgField as string;
       } else if (extraArgs[0] && typeof extraArgs[0] === 'string') {
         message = extraArgs[0];
       } else {
-        message = util.inspect(msgOrObj, { colors: true, depth: 2 });
+        message = util.inspect(msgOrObj, { colors: false, depth: 3 });
+      }
+      if (Object.keys(contextRest).length > 0) {
+        message += ` ${util.inspect(contextRest, { colors: false, depth: 3, breakLength: 140 })}`;
       }
     } else {
       message = String(msgOrObj);
@@ -351,7 +359,7 @@ export class CustomLogger {
 
     if (errObject && (level === 'ERROR' || level === 'FATAL')) {
       if (errObject.stack) {
-        const stackLines = errObject.stack.split('\n').slice(1).map((l: string) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
+        const stackLines = errObject.stack.split('\n').map((l: string) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
         console.log(stackLines.join('\n'));
       }
     }
