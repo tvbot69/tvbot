@@ -643,10 +643,14 @@ export class MusicService {
   ): Promise<void> {
     try {
       if (!track || track.artworkUrl || knownArtworkUrl) return;
-      if (!this.artworkService) return;
+      if (!this.artworkService) {
+        Logger.debug('[Music] Artwork backfill skipped — no artwork service wired');
+        return;
+      }
       const t = (title || track.title)?.trim();
       const a = (artist || track.author)?.trim();
       if (!t || !a) return;
+      const started = Date.now();
       let timer: NodeJS.Timeout | undefined;
       try {
         const lookup = this.artworkService.getTrackCoverUrl(t, a);
@@ -654,7 +658,18 @@ export class MusicService {
           timer = setTimeout(() => resolve(null), MusicService.ARTWORK_TIMEOUT_MS);
         });
         const url = await Promise.race([lookup, timeout]);
-        if (url) track.artworkUrl = url;
+        if (url) {
+          track.artworkUrl = url;
+          Logger.info(
+            { title: t, artist: a, resolveMs: Date.now() - started },
+            '[Music] Artwork backfilled',
+          );
+        } else {
+          Logger.debug(
+            { title: t, artist: a, resolveMs: Date.now() - started },
+            '[Music] Artwork backfill miss',
+          );
+        }
       } finally {
         if (timer) clearTimeout(timer);
       }
