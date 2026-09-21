@@ -798,4 +798,51 @@ describe('resolve artwork backfill', () => {
     const res = await svc.resolvePlaylistTrack(player, spTrack);
     expect(res?.lavalinkTrack.artworkUrl).toBeUndefined();
   });
+
+  it('backfills the playlist first track (playSpotify path)', async () => {
+    const search = vi.fn(async () => ({
+      tracks: [{ identifier: 'yt1', duration: 135000, title: 'Vid', author: 'Art' }],
+    }));
+    const queued: unknown[] = [];
+    const player = {
+      guildId: 'g-first',
+      node: { identifier: 'test-node' },
+      playing: false,
+      paused: false,
+      queue: {
+        add: (t: unknown) => {
+          queued.push(t);
+        },
+        get size() {
+          return queued.length;
+        },
+      },
+      play: vi.fn(async () => true),
+    };
+    const manager = { search, on: vi.fn(), players: { get: () => undefined } };
+    const getTrackCoverUrl = vi.fn(async () => 'https://img.test/first.jpg');
+    const spotifyResolver = {
+      resolve: async () => ({
+        type: 'playlist',
+        title: 'P',
+        tracks: [
+          { searchQuery: 'Yeat - GONE 4 A MIN', name: 'GONE 4 A MIN', artist: 'Yeat', durationMs: 135000 },
+          { searchQuery: 'A - B', name: 'B', artist: 'A', durationMs: 180000 },
+        ],
+        totalTracks: 2,
+      }),
+    };
+    const svc = new MusicService(
+      { getManager: () => manager } as never,
+      spotifyResolver as never,
+      {} as never,
+      undefined,
+      { getTrackCoverUrl } as never,
+    ) as unknown as {
+      playSpotify: (player: unknown, url: string, requester: unknown) => Promise<unknown>;
+    };
+    await svc.playSpotify(player, 'https://open.spotify.com/playlist/xyz', { id: 'u1' });
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('GONE 4 A MIN', 'Yeat');
+    expect((queued[0] as { artworkUrl?: string }).artworkUrl).toBe('https://img.test/first.jpg');
+  });
 });

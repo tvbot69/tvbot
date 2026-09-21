@@ -560,6 +560,7 @@ export class MusicService {
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
       this.adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, spotifyUrl, trackOverride);
+      await this.maybeBackfillArt(firstLavalinkTrack, firstTrack.artworkUrl, firstTrack.name, firstTrack.artist);
       player.queue.add(firstLavalinkTrack);
       const firstDomainTrack = mapMoonlinkTrack(firstLavalinkTrack, requester);
       firstDomainTrack.source = 'spotify';
