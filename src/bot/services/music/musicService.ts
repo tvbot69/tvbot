@@ -192,7 +192,19 @@ export class MusicService {
     const typed = res as { loadType?: string; data?: { encoded?: string } };
     if (typed?.loadType !== 'track' || !typed.data?.encoded) return null;
     try {
-      return new MoonlinkTrack(typed.data, ytTrack.requester);
+      const track = new MoonlinkTrack(typed.data, ytTrack.requester);
+      // Wrong-song guard (same ±30s rule as fallbacks): the ytsearch top hit
+      // can be a compilation or wrong upload; the probed file duration is
+      // ground truth. Missing durations pass through.
+      const expected = ytTrack.duration || 0;
+      if (track.duration && expected && Math.abs(track.duration - expected) > 30000) {
+        Logger.warn(
+          { guildId: player.guildId, videoId: ytTrack.identifier, fileMs: track.duration, expectedMs: expected },
+          '[Music] Resolver file duration-mismatched — refusing a wrong song.',
+        );
+        return null;
+      }
+      return track;
     } catch (err) {
       Logger.debug(
         { err, keys: typed.data ? Object.keys(typed.data) : [] },
@@ -320,12 +332,6 @@ export class MusicService {
       }
       const ladderSource = found.rung === 'resolver' ? 'local' : found.rung === 'soundcloud' ? 'soundcloud' : 'youtube';
       return await this.enqueueLavalinkTracks(player, [found.track], requester, trackOverride, ladderSource, undefined, true);
-
-      return {
-        loadType: 'empty',
-        totalTracksAdded: 0,
-        positionInQueue: 0,
-      };
     } catch (err) {
       Logger.error({ err, query: trimmedQuery }, 'Lavalink play search error');
       return {

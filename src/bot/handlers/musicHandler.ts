@@ -363,6 +363,15 @@ export class MusicHandler {
     if (typed?.loadType !== 'track' || !typed.data?.encoded) return null;
     try {
       const t = new Track(typed.data, src.requester);
+      // Wrong-song guard BEFORE metadata adoption (adoption would mask the
+      // probe): same ±30s rule as fallbacks. Missing durations pass through.
+      if (!this.matchesFallbackDuration(src, t.duration)) {
+        Logger.warn(
+          { guildId: player.guildId, videoId: src.identifier, fileMs: t.duration, expectedMs: src.duration },
+          '[Music] Resolver file duration-mismatched — refusing a wrong song.',
+        );
+        return null;
+      }
       t.title = src.title;
       t.author = src.author;
       t.artworkUrl = src.artworkUrl;

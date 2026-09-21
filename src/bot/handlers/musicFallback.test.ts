@@ -439,3 +439,129 @@ describe('playErrorMessage', () => {
     expect(playErrorMessage(undefined)).toMatch(/music node/i);
   });
 });
+
+describe('resolver duration gate (wrong-song guard)', () => {
+  const savedEnv = () => {
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    return () => {
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+    };
+  };
+
+  const mockFetchPath = () =>
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ path: 'C:\\c\\x.webm', cached: false }),
+    } as Response);
+
+  const homePlayer = (fileLengthMs: number) =>
+    ({
+      guildId: 'g-dur',
+      node: {
+        identifier: 'Home',
+        rest: {
+          loadTracks: async () => ({
+            loadType: 'track',
+            data: {
+              encoded: 'enc-x',
+              info: {
+                title: 'raw',
+                author: 'raw',
+                length: fileLengthMs,
+                uri: 'u',
+                artworkUrl: undefined,
+                isStream: false,
+              },
+            },
+          }),
+        },
+      },
+    }) as never;
+
+  const failedTrack = {
+    identifier: 'dQw4w9WgXcQ',
+    sourceName: 'youtube',
+    title: 'Hit Song',
+    author: 'Major Artist',
+    duration: 174000,
+    uri: 'https://youtube.com/watch?v=dQw4w9WgXcQ',
+    requester: { id: 'u1', tag: 'tester' },
+    artworkUrl: 'https://img.test/c.jpg',
+  };
+
+  const makeHandlerWithResolver = () => {
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    return new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false } as never,
+    ) as unknown as {
+      tryResolver: (player: unknown, track: unknown) => Promise<unknown>;
+    };
+  };
+
+  it('refuses a duration-mismatched resolver file on the fallback path', async () => {
+    const restore = savedEnv();
+    try {
+      const fetchSpy = mockFetchPath();
+      const handler = makeHandlerWithResolver();
+      await expect(handler.tryResolver(homePlayer(600000), failedTrack)).resolves.toBeNull();
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('accepts a matching resolver file with adopted metadata', async () => {
+    const restore = savedEnv();
+    try {
+      mockFetchPath();
+      const handler = makeHandlerWithResolver();
+      const res = (await handler.tryResolver(homePlayer(174000), failedTrack)) as {
+        title: string;
+        author: string;
+      };
+      expect(res.title).toBe('Hit Song');
+      expect(res.author).toBe('Major Artist');
+    } finally {
+      restore();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('refuses a duration-mismatched resolver file on the new-play path', async () => {
+    const restore = savedEnv();
+    try {
+      mockFetchPath();
+      const svc = new MusicService(
+        { getManager: () => ({}) } as never,
+        {} as never,
+        {} as never,
+      ) as unknown as {
+        tryResolverTrack: (player: unknown, track: unknown) => Promise<unknown>;
+      };
+      const ytTrack = {
+        identifier: 'dQw4w9WgXcQ',
+        duration: 174000,
+        requester: { id: 'u1', tag: 'tester' },
+      };
+      await expect(svc.tryResolverTrack(homePlayer(600000), ytTrack)).resolves.toBeNull();
+      const res = (await svc.tryResolverTrack(homePlayer(174000), ytTrack)) as {
+        duration: number;
+      };
+      expect(res.duration).toBe(174000);
+    } finally {
+      restore();
+      vi.restoreAllMocks();
+    }
+  });
+});
