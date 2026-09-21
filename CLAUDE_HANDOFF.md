@@ -109,3 +109,97 @@ Additional facts:
   justify them). Prefer config changes over new services; new services need
   an NSSM-compatible start story.
 - Don't rewrite bot architecture. Small diffs to the files named in section 1.
+
+## 6. Updates since f5de040 (2026-09-21, all merged to main, all verified live)
+
+Commits after `f5de040`: `5ed8b49`, `80c2145`, `76326c5`, `783aa40`, `c4793b6`.
+Test suite: 91 files / 548 tests green. `npm run build` green.
+
+### 6a. yt-dlp resolver: built, running, and now the PRIMARY path (not a sketch)
+
+- Server: `C:\ytres\resolver.ts` (Deno single exe, NSSM service `YtResolver`,
+  start=Auto). `GET /?id={11-char-video-id}` + `authorization: <token>` header →
+  `200 {path}` / `502` per-video miss / `401`. Concurrency 2, download kill at
+  60s, cache `C:\ytres\cache` TTL 24h, format `ba[ext=webm]/ba`, 60M cap,
+  live videos rejected. Binds `127.0.0.1:2335`, exposed via second Funnel
+  (`https://<machine>.<tailnet>.ts.net:8443` → `127.0.0.1:2335`).
+- Bot client: `src/bot/services/music/ytResolver.ts`. `502` = miss for that
+  video (no penalty); anything else (tunnel down, PC asleep) pauses the
+  resolver rung 2 min. Fetch timeout 65s — deliberately covers a full
+  cold-cache download (server kills at 60s); unreachable still fails fast at
+  connect. Verified: correct-host + correct-token → `200 {"path":...}`;
+  wrong token → `401`; wrong tailnet name → DNS NXDOMAIN (we hit both
+  misconfigurations live before fixing).
+- Lavalink `application.yml`: `sources.local: true` (built-in `youtube: false`;
+  the plugin still provides `ytsearch`, which ALWAYS worked — only the
+  audio-stream step was walled).
+- Railway vars required: `HOME_RESOLVER_URL`, `HOME_RESOLVER_TOKEN`
+  (exact bytes of the server's `RESOLVER_TOKEN`), `HOME_NODE_ENABLED=true`,
+  plus the existing `HOME_LAVALINK_URL/PASSWORD/SECURE`.
+
+### 6b. Playback ladder is now resolver-first (commit c4793b6)
+
+`YoutubeHealth.ladder()` healthy order on Home changed
+`plugin → resolver → soundcloud` ⇒ **`resolver → plugin → soundcloud`**.
+Down order unchanged (`resolver → soundcloud`); public nodes unchanged
+(`plugin → soundcloud`, no resolver there). All three consumers
+(single play `searchTrackWithLadder`, playlist `resolvePlaylistTrack`,
+failure fallback `findAlternatePlayableTrack`) share `ladder()`, so one edit
+moved everything. Rationale: the plugin's audio step fails ~100% (section 3
+walls), so leading with it bought only a doomed attempt + ~2s dead air. The
+shared `ytsearch` still runs first (needed for the video id); the resolver
+rung materializes that id. Plugin stays second rung so a resolver miss
+(502, pause, size cap, live filter) still gets a playback chance.
+
+### 6c. Breakers and detection (already in code, verify before duplicating)
+
+- Per-node YouTube outage breaker (`youtubeHealth.ts`): 3 DISTINCT songs with
+  outage signatures (`requires login|sign in to confirm|not a bot|all clients
+  failed|no supported audio|sig function|page needs reload|player config
+  error`) in 120s → down 10 min. Same song ×3 does NOT count. Non-outage
+  (private/unavailable/no-audio) never trips. One plugin probe per 60s slot
+  after expiry; failed probe re-arms; any track surviving 15s clears
+  immediately (okTimer, cleared on trackEnd/trackStuck/trackException/
+  playerDestroy).
+- Song-identity breaker (`musicHandler.ts`): same artist+title failing 3× in
+  10 min → abandon song, skip with zero new searches.
+- Preview-cut detection: SoundCloud "finishes" under 60s of a 90s+ track count
+  as failures toward the song breaker (major-label 30s preview streams with
+  full-length metadata).
+- Fallback budgets unchanged: max 3 retries per track-encoded, max 5 per guild
+  per 60s, tried-upload exclusion, local failed tracks never re-resolve.
+
+### 6d. Observability (commit 783aa40)
+
+- `clientFailuresText()`: compacts the exception to one `CLIENT: reason | …`
+  line (`ANDROID_VR: requires login | WEB: no supported audio streams`) —
+  the old 300-char truncation hid every client past the first. Full exception
+  still reaches the classifier; only the log line was truncated.
+- `[Music] fallback ladder` (node/outage/rungs/track) + `[Music] fallback
+  rung` (rung + ok true/false) on every fallback. Outage failures log
+  "looking for a fallback", one-offs keep "looking for an alternate upload".
+- Logger (`src/domain/logger.ts`) preserves all context fields and full
+  stacks; previously context objects were dropped.
+
+### 6e. Live proof (Lavalink spring.log, 2026-09-21, Home node)
+
+- 13:55:55 `ytsearch:Rich Amiri - STORMI DANIELS` → 13:56:03
+  `Got request to load "C:\ytres\cache\a-VuL3qYgfU.webm"` →
+  `Loaded track` → `PATCH .../players/...` same second. Zero plugin attempt,
+  zero exception.
+- 13:59:06 second song (`Hoes Mad` → `uexn88mjvLk.webm`): 5s search-to-load,
+  playing same second.
+- Zero timestamped ERRORs after 12:54. All `AllClientsFailedException` traces
+  in the log predate the resolver deploy. (One 10:35 SoundCloud preview-cut
+  playback error is what motivated the 6c preview detection.)
+
+### 6f. Open questions for Claude
+
+1. Plugin rung on Home: keep as second rung, or delete entirely? It has never
+   produced audio (section 3); its only value is a hypothetical recovery.
+2. Cold-start UX: up to ~60s "loading" on uncached songs (one pass) vs 30s
+   abort + fallback pass. Right call, or shorten?
+3. yt-dlp maintenance: nightly `--update-to` scheduled task on the PC — enough
+   against YouTube breakage, or pin + alert on 502-rate instead?
+4. Public nodes' role now: pure failover when Home dies, or should some
+   traffic stay on them to spare the residential uplink?
