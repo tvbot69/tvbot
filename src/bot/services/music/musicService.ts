@@ -36,11 +36,30 @@ export const playErrorMessage = (reason?: PlayResult['errorReason']): string => 
   }
 };
 
+/** Unresolved Spotify entry waiting for just-in-time resolution. */
+interface PendingSpotifyEntry {
+  spTrack: SpotifyResolvedTrack;
+  requester: MusicTrackRequester;
+  spotifyUrl: string;
+  override?: { title?: string; author?: string; artworkUrl?: string; source?: string };
+}
+
 export class MusicService {
   public readonly moonlinkManager: MoonlinkManager;
   private readonly spotifyResolver: SpotifyResolver;
   private readonly queueService: QueueService;
   private readonly playlistChunkManager?: PlaylistChunkManager;
+
+  /**
+   * Just-in-time Spotify entries: resolved 2-ahead as playback advances
+   * instead of all-at-enqueue. Cold-cache songs resolve at play time (warm
+   * cache, resolver rung) rather than locking in SoundCloud versions
+   * upfront, and playlist commands reply in seconds instead of minutes.
+   */
+  private readonly pendingSpotify = new Map<string, PendingSpotifyEntry[]>();
+  private readonly pendingTopUpRunning = new Set<string>();
+  private pendingEventsBound = false;
+  private static readonly JIT_AHEAD = 2;
 
   constructor(
     moonlinkManager: MoonlinkManager,
@@ -53,6 +72,31 @@ export class MusicService {
     this.queueService = queueService;
     this.playlistChunkManager = playlistChunkManager;
     this.playlistChunkManager?.bindEvents();
+    this.bindPendingEvents();
+  }
+
+  /** Advance hook: keep 2 resolved tracks ahead; refill + play when drained. */
+  private bindPendingEvents(): void {
+    if (this.pendingEventsBound) return;
+    this.pendingEventsBound = true;
+    const manager = this.moonlinkManager.getManager() as unknown as {
+      on?: (event: string, cb: (player: Player) => void) => void;
+    };
+    // Partial manager doubles (unit tests) may not implement .on — top-up
+    // still works when called directly; only the automatic triggers skip.
+    if (typeof manager.on !== 'function') return;
+    manager.on('trackStart', (player: Player) => {
+      void this.topUpPending(player.guildId);
+    });
+    manager.on('trackEnd', (player: Player) => {
+      void this.topUpPending(player.guildId);
+    });
+    manager.on('queueEnd', (player: Player) => {
+      void this.topUpPending(player.guildId);
+    });
+    manager.on('playerDestroy', (player: Player) => {
+      this.pendingSpotify.delete(player.guildId);
+    });
   }
 
   public getPlayer(guildId: string): Player | undefined {
@@ -490,33 +534,13 @@ export class MusicService {
     const firstTrack = resolution.tracks[0]!;
 
     // Resolve first track immediately so playback begins with minimum delay.
-    // The moonlink track keeps its true backend label ('local' for resolver
-    // output) so failure handling routes correctly; the display model keeps
-    // the familiar 'spotify' badge.
-    const adoptSpotifyTrack = (lavalinkTrack: Track, spTrack: SpotifyResolvedTrack, rung: Rung): void => {
-      lavalinkTrack.requester = requester;
-      lavalinkTrack.title = spTrack.name;
-      lavalinkTrack.author = spTrack.artist;
-      if (spTrack.artworkUrl) {
-        lavalinkTrack.artworkUrl = spTrack.artworkUrl;
-      }
-      lavalinkTrack.uri = spTrack.spotifyUri || spotifyUrl;
-      const record = lavalinkTrack as unknown as Record<string, unknown>;
-      const backend = rung === 'resolver' ? 'local' : 'spotify';
-      record.sourceName = trackOverride?.source || backend;
-      record.source = trackOverride?.source || backend;
-      if (trackOverride?.artworkUrl) {
-        record.artworkUrl = trackOverride.artworkUrl;
-      }
-    };
-
     const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery, {
       title: firstTrack.name,
       artist: firstTrack.artist,
     });
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
-      adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung);
+      this.adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, spotifyUrl, trackOverride);
       player.queue.add(firstLavalinkTrack);
       const firstDomainTrack = mapMoonlinkTrack(firstLavalinkTrack, requester);
       firstDomainTrack.source = 'spotify';
@@ -530,24 +554,18 @@ export class MusicService {
       }
     }
 
-    // Resolve remaining tracks in parallel batches through the same ladder.
+    // Just-in-time: the rest wait as pending Spotify entries and resolve
+    // 2-ahead as playback advances (see topUpPending). Cold-cache songs
+    // resolve at play time — warm cache, resolver rung — instead of locking
+    // in SoundCloud versions upfront, and the command replies in seconds.
     const remainingTracks = resolution.tracks.slice(1);
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < remainingTracks.length; i += BATCH_SIZE) {
-      const batch = remainingTracks.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(
-        batch.map((t) => this.resolvePlaylistTrack(player, t)),
-      );
-
-      for (const item of batchResults) {
-        if (!item) continue;
-        const lavalinkTrack = item.lavalinkTrack;
-        adoptSpotifyTrack(lavalinkTrack, item.spTrack, item.rung);
-        player.queue.add(lavalinkTrack);
-        const domainTrack = mapMoonlinkTrack(lavalinkTrack, requester);
-        domainTrack.source = 'spotify';
-        addedTracks.push(domainTrack);
+    if (remainingTracks.length > 0) {
+      const existing = this.pendingSpotify.get(player.guildId) ?? [];
+      for (const spTrack of remainingTracks) {
+        existing.push({ spTrack, requester, spotifyUrl, override: trackOverride });
       }
+      this.pendingSpotify.set(player.guildId, existing);
+      void this.topUpPending(player.guildId);
     }
 
     const loadType =
@@ -573,23 +591,134 @@ export class MusicService {
       }
     }
 
-    const partial = addedTracks.length < resolution.tracks.length;
-    if (partial) {
-      Logger.warn(
-        { guildId: player.guildId, added: addedTracks.length, total: resolution.tracks.length },
-        '[Music] Playlist partially resolved — unresolvable tracks skipped',
-      );
-    }
+    // Reply lists everything logically queued: resolved tracks plus pending
+    // entries mapped from Spotify metadata (durations included, so totals
+    // stay truthful). partial is false at enqueue — nothing has failed yet;
+    // background skips are logged in topUpPending.
+    const pendingDomain = (this.pendingSpotify.get(player.guildId) ?? []).map((e) => this.mapPendingEntry(e));
 
     return {
       loadType,
       playlistName: resolution.title,
       artworkUrl: resolution.artworkUrl,
-      tracks: addedTracks,
-      totalTracksAdded: addedTracks.length,
+      tracks: [...addedTracks, ...pendingDomain],
+      totalTracksAdded: addedTracks.length + pendingDomain.length,
       positionInQueue: player.queue.size - addedTracks.length + 1,
-      partial,
+      partial: false,
     };
+  }
+
+  /**
+   * Stamps Spotify display metadata onto a resolved Lavalink track. The
+   * moonlink track keeps its true backend label ('local' for resolver
+   * output) so failure handling routes correctly; the display model keeps
+   * the familiar 'spotify' badge.
+   */
+  private adoptSpotifyTrack(
+    lavalinkTrack: Track,
+    spTrack: SpotifyResolvedTrack,
+    rung: Rung,
+    requester: MusicTrackRequester,
+    spotifyUrl: string,
+    trackOverride?: { title?: string; author?: string; artworkUrl?: string; source?: string },
+  ): void {
+    lavalinkTrack.requester = requester;
+    lavalinkTrack.title = spTrack.name;
+    lavalinkTrack.author = spTrack.artist;
+    if (spTrack.artworkUrl) {
+      lavalinkTrack.artworkUrl = spTrack.artworkUrl;
+    }
+    lavalinkTrack.uri = spTrack.spotifyUri || spotifyUrl;
+    const record = lavalinkTrack as unknown as Record<string, unknown>;
+    const backend = rung === 'resolver' ? 'local' : 'spotify';
+    record.sourceName = trackOverride?.source || backend;
+    record.source = trackOverride?.source || backend;
+    if (trackOverride?.artworkUrl) {
+      record.artworkUrl = trackOverride.artworkUrl;
+    }
+  }
+
+  private mapPendingEntry(e: PendingSpotifyEntry): MusicTrack {
+    return {
+      identifier: e.spTrack.spotifyUri || '',
+      title: e.override?.title || e.spTrack.name,
+      author: e.override?.author || e.spTrack.artist,
+      uri: e.spTrack.spotifyUri || '',
+      duration: e.spTrack.durationMs || 0,
+      isSeekable: true,
+      isStream: false,
+      artworkUrl: e.override?.artworkUrl || e.spTrack.artworkUrl,
+      source: 'spotify',
+      requester: e.requester,
+    };
+  }
+
+  /**
+   * Resolves pending Spotify entries until 2 tracks wait ahead in the
+   * Moonlink queue (or pending drains). Runs in background on enqueue and
+   * on trackStart/trackEnd/queueEnd. Skipped (unresolvable) entries are
+   * dropped with a warn — never retried in a loop. If the queue drained
+   * with pending left (all prior resolves failed), newly resolved tracks
+   * start playing immediately.
+   */
+  public async topUpPending(guildId: string): Promise<void> {
+    const pending = this.pendingSpotify.get(guildId);
+    if (!pending || pending.length === 0) return;
+    if (this.pendingTopUpRunning.has(guildId)) return;
+    this.pendingTopUpRunning.add(guildId);
+    let added = 0;
+    let skipped = 0;
+    try {
+      for (;;) {
+        const player = this.getPlayer(guildId);
+        if (!player) {
+          this.pendingSpotify.delete(guildId);
+          return;
+        }
+        const list = this.pendingSpotify.get(guildId);
+        if (!list || list.length === 0) {
+          this.pendingSpotify.delete(guildId);
+          break;
+        }
+        if (player.queue.size >= MusicService.JIT_AHEAD) break;
+        const entry = list.shift()!;
+        const found = await this.resolvePlaylistTrack(player, entry.spTrack).catch(() => null);
+        if (!this.getPlayer(guildId)) {
+          this.pendingSpotify.delete(guildId);
+          return;
+        }
+        if (!found) {
+          skipped++;
+          continue;
+        }
+        this.adoptSpotifyTrack(
+          found.lavalinkTrack,
+          found.spTrack,
+          found.rung,
+          entry.requester,
+          entry.spotifyUrl,
+          entry.override,
+        );
+        const live = this.getPlayer(guildId);
+        if (!live) {
+          this.pendingSpotify.delete(guildId);
+          return;
+        }
+        live.queue.add(found.lavalinkTrack);
+        added++;
+      }
+    } finally {
+      this.pendingTopUpRunning.delete(guildId);
+      if (skipped > 0) {
+        Logger.warn({ guildId, skipped }, '[Music] JIT top-up skipped unresolvable tracks');
+      }
+    }
+    if (added > 0) {
+      const player = this.getPlayer(guildId);
+      if (player && !player.playing && !player.paused) {
+        await player.play().catch(() => undefined);
+      }
+    }
   }
 
   /**
@@ -630,10 +759,14 @@ export class MusicService {
 
   public async stop(guildId: string): Promise<void> {
     const player = this.getPlayer(guildId);
-    if (!player) return;
+    if (!player) {
+      this.pendingSpotify.delete(guildId);
+      return;
+    }
 
     this.queueService.set247(guildId, false);
     this.playlistChunkManager?.clear(guildId);
+    this.pendingSpotify.delete(guildId);
     player.queue.clear();
     await player.destroy('Stopped by user');
   }
@@ -740,12 +873,25 @@ export class MusicService {
     const player = this.getPlayer(guildId);
     if (!player || player.queue.isEmpty) return false;
     player.queue.shuffle();
+    // Pending entries are the queue's tail — shuffle them too so the order
+    // stays uniformly random once they resolve.
+    const pending = this.pendingSpotify.get(guildId);
+    if (pending && pending.length > 1) {
+      for (let i = pending.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pending[i], pending[j]] = [pending[j]!, pending[i]!];
+      }
+    }
     return true;
   }
 
   public clear(guildId: string): boolean {
     const player = this.getPlayer(guildId);
-    if (!player) return false;
+    if (!player) {
+      this.pendingSpotify.delete(guildId);
+      return false;
+    }
+    this.pendingSpotify.delete(guildId);
     player.queue.clear();
     return true;
   }

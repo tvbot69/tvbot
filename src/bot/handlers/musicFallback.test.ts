@@ -565,3 +565,152 @@ describe('resolver duration gate (wrong-song guard)', () => {
     }
   });
 });
+
+describe('JIT pending Spotify entries', () => {
+  const sp = (i: number) => ({
+    searchQuery: `Artist${i} - Title${i}`,
+    name: `Title${i}`,
+    artist: `Artist${i}`,
+    durationMs: 180000 + i,
+    artworkUrl: `https://img.test/${i}.jpg`,
+    spotifyUri: `spotify:track:${i}`,
+  });
+
+  const makeJit = (searchImpl?: (args: { query: string; source: string }) => Promise<unknown>) => {
+    const search = vi.fn(
+      searchImpl ??
+        (async () => ({ tracks: [{ identifier: 'yt1', duration: 180000, title: 'raw', author: 'raw' }] })),
+    );
+    const queued: unknown[] = [];
+    const player = {
+      guildId: 'g-jit',
+      node: { identifier: 'test-node' },
+      playing: false,
+      paused: false,
+      queue: {
+        add: (t: unknown) => {
+          queued.push(t);
+        },
+        get size() {
+          return queued.length;
+        },
+        isEmpty: false,
+        clear: vi.fn(() => {
+          queued.length = 0;
+        }),
+        shuffle: vi.fn(),
+      },
+      play: vi.fn(async () => true),
+      destroy: vi.fn(async () => true),
+    };
+    const players = new Map([['g-jit', player]]);
+    const handlers = new Map<string, (...args: never[]) => void>();
+    const manager = {
+      search,
+      players: { get: (id: string) => players.get(id) },
+      on: vi.fn((ev: string, cb: (...args: never[]) => void) => {
+        handlers.set(ev, cb);
+      }),
+    };
+    const svc = new MusicService(
+      { getManager: () => manager } as never,
+      {} as never,
+      { set247: () => undefined } as never,
+    ) as unknown as {
+      topUpPending: (guildId: string) => Promise<void>;
+      pendingSpotify: Map<string, Array<{ spTrack: unknown }>>;
+      mapPendingEntry: (e: unknown) => { title: string; author: string; duration: number; source: string };
+      stop: (guildId: string) => Promise<void>;
+      clear: (guildId: string) => boolean;
+      shuffle: (guildId: string) => boolean;
+    };
+    return { svc, player, queued, handlers, search };
+  };
+
+  const seed = (svc: { pendingSpotify: Map<string, Array<{ spTrack: unknown }>> }, n: number) => {
+    const entries = Array.from({ length: n }, (_, i) => ({
+      spTrack: sp(i),
+      requester: { id: 'u1' },
+      spotifyUrl: 'spotify:playlist:p',
+      override: undefined,
+    }));
+    svc.pendingSpotify.set('g-jit', entries as never);
+  };
+
+  it('binds advance triggers on construction', () => {
+    const { handlers } = makeJit();
+    expect(handlers.has('trackStart')).toBe(true);
+    expect(handlers.has('trackEnd')).toBe(true);
+    expect(handlers.has('queueEnd')).toBe(true);
+    expect(handlers.has('playerDestroy')).toBe(true);
+  });
+
+  it('resolves 2 ahead in order with adopted metadata', async () => {
+    const { svc, queued, search } = makeJit();
+    seed(svc, 5);
+    await svc.topUpPending('g-jit');
+    expect(queued).toHaveLength(2);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect((queued[0] as { title: string }).title).toBe('Title0');
+    expect((queued[1] as { title: string }).title).toBe('Title1');
+    expect(svc.pendingSpotify.get('g-jit')).toHaveLength(3);
+  });
+
+  it('refills as playback advances and drains pending', async () => {
+    const { svc, queued } = makeJit();
+    seed(svc, 3);
+    await svc.topUpPending('g-jit');
+    expect(queued).toHaveLength(2);
+    queued.shift();
+    await svc.topUpPending('g-jit');
+    expect(queued).toHaveLength(2);
+    expect((queued[1] as { title: string }).title).toBe('Title2');
+    expect(svc.pendingSpotify.has('g-jit')).toBe(false);
+  });
+
+  it('skips unresolvable entries without stalling', async () => {
+    const { svc, queued } = makeJit(async ({ query }: { query: string; source: string }) =>
+      query.includes('Title1') ? { tracks: [] } : { tracks: [{ identifier: 'yt1', duration: 180000 }] },
+    );
+    seed(svc, 3);
+    await svc.topUpPending('g-jit');
+    expect(queued).toHaveLength(2);
+    expect((queued[0] as { title: string }).title).toBe('Title0');
+    expect((queued[1] as { title: string }).title).toBe('Title2');
+    expect(svc.pendingSpotify.has('g-jit')).toBe(false);
+  });
+
+  it('stop and clear drop pending entries', async () => {
+    const { svc } = makeJit();
+    seed(svc, 3);
+    expect(svc.clear('g-jit')).toBe(true);
+    expect(svc.pendingSpotify.has('g-jit')).toBe(false);
+    seed(svc, 3);
+    await svc.stop('g-jit');
+    expect(svc.pendingSpotify.has('g-jit')).toBe(false);
+  });
+
+  it('shuffle randomizes pending order without losing entries', async () => {
+    const { svc } = makeJit();
+    seed(svc, 5);
+    expect(svc.shuffle('g-jit')).toBe(true);
+    const pending = svc.pendingSpotify.get('g-jit') ?? [];
+    expect(pending).toHaveLength(5);
+    const names = pending.map((e) => (e.spTrack as { name: string }).name).sort();
+    expect(names).toEqual(['Title0', 'Title1', 'Title2', 'Title3', 'Title4']);
+  });
+
+  it('maps pending entries to truthful display tracks', () => {
+    const { svc } = makeJit();
+    const track = svc.mapPendingEntry({
+      spTrack: sp(0),
+      requester: { id: 'u1' },
+      spotifyUrl: 'spotify:playlist:p',
+      override: undefined,
+    });
+    expect(track.title).toBe('Title0');
+    expect(track.author).toBe('Artist0');
+    expect(track.duration).toBe(180000);
+    expect(track.source).toBe('spotify');
+  });
+});
