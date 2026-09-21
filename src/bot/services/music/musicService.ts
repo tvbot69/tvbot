@@ -8,7 +8,7 @@ import { SpotifyResolver, type SpotifyResolvedTrack } from './spotifyResolver';
 import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
-import { resolveViaHome, resolverEnabled } from './ytResolver';
+import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
 
 export interface PlayResult {
   loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'empty' | 'error';
@@ -148,6 +148,7 @@ export class MusicService {
   private async searchTrackWithLadder(
     player: Player,
     query: string,
+    meta?: ResolverMeta,
   ): Promise<{ track: Track; rung: Rung } | null> {
     const rungs = ladderFor(player);
     let ytHit: Track | undefined;
@@ -171,16 +172,16 @@ export class MusicService {
       }
       if (!ytHit) continue;
       if (rung === 'plugin') return { track: ytHit, rung };
-      const local = await this.tryResolverTrack(player, ytHit);
+      const local = await this.tryResolverTrack(player, ytHit, meta);
       if (local) return { track: local, rung };
     }
     return null;
   }
 
-  private async tryResolverTrack(player: Player, ytTrack: Track): Promise<Track | null> {
+  private async tryResolverTrack(player: Player, ytTrack: Track, meta?: ResolverMeta): Promise<Track | null> {
     if (player.node?.identifier !== HOME_NODE) return null;
     if (!/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) return null;
-    const path = await resolveViaHome(ytTrack.identifier);
+    const path = await resolveViaHome(ytTrack.identifier, meta);
     if (!path) return null;
     let res: unknown;
     try {
@@ -254,7 +255,7 @@ export class MusicService {
     const isDirectUrl = isYoutubeUrl || isSoundcloud || /^https?:\/\//i.test(trimmedQuery);
 
     // Direct SoundCloud URLs always go straight there; everything else runs
-    // the health ladder (plugin → resolver → soundcloud, SoundCloud-first
+    // the health ladder (resolver → plugin → soundcloud, SoundCloud-first
     // while YouTube is declared down).
     if (isSoundcloud) {
       try {
@@ -289,7 +290,11 @@ export class MusicService {
         const rungs = ladderFor(player);
         if (!rungs.includes('plugin')) {
           const scQuery = `${meta.author} - ${meta.title}`;
-          const swapped = await this.searchTrackWithLadder(player, scQuery);
+          const swapped = await this.searchTrackWithLadder(player, scQuery, trackOverride ? {
+            title: trackOverride.title,
+            artist: trackOverride.author,
+            artworkUrl: trackOverride.artworkUrl,
+          } : undefined);
           if (swapped) {
             const hit = swapped.track;
             hit.requester = requester;
@@ -307,7 +312,11 @@ export class MusicService {
       }
 
       // Text query (or anything else): full ladder.
-      const found = await this.searchTrackWithLadder(player, trimmedQuery);
+      const found = await this.searchTrackWithLadder(player, trimmedQuery, trackOverride ? {
+        title: trackOverride.title,
+        artist: trackOverride.author,
+        artworkUrl: trackOverride.artworkUrl,
+      } : undefined);
       if (!found) {
         return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
       }
@@ -422,7 +431,11 @@ export class MusicService {
 
     if (resolution.type === 'track') {
       const spotifyTrack = resolution.tracks[0]!;
-      const found = await this.searchTrackWithLadder(player, spotifyTrack.searchQuery);
+      const found = await this.searchTrackWithLadder(player, spotifyTrack.searchQuery, {
+        title: trackOverride?.title || spotifyTrack.name,
+        artist: trackOverride?.author || spotifyTrack.artist,
+        artworkUrl: trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
+      });
 
       if (!found) {
         return {
@@ -494,7 +507,11 @@ export class MusicService {
       }
     };
 
-    const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery);
+    const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery, {
+      title: firstTrack.name,
+      artist: firstTrack.artist,
+      artworkUrl: firstTrack.artworkUrl,
+    });
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
       adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung);
@@ -581,7 +598,11 @@ export class MusicService {
     player: Player,
     spTrack: SpotifyResolvedTrack,
   ): Promise<{ lavalinkTrack: Track; spTrack: SpotifyResolvedTrack; rung: Rung } | null> {
-    const found = await this.searchTrackWithLadder(player, spTrack.searchQuery);
+    const found = await this.searchTrackWithLadder(player, spTrack.searchQuery, {
+      title: spTrack.name,
+      artist: spTrack.artist,
+      artworkUrl: spTrack.artworkUrl,
+    });
     if (!found) return null;
     return { lavalinkTrack: found.track, spTrack, rung: found.rung };
   }

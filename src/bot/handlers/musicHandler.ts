@@ -348,7 +348,11 @@ export class MusicHandler {
   private async tryResolver(player: Player, src: Track): Promise<Track | null> {
     if (player.node?.identifier !== HOME_NODE) return null;
     if (src.sourceName !== 'youtube' || !/^[\w-]{11}$/.test(src.identifier ?? '')) return null;
-    const path = await resolveViaHome(src.identifier);
+    const path = await resolveViaHome(src.identifier, {
+      title: src.title,
+      artist: src.author,
+      artworkUrl: src.artworkUrl ?? undefined,
+    });
     if (!path) return null;
     let res: unknown;
     try {

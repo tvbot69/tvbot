@@ -49,6 +49,28 @@ describe('ytResolver', () => {
     setEnv(SAVED_URL, SAVED_TOKEN);
   });
 
+  it('forwards metadata as capped query params', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ path: 'C:\\c\\meta1234abc.webm', cached: false }),
+    } as Response);
+    await resolveViaHome('meta1234abc', {
+      title: 'Around the World',
+      artist: 'Daft Punk',
+      artworkUrl: 'https://img.test/c.jpg',
+    });
+    const url = String(fetchSpy.mock.calls[0]?.[0]);
+    expect(url).toContain('title=Around+the+World');
+    expect(url).toContain('artist=Daft+Punk');
+    expect(url).toContain('artwork=https%3A%2F%2Fimg.test%2Fc.jpg');
+
+    await resolveViaHome('meta2234abc', { title: 'x'.repeat(300) });
+    const capped = new URL(String(fetchSpy.mock.calls[1]?.[0])).searchParams.get('title');
+    expect(capped?.length).toBe(200);
+    setEnv(SAVED_URL, SAVED_TOKEN);
+  });
+
   it('pauses for 2 minutes when the resolver is unreachable (no miss recorded)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('down'));
     await expect(resolveViaHome('down1234abc')).resolves.toBeNull();

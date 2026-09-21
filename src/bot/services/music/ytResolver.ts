@@ -84,6 +84,9 @@ export const resolverEnabled = (): boolean =>
 /**
  * Asks the home PC's yt-dlp resolver to materialize a YouTube video id into
  * a cached audio file. Returns the node's local filesystem path, or null.
+ * `meta` (Spotify title/artist/cover when the bot has them) is forwarded so
+ * the server can file the track under its real name with baked-in tags and
+ * cover art; without it the server falls back to YouTube's own metadata.
  * 25s client timeout, then fall through to SoundCloud: live samples resolve
  * in 5-8s, so anything slower is pathological. The server keeps working
  * past the abort (60s kill, per-id dedupe), so an abandoned download still
@@ -91,17 +94,28 @@ export const resolverEnabled = (): boolean =>
  * (recorded in the negative cache, no pause). Anything else (PC asleep,
  * tunnel down) pauses the resolver for 2 minutes.
  */
-export async function resolveViaHome(id: string): Promise<string | null> {
+export interface ResolverMeta {
+  title?: string;
+  artist?: string;
+  artworkUrl?: string;
+}
+
+export async function resolveViaHome(id: string, meta?: ResolverMeta): Promise<string | null> {
   if (!resolverEnabled()) return null;
   if (resolverMissed(id)) {
     Logger.debug({ id }, '[Music] Resolver negative-cache hit — skipping re-attempt');
     return null;
   }
+  const params = new URLSearchParams({ id });
+  // Length-capped: URLs stay sane, server re-validates anyway.
+  if (meta?.title?.trim()) params.set('title', meta.title.trim().slice(0, 200));
+  if (meta?.artist?.trim()) params.set('artist', meta.artist.trim().slice(0, 200));
+  if (meta?.artworkUrl?.trim()) params.set('artwork', meta.artworkUrl.trim().slice(0, 2000));
   const base = process.env.HOME_RESOLVER_URL as string;
   const token = process.env.HOME_RESOLVER_TOKEN as string;
   const started = Date.now();
   try {
-    const r = await fetch(`${base}/?id=${id}`, {
+    const r = await fetch(`${base}/?${params.toString()}`, {
       headers: { authorization: token },
       signal: AbortSignal.timeout(25_000),
     });
