@@ -486,7 +486,19 @@ export class MusicHandler {
       }
 
       Logger.warn(
-        { guildId: player.guildId, track: track.title },
+        {
+          guildId: player.guildId,
+          track: track.title,
+          severity: (exception as { severity?: unknown } | null)?.severity,
+          reason: (() => {
+            try {
+              const msg = (exception as { message?: unknown } | null)?.message;
+              return typeof msg === 'string' ? msg.slice(0, 300) : JSON.stringify(exception)?.slice(0, 300);
+            } catch {
+              return 'unserializable';
+            }
+          })(),
+        },
         `[Music] Track failed — looking for an alternate upload for "${track.title}"...`,
       );
       const fallback = await this.findAlternatePlayableTrack(manager, track, player.guildId, failedKeyStr);
