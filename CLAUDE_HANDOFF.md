@@ -203,3 +203,27 @@ rung materializes that id. Plugin stays second rung so a resolver miss
    against YouTube breakage, or pin + alert on 502-rate instead?
 4. Public nodes' role now: pure failover when Home dies, or should some
    traffic stay on them to spare the residential uplink?
+
+## 7. Claude's 4 answers — implemented 2026-09-21 (same day)
+
+1. Plugin rung dropped on Home behind `HOME_PLUGIN_RUNG=on` (default off).
+   Healthy Home ladder is now `resolver → soundcloud`; publics untouched.
+   Negative miss cache (10-min TTL) on BOTH layers so one 502 never costs a
+   second full yt-dlp attempt: bot-side in `ytResolver.ts` (`resolverMissed`,
+   only 502s recorded — aborts/pauses excluded), server-side in
+   `C:\ytres\resolver.ts` (verified live: first 502 took 2159ms, repeat took
+   5ms). Server also returns `cached: bool`, bot logs `resolveMs + cached`
+   on every attempt (timeout-tuning data).
+2. Client timeout 65s → 25s (live samples resolve in 5-8s; server keeps
+   working past the abort via 60s kill + per-id dedupe, warming the cache).
+   "Still fetching" note, next-track prefetch, and just-in-time playlists
+   NOT done — bigger changes, deferred.
+3. Nightly updater now smoke-tests + rolls back (`C:\ytres\update-ytdlp.ps1`,
+   scheduled task daily 04:00 as SYSTEM, log `yt-dlp-update.log`). NOTE: your
+   suggested smoke video (jNQXAC9IVRE) is "unavailable" from this residential
+   IP — same flagging as section 3. Smoke uses dQw4w9WgXcQ + the production
+   format selector instead (verified exit 0). Bot-side 502-rate webhook
+   alert NOT done — needs a webhook URL from Moha.
+4. No overflow valve (no need signal at this scale). Active hours set
+   08:00–02:00 so Windows can't reboot mid-evening. All three services
+   (Lavalink, YtResolver, Tailscale) are start=Auto — reboot-safe as-is.

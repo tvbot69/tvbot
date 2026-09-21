@@ -19,6 +19,12 @@ describe('YoutubeHealth', () => {
     expect(health.ladder({ resolver: false }, 1000)).toEqual(['plugin', 'soundcloud']);
   });
 
+  it('drops the plugin rung when disabled (Home without HOME_PLUGIN_RUNG)', () => {
+    const health = new YoutubeHealth();
+    expect(health.ladder({ resolver: true, plugin: false }, 1000)).toEqual(['resolver', 'soundcloud']);
+    expect(health.ladder({ resolver: false, plugin: false }, 1000)).toEqual(['soundcloud']);
+  });
+
   it('declares YouTube down after 3 distinct outage songs, probes, and recovers', () => {
     const health = new YoutubeHealth({ distinctSongs: 3, windowMs: 120_000, downMs: 600_000 });
     const outage = { message: 'This video requires login.' };

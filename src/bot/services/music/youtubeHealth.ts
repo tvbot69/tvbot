@@ -53,12 +53,15 @@ export class YoutubeHealth {
    * the plugin's audio step is wall-clock dead (login/cipher walls on every
    * video), so leading with it only buys a doomed attempt plus dead air.
    * The shared ytsearch still runs to get the video id; the resolver rung
-   * materializes that id via yt-dlp. Plugin stays as second rung so a
-   * resolver miss (502, pause, size cap) still gets a playback chance. */
-  public ladder(opts: { resolver: boolean }, now: number = Date.now()): Rung[] {
-    const full: Rung[] = opts.resolver
-      ? ['resolver', 'plugin', 'soundcloud']
-      : ['plugin', 'soundcloud'];
+   * materializes that id via yt-dlp. `plugin: false` drops the plugin rung
+   * (used on Home via HOME_PLUGIN_RUNG) while keeping the probe slot shape.
+   */
+  public ladder(opts: { resolver: boolean; plugin?: boolean }, now: number = Date.now()): Rung[] {
+    const wantPlugin = opts.plugin ?? true;
+    const head: Rung[] = [];
+    if (opts.resolver) head.push('resolver');
+    if (wantPlugin) head.push('plugin');
+    const full: Rung[] = [...head, 'soundcloud'];
     const rest: Rung[] = opts.resolver ? ['resolver', 'soundcloud'] : ['soundcloud'];
     if (!this.downUntil) return full;
     if (now < this.downUntil || now < this.probeUntil) return rest;
@@ -106,5 +109,13 @@ export const healthFor = (nodeId: string): YoutubeHealth => {
 
 export const ladderFor = (player: { node?: { identifier?: string } | null }): Rung[] => {
   const id = player.node?.identifier ?? 'unknown';
-  return healthFor(id).ladder({ resolver: resolverEnabled() && id === HOME_NODE });
+  const home = id === HOME_NODE;
+  // Plugin rung on Home is gated behind HOME_PLUGIN_RUNG=on (default off):
+  // it has never produced audio, and each attempt costs ~2s dead air plus a
+  // failure event feeding the breakers. Flip it manually after a
+  // youtube-source release that actually fixes cipher/login, scratch-node
+  // verified first. The plugin stays installed regardless — ytsearch is what
+  // the resolver rung resolves. Public nodes always keep their plugin rung.
+  const plugin = !home || (process.env.HOME_PLUGIN_RUNG ?? 'off') === 'on';
+  return healthFor(id).ladder({ resolver: resolverEnabled() && home, plugin });
 };

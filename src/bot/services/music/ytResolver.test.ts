@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { resolveViaHome, resolverEnabled } from './ytResolver';
+import { resolveViaHome, resolverEnabled, resolverMissed } from './ytResolver';
 
 const SAVED_URL = process.env.HOME_RESOLVER_URL;
 const SAVED_TOKEN = process.env.HOME_RESOLVER_TOKEN;
@@ -31,26 +31,30 @@ describe('ytResolver', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ path: 'C:\\ytres\\cache\\abc123def45.webm' }),
+      json: async () => ({ path: 'C:\\ytres\\cache\\hit1234abc.webm', cached: true }),
     } as Response);
-    await expect(resolveViaHome('abc123def45')).resolves.toBe('C:\\ytres\\cache\\abc123def45.webm');
+    await expect(resolveViaHome('hit1234abc')).resolves.toBe('C:\\ytres\\cache\\hit1234abc.webm');
+    expect(resolverMissed('hit1234abc')).toBe(false);
     setEnv(SAVED_URL, SAVED_TOKEN);
   });
 
-  it('treats 502 as a per-video miss without pausing', async () => {
+  it('treats 502 as a per-video miss without pausing, cached for 10 min', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 502 } as Response);
-    await expect(resolveViaHome('abc123def45')).resolves.toBeNull();
-    await expect(resolveViaHome('abc123def45')).resolves.toBeNull();
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    await expect(resolveViaHome('miss1234abc')).resolves.toBeNull();
+    expect(resolverMissed('miss1234abc')).toBe(true);
+    // Second attempt for the same id never hits the network.
+    await expect(resolveViaHome('miss1234abc')).resolves.toBeNull();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(resolverEnabled()).toBe(true);
     setEnv(SAVED_URL, SAVED_TOKEN);
   });
 
-  it('pauses for 2 minutes when the resolver is unreachable', async () => {
+  it('pauses for 2 minutes when the resolver is unreachable (no miss recorded)', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('down'));
-    await expect(resolveViaHome('abc123def45')).resolves.toBeNull();
+    await expect(resolveViaHome('down1234abc')).resolves.toBeNull();
     expect(resolverEnabled()).toBe(false);
-    await expect(resolveViaHome('abc123def45')).resolves.toBeNull();
+    expect(resolverMissed('down1234abc')).toBe(false);
+    await expect(resolveViaHome('down1234abc')).resolves.toBeNull();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     setEnv(SAVED_URL, SAVED_TOKEN);
   });

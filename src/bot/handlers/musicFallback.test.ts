@@ -367,6 +367,46 @@ describe('resolver rung exclusion for local tracks', () => {
   });
 });
 
+describe('HOME_PLUGIN_RUNG flag', () => {
+  const withEnv = async (rung: string | undefined) => {
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    const savedRung = process.env.HOME_PLUGIN_RUNG;
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    if (rung === undefined) delete process.env.HOME_PLUGIN_RUNG;
+    else process.env.HOME_PLUGIN_RUNG = rung;
+    try {
+      const { healthFor, ladderFor } = await import('@bot/services/music/youtubeHealth');
+      healthFor('Home').recordSuccess();
+      return ladderFor({ node: { identifier: 'Home' } });
+    } finally {
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+      if (savedRung === undefined) delete process.env.HOME_PLUGIN_RUNG;
+      else process.env.HOME_PLUGIN_RUNG = savedRung;
+      const { healthFor } = await import('@bot/services/music/youtubeHealth');
+      healthFor('Home').recordSuccess();
+    }
+  };
+
+  it('drops the plugin rung on Home by default', async () => {
+    expect(await withEnv(undefined)).toEqual(['resolver', 'soundcloud']);
+  });
+
+  it('restores the plugin rung with HOME_PLUGIN_RUNG=on', async () => {
+    expect(await withEnv('on')).toEqual(['resolver', 'plugin', 'soundcloud']);
+  });
+
+  it('never gates public nodes', async () => {
+    const { healthFor, ladderFor } = await import('@bot/services/music/youtubeHealth');
+    healthFor('MilloHost').recordSuccess();
+    expect(ladderFor({ node: { identifier: 'MilloHost' } })).toEqual(['plugin', 'soundcloud']);
+  });
+});
+
 describe('okTimer lifecycle', () => {
   it('clears stale okTimers on playerDestroy', async () => {
     const handlers = new Map<string, (...args: any[]) => Promise<void>>();
