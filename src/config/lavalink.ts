@@ -44,8 +44,49 @@ export const defaultPublicNodes: LavalinkNodeConfig[] = [
   },
 ];
 
+/**
+ * Home node (self-hosted, e.g. Tailscale Funnel). First in the list = first
+ * pick under least-load selection while it has zero players, so the bot
+ * prefers home and fails over to publics when it dies. Kill switch:
+ * HOME_NODE_ENABLED=false ignores it entirely.
+ *
+ *   HOME_LAVALINK_URL=https://<machine>.<tailnet>.ts.net   (protocol tolerated)
+ *   HOME_LAVALINK_PASSWORD=<same as the node's application.yml>
+ *   HOME_LAVALINK_SECURE=true                              (wss for Funnel https)
+ *   HOME_NODE_ENABLED=true
+ */
+const getHomeNode = (): LavalinkNodeConfig | null => {
+  if ((process.env.HOME_NODE_ENABLED ?? 'true') === 'false') return null;
+  const rawUrl = (process.env.HOME_LAVALINK_URL ?? '').trim();
+  const password = (process.env.HOME_LAVALINK_PASSWORD ?? '').trim();
+  if (!rawUrl || !password) return null;
+
+  const withoutProtocol = rawUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+  const [hostPart, portPart] = withoutProtocol.split(':');
+  if (!hostPart) return null;
+  const port = Number(portPart ?? (process.env.HOME_LAVALINK_SECURE === 'true' ? 443 : 2333));
+  if (!Number.isFinite(port) || port <= 0) return null;
+
+  return {
+    identifier: 'Home',
+    host: hostPart,
+    port,
+    password,
+    secure: process.env.HOME_LAVALINK_SECURE === 'true',
+    retryAmount: 5,
+    retryDelay: 3000,
+  };
+};
+
 export const getLavalinkNodes = (): LavalinkNodeConfig[] => {
   const nodes: LavalinkNodeConfig[] = [...defaultPublicNodes];
+
+  const home = getHomeNode();
+  if (home) {
+    const idx = nodes.findIndex((n) => n.identifier === home.identifier || n.host === home.host);
+    if (idx >= 0) nodes[idx] = home;
+    else nodes.unshift(home);
+  }
 
   if (process.env.LAVALINK_NODES) {
     try {

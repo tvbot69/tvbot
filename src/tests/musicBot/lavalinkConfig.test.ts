@@ -39,6 +39,36 @@ describe('Lavalink Configuration', () => {
     expect(custom?.host).toBe('lavalink.custom.com');
   });
 
+  it('prefers the home node first when configured', () => {
+    process.env.HOME_LAVALINK_URL = 'https://mymachine.tail4b77d0.ts.net';
+    process.env.HOME_LAVALINK_PASSWORD = 'home-secret';
+    process.env.HOME_LAVALINK_SECURE = 'true';
+
+    const nodes = getLavalinkNodes();
+    expect(nodes[0]?.identifier).toBe('Home');
+    expect(nodes[0]?.host).toBe('mymachine.tail4b77d0.ts.net');
+    expect(nodes[0]?.port).toBe(443);
+    expect(nodes[0]?.secure).toBe(true);
+
+    delete process.env.HOME_LAVALINK_URL;
+    delete process.env.HOME_LAVALINK_PASSWORD;
+    delete process.env.HOME_LAVALINK_SECURE;
+  });
+
+  it('ignores the home node on kill switch or missing password', () => {
+    process.env.HOME_LAVALINK_URL = 'https://mymachine.tail4b77d0.ts.net';
+    process.env.HOME_LAVALINK_PASSWORD = 'home-secret';
+    process.env.HOME_NODE_ENABLED = 'false';
+
+    expect(getLavalinkNodes().some((n) => n.identifier === 'Home')).toBe(false);
+
+    delete process.env.HOME_NODE_ENABLED;
+    delete process.env.HOME_LAVALINK_PASSWORD;
+    expect(getLavalinkNodes().some((n) => n.identifier === 'Home')).toBe(false);
+
+    delete process.env.HOME_LAVALINK_URL;
+  });
+
   it('adds backup node when LAVALINK_BACKUP_HOST is configured', () => {
     process.env.LAVALINK_BACKUP_HOST = 'backup.lava.link';
     process.env.LAVALINK_BACKUP_PORT = '80';

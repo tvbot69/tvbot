@@ -290,7 +290,7 @@ export class MusicHandler {
       const currentTrack = player.current ? mapMoonlinkTrack(player.current) : mapMoonlinkTrack(track);
 
       Logger.info(
-        `[Music] Track started in guild ${player.guildId}: "${currentTrack.title}" by "${currentTrack.author}"`,
+        `[Music] Track started in guild ${player.guildId} via node "${player.node?.identifier ?? 'unknown'}": "${currentTrack.title}" by "${currentTrack.author}"`,
       );
       this.queueService.recordTrackStart(player.guildId, player.current ?? track);
 
