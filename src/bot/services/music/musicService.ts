@@ -63,6 +63,8 @@ export class MusicService {
   private static readonly JIT_AHEAD = 2;
   /** Artwork backfill must never stall resolution: cold provider cascades take seconds. */
   private static readonly ARTWORK_TIMEOUT_MS = 6000;
+  /** Background paths (JIT top-up, warmup) can afford to wait out slow cascades. */
+  private static readonly BACKGROUND_ARTWORK_TIMEOUT_MS = 10000;
   /** Upcoming entries with a warmup cascade already in flight (dedupes overlap). */
   private readonly artWarmKeys = new Set<string>();
   private readonly artworkService?: ArtworkService;
@@ -643,6 +645,7 @@ export class MusicService {
     knownArtworkUrl?: string,
     title?: string,
     artist?: string,
+    timeoutMs: number = MusicService.ARTWORK_TIMEOUT_MS,
   ): Promise<void> {
     try {
       if (!track || track.artworkUrl || knownArtworkUrl) return;
@@ -658,7 +661,7 @@ export class MusicService {
       try {
         const lookup = this.artworkService.getTrackCoverUrl(t, a);
         const timeout = new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), MusicService.ARTWORK_TIMEOUT_MS);
+          timer = setTimeout(() => resolve(null), timeoutMs);
         });
         const url = await Promise.race([lookup, timeout]);
         if (url) {
@@ -731,7 +734,7 @@ export class MusicService {
         try {
           const lookup = this.artworkService!.getTrackCoverUrl(entry.spTrack.name, entry.spTrack.artist);
           const timeout = new Promise<null>((resolve) => {
-            timer = setTimeout(() => resolve(null), MusicService.ARTWORK_TIMEOUT_MS);
+            timer = setTimeout(() => resolve(null), MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS);
           });
           await Promise.race([lookup, timeout]);
         } catch {
@@ -841,7 +844,14 @@ export class MusicService {
       artist: spTrack.artist,
     });
     if (!found) return null;
-    await this.maybeBackfillArt(found.track, spTrack.artworkUrl, spTrack.name, spTrack.artist);
+    // Background-only path (topUpPending): generous art timeout, nobody waits.
+    await this.maybeBackfillArt(
+      found.track,
+      spTrack.artworkUrl,
+      spTrack.name,
+      spTrack.artist,
+      MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+    );
     return { lavalinkTrack: found.track, spTrack, rung: found.rung };
   }
 

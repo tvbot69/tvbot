@@ -790,12 +790,12 @@ describe('resolve artwork backfill', () => {
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/yt.jpg');
   });
 
-  it('gives up after the timeout when providers hang', async () => {
+  it('gives up after the background timeout when providers hang', async () => {
     vi.useFakeTimers();
     try {
       const { svc, getTrackCoverUrl } = makeArtSvc(() => new Promise<null>(() => undefined));
       const pending = svc.resolvePlaylistTrack(player, spTrack);
-      await vi.advanceTimersByTimeAsync(6100);
+      await vi.advanceTimersByTimeAsync(10100);
       const res = await pending;
       expect(res?.lavalinkTrack.artworkUrl).toBeUndefined();
       expect(getTrackCoverUrl).toHaveBeenCalledTimes(1);
