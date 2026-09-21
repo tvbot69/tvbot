@@ -55,6 +55,15 @@ describe('YoutubeHealth', () => {
     expect(health.ladder({ resolver: true }, 3000)[0]).toBe('plugin');
   });
 
+  it('never trips on distinct non-outage errors (private/unavailable)', () => {
+    const health = new YoutubeHealth({ distinctSongs: 3, windowMs: 120_000, downMs: 600_000 });
+    health.recordFailure('a - x', { message: 'This video is private.' }, 0);
+    health.recordFailure('b - y', { message: 'This video is unavailable.' }, 1000);
+    health.recordFailure('c - z', { message: 'Track has no audio tracks' }, 2000);
+    expect(health.ladder({ resolver: true }, 3000)[0]).toBe('plugin');
+    expect(health.isDown(3000)).toBe(false);
+  });
+
   it('tracks health independently per node', () => {
     const outage = { message: 'This video requires login.' };
     const home = healthFor('test-home-health');

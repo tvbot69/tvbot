@@ -163,6 +163,19 @@ export class MusicHandler {
     return `${firstArtist} - ${strippedTitle}`;
   }
 
+  /**
+   * Compacts a Moonlink track exception into one log line per client
+   * ("ANDROID_VR: requires login | WEB: no supported audio streams").
+   * The old 300-char truncation hid every client except the first.
+   */
+  private static clientFailuresText(reason: unknown): string {
+    const text = typeof reason === 'string' ? reason : String(reason ?? '');
+    const hits = [...text.matchAll(/Client \[(\w+)\] failed: ([^\r\n]+)/g)].map(
+      (m) => `${m[1] ?? '?'}: ${(m[2] ?? '').trim().replace(/\.$/, '')}`,
+    );
+    return hits.length > 0 ? hits.join(' | ') : text.slice(0, 200);
+  }
+
   private adoptFallbackMetadata(fallback: Track, failedTrack: Track, source: string): void {
     fallback.requester = failedTrack.requester;
     fallback.title = failedTrack.title;
@@ -372,13 +385,16 @@ export class MusicHandler {
   ): Promise<Track | null> {
     if (!failedTrack) return null;
     const nodeId = player.node?.identifier ?? 'unknown';
-    let rungs = ladderFor(player).filter(
-      (r) => !(err && YoutubeHealth.isOutage(err) && r === 'plugin'),
-    );
+    const outage = !!err && YoutubeHealth.isOutage(err);
+    let rungs = ladderFor(player).filter((r) => !(outage && r === 'plugin'));
     // A resolved local file that failed must not be re-resolved.
     if (failedTrack.sourceName === 'local') {
       rungs = rungs.filter((r) => r !== 'resolver');
     }
+    Logger.info(
+      { guildId, node: nodeId, outage, rungs, track: failedTrack.title },
+      '[Music] fallback ladder',
+    );
     for (const rung of rungs) {
       const alt =
         rung === 'resolver'
@@ -386,6 +402,10 @@ export class MusicHandler {
           : rung === 'plugin'
             ? await this.searchYoutubeAlternate(manager, failedTrack, guildId)
             : await this.searchSoundcloudAlternate(manager, failedTrack, guildId);
+      Logger.info(
+        { guildId, node: nodeId, rung, ok: !!alt, track: failedTrack.title },
+        '[Music] fallback rung',
+      );
       if (alt) {
         this.recordFallbackAttempt(guildId, failedKey, alt.identifier);
         return alt;
@@ -670,21 +690,19 @@ export class MusicHandler {
         return;
       }
 
+      const failureClients = MusicHandler.clientFailuresText(
+        (exception as { message?: unknown } | null)?.message,
+      );
       Logger.warn(
         {
           guildId: player.guildId,
           track: track.title,
           severity: (exception as { severity?: unknown } | null)?.severity,
-          reason: (() => {
-            try {
-              const msg = (exception as { message?: unknown } | null)?.message;
-              return typeof msg === 'string' ? msg.slice(0, 300) : JSON.stringify(exception)?.slice(0, 300);
-            } catch {
-              return 'unserializable';
-            }
-          })(),
+          reason: failureClients,
         },
-        `[Music] Track failed — looking for an alternate upload for "${track.title}"...`,
+        YoutubeHealth.isOutage(exception)
+          ? `[Music] Track failed (YouTube outage) — looking for a fallback for "${track.title}"...`
+          : `[Music] Track failed — looking for an alternate upload for "${track.title}"...`,
       );
       const fallback = await this.findAlternatePlayableTrack(manager, player, track, player.guildId, failedKeyStr, exception);
       if (fallback) {

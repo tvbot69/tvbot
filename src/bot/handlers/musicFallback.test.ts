@@ -293,6 +293,104 @@ describe('preview-cut detection (short finishes feed the breaker)', () => {
   });
 });
 
+describe('clientFailuresText', () => {
+  const fn = (MusicHandler as unknown as {
+    clientFailuresText: (reason: unknown) => string;
+  }).clientFailuresText;
+
+  it('compacts per-client failures onto one line', () => {
+    const reason =
+      'All clients failed.\r\nClient [ANDROID_VR] failed: This video requires login.\r\nClient [WEB] failed: No supported audio streams available.';
+    expect(fn(reason)).toBe(
+      'ANDROID_VR: This video requires login | WEB: No supported audio streams available',
+    );
+  });
+
+  it('falls back to truncated text without client lines', () => {
+    expect(fn('plain failure')).toBe('plain failure');
+    expect(fn(undefined)).toBe('');
+  });
+});
+
+describe('resolver rung exclusion for local tracks', () => {
+  it('never calls tryResolver for a failed local track even on Home with resolver on', async () => {
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    try {
+      const { healthFor, ladderFor } = await import('@bot/services/music/youtubeHealth');
+      healthFor('Home').recordSuccess();
+      const homePlayer = { node: { identifier: 'Home' } };
+      // Sanity: the resolver rung would exist for a YouTube failure here.
+      expect(ladderFor(homePlayer)).toContain('resolver');
+
+      const manager = { on: vi.fn(), players: { get: () => undefined } };
+      const client = { on: vi.fn(), channels: { cache: new Map() } };
+      const handler = new MusicHandler(
+        client as never,
+        { getManager: () => manager } as never,
+        { getQueueInfo: () => null, is247: () => false } as never,
+      ) as unknown as {
+        findAlternatePlayableTrack: (
+          manager: unknown,
+          player: unknown,
+          track: unknown,
+          guildId: string,
+          key: string,
+          err?: unknown,
+        ) => Promise<unknown>;
+        tryResolver: (player: unknown, track: unknown) => Promise<unknown>;
+      };
+      const resolverSpy = vi.spyOn(handler, 'tryResolver');
+      const search = vi.fn(async ({ source }: { source: string }) =>
+        source === 'soundcloud'
+          ? { tracks: [{ identifier: 'sc-local-alt', duration: 174000 }] }
+          : { tracks: [] },
+      );
+      const localTrack = { ...failedTrack, sourceName: 'local', identifier: 'local-cache-id' };
+      const res = (await handler.findAlternatePlayableTrack(
+        { search },
+        homePlayer,
+        localTrack,
+        'g-local',
+        'enc-local',
+      )) as { identifier: string };
+      expect(resolverSpy).not.toHaveBeenCalled();
+      expect(res.identifier).toBe('sc-local-alt');
+    } finally {
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+    }
+  });
+});
+
+describe('okTimer lifecycle', () => {
+  it('clears stale okTimers on playerDestroy', async () => {
+    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const manager = {
+      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
+        handlers.set(event, cb);
+      }),
+      players: { get: () => undefined },
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const handler = new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false } as never,
+    ) as unknown as { okTimers: Map<string, NodeJS.Timeout> };
+    const timer = setTimeout(() => undefined, 15000);
+    handler.okTimers.set('g-destroy', timer);
+    const onDestroy = handlers.get('playerDestroy')!;
+    expect(onDestroy).toBeDefined();
+    await onDestroy({ guildId: 'g-destroy', get: () => undefined } as never);
+    expect(handler.okTimers.has('g-destroy')).toBe(false);
+  });
+});
+
 describe('playErrorMessage', () => {
   it('explains each failure mode distinctly', () => {
     expect(playErrorMessage('no-nodes')).toMatch(/rate-limited/i);
