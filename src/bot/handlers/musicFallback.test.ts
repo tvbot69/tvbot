@@ -714,3 +714,88 @@ describe('JIT pending Spotify entries', () => {
     expect(track.source).toBe('spotify');
   });
 });
+
+describe('resolve artwork backfill', () => {
+  const player = { node: { identifier: 'test-node' } };
+  const spTrack = { searchQuery: 'Mond - Esme', name: 'Esme', artist: 'Mond' };
+
+  const makeArtSvc = (
+    artImpl?: () => Promise<string | null>,
+    searchImpl?: (args: { query: string; source: string }) => Promise<unknown>,
+  ) => {
+    const search = vi.fn(
+      searchImpl ??
+        (async () => ({ tracks: [{ identifier: 'yt1', duration: 180000, title: 'Vid Title', author: 'Vid Artist' }] })),
+    );
+    const manager = { search, on: vi.fn(), players: { get: () => undefined } };
+    const getTrackCoverUrl = vi.fn(artImpl ?? (async () => 'https://img.test/backfilled.jpg'));
+    const svc = new MusicService(
+      { getManager: () => manager } as never,
+      {} as never,
+      {} as never,
+      undefined,
+      { getTrackCoverUrl } as never,
+    ) as unknown as {
+      resolvePlaylistTrack: (
+        player: unknown,
+        spTrack: unknown,
+      ) => Promise<{ lavalinkTrack: { artworkUrl?: string } } | null>;
+    };
+    return { svc, getTrackCoverUrl };
+  };
+
+  it('backfills missing art via ArtworkService with clean Spotify meta', async () => {
+    const { svc, getTrackCoverUrl } = makeArtSvc();
+    const res = await svc.resolvePlaylistTrack(player, spTrack);
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');
+    expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/backfilled.jpg');
+  });
+
+  it('skips the lookup when Spotify art is present (adoption covers it)', async () => {
+    const { svc, getTrackCoverUrl } = makeArtSvc();
+    const res = await svc.resolvePlaylistTrack(player, { ...spTrack, artworkUrl: 'https://img.test/sp.jpg' });
+    expect(getTrackCoverUrl).not.toHaveBeenCalled();
+    expect(res?.lavalinkTrack.artworkUrl).toBeUndefined();
+  });
+
+  it('skips the lookup when the raw track already has art', async () => {
+    const { svc, getTrackCoverUrl } = makeArtSvc(
+      undefined,
+      async () => ({ tracks: [{ identifier: 'yt1', duration: 180000, artworkUrl: 'https://img.test/yt.jpg' }] }),
+    );
+    const res = await svc.resolvePlaylistTrack(player, spTrack);
+    expect(getTrackCoverUrl).not.toHaveBeenCalled();
+    expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/yt.jpg');
+  });
+
+  it('gives up after the timeout when providers hang', async () => {
+    vi.useFakeTimers();
+    try {
+      const { svc, getTrackCoverUrl } = makeArtSvc(() => new Promise<null>(() => undefined));
+      const pending = svc.resolvePlaylistTrack(player, spTrack);
+      await vi.advanceTimersByTimeAsync(6100);
+      const res = await pending;
+      expect(res?.lavalinkTrack.artworkUrl).toBeUndefined();
+      expect(getTrackCoverUrl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves fine with no artwork service wired', async () => {
+    const search = vi.fn(async () => ({ tracks: [{ identifier: 'yt1', duration: 180000 }] }));
+    const manager = { search, on: vi.fn(), players: { get: () => undefined } };
+    const svc = new MusicService(
+      { getManager: () => manager } as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      resolvePlaylistTrack: (
+        player: unknown,
+        spTrack: unknown,
+      ) => Promise<{ lavalinkTrack: { artworkUrl?: string } } | null>;
+    };
+    const res = await svc.resolvePlaylistTrack(player, spTrack);
+    expect(res?.lavalinkTrack.artworkUrl).toBeUndefined();
+  });
+});

@@ -594,7 +594,7 @@ export const configureContainer = (): void => {
   container.registerInstance(GuildMusicSettingsRepository, guildMusicSettingsRepository);
   const queueService = new QueueService(musicHistoryRepository, guildMusicSettingsRepository);
   const playlistChunkManager = new PlaylistChunkManager(moonlinkManager, spotifyScraperService);
-  const musicService = new MusicService(moonlinkManager, spotifyResolver, queueService, playlistChunkManager);
+  const musicService = new MusicService(moonlinkManager, spotifyResolver, queueService, playlistChunkManager, artworkService);
   const voiceChannelStatusService = new VoiceChannelStatusService(client);
   const musicInteractions = new MusicInteractions(musicService, colorService);
   const musicCommands = new MusicCommands(musicService, colorService, lyricsService, musicInteractions);

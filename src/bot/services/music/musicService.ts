@@ -9,6 +9,7 @@ import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
 import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
+import type { ArtworkService } from '@bot/services/artworkService';
 
 export interface PlayResult {
   loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'empty' | 'error';
@@ -60,17 +61,22 @@ export class MusicService {
   private readonly pendingTopUpRunning = new Set<string>();
   private pendingEventsBound = false;
   private static readonly JIT_AHEAD = 2;
+  /** Artwork backfill must never stall resolution: cold provider cascades take seconds. */
+  private static readonly ARTWORK_TIMEOUT_MS = 6000;
+  private readonly artworkService?: ArtworkService;
 
   constructor(
     moonlinkManager: MoonlinkManager,
     spotifyResolver: SpotifyResolver,
     queueService: QueueService,
     playlistChunkManager?: PlaylistChunkManager,
+    artworkService?: ArtworkService,
   ) {
     this.moonlinkManager = moonlinkManager;
     this.spotifyResolver = spotifyResolver;
     this.queueService = queueService;
     this.playlistChunkManager = playlistChunkManager;
+    this.artworkService = artworkService;
     this.playlistChunkManager?.bindEvents();
     this.bindPendingEvents();
   }
@@ -355,6 +361,7 @@ export class MusicService {
             hit.requester = requester;
             hit.title = trackOverride?.title || meta.title;
             hit.author = trackOverride?.author || meta.author;
+            await this.maybeBackfillArt(hit, trackOverride?.artworkUrl, hit.title, hit.author);
             const rungSource = swapped.rung === 'resolver' ? 'local' : 'soundcloud';
             const rec = hit as unknown as Record<string, unknown>;
             rec.sourceName = trackOverride?.source || rungSource;
@@ -374,6 +381,12 @@ export class MusicService {
       if (!found) {
         return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
       }
+      await this.maybeBackfillArt(
+        found.track,
+        trackOverride?.artworkUrl,
+        trackOverride?.title || found.track.title,
+        trackOverride?.author || found.track.author,
+      );
       const ladderSource = found.rung === 'resolver' ? 'local' : found.rung === 'soundcloud' ? 'soundcloud' : 'youtube';
       return await this.enqueueLavalinkTracks(player, [found.track], requester, trackOverride, ladderSource, undefined, true);
     } catch (err) {
@@ -493,6 +506,12 @@ export class MusicService {
       }
 
       const chosenTrack = found.track;
+      await this.maybeBackfillArt(
+        chosenTrack,
+        trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
+        trackOverride?.title || spotifyTrack.name,
+        trackOverride?.author || spotifyTrack.artist,
+      );
       chosenTrack.requester = requester;
       chosenTrack.title = trackOverride?.title || spotifyTrack.name;
       chosenTrack.author = trackOverride?.author || spotifyTrack.artist;
@@ -608,6 +627,41 @@ export class MusicService {
     };
   }
 
+  /**
+   * Backfills a missing track cover through ArtworkService (Spotify →
+   * Deezer → Apple → Last.fm cascade, strict artist+title matching).
+   * Only fires when NEITHER the raw track NOR the known Spotify art has a
+   * URL — hot paths (API tracks with art, YouTube hits with thumbs) return
+   * synchronously free. Timeout-guarded and catch-all: art must never break
+   * or stall playback resolution.
+   */
+  private async maybeBackfillArt(
+    track: Track,
+    knownArtworkUrl?: string,
+    title?: string,
+    artist?: string,
+  ): Promise<void> {
+    try {
+      if (!track || track.artworkUrl || knownArtworkUrl) return;
+      if (!this.artworkService) return;
+      const t = (title || track.title)?.trim();
+      const a = (artist || track.author)?.trim();
+      if (!t || !a) return;
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        const lookup = this.artworkService.getTrackCoverUrl(t, a);
+        const timeout = new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), MusicService.ARTWORK_TIMEOUT_MS);
+        });
+        const url = await Promise.race([lookup, timeout]);
+        if (url) track.artworkUrl = url;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    } catch {
+      // ignore — playback without art beats no playback
+    }
+  }
   /**
    * Stamps Spotify display metadata onto a resolved Lavalink track. The
    * moonlink track keeps its true backend label ('local' for resolver
@@ -734,6 +788,7 @@ export class MusicService {
       artist: spTrack.artist,
     });
     if (!found) return null;
+    await this.maybeBackfillArt(found.track, spTrack.artworkUrl, spTrack.name, spTrack.artist);
     return { lavalinkTrack: found.track, spTrack, rung: found.rung };
   }
 
