@@ -223,7 +223,9 @@ rung materializes that id. Plugin stays second rung so a resolver miss
    suggested smoke video (jNQXAC9IVRE) is "unavailable" from this residential
    IP — same flagging as section 3. Smoke uses dQw4w9WgXcQ + the production
    format selector instead (verified exit 0). Bot-side 502-rate webhook
-   alert NOT done — needs a webhook URL from Moha.
+   alert DONE (`RESOLVER_ALERT_WEBHOOK_URL`): 30%+ of last 10+ calls 502'ing
+   or 3+ unreachable pauses/hour, 30-min cooldown per rule, unset = silent.
+   Pipe verified live (Discord 204).
 4. No overflow valve (no need signal at this scale). Active hours set
    08:00–02:00 so Windows can't reboot mid-evening. All three services
    (Lavalink, YtResolver, Tailscale) are start=Auto — reboot-safe as-is.

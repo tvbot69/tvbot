@@ -21,6 +21,61 @@ export const resolverMissed = (id: string): boolean => {
   return true;
 };
 
+// Breakage alerting: rolling outcomes feed two rules — 30%+ of the last
+// 10+ calls 502'ing (yt-dlp likely broken), or 3+ unreachable pauses in an
+// hour (PC asleep / tunnel down). Alerts go to a private Discord webhook
+// (RESOLVER_ALERT_WEBHOOK_URL, unset = silent) with a 30-min cooldown per
+// rule so an ongoing incident reminds rather than spams. The ladder already
+// degrades to SoundCloud, so these are notice-quickly signals, not pages.
+const outcomes: Array<{ at: number; miss: boolean }> = [];
+const pauseAts: number[] = [];
+const ALERT_COOLDOWN_MS = 30 * 60_000;
+let lastMissAlertAt = 0;
+let lastPauseAlertAt = 0;
+
+function postAlert(text: string): void {
+  const url = (process.env.RESOLVER_ALERT_WEBHOOK_URL ?? '').trim();
+  if (!url) return;
+  void fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content: text }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch((err) => Logger.debug({ err }, '[Music] Resolver alert webhook failed'));
+}
+
+function checkMissAlert(now: number): void {
+  const recent = outcomes.slice(-10);
+  if (recent.length < 10) return;
+  const missCount = recent.filter((o) => o.miss).length;
+  if (missCount / recent.length < 0.3) return;
+  if (now - lastMissAlertAt < ALERT_COOLDOWN_MS) return;
+  lastMissAlertAt = now;
+  postAlert(
+    `⚠️ tvbot resolver: ${missCount}/10 recent calls 502'd — yt-dlp may be broken (nightly update + rollback run at 04:00; check the 502 rate).`,
+  );
+}
+
+function checkPauseAlert(now: number): void {
+  const cutoff = now - 3_600_000;
+  let drop = 0;
+  while (drop < pauseAts.length && (pauseAts[drop] as number) <= cutoff) drop++;
+  if (drop > 0) pauseAts.splice(0, drop);
+  if (pauseAts.length < 3) return;
+  if (now - lastPauseAlertAt < ALERT_COOLDOWN_MS) return;
+  lastPauseAlertAt = now;
+  postAlert(
+    '⚠️ tvbot resolver unreachable 3+ times in the last hour (2-min pauses each) — check the PC / Funnel tunnel.',
+  );
+}
+
+function recordOutcome(miss: boolean): void {
+  const now = Date.now();
+  outcomes.push({ at: now, miss });
+  if (outcomes.length > 50) outcomes.splice(0, outcomes.length - 50);
+  checkMissAlert(now);
+}
+
 export const resolverEnabled = (): boolean =>
   !!process.env.HOME_RESOLVER_URL &&
   !!process.env.HOME_RESOLVER_TOKEN &&
@@ -53,6 +108,7 @@ export async function resolveViaHome(id: string): Promise<string | null> {
     if (r.status === 502) {
       misses.set(id, Date.now());
       Logger.info({ id, resolveMs: Date.now() - started }, '[Music] Resolver miss (502) — cached, falling through');
+      recordOutcome(true);
       return null;
     }
     if (!r.ok) throw new Error(`resolver ${r.status}`);
@@ -61,10 +117,14 @@ export async function resolveViaHome(id: string): Promise<string | null> {
       { id, resolveMs: Date.now() - started, cached: body.cached ?? 'unknown' },
       '[Music] Resolver hit',
     );
+    recordOutcome(false);
     return body.path ?? null;
   } catch {
-    pausedUntil = Date.now() + 120_000;
-    Logger.warn({ id, resolveMs: Date.now() - started }, '[Music] Resolver unreachable — pausing 2 min');
+    const now = Date.now();
+    pausedUntil = now + 120_000;
+    pauseAts.push(now);
+    checkPauseAlert(now);
+    Logger.warn({ id, resolveMs: now - started }, '[Music] Resolver unreachable — pausing 2 min');
     return null;
   }
 }
