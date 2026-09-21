@@ -15,7 +15,7 @@ describe('YoutubeHealth', () => {
 
   it('serves the full ladder while healthy', () => {
     const health = new YoutubeHealth();
-    expect(health.ladder({ resolver: true }, 1000)).toEqual(['plugin', 'resolver', 'soundcloud']);
+    expect(health.ladder({ resolver: true }, 1000)).toEqual(['resolver', 'plugin', 'soundcloud']);
     expect(health.ladder({ resolver: false }, 1000)).toEqual(['plugin', 'soundcloud']);
   });
 
@@ -25,7 +25,7 @@ describe('YoutubeHealth', () => {
 
     health.recordFailure('a - x', outage, 0);
     health.recordFailure('b - y', outage, 1000);
-    expect(health.ladder({ resolver: true }, 2000)).toEqual(['plugin', 'resolver', 'soundcloud']);
+    expect(health.ladder({ resolver: true }, 2000)).toEqual(['resolver', 'plugin', 'soundcloud']);
 
     health.recordFailure('c - z', outage, 3000);
     // Down: SoundCloud-first (resolver rung kept when configured), no probes yet
@@ -34,7 +34,7 @@ describe('YoutubeHealth', () => {
     expect(health.ladder({ resolver: true }, 70000)).toEqual(['resolver', 'soundcloud']);
 
     // At expiry exactly one plugin probe goes through, then the slot closes
-    expect(health.ladder({ resolver: true }, 603000)).toEqual(['plugin', 'resolver', 'soundcloud']);
+    expect(health.ladder({ resolver: true }, 603000)).toEqual(['resolver', 'plugin', 'soundcloud']);
     expect(health.ladder({ resolver: true }, 603100)).toEqual(['resolver', 'soundcloud']);
 
     // A failed probe re-arms the outage
@@ -43,7 +43,7 @@ describe('YoutubeHealth', () => {
 
     // A surviving track clears everything immediately
     health.recordSuccess();
-    expect(health.ladder({ resolver: true }, 603400)).toEqual(['plugin', 'resolver', 'soundcloud']);
+    expect(health.ladder({ resolver: true }, 603400)).toEqual(['resolver', 'plugin', 'soundcloud']);
   });
 
   it('ignores repeated failures of the same song for the trip count', () => {
@@ -52,7 +52,7 @@ describe('YoutubeHealth', () => {
     health.recordFailure('a - x', outage, 0);
     health.recordFailure('a - x', outage, 1000);
     health.recordFailure('a - x', outage, 2000);
-    expect(health.ladder({ resolver: true }, 3000)[0]).toBe('plugin');
+    expect(health.ladder({ resolver: true }, 3000)[0]).toBe('resolver');
   });
 
   it('never trips on distinct non-outage errors (private/unavailable)', () => {
@@ -60,7 +60,7 @@ describe('YoutubeHealth', () => {
     health.recordFailure('a - x', { message: 'This video is private.' }, 0);
     health.recordFailure('b - y', { message: 'This video is unavailable.' }, 1000);
     health.recordFailure('c - z', { message: 'Track has no audio tracks' }, 2000);
-    expect(health.ladder({ resolver: true }, 3000)[0]).toBe('plugin');
+    expect(health.ladder({ resolver: true }, 3000)[0]).toBe('resolver');
     expect(health.isDown(3000)).toBe(false);
   });
 

@@ -49,13 +49,21 @@ export class YoutubeHealth {
     return OUTAGE_RE.test(errText(e));
   }
 
-  /** Rungs to try for a NEW play request, in order. */
+  /** Rungs to try for a NEW play request, in order. Resolver goes first:
+   * the plugin's audio step is wall-clock dead (login/cipher walls on every
+   * video), so leading with it only buys a doomed attempt plus dead air.
+   * The shared ytsearch still runs to get the video id; the resolver rung
+   * materializes that id via yt-dlp. Plugin stays as second rung so a
+   * resolver miss (502, pause, size cap) still gets a playback chance. */
   public ladder(opts: { resolver: boolean }, now: number = Date.now()): Rung[] {
+    const full: Rung[] = opts.resolver
+      ? ['resolver', 'plugin', 'soundcloud']
+      : ['plugin', 'soundcloud'];
     const rest: Rung[] = opts.resolver ? ['resolver', 'soundcloud'] : ['soundcloud'];
-    if (!this.downUntil) return ['plugin', ...rest];
+    if (!this.downUntil) return full;
     if (now < this.downUntil || now < this.probeUntil) return rest;
     this.probeUntil = now + 60_000;
-    return ['plugin', ...rest];
+    return full;
   }
 
   public recordFailure(song: string, e: unknown, now: number = Date.now()): void {

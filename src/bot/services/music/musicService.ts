@@ -575,7 +575,7 @@ export class MusicService {
 
   /**
    * Resolves one playlist track through the health ladder
-   * (plugin → resolver → soundcloud, SoundCloud-first while down).
+   * (resolver → plugin → soundcloud, SoundCloud-first while down).
    */
   private async resolvePlaylistTrack(
     player: Player,
