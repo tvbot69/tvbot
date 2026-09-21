@@ -136,8 +136,8 @@ export class MusicHandler {
    * "(from GTAVI: The Album)" in the title) and full-noise queries return zero
    * SoundCloud hits. First billed artist + bracket-stripped title matches far better.
    */
-  private buildFallbackQuery(track: Track): string | null {
-    if (!track.title || !track.author) return null;
+  private buildFallbackQuery(track: Track | null | undefined): string | null {
+    if (!track?.title || !track?.author) return null;
     const firstArtist =
       track.author
         .split(/[,/&]/)[0]
@@ -225,10 +225,11 @@ export class MusicHandler {
    */
   private async findAlternatePlayableTrack(
     manager: Manager,
-    failedTrack: Track,
+    failedTrack: Track | null | undefined,
     guildId: string,
     failedKey: string,
   ): Promise<Track | null> {
+    if (!failedTrack) return null;
     const query = this.buildFallbackQuery(failedTrack);
     if (!query) return null;
 
@@ -381,6 +382,17 @@ export class MusicHandler {
     manager.on('trackStuck', async (player: Player, track: Track, threshold: number) => {
       this.stopProgressUpdater(player.guildId);
 
+      // Moonlink can emit with a null track when the failure arrives after the
+      // player already moved on (stop/skip/queueEnd). Property access on null
+      // used to crash this whole listener as an unhandled rejection.
+      if (!track) {
+        Logger.warn(
+          { guildId: player.guildId, threshold },
+          '[Music] Track stuck event with no track — nothing to retry.',
+        );
+        return;
+      }
+
       // Guard against double-skip: Moonlink may already have advanced past this track
       // while our async fallback search was in flight.
       const failedKey = track.encoded ?? track.uri ?? track.identifier;
@@ -432,6 +444,16 @@ export class MusicHandler {
 
     manager.on('trackException', async (player: Player, track: Track, exception: unknown) => {
       this.stopProgressUpdater(player.guildId);
+
+      // Same null-track guard as trackStuck: late-arriving failures for an
+      // already-advanced player carry no track to retry.
+      if (!track) {
+        Logger.warn(
+          { err: exception, guildId: player.guildId },
+          '[Music] Track exception event with no track — leaving advancement to Moonlink.',
+        );
+        return;
+      }
 
       // Guard against double-skip: Moonlink auto-skips fault-severity exceptions on its
       // own, which may complete while our async fallback search is in flight.

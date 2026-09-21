@@ -132,6 +132,49 @@ describe('resolvePlaylistTrack (Phase 3.2)', () => {
   });
 });
 
+describe('null-track events (late failures after advancement)', () => {
+  const captureHandlers = () => {
+    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const manager = {
+      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
+        handlers.set(event, cb);
+      }),
+      players: { get: () => undefined },
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false } as never,
+    );
+    return handlers;
+  };
+
+  const deadPlayer = () =>
+    ({
+      guildId: 'g9',
+      current: null,
+      queue: { unshift: vi.fn(), size: 0, isEmpty: true },
+      skip: vi.fn(async () => true),
+      playing: false,
+      paused: false,
+    }) as never;
+
+  it('trackException with null track does not throw and does not search', async () => {
+    const handlers = captureHandlers();
+    const onException = handlers.get('trackException');
+    expect(onException).toBeDefined();
+    await expect(onException!(deadPlayer(), null, { message: 'late failure' })).resolves.toBeUndefined();
+  });
+
+  it('trackStuck with null track does not throw', async () => {
+    const handlers = captureHandlers();
+    const onStuck = handlers.get('trackStuck');
+    expect(onStuck).toBeDefined();
+    await expect(onStuck!(deadPlayer(), null, 10000)).resolves.toBeUndefined();
+  });
+});
+
 describe('playErrorMessage', () => {
   it('explains each failure mode distinctly', () => {
     expect(playErrorMessage('no-nodes')).toMatch(/rate-limited/i);
