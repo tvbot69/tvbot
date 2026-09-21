@@ -123,6 +123,11 @@ Test suite: 91 files / 548 tests green. `npm run build` green.
   60s, cache `C:\ytres\cache` TTL 24h, format `ba[ext=webm]/ba`, 60M cap,
   live videos rejected. Binds `127.0.0.1:2335`, exposed via second Funnel
   (`https://<machine>.<tailnet>.ts.net:8443` → `127.0.0.1:2335`).
+  UPDATE: cache is now a PERMANENT library, not 24h TTL (hourly sweep only
+  removes .part debris; owner prunes by hand, deleting is always safe).
+  Files are `YouTube Title [videoid].webm` with title+artist baked in
+  (`--embed-metadata`, portable ffmpeg at `C:\ytres\ffmpeg.exe`); old
+  `<id>.webm` files still resolve. `/health` reports `cacheFiles/cacheMB`.
 - Bot client: `src/bot/services/music/ytResolver.ts`. `502` = miss for that
   video (no penalty); anything else (tunnel down, PC asleep) pauses the
   resolver rung 2 min. Fetch timeout 65s — deliberately covers a full
