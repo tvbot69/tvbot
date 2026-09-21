@@ -507,6 +507,25 @@ export class MusicHandler {
       this.stopProgressUpdater(player.guildId);
       this.clearOkTimer(player.guildId);
 
+      // Preview-cut detection: some SoundCloud uploads (major-label artists)
+      // only expose 30s preview streams while reporting full metadata
+      // durations. A track "finishing" in under a minute of a multi-minute
+      // runtime is a cut preview, not a completed play — count it toward
+      // abandoning the song so future encounters skip it faster.
+      if (track && reason === 'finished') {
+        const startedAt = player.get<number>('trackStartedAt') ?? 0;
+        const playedMs = startedAt > 0 ? Date.now() - startedAt : 0;
+        const duration = track.duration || 0;
+        if (duration > 90000 && playedMs > 0 && playedMs < Math.min(60000, duration * 0.5)) {
+          const source = (track as unknown as { sourceName?: string }).sourceName ?? 'unknown';
+          Logger.warn(
+            { guildId: player.guildId, track: track.title, source, playedMs, duration },
+            `[Music] Track ended after ${(playedMs / 1000).toFixed(0)}s of ${(duration / 1000).toFixed(0)}s — likely a preview cut.`,
+          );
+          this.isSongExhausted(player.guildId, track);
+        }
+      }
+
       if (player.voiceChannelId && this.botScrobblingService) {
         void this.botScrobblingService.handleTrackEnd(this.client, player.guildId, player.voiceChannelId);
       }

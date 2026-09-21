@@ -239,6 +239,60 @@ describe('song-identity circuit breaker', () => {
   });
 });
 
+describe('preview-cut detection (short finishes feed the breaker)', () => {
+  const captureHandlers = () => {
+    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const manager = {
+      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
+        handlers.set(event, cb);
+      }),
+      players: { get: () => undefined },
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const handler = new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false } as never,
+    ) as unknown as {
+      songFailureCounts: Map<string, { count: number; firstAt: number }>;
+    };
+    return { handlers, handler };
+  };
+
+  const previewTrack = {
+    identifier: 'sc-preview',
+    encoded: 'enc-preview',
+    title: 'Hit Song',
+    author: 'Major Artist',
+    duration: 200000,
+    sourceName: 'soundcloud',
+  };
+
+  const finishedPlayer = (startedAgoMs: number) => {
+    const data = new Map<string, unknown>([['trackStartedAt', Date.now() - startedAgoMs]]);
+    return {
+      guildId: 'g-preview',
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    };
+  };
+
+  it('counts a 30s finish of a 200s track toward abandonment', async () => {
+    const { handlers, handler } = captureHandlers();
+    const onEnd = handlers.get('trackEnd')!;
+    await onEnd(finishedPlayer(30000), previewTrack, 'finished');
+    expect(handler.songFailureCounts.size).toBe(1);
+  });
+
+  it('ignores full-length finishes and non-finish reasons', async () => {
+    const { handlers, handler } = captureHandlers();
+    const onEnd = handlers.get('trackEnd')!;
+    await onEnd(finishedPlayer(200000), previewTrack, 'finished');
+    await onEnd(finishedPlayer(30000), previewTrack, 'stopped');
+    expect(handler.songFailureCounts.size).toBe(0);
+  });
+});
+
 describe('playErrorMessage', () => {
   it('explains each failure mode distinctly', () => {
     expect(playErrorMessage('no-nodes')).toMatch(/rate-limited/i);
