@@ -63,6 +63,8 @@ export class MusicService {
   private static readonly JIT_AHEAD = 2;
   /** Artwork backfill must never stall resolution: cold provider cascades take seconds. */
   private static readonly ARTWORK_TIMEOUT_MS = 6000;
+  /** Upcoming entries with a warmup cascade already in flight (dedupes overlap). */
+  private readonly artWarmKeys = new Set<string>();
   private readonly artworkService?: ArtworkService;
 
   constructor(
@@ -708,6 +710,40 @@ export class MusicService {
     }
   }
 
+  /**
+   * Warms the artwork memory cache for the next few unresolved entries so
+   * their resolve-time backfill usually hits cache instead of racing
+   * providers. Bounded (3), deduped in-flight, timeout-guarded, silent:
+   * warmup must never stall, throw, or hammer providers.
+   */
+  private warmUpcomingArt(guildId: string): void {
+    if (!this.artworkService) return;
+    const pending = this.pendingSpotify.get(guildId);
+    if (!pending || pending.length === 0) return;
+    for (const entry of pending.slice(0, 3)) {
+      // Entries that already carry art need no lookup — adoption sets it.
+      if (entry.spTrack.artworkUrl || entry.override?.artworkUrl) continue;
+      const key = `${entry.spTrack.artist} - ${entry.spTrack.name}`.toLowerCase();
+      if (this.artWarmKeys.has(key)) continue;
+      this.artWarmKeys.add(key);
+      void (async () => {
+        let timer: NodeJS.Timeout | undefined;
+        try {
+          const lookup = this.artworkService!.getTrackCoverUrl(entry.spTrack.name, entry.spTrack.artist);
+          const timeout = new Promise<null>((resolve) => {
+            timer = setTimeout(() => resolve(null), MusicService.ARTWORK_TIMEOUT_MS);
+          });
+          await Promise.race([lookup, timeout]);
+        } catch {
+          // ignore — resolve-time backfill remains the safety net
+        } finally {
+          if (timer) clearTimeout(timer);
+          this.artWarmKeys.delete(key);
+        }
+      })();
+    }
+  }
+
   private mapPendingEntry(e: PendingSpotifyEntry): MusicTrack {
     return {
       identifier: e.spTrack.spotifyUri || '',
@@ -783,6 +819,7 @@ export class MusicService {
         Logger.warn({ guildId, skipped }, '[Music] JIT top-up skipped unresolvable tracks');
       }
     }
+    this.warmUpcomingArt(guildId);
     if (added > 0) {
       const player = this.getPlayer(guildId);
       if (player && !player.playing && !player.paused) {

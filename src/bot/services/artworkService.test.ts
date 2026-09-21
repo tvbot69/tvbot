@@ -1,6 +1,7 @@
 import 'reflect-metadata';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ArtworkService, sanitizeMusicName } from './artworkService';
+import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 interface ProviderOverrides {
   spotify?: () => Promise<string | null>;
@@ -146,5 +147,84 @@ describe('ArtworkService priority chain', () => {
     );
     const url = await service.getArtistImageUrl('Kanye West');
     expect(url).toBe('https://deezer.com/kanye.jpg');
+  });
+});
+
+describe('negative-cache semantics (definitive vs inconclusive misses)', () => {
+  const memCache = () => {
+    const store = new Map<string, unknown>();
+    return {
+      store,
+      get: async (k: string) => (store.has(k) ? store.get(k) : null),
+      set: async (k: string, v: unknown) => {
+        store.set(k, v);
+      },
+    };
+  };
+
+  const repos = {
+    artist: { getArtistByName: async () => null },
+    album: { getAlbumByNameAndArtist: async () => null },
+    track: { getTrackByNameAndArtist: async () => null },
+    lastfm: { getTrackInfo: async () => null, getAlbumInfo: async () => null, getArtistInfo: async () => null },
+  };
+
+  const makeTrackArt = (
+    spotifyImpl: () => Promise<any[]>,
+    opts: { cache?: ReturnType<typeof memCache>; deezerImpl?: () => Promise<any[]> } = {},
+  ) => {
+    const cache = opts.cache ?? memCache();
+    const service = new ArtworkService(
+      { searchTracks: spotifyImpl, searchAlbums: async () => [], searchArtists: async () => [] } as never,
+      { searchTracks: opts.deezerImpl ?? (async () => []), searchAlbums: async () => [], searchArtists: async () => [] } as never,
+      { searchSongs: async () => [] } as never,
+      { searchSongs: async () => [] } as never,
+      repos.artist as never,
+      repos.album as never,
+      repos.track as never,
+      repos.lastfm as never,
+      cache as never,
+    );
+    return { service, cache };
+  };
+
+  beforeEach(() => {
+    SpotifySearchApi.clearRateLimit();
+  });
+
+  it('does not cache inconclusive misses (provider throws) — next lookup retries', async () => {
+    let calls = 0;
+    const { service, cache } = makeTrackArt(async () => {
+      calls++;
+      throw new Error('boom');
+    });
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    expect([...cache.store.values()]).not.toContain('none');
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    expect(calls).toBe(2);
+  });
+
+  it('caches definitive misses briefly — clean provider no-hits are not retried', async () => {
+    let calls = 0;
+    const { service, cache } = makeTrackArt(async () => {
+      calls++;
+      return [];
+    });
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    expect([...cache.store.values()]).toContain('none');
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    // 2 calls per lookup (initial + empty-retry); the second lookup hits cache.
+    expect(calls).toBe(2);
+  });
+
+  it('caches hits normally', async () => {
+    let calls = 0;
+    const { service } = makeTrackArt(async () => {
+      calls++;
+      return [{ artists: [{ name: 'Mond' }], name: 'Esme', album: { images: [{ url: 'https://img.test/hit.jpg' }] } }];
+    });
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBe('https://img.test/hit.jpg');
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBe('https://img.test/hit.jpg');
+    expect(calls).toBe(1);
   });
 });

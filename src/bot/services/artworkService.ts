@@ -15,6 +15,10 @@ import { AppleMusicWebApi } from '@applemusic/apis/appleMusicWebApi';
 import { Logger } from '@domain/logger';
 
 const MEMORY_CACHE_TTL_SECONDS = 3600;
+/** Negative cache for DEFINITIVE misses (every provider answered no).
+ * Inconclusive runs (throws, rate-limits) are never cached — the next
+ * lookup retries. Kept short anyway: new releases appear, providers change. */
+const NONE_TTL_SECONDS = 600;
 const FRESHNESS_WINDOW_MS = 90 * 24 * 3600 * 1000;
 const LASTFM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
 
@@ -165,6 +169,9 @@ export class ArtworkService {
       result = existing.spotifyImageUrl;
     }
 
+    if (!result && SpotifySearchApi.isRateLimited()) {
+      attempts.push({ source: 'spotify:rate-limited' });
+    }
     if (!result && !SpotifySearchApi.isRateLimited()) {
       try {
         let albums: any[] = [];
@@ -299,7 +306,13 @@ export class ArtworkService {
 
     // Never cache Last.fm star as valid
     if (result && isPlaceholderImageUrl(result)) result = null;
-    await this.cache.set(key, result ?? 'none', MEMORY_CACHE_TTL_SECONDS);
+    if (result) {
+      await this.cache.set(key, result, MEMORY_CACHE_TTL_SECONDS);
+    } else if (attempts.length === 0) {
+      // Definitive miss only: every provider answered no. Anything else
+      // (throws, rate-limits) retries on the next lookup.
+      await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    }
     return result;
   }
 
@@ -318,6 +331,9 @@ export class ArtworkService {
         if (anchoredCached === 'none') return null;
         if (!isPlaceholderImageUrl(anchoredCached)) return anchoredCached;
       }
+      // Only a clean run with no hit earns a negative cache — rate limits
+      // and throws stay uncached so the next lookup retries.
+      let anchoredSettled = false;
       if (!SpotifySearchApi.isRateLimited()) {
         try {
           const artistId = await this.spotifyApi.getArtistIdViaTrackSample(artistName, sampleTrack);
@@ -329,11 +345,12 @@ export class ArtworkService {
               return url;
             }
           }
+          anchoredSettled = true;
         } catch (err) {
           Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: anchored miss');
         }
       }
-      await this.cache.set(anchoredKey, 'none', 600);
+      if (anchoredSettled) await this.cache.set(anchoredKey, 'none', NONE_TTL_SECONDS);
       // Fall through to the name-based flow as a last resort.
     }
 
@@ -357,6 +374,7 @@ export class ArtworkService {
     }
 
     let result: string | null = null;
+    const attempts: ProviderAttempt[] = [];
 
     const existing = await this.artistRepository.getArtistByName(artistName);
     if (existing?.spotifyImageUrl && this.isFresh(existing.spotifyImageDate) && isValidImageUrl(existing.spotifyImageUrl)) {
@@ -365,6 +383,9 @@ export class ArtworkService {
     }
 
     // 1. PRIMARY: Query Spotify API first for highest-quality artist profile picture
+    if (!result && SpotifySearchApi.isRateLimited()) {
+      attempts.push({ source: 'spotify:rate-limited' });
+    }
     if (!SpotifySearchApi.isRateLimited()) {
       try {
         const artists = await this.spotifyApi.searchArtists(artistName);
@@ -388,6 +409,7 @@ export class ArtworkService {
           }
         }
       } catch (err) {
+        attempts.push({ source: 'spotify' });
         Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: spotify miss');
       }
     }
@@ -431,6 +453,7 @@ export class ArtworkService {
           }
         }
       } catch (err) {
+        attempts.push({ source: 'deezer' });
         Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: deezer miss');
       }
     }
@@ -457,6 +480,7 @@ export class ArtworkService {
           }
         }
       } catch (err) {
+        attempts.push({ source: 'am-web' });
         Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: am-web miss');
       }
     }
@@ -474,12 +498,16 @@ export class ArtworkService {
           if (isValidImageUrl(lfmUrl)) result = lfmUrl;
         }
       } catch {
-        return null;
+        attempts.push({ source: 'lastfm' });
       }
     }
 
     if (result && isPlaceholderImageUrl(result)) result = null;
-    await this.cache.set(key, result ?? 'none', MEMORY_CACHE_TTL_SECONDS);
+    if (result) {
+      await this.cache.set(key, result, MEMORY_CACHE_TTL_SECONDS);
+    } else if (attempts.length === 0) {
+      await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    }
     return result;
   }
 
@@ -496,6 +524,7 @@ export class ArtworkService {
     }
 
     let result: string | null = null;
+    const attempts: ProviderAttempt[] = [];
 
     // Every provider below must match BOTH artist and title. First-result
     // trust is what produced wrong covers (same-title recordings, covers,
@@ -507,6 +536,9 @@ export class ArtworkService {
       matchesArtistName(candidateArtist ?? '', artistName) &&
       matchesTrackTitle(candidateTitle ?? '', cleanTrack);
 
+    if (SpotifySearchApi.isRateLimited()) {
+      attempts.push({ source: 'spotify:rate-limited' });
+    }
     if (!SpotifySearchApi.isRateLimited()) {
       try {
         let tracks = await this.spotifyApi.searchTracks(
@@ -534,6 +566,7 @@ export class ArtworkService {
           }
         }
       } catch (err) {
+        attempts.push({ source: 'spotify' });
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: spotify miss');
       }
     }
@@ -547,6 +580,7 @@ export class ArtworkService {
         const match = tracks.find((t) => trackMatches(t.artist?.name, t.title));
         result = match?.album?.cover_xl ?? match?.album?.cover_big ?? null;
       } catch (err) {
+        attempts.push({ source: 'deezer' });
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: deezer miss');
       }
     }
@@ -557,6 +591,7 @@ export class ArtworkService {
         const match = songs.find((s) => trackMatches(s.artistName, s.name));
         result = match?.artwork?.url ?? null;
       } catch (err) {
+        attempts.push({ source: 'am-web' });
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: am-web miss');
       }
     }
@@ -572,6 +607,7 @@ export class ArtworkService {
           if (isValidImageUrl(upscaled)) result = upscaled;
         }
       } catch (err) {
+        attempts.push({ source: 'itunes' });
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: itunes miss');
       }
     }
@@ -583,12 +619,18 @@ export class ArtworkService {
           result = await this.getAlbumCoverUrl(info.albumName, artistName);
         }
       } catch (err) {
+        attempts.push({ source: 'lastfm' });
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: lastfm miss');
       }
     }
 
     if (result && isPlaceholderImageUrl(result)) result = null;
-    await this.cache.set(key, result ?? 'none', MEMORY_CACHE_TTL_SECONDS);
+    if (result) {
+      await this.cache.set(key, result, MEMORY_CACHE_TTL_SECONDS);
+    } else if (attempts.length === 0) {
+      // Definitive miss only — see NONE_TTL_SECONDS.
+      await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    }
     return result;
   }
 

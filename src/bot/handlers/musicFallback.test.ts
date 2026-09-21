@@ -576,7 +576,10 @@ describe('JIT pending Spotify entries', () => {
     spotifyUri: `spotify:track:${i}`,
   });
 
-  const makeJit = (searchImpl?: (args: { query: string; source: string }) => Promise<unknown>) => {
+  const makeJit = (
+    searchImpl?: (args: { query: string; source: string }) => Promise<unknown>,
+    artImpl?: (title: string, artist: string) => Promise<string | null>,
+  ) => {
     const search = vi.fn(
       searchImpl ??
         (async () => ({ tracks: [{ identifier: 'yt1', duration: 180000, title: 'raw', author: 'raw' }] })),
@@ -616,6 +619,8 @@ describe('JIT pending Spotify entries', () => {
       { getManager: () => manager } as never,
       {} as never,
       { set247: () => undefined } as never,
+      undefined,
+      { getTrackCoverUrl: artImpl ?? (async () => null) } as never,
     ) as unknown as {
       topUpPending: (guildId: string) => Promise<void>;
       pendingSpotify: Map<string, Array<{ spTrack: unknown }>>;
@@ -712,6 +717,23 @@ describe('JIT pending Spotify entries', () => {
     expect(track.author).toBe('Artist0');
     expect(track.duration).toBe(180000);
     expect(track.source).toBe('spotify');
+  });
+
+  it('warms artwork for upcoming entries beyond the eager fill', async () => {
+    const artImpl = vi.fn(async (title: string) => 'https://img.test/w.jpg');
+    const { svc } = makeJit(undefined, artImpl);
+    // Artless entries: the realistic gap case (API tracks with art need nothing).
+    const bare = Array.from({ length: 6 }, (_, i) => ({
+      spTrack: { ...sp(i), artworkUrl: undefined },
+      requester: { id: 'u1' },
+      spotifyUrl: 'spotify:playlist:p',
+      override: undefined,
+    }));
+    svc.pendingSpotify.set('g-jit', bare as never);
+    await svc.topUpPending('g-jit');
+    // 2 resolve-time backfills + 3 warmed ahead; Title5 untouched.
+    const called = artImpl.mock.calls.map((c) => c[0]).sort();
+    expect(called).toEqual(['Title0', 'Title1', 'Title2', 'Title3', 'Title4']);
   });
 });
 
