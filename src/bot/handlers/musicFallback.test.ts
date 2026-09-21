@@ -2,6 +2,8 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { MusicHandler } from './musicHandler';
 import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
+import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
+import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 const makeHandler = () => {
   const manager = { on: vi.fn(), players: { get: () => undefined } };
@@ -731,9 +733,31 @@ describe('JIT pending Spotify entries', () => {
     }));
     svc.pendingSpotify.set('g-jit', bare as never);
     await svc.topUpPending('g-jit');
-    // 2 resolve-time backfills + 3 warmed ahead; Title5 untouched.
+    // 2 resolve-time backfills + 2 warmed ahead; Title4+ untouched.
     const called = artImpl.mock.calls.map((c) => c[0]).sort();
-    expect(called).toEqual(['Title0', 'Title1', 'Title2', 'Title3', 'Title4']);
+    expect(called).toEqual(['Title0', 'Title1', 'Title2', 'Title3']);
+  });
+
+  it('skips warmup while Spotify is rate-limited', async () => {
+    const artImpl = vi.fn(async (title: string) => 'https://img.test/w.jpg');
+    const { svc } = makeJit(undefined, artImpl);
+    const bare = Array.from({ length: 6 }, (_, i) => ({
+      spTrack: { ...sp(i), artworkUrl: undefined },
+      requester: { id: 'u1' },
+      spotifyUrl: 'spotify:playlist:p',
+      override: undefined,
+    }));
+    svc.pendingSpotify.set('g-jit', bare as never);
+    vi.spyOn(SpotifySearchApi, 'isRateLimited').mockReturnValue(true);
+    try {
+      await svc.topUpPending('g-jit');
+      // Only the 2 resolve-time backfills; warmup stayed quiet.
+      const limited = artImpl.mock.calls.map((c) => c[0]).sort();
+      expect(limited).toEqual(['Title0', 'Title1']);
+    } finally {
+      vi.restoreAllMocks();
+      SpotifySearchApi.clearRateLimit();
+    }
   });
 });
 
@@ -744,6 +768,7 @@ describe('resolve artwork backfill', () => {
   const makeArtSvc = (
     artImpl?: () => Promise<string | null>,
     searchImpl?: (args: { query: string; source: string }) => Promise<unknown>,
+    byIdImpl?: () => Promise<string | null>,
   ) => {
     const search = vi.fn(
       searchImpl ??
@@ -751,19 +776,28 @@ describe('resolve artwork backfill', () => {
     );
     const manager = { search, on: vi.fn(), players: { get: () => undefined } };
     const getTrackCoverUrl = vi.fn(artImpl ?? (async () => 'https://img.test/backfilled.jpg'));
+    const getTrackCoverBySpotifyId = vi.fn(byIdImpl ?? (async () => null));
     const svc = new MusicService(
       { getManager: () => manager } as never,
-      {} as never,
+      new SpotifyResolver({} as never, {} as never),
       {} as never,
       undefined,
-      { getTrackCoverUrl } as never,
+      { getTrackCoverUrl, getTrackCoverBySpotifyId } as never,
     ) as unknown as {
       resolvePlaylistTrack: (
         player: unknown,
         spTrack: unknown,
       ) => Promise<{ lavalinkTrack: { artworkUrl?: string } } | null>;
+      maybeBackfillArt: (
+        track: unknown,
+        knownArt: string | undefined,
+        title: string,
+        artist: string,
+        timeoutMs: number,
+        spotifyUri?: string,
+      ) => Promise<void>;
     };
-    return { svc, getTrackCoverUrl };
+    return { svc, getTrackCoverUrl, getTrackCoverBySpotifyId };
   };
 
   it('backfills missing art via ArtworkService with clean Spotify meta', async () => {
@@ -819,6 +853,68 @@ describe('resolve artwork backfill', () => {
     };
     const res = await svc.resolvePlaylistTrack(player, spTrack);
     expect(res?.lavalinkTrack.artworkUrl).toBeUndefined();
+  });
+
+  it('prefers exact by-ID art over the name cascade', async () => {
+    const { svc, getTrackCoverUrl, getTrackCoverBySpotifyId } = makeArtSvc(
+      async () => 'https://img.test/cascade.jpg',
+      undefined,
+      async () => 'https://img.test/exact.jpg',
+    );
+    const res = await svc.resolvePlaylistTrack(player, {
+      ...spTrack,
+      spotifyUri: 'spotify:track:4mF0aVVHtmHQSIdem2Wh0g',
+    });
+    expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/exact.jpg');
+    expect(getTrackCoverBySpotifyId).toHaveBeenCalledWith('4mF0aVVHtmHQSIdem2Wh0g');
+    expect(getTrackCoverUrl).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the name cascade when by-ID misses', async () => {
+    const { svc, getTrackCoverUrl } = makeArtSvc(
+      async () => 'https://img.test/cascade.jpg',
+      undefined,
+      async () => null,
+    );
+    const res = await svc.resolvePlaylistTrack(player, {
+      ...spTrack,
+      spotifyUri: 'spotify:track:4mF0aVVHtmHQSIdem2Wh0g',
+    });
+    expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/cascade.jpg');
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');
+  });
+
+  it('late-attaches art that arrives after the timeout', async () => {
+    const { svc } = makeArtSvc(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+      return 'https://img.test/late.jpg';
+    });
+    const track = { title: 'Esme', author: 'Mond' } as unknown as {
+      title: string;
+      author: string;
+      artworkUrl?: string;
+    };
+    await svc.maybeBackfillArt(track, undefined, 'Esme', 'Mond', 50);
+    expect(track.artworkUrl).toBeUndefined();
+    await new Promise((r) => setTimeout(r, 250));
+    expect(track.artworkUrl).toBe('https://img.test/late.jpg');
+  });
+
+  it('late attach never overwrites art set meanwhile', async () => {
+    const { svc } = makeArtSvc(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+      return 'https://img.test/late.jpg';
+    });
+    const track = { title: 'Esme', author: 'Mond' } as unknown as {
+      title: string;
+      author: string;
+      artworkUrl?: string;
+    };
+    const pending = svc.maybeBackfillArt(track, undefined, 'Esme', 'Mond', 50);
+    await pending;
+    track.artworkUrl = 'https://img.test/first.jpg';
+    await new Promise((r) => setTimeout(r, 250));
+    expect(track.artworkUrl).toBe('https://img.test/first.jpg');
   });
 
   it('backfills the playlist first track (playSpotify path)', async () => {

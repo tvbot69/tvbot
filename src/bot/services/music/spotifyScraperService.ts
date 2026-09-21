@@ -205,7 +205,8 @@ export class SpotifyScraperService {
             const subtitle = (e.subtitle as string) ?? (e as { artists?: Array<{ name: string }> }).artists?.map(a => a.name).join(', ');
             const duration = (e.duration as number) ?? (e as { duration_ms?: number }).duration_ms ?? 0;
             if (!title) return null;
-            return { name: title, artist: subtitle ?? 'Unknown Artist', durationMs: typeof duration === 'number' ? duration : 0 };
+            const uri = typeof e.uri === 'string' ? e.uri : undefined;
+            return { name: title, artist: subtitle ?? 'Unknown Artist', durationMs: typeof duration === 'number' ? duration : 0, spotifyUri: uri };
           })
           .filter(Boolean) as ScrapedTrack[];
         if (tracks.length === 0) continue;

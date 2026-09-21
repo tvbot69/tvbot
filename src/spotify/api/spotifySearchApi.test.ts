@@ -166,3 +166,63 @@ describe('SpotifySearchApi', () => {
     expect(SpotifySearchApi.isRateLimited()).toBe(false);
   });
 });
+
+describe('SpotifySearchApi.getTrack', () => {
+  let tokenManager: SpotifyTokenManager;
+  let api: SpotifySearchApi;
+
+  beforeEach(() => {
+    SpotifySearchApi.clearRateLimit();
+    tokenManager = {
+      getToken: vi.fn().mockResolvedValue('test-token'),
+      invalidate: vi.fn(),
+      rotateCredential: vi.fn().mockReturnValue(false),
+    } as unknown as SpotifyTokenManager;
+    api = new SpotifySearchApi(tokenManager);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    SpotifySearchApi.clearRateLimit();
+  });
+
+  it('returns the parsed track on 200', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({
+        id: '4mF0aVVHtmHQSIdem2Wh0g',
+        name: 'GONE 4 A MIN',
+        album: { images: [{ url: 'https://img.test/t.jpg', height: 640 }] },
+      }),
+    } as unknown as Response);
+    const track = await api.getTrack('4mF0aVVHtmHQSIdem2Wh0g');
+    expect(track?.album?.images?.[0]?.url).toBe('https://img.test/t.jpg');
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://api.spotify.com/v1/tracks/4mF0aVVHtmHQSIdem2Wh0g',
+      expect.anything(),
+    );
+  });
+
+  it('cools down and throws on 429 without a backup credential', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      status: 429,
+      ok: false,
+      headers: new Headers({ 'Retry-After': '5' }),
+    } as unknown as Response);
+    await expect(api.getTrack('abc')).rejects.toThrow(SpotifyUnavailableError);
+    expect(SpotifySearchApi.isRateLimited()).toBe(true);
+  });
+
+  it('throws (never null) on network failure and HTTP 500', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('down'));
+    await expect(api.getTrack('abc')).rejects.toThrow(/network error/i);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      status: 500,
+      ok: false,
+      headers: new Headers(),
+    } as unknown as Response);
+    await expect(api.getTrack('abc')).rejects.toThrow(/HTTP 500/);
+  });
+});

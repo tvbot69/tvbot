@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ArtworkService, sanitizeMusicName } from './artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
@@ -226,5 +226,80 @@ describe('negative-cache semantics (definitive vs inconclusive misses)', () => {
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBe('https://img.test/hit.jpg');
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBe('https://img.test/hit.jpg');
     expect(calls).toBe(1);
+  });
+});
+
+describe('getTrackCoverBySpotifyId', () => {
+  const memCache = () => {
+    const store = new Map<string, unknown>();
+    return {
+      store,
+      get: async (k: string) => (store.has(k) ? store.get(k) : null),
+      set: async (k: string, v: unknown) => {
+        store.set(k, v);
+      },
+    };
+  };
+
+  const makeById = (getTrackImpl: () => Promise<any>, cache = memCache()) => {
+    const getTrack = vi.fn(getTrackImpl);
+    const service = new ArtworkService(
+      { getTrack, searchTracks: async () => [], searchAlbums: async () => [], searchArtists: async () => [] } as never,
+      { searchTracks: async () => [], searchAlbums: async () => [], searchArtists: async () => [] } as never,
+      { searchSongs: async () => [] } as never,
+      { searchSongs: async () => [] } as never,
+      { getArtistByName: async () => null } as never,
+      { getAlbumByNameAndArtist: async () => null } as never,
+      { getTrackByNameAndArtist: async () => null } as never,
+      { getTrackInfo: async () => null, getAlbumInfo: async () => null, getArtistInfo: async () => null } as never,
+      cache as never,
+    );
+    return { service, cache, getTrack };
+  };
+
+  beforeEach(() => {
+    SpotifySearchApi.clearRateLimit();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    SpotifySearchApi.clearRateLimit();
+  });
+
+  it('returns exact art and caches it (no refetch)', async () => {
+    const { service, getTrack } = makeById(async () => ({
+      album: { images: [{ url: 'https://img.test/exact.jpg', height: 640 }] },
+    }));
+    await expect(service.getTrackCoverBySpotifyId('4mF0aVVHtmHQSIdem2Wh0g')).resolves.toBe(
+      'https://img.test/exact.jpg',
+    );
+    await expect(service.getTrackCoverBySpotifyId('4mF0aVVHtmHQSIdem2Wh0g')).resolves.toBe(
+      'https://img.test/exact.jpg',
+    );
+    expect(getTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it('caches definitive no-art briefly, never caches throws', async () => {
+    const { service, cache, getTrack } = makeById(async () => ({ album: { images: [] } }));
+    await expect(service.getTrackCoverBySpotifyId('0000000000000000000000')).resolves.toBeNull();
+    expect([...cache.store.values()]).toContain('none');
+
+    const throwing = makeById(async () => {
+      throw new Error('boom');
+    });
+    await expect(throwing.service.getTrackCoverBySpotifyId('1111111111111111111111')).resolves.toBeNull();
+    expect([...throwing.cache.store.values()]).not.toContain('none');
+    expect(throwing.getTrack).toHaveBeenCalledTimes(1);
+    await expect(throwing.service.getTrackCoverBySpotifyId('1111111111111111111111')).resolves.toBeNull();
+    expect(throwing.getTrack).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects malformed ids and stays silent when rate-limited', async () => {
+    const { service, getTrack } = makeById(async () => ({}));
+    await expect(service.getTrackCoverBySpotifyId('short')).resolves.toBeNull();
+    expect(getTrack).not.toHaveBeenCalled();
+    vi.spyOn(SpotifySearchApi, 'isRateLimited').mockReturnValue(true);
+    await expect(service.getTrackCoverBySpotifyId('4mF0aVVHtmHQSIdem2Wh0g')).resolves.toBeNull();
+    expect(getTrack).not.toHaveBeenCalled();
   });
 });

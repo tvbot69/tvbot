@@ -10,6 +10,7 @@ import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
 import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
 import type { ArtworkService } from '@bot/services/artworkService';
+import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 export interface PlayResult {
   loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'empty' | 'error';
@@ -365,7 +366,14 @@ export class MusicService {
             hit.requester = requester;
             hit.title = trackOverride?.title || meta.title;
             hit.author = trackOverride?.author || meta.author;
-            await this.maybeBackfillArt(hit, trackOverride?.artworkUrl, hit.title, hit.author);
+            await this.maybeBackfillArt(
+              hit,
+              trackOverride?.artworkUrl,
+              hit.title,
+              hit.author,
+              MusicService.ARTWORK_TIMEOUT_MS,
+              hit.uri,
+            );
             const rungSource = swapped.rung === 'resolver' ? 'local' : 'soundcloud';
             const rec = hit as unknown as Record<string, unknown>;
             rec.sourceName = trackOverride?.source || rungSource;
@@ -390,6 +398,8 @@ export class MusicService {
         trackOverride?.artworkUrl,
         trackOverride?.title || found.track.title,
         trackOverride?.author || found.track.author,
+        MusicService.ARTWORK_TIMEOUT_MS,
+        found.track.uri,
       );
       const ladderSource = found.rung === 'resolver' ? 'local' : found.rung === 'soundcloud' ? 'soundcloud' : 'youtube';
       return await this.enqueueLavalinkTracks(player, [found.track], requester, trackOverride, ladderSource, undefined, true);
@@ -515,6 +525,8 @@ export class MusicService {
         trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
         trackOverride?.title || spotifyTrack.name,
         trackOverride?.author || spotifyTrack.artist,
+        MusicService.ARTWORK_TIMEOUT_MS,
+        spotifyTrack.spotifyUri,
       );
       chosenTrack.requester = requester;
       chosenTrack.title = trackOverride?.title || spotifyTrack.name;
@@ -564,7 +576,14 @@ export class MusicService {
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
       this.adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, spotifyUrl, trackOverride);
-      await this.maybeBackfillArt(firstLavalinkTrack, firstTrack.artworkUrl, firstTrack.name, firstTrack.artist);
+      await this.maybeBackfillArt(
+        firstLavalinkTrack,
+        firstTrack.artworkUrl,
+        firstTrack.name,
+        firstTrack.artist,
+        MusicService.ARTWORK_TIMEOUT_MS,
+        firstTrack.spotifyUri,
+      );
       player.queue.add(firstLavalinkTrack);
       const firstDomainTrack = mapMoonlinkTrack(firstLavalinkTrack, requester);
       firstDomainTrack.source = 'spotify';
@@ -646,10 +665,12 @@ export class MusicService {
     title?: string,
     artist?: string,
     timeoutMs: number = MusicService.ARTWORK_TIMEOUT_MS,
+    spotifyUri?: string | null,
   ): Promise<void> {
     try {
       if (!track || track.artworkUrl || knownArtworkUrl) return;
-      if (!this.artworkService) {
+      const svc = this.artworkService;
+      if (!svc) {
         Logger.debug('[Music] Artwork backfill skipped — no artwork service wired');
         return;
       }
@@ -657,9 +678,22 @@ export class MusicService {
       const a = (artist || track.author)?.trim();
       if (!t || !a) return;
       const started = Date.now();
+      // Never-rejecting lookup: exact by-ID first (no matching risk), then
+      // the name cascade. One slow leg can't hang the race.
+      const lookup: Promise<string | null> = (async () => {
+        try {
+          const id = this.spotifyTrackId(spotifyUri);
+          if (id) {
+            const byId = await svc.getTrackCoverBySpotifyId(id);
+            if (byId) return byId;
+          }
+          return await svc.getTrackCoverUrl(t, a);
+        } catch {
+          return null;
+        }
+      })();
       let timer: NodeJS.Timeout | undefined;
       try {
-        const lookup = this.artworkService.getTrackCoverUrl(t, a);
         const timeout = new Promise<null>((resolve) => {
           timer = setTimeout(() => resolve(null), timeoutMs);
         });
@@ -675,12 +709,38 @@ export class MusicService {
             { title: t, artist: a, resolveMs: Date.now() - started },
             '[Music] Artwork backfill miss',
           );
+          // Late attach: the race abandons slow lookups but doesn't cancel
+          // them — the cascade still finishes and caches. If art arrives
+          // after the timeout and the track is still bare, take it; the
+          // progress updater rebuilds the card every 15s, so it shows up.
+          void lookup
+            .then((late) => {
+              if (late && !track.artworkUrl) {
+                track.artworkUrl = late;
+                Logger.info(
+                  { title: t, artist: a, resolveMs: Date.now() - started },
+                  '[Music] Artwork late-attached',
+                );
+              }
+            })
+            .catch(() => undefined);
         }
       } finally {
         if (timer) clearTimeout(timer);
       }
     } catch {
       // ignore — playback without art beats no playback
+    }
+  }
+
+  /** Spotify track ID from a spotify: URI or open.spotify URL (track type only). */
+  private spotifyTrackId(uri?: string | null): string | undefined {
+    if (!uri) return undefined;
+    try {
+      const parsed = this.spotifyResolver.parseSpotifyUrl(uri);
+      return parsed?.type === 'track' ? parsed.id : undefined;
+    } catch {
+      return undefined;
     }
   }
   /**
@@ -714,16 +774,18 @@ export class MusicService {
   }
 
   /**
-   * Warms the artwork memory cache for the next few unresolved entries so
-   * their resolve-time backfill usually hits cache instead of racing
-   * providers. Bounded (3), deduped in-flight, timeout-guarded, silent:
-   * warmup must never stall, throw, or hammer providers.
+   * Warms the artwork memory cache for the next couple of unresolved entries
+   * so their resolve-time backfill usually hits cache instead of racing
+   * providers. Bounded, deduped in-flight, timeout-guarded, silent — and
+   * skipped entirely while Spotify is rate-limited, so warmup never spends
+   * quota the resolvers need.
    */
   private warmUpcomingArt(guildId: string): void {
     if (!this.artworkService) return;
+    if (SpotifySearchApi.isRateLimited()) return;
     const pending = this.pendingSpotify.get(guildId);
     if (!pending || pending.length === 0) return;
-    for (const entry of pending.slice(0, 3)) {
+    for (const entry of pending.slice(0, 2)) {
       // Entries that already carry art need no lookup — adoption sets it.
       if (entry.spTrack.artworkUrl || entry.override?.artworkUrl) continue;
       const key = `${entry.spTrack.artist} - ${entry.spTrack.name}`.toLowerCase();
@@ -732,11 +794,23 @@ export class MusicService {
       void (async () => {
         let timer: NodeJS.Timeout | undefined;
         try {
-          const lookup = this.artworkService!.getTrackCoverUrl(entry.spTrack.name, entry.spTrack.artist);
+          const svc = this.artworkService!;
+          const run: Promise<string | null> = (async () => {
+            try {
+              const id = this.spotifyTrackId(entry.spTrack.spotifyUri);
+              if (id) {
+                const byId = await svc.getTrackCoverBySpotifyId(id);
+                if (byId) return byId;
+              }
+              return await svc.getTrackCoverUrl(entry.spTrack.name, entry.spTrack.artist);
+            } catch {
+              return null;
+            }
+          })();
           const timeout = new Promise<null>((resolve) => {
             timer = setTimeout(() => resolve(null), MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS);
           });
-          await Promise.race([lookup, timeout]);
+          await Promise.race([run, timeout]);
         } catch {
           // ignore — resolve-time backfill remains the safety net
         } finally {
@@ -851,6 +925,7 @@ export class MusicService {
       spTrack.name,
       spTrack.artist,
       MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+      spTrack.spotifyUri,
     );
     return { lavalinkTrack: found.track, spTrack, rung: found.rung };
   }

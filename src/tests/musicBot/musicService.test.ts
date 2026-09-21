@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { MusicService } from '@bot/services/music/musicService';
 import { QueueService } from '@bot/services/music/queueService';

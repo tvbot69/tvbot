@@ -126,6 +126,44 @@ export class SpotifySearchApi {
     }
   }
 
+  /**
+   * Exact track fetch by Spotify ID: one GET, no search, no matching risk.
+   * Throws SpotifyUnavailableError on 429/5xx/network/timeout so callers can
+   * treat throws as inconclusive (retry later), never as misses.
+   */
+  public async getTrack(trackId: string, isRetry = false): Promise<SpotifySearchTrack | null> {
+    const token = await this.tokenManager.getToken();
+    if (!token) {
+      throw new SpotifyUnavailableError('Spotify credentials not configured');
+    }
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(`https://api.spotify.com/v1/tracks/${trackId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      throw new SpotifyUnavailableError(`Spotify network error: ${String(err)}`);
+    }
+    if (response.status === 401) {
+      this.tokenManager.invalidate();
+      if (!isRetry) {
+        return this.getTrack(trackId, true);
+      }
+      throw new SpotifyUnavailableError('Spotify token rejected');
+    }
+    if (response.status === 429) {
+      if (this.tokenManager.rotateCredential()) {
+        return this.getTrack(trackId, isRetry);
+      }
+      SpotifySearchApi.handleRateLimit(response);
+      throw new SpotifyUnavailableError('Spotify rate limited');
+    }
+    if (!response.ok) {
+      throw new SpotifyUnavailableError(`Spotify HTTP ${response.status}`);
+    }
+    return (await response.json()) as SpotifySearchTrack;
+  }
+
   public async getSpotifyTrackUrl(artistName: string, trackName: string): Promise<string | null> {
     try {
       // Use limit 5 — limit 15 triggers HTTP 400 for some Arabic queries (e.g. Lege-Cy)

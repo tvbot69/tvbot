@@ -101,7 +101,7 @@ export const matchesArtistName = (candidate: string, target: string): boolean =>
   return false;
 };
 
-interface ProviderAttempt {
+export interface ProviderAttempt {
   source: string;
 }
 
@@ -138,7 +138,11 @@ export class ArtworkService {
     this.cache = cache;
   }
 
-  public async getAlbumCoverUrl(albumName?: string, artistName?: string): Promise<string | null> {
+  public async getAlbumCoverUrl(
+    albumName?: string,
+    artistName?: string,
+    outerAttempts?: ProviderAttempt[],
+  ): Promise<string | null> {
     if (!albumName || !artistName) return null;
     const cleanAlbum = sanitizeMusicName(albumName);
     const key = `art:album:${artistName.toLowerCase()}|${cleanAlbum.toLowerCase()}`;
@@ -176,12 +180,12 @@ export class ArtworkService {
       try {
         let albums: any[] = [];
         try {
-          albums = await this.spotifyApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`);
+          albums = await this.spotifyApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`, 10);
         } catch {
           albums = [];
         }
         if (albums.length === 0) {
-          albums = await this.spotifyApi.searchAlbums(`${cleanAlbum} ${artistName}`);
+          albums = await this.spotifyApi.searchAlbums(`${cleanAlbum} ${artistName}`, 10);
         }
 
         let match = albums.find((a) =>
@@ -195,7 +199,7 @@ export class ArtworkService {
         if (!url && cleanAlbum !== `${cleanAlbum} ${artistName}`) {
           // Retry with album-only query for Arabic / transliteration mismatches.
           // Only a verified artist match is accepted — never the first result.
-          const retryAlbums = await this.spotifyApi.searchAlbums(cleanAlbum);
+          const retryAlbums = await this.spotifyApi.searchAlbums(cleanAlbum, 10);
           const retryMatch = retryAlbums.find((a) =>
             a.artists?.some((art: any) => matchesArtistName(art.name, artistName)),
           );
@@ -312,6 +316,10 @@ export class ArtworkService {
       // Definitive miss only: every provider answered no. Anything else
       // (throws, rate-limits) retries on the next lookup.
       await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    } else if (outerAttempts) {
+      // Inner lookup was inconclusive — the outer gate must not read this
+      // null as a definitive miss.
+      outerAttempts.push({ source: 'album-inner' });
     }
     return result;
   }
@@ -491,7 +499,13 @@ export class ArtworkService {
         if (info?.name && info.name.toLowerCase() !== artistName.toLowerCase()) {
           // Last.fm redirected to canonical name (e.g. "Travi$ Scott" -> "Travis Scott")
           const resolvedCanonical = await this.getArtistImageUrl(info.name);
-          if (resolvedCanonical) result = resolvedCanonical;
+          if (resolvedCanonical) {
+            result = resolvedCanonical;
+          } else {
+            // Inner outcome is opaque (own cache/gate) — treat as
+            // inconclusive rather than a definitive miss.
+            attempts.push({ source: 'lastfm-redirect:unknown' });
+          }
         }
         if (!result) {
           const lfmUrl = info?.imageUrl ?? null;
@@ -543,9 +557,10 @@ export class ArtworkService {
       try {
         let tracks = await this.spotifyApi.searchTracks(
           `track:${cleanTrack} artist:${artistName}`,
+          10,
         );
         if (tracks.length === 0) {
-          tracks = await this.spotifyApi.searchTracks(`${cleanTrack} ${artistName}`);
+          tracks = await this.spotifyApi.searchTracks(`${cleanTrack} ${artistName}`, 10);
         }
         const match = tracks.find((t) =>
           (t.artists ?? []).some((a) => matchesArtistName(a.name, artistName)) &&
@@ -616,7 +631,7 @@ export class ArtworkService {
       try {
         const info = await this.lastfmRepository.getTrackInfo(trackName, artistName);
         if (info?.albumName) {
-          result = await this.getAlbumCoverUrl(info.albumName, artistName);
+          result = await this.getAlbumCoverUrl(info.albumName, artistName, attempts);
         }
       } catch (err) {
         attempts.push({ source: 'lastfm' });
@@ -632,6 +647,31 @@ export class ArtworkService {
       await this.cache.set(key, 'none', NONE_TTL_SECONDS);
     }
     return result;
+  }
+
+  /**
+   * Exact cover fetch by Spotify track ID: one GET, no search, no matching
+   * risk. Same cache semantics as the cascade: hits cached 1h, definitive
+   * no-art cached 10 min, throws/rate-limits uncached (retry later).
+   */
+  async getTrackCoverBySpotifyId(id: string): Promise<string | null> {
+    if (!/^[\w-]{22}$/.test(id)) return null;
+    const key = `art:spid:${id}`;
+    const hit = await this.cache.get<string>(key);
+    if (hit) return hit === 'none' ? null : hit;
+    if (SpotifySearchApi.isRateLimited()) return null;
+    try {
+      const t = await this.spotifyApi.getTrack(id);
+      const url = pickLargest(t?.album?.images);
+      if (url && isValidImageUrl(url)) {
+        await this.cache.set(key, url, MEMORY_CACHE_TTL_SECONDS);
+        return url;
+      }
+      await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   private isFresh(date?: Date | null): boolean {
