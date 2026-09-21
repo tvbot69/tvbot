@@ -426,7 +426,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
     const from = ctx.interaction?.options.getInteger('from') ?? 1;
     const to = ctx.interaction?.options.getInteger('to') ?? 1;
 
-    const success = this.musicService.move(ctx.guildId, from, to);
+    const success = await this.musicService.move(ctx.guildId, from, to);
     if (!success) {
       return GenericEmbedService.buildWrongInputResponse('Invalid track positions. Please check the queue.');
     }

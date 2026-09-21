@@ -374,7 +374,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse(`Usage: \`${context.prefix}move <from_pos> <to_pos>\`. Example: \`${context.prefix}move 5 1\``);
     }
 
-    const success = this.musicService.move(info.guildId, from, to);
+    const success = await this.musicService.move(info.guildId, from, to);
     if (!success) {
       return GenericEmbedService.buildWrongInputResponse('Invalid track positions. Please check the queue.');
     }

@@ -933,21 +933,26 @@ export class MusicService {
   public getQueueInfo(guildId: string): MusicQueueInfo | null {
     const player = this.getPlayer(guildId);
     if (!player) return null;
-    return this.queueService.getQueueInfo(player);
+    const info = this.queueService.getQueueInfo(player);
+    // The visible queue is resolved tracks + pending JIT entries (which the
+    // Added reply already promised). Without this, shuffle/remove/move act
+    // on songs the user can't see.
+    const pending = this.pendingSpotify.get(guildId) ?? [];
+    if (pending.length === 0) return info;
+    const pendingTracks = pending.map((e) => this.mapPendingEntry(e));
+    const pendingMs = pendingTracks.reduce((acc, t) => acc + (t.duration || 0), 0);
+    return {
+      ...info,
+      tracks: [...info.tracks, ...pendingTracks],
+      totalTracks: info.totalTracks + pendingTracks.length,
+      totalDuration: info.totalDuration + pendingMs,
+      remainingDuration: info.remainingDuration + pendingMs,
+    };
   }
 
   public async skip(guildId: string, amount: number = 1): Promise<boolean> {
-    const player = this.getPlayer(guildId);
-    if (!player) return false;
-
-    // removeRange is inclusive on both ends: to land on the Nth upcoming
-    // track, drop the N-1 before it (indices 0..amount-2), then skip().
-    if (amount > 1) {
-      if (amount - 1 > player.queue.size) return false;
-      player.queue.removeRange(0, amount - 2);
-    }
-
-    return await player.skip();
+    // amount: 1-based position to land on (skip(1) = play next).
+    return this.jumpToCombined(guildId, amount - 1);
   }
 
   public async stop(guildId: string): Promise<void> {
@@ -1091,9 +1096,17 @@ export class MusicService {
 
   public remove(guildId: string, index: number): MusicTrack | null {
     const player = this.getPlayer(guildId);
-    if (!player) return null;
-    const removed = player.queue.remove(index);
-    return removed ? mapMoonlinkTrack(removed) : null;
+    if (!player || index < 0) return null;
+    if (index < player.queue.size) {
+      const removed = player.queue.remove(index);
+      return removed ? mapMoonlinkTrack(removed) : null;
+    }
+    // Past the resolved queue: drop the pending entry (it was displayed).
+    const pending = this.pendingSpotify.get(guildId);
+    const entry = pending?.[index - player.queue.size];
+    if (!pending || !entry) return null;
+    pending.splice(index - player.queue.size, 1);
+    return this.mapPendingEntry(entry);
   }
 
   public async previous(guildId: string): Promise<boolean> {
@@ -1109,20 +1122,121 @@ export class MusicService {
   }
 
   public async skipto(guildId: string, position: number): Promise<boolean> {
-    const player = this.getPlayer(guildId);
-    if (!player || position < 1 || position > player.queue.size) return false;
-    if (position > 1) {
-      player.queue.removeRange(0, position - 2);
-    }
-    return await player.skip();
+    return this.jumpToCombined(guildId, position - 1);
   }
 
-  public move(guildId: string, from: number, to: number): boolean {
+  /**
+   * Jumps to a 0-based index in the COMBINED queue (resolved + pending) and
+   * plays it, dropping everything ahead — that's what skipping here means.
+   * Pending targets resolve on demand; a miss refuses with the queue
+   * untouched (resolve happens before any mutation).
+   */
+  private async jumpToCombined(guildId: string, index: number): Promise<boolean> {
     const player = this.getPlayer(guildId);
-    if (!player || from < 1 || to < 1 || from > player.queue.size || to > player.queue.size) {
-      return false;
+    if (!player || index < 0) return false;
+    if (index < player.queue.size) {
+      // removeRange is inclusive on both ends: to land on the Nth upcoming
+      // track, drop the N-1 before it, then skip().
+      if (index > 0) player.queue.removeRange(0, index - 1);
+      return await player.skip();
     }
-    return player.queue.move(from - 1, to - 1);
+    const pending = this.pendingSpotify.get(guildId);
+    const entry = pending?.[index - player.queue.size];
+    if (!pending || !entry) return false;
+    const found = await this.resolvePlaylistTrack(player, entry.spTrack).catch(() => null);
+    const live = this.getPlayer(guildId);
+    const liveList = this.pendingSpotify.get(guildId);
+    if (!found || !live || !liveList) return false;
+    const at = liveList.indexOf(entry);
+    if (at === -1) return false;
+    live.queue.clear();
+    liveList.splice(0, at + 1);
+    if (liveList.length === 0) this.pendingSpotify.delete(guildId);
+    this.adoptSpotifyTrack(
+      found.lavalinkTrack,
+      entry.spTrack,
+      found.rung,
+      entry.requester,
+      entry.spotifyUrl,
+      entry.override,
+    );
+    live.queue.unshift(found.lavalinkTrack);
+    return await live.skip();
+  }
+
+  /** Rebuilds a pending entry from a resolved track (resolved → pending moves). */
+  private pendingFromTrack(track: Track): PendingSpotifyEntry {
+    const mapped = mapMoonlinkTrack(track);
+    return {
+      spTrack: {
+        searchQuery: `${mapped.author} - ${mapped.title}`,
+        name: mapped.title,
+        artist: mapped.author,
+        durationMs: mapped.duration,
+        artworkUrl: mapped.artworkUrl,
+        spotifyUri: mapped.uri.startsWith('https://open.spotify.com/') ? mapped.uri : undefined,
+      },
+      requester: mapped.requester ?? { id: 'unknown' },
+      spotifyUrl: mapped.uri,
+      override: undefined,
+    };
+  }
+
+  public async move(guildId: string, from: number, to: number): Promise<boolean> {
+    const player = this.getPlayer(guildId);
+    if (!player || from < 1 || to < 1) return false;
+    const size = player.queue.size;
+    const pending = this.pendingSpotify.get(guildId) ?? [];
+    if (from > size + pending.length || to > size + pending.length) return false;
+    const i = from - 1;
+    const j = to - 1;
+    if (i === j) return true;
+    if (i < size && j < size) return player.queue.move(i, j);
+    if (i >= size && j >= size) {
+      const list = this.pendingSpotify.get(guildId);
+      if (!list) return false;
+      const entry = list[i - size];
+      if (!entry) return false;
+      list.splice(i - size, 1);
+      // Same splice/remove-insert semantics as Moonlink's move (to addresses
+      // the post-removal order).
+      list.splice(j - size, 0, entry);
+      return true;
+    }
+    if (i < size) {
+      // Resolved → pending: downgrade, re-resolves lazily on advance.
+      // j addressed the pre-removal order; removal shifts everything past i.
+      const track = player.queue.remove(i);
+      if (!track) return false;
+      const list = this.pendingSpotify.get(guildId) ?? [];
+      // j addresses the post-removal combined order (same as Moonlink move).
+      list.splice(Math.max(0, Math.min(j - player.queue.size, list.length)), 0, this.pendingFromTrack(track));
+      this.pendingSpotify.set(guildId, list);
+      return true;
+    }
+    // Pending → resolved: resolve first — a miss refuses with nothing mutated.
+    const entry = pending[i - size];
+    if (!entry) return false;
+    const found = await this.resolvePlaylistTrack(player, entry.spTrack).catch(() => null);
+    if (!found) return false;
+    const live = this.getPlayer(guildId);
+    const liveList = this.pendingSpotify.get(guildId);
+    if (!live || !liveList) return false;
+    const at = liveList.indexOf(entry);
+    if (at === -1) return false;
+    liveList.splice(at, 1);
+    if (liveList.length === 0) this.pendingSpotify.delete(guildId);
+    this.adoptSpotifyTrack(
+      found.lavalinkTrack,
+      entry.spTrack,
+      found.rung,
+      entry.requester,
+      entry.spotifyUrl,
+      entry.override,
+    );
+    if (j < live.queue.size) live.queue.insert(j, found.lavalinkTrack);
+    else live.queue.add(found.lavalinkTrack);
+    return true;
   }
 
   public async replay(guildId: string): Promise<boolean> {
