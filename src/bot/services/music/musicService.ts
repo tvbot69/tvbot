@@ -293,7 +293,6 @@ export class MusicService {
           const swapped = await this.searchTrackWithLadder(player, scQuery, trackOverride ? {
             title: trackOverride.title,
             artist: trackOverride.author,
-            artworkUrl: trackOverride.artworkUrl,
           } : undefined);
           if (swapped) {
             const hit = swapped.track;
@@ -315,7 +314,6 @@ export class MusicService {
       const found = await this.searchTrackWithLadder(player, trimmedQuery, trackOverride ? {
         title: trackOverride.title,
         artist: trackOverride.author,
-        artworkUrl: trackOverride.artworkUrl,
       } : undefined);
       if (!found) {
         return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
@@ -434,7 +432,6 @@ export class MusicService {
       const found = await this.searchTrackWithLadder(player, spotifyTrack.searchQuery, {
         title: trackOverride?.title || spotifyTrack.name,
         artist: trackOverride?.author || spotifyTrack.artist,
-        artworkUrl: trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
       });
 
       if (!found) {
@@ -510,7 +507,6 @@ export class MusicService {
     const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery, {
       title: firstTrack.name,
       artist: firstTrack.artist,
-      artworkUrl: firstTrack.artworkUrl,
     });
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
@@ -601,7 +597,6 @@ export class MusicService {
     const found = await this.searchTrackWithLadder(player, spTrack.searchQuery, {
       title: spTrack.name,
       artist: spTrack.artist,
-      artworkUrl: spTrack.artworkUrl,
     });
     if (!found) return null;
     return { lavalinkTrack: found.track, spTrack, rung: found.rung };

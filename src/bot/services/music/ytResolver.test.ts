@@ -58,12 +58,11 @@ describe('ytResolver', () => {
     await resolveViaHome('meta1234abc', {
       title: 'Around the World',
       artist: 'Daft Punk',
-      artworkUrl: 'https://img.test/c.jpg',
     });
     const url = String(fetchSpy.mock.calls[0]?.[0]);
     expect(url).toContain('title=Around+the+World');
     expect(url).toContain('artist=Daft+Punk');
-    expect(url).toContain('artwork=https%3A%2F%2Fimg.test%2Fc.jpg');
+    expect(url).not.toContain('artwork=');
 
     await resolveViaHome('meta2234abc', { title: 'x'.repeat(300) });
     const capped = new URL(String(fetchSpy.mock.calls[1]?.[0])).searchParams.get('title');

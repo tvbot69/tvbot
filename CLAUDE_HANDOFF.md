@@ -128,11 +128,11 @@ Test suite: 91 files / 548 tests green. `npm run build` green.
   Files are `YouTube Title [videoid].webm` with title+artist baked in
   (`--embed-metadata`, portable ffmpeg at `C:\ytres\ffmpeg.exe`); old
   `<id>.webm` files still resolve. `/health` reports `cacheFiles/cacheMB`.
-  UPDATE 2: bot forwards Spotify title/artist/cover (`ResolverMeta`, all
-  resolve sites) → server files `Title [id].ext` with baked tags + attached
-  cover. WebM can't carry attachments (strict muxer drops them), so art
-  files are `.mka` (same opus, mjpeg attachment stream; Lavalink-verified).
-  No-art files stay `.webm`. Cached files self-upgrade on next replay.
+  UPDATE 2: bot forwards Spotify title/artist (`ResolverMeta`, all resolve
+  sites) → server files `Title [id].webm` with baked tags (no cover art:
+  WebM's strict muxer drops attachments, dropped by owner choice).
+  Format selector is pure best-audio (`ba`, verified 251/opus-163k);
+  tagging is `-c copy`, zero re-encode. Cached files self-upgrade.
 - Bot client: `src/bot/services/music/ytResolver.ts`. `502` = miss for that
   video (no penalty); anything else (tunnel down, PC asleep) pauses the
   resolver rung 2 min. Fetch timeout 65s — deliberately covers a full

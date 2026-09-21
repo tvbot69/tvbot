@@ -351,7 +351,6 @@ export class MusicHandler {
     const path = await resolveViaHome(src.identifier, {
       title: src.title,
       artist: src.author,
-      artworkUrl: src.artworkUrl ?? undefined,
     });
     if (!path) return null;
     let res: unknown;
