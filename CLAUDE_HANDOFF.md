@@ -214,6 +214,24 @@ rung materializes that id. Plugin stays second rung so a resolver miss
 4. Public nodes' role now: pure failover when Home dies, or should some
    traffic stay on them to spare the residential uplink?
 
+## 8. Perfection pass 2026-09-21 (JIT shipped; surgery declined with evidence)
+
+- JIT playlists SHIPPED (`a8add59`, 567 tests): Spotify album/playlist/artist
+  resolves track 1 immediately, rest wait as pending entries resolving 2-ahead
+  on trackStart/trackEnd/queueEnd. Replies list everything (pending mapped
+  from Spotify meta, durations included). stop/clear drop pending;
+  shuffle shuffles pending too; playerDestroy clears. Fixes cold-cache
+  playlists locking in SoundCloud versions + minute-long enqueues.
+- Failover queue surgery DECLINED: Moonlink `transferNode` preserves the
+  client-side queue untouched (verified in `Player.js` — only node ref +
+  `restart()` change; `playerSwitchedNode` event exists). So failover off
+  Home costs one exception-fallback hiccup per local song, never loss or
+  stall. Rebuilding the queue mid-transfer risks wiping concurrent user
+  actions for a rare event — not worth it.
+- Durable queue PROPOSED (not built): `GuildQueueSnapshot` table + debounced
+  writes + explicit `.restore`/`/restore` reusing the JIT pending machinery.
+  No auto-rejoin on boot (intrusive after every deploy).
+
 ## 7. Claude's 4 answers — implemented 2026-09-21 (same day)
 
 1. Plugin rung dropped on Home behind `HOME_PLUGIN_RUNG=on` (default off).
