@@ -175,6 +175,57 @@ describe('null-track events (late failures after advancement)', () => {
   });
 });
 
+describe('song-identity circuit breaker', () => {
+  const captureHandlers = () => {
+    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const manager = {
+      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
+        handlers.set(event, cb);
+      }),
+      players: { get: () => undefined },
+      search: vi.fn(async () => ({ tracks: [{ identifier: 'alt-1', duration: 174000 }] })),
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false } as never,
+    );
+    return { handlers, manager };
+  };
+
+  const livePlayer = (): any => {
+    const data = new Map<string, unknown>();
+    return {
+      guildId: 'g-song',
+      current: { identifier: 'v1', encoded: 'enc-v1', uri: 'u1', title: 'Stormi Daniels', author: 'Rich Amiri', duration: 200000 },
+      queue: { unshift: vi.fn(), size: 1, isEmpty: false },
+      skip: vi.fn(async () => true),
+      play: vi.fn(async () => true),
+      playing: false,
+      paused: false,
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    } as never;
+  };
+
+  it('abandons the same song after repeated failures without new searches', async () => {
+    const { handlers, manager } = captureHandlers();
+    const onException = handlers.get('trackException')!;
+    const search = manager.search as ReturnType<typeof vi.fn>;
+
+    // Failures 1-2: fallback attempted (2 searches each: youtube + soundcloud)
+    await onException(livePlayer(), { ...livePlayer().current }, { message: 'blocked' });
+    await onException(livePlayer(), { ...livePlayer().current }, { message: 'blocked' });
+    const searchesAfterTwo = search.mock.calls.length;
+    expect(searchesAfterTwo).toBeGreaterThan(0);
+
+    // Failure 3: song exhausted — skip with zero new searches
+    await onException(livePlayer(), { ...livePlayer().current }, { message: 'blocked' });
+    expect(search.mock.calls.length).toBe(searchesAfterTwo);
+  });
+});
+
 describe('playErrorMessage', () => {
   it('explains each failure mode distinctly', () => {
     expect(playErrorMessage('no-nodes')).toMatch(/rate-limited/i);

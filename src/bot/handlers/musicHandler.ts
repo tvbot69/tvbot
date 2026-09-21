@@ -210,6 +210,33 @@ export class MusicHandler {
     for (const key of this.fallbackAttempts.keys()) {
       if (key.startsWith(`${guildId}|`)) this.fallbackAttempts.delete(key);
     }
+    for (const key of this.songFailureCounts.keys()) {
+      if (key.startsWith(`${guildId}|`)) this.songFailureCounts.delete(key);
+    }
+  }
+
+  // Song-identity circuit breaker: budgets keyed on track bytes can't stop a
+  // poison SONG (every alternate upload is a new encoded id). After N failed
+  // attempts at the same artist+title, abandon the song instead of burning
+  // more searches and stuttering dead air.
+  private readonly songFailureCounts = new Map<string, { count: number; firstAt: number }>();
+  private static readonly MAX_FAILURES_PER_SONG = 2;
+  private static readonly SONG_FAILURE_WINDOW_MS = 600000;
+
+  private songIdentityKey(guildId: string, track: Track): string {
+    return `${guildId}|${(track.author || '').toLowerCase().trim()} - ${(track.title || '').toLowerCase().trim()}`;
+  }
+
+  private isSongExhausted(guildId: string, track: Track): boolean {
+    const key = this.songIdentityKey(guildId, track);
+    const now = Date.now();
+    const entry = this.songFailureCounts.get(key);
+    if (!entry || now - entry.firstAt > MusicHandler.SONG_FAILURE_WINDOW_MS) {
+      this.songFailureCounts.set(key, { count: 1, firstAt: now });
+      return false;
+    }
+    entry.count++;
+    return entry.count > MusicHandler.MAX_FAILURES_PER_SONG;
   }
 
   /**
@@ -402,6 +429,17 @@ export class MusicHandler {
         return (cur.encoded ?? cur.uri ?? cur.identifier) === failedKey;
       };
 
+      if (this.isSongExhausted(player.guildId, track)) {
+        Logger.warn(
+          { guildId: player.guildId, track: track.title },
+          `[Music] Giving up on stuck "${track.title}" after repeated failures.`,
+        );
+        if (stillCurrent() && player.queue.size > 0) {
+          await player.skip().catch(() => undefined);
+        }
+        return;
+      }
+
       const failedKeyStr = String(failedKey ?? 'unknown');
       if (!this.checkFallbackBudget(player.guildId, failedKeyStr)) {
         Logger.warn(
@@ -474,6 +512,15 @@ export class MusicHandler {
           Logger.warn({ err, guildId: player.guildId }, '[Music] Skip past failed track failed');
         }
       };
+
+      if (this.isSongExhausted(player.guildId, track)) {
+        Logger.warn(
+          { guildId: player.guildId, track: track.title },
+          `[Music] Giving up on "${track.title}" after repeated failures — skipping past it.`,
+        );
+        await skipPastFailed();
+        return;
+      }
 
       const failedKeyStr = String(failedKey ?? 'unknown');
       if (!this.checkFallbackBudget(player.guildId, failedKeyStr)) {
