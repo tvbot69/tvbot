@@ -22,6 +22,7 @@ import { ChannelToggledCommandService } from './services/guild/channelToggledCom
 import { UserUpdateQueueService } from './services/userUpdateQueueService';
 import { UserIndexQueueService } from './services/userIndexQueueService';
 import { IndexService } from './services/indexService';
+import { ReconcileService } from './services/reconcileService';
 import { UpdateService } from './services/updateService';
 import { LoginService } from './services/loginService';
 import { ColorService } from './services/colorService';
@@ -428,6 +429,7 @@ export const configureContainer = (): void => {
 
   const timerService = new TimerService();
   const healthServer = new HealthServer();
+  const reconcileService = new ReconcileService(indexService);
 
   container.registerInstance(HealthServer, healthServer);
   container.registerInstance(CacheService, cache);
@@ -507,6 +509,7 @@ export const configureContainer = (): void => {
   container.registerInstance('IUserRepository', userRepository);
   container.registerInstance('ILastfmRepository', lastFmRepository);
   container.registerInstance(TimerService, timerService);
+  container.registerInstance(ReconcileService, reconcileService);
   container.registerInstance(TelemetryService, telemetryService);
   container.registerInstance(AutopostService, autopostService);
 

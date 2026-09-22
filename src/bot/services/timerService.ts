@@ -77,6 +77,18 @@ export class TimerService {
       container.resolve(LastfmErrorRateTracker).logAndReset();
     });
 
+    this.registerJob('reconcile-index', '0 9 * * *', this.onlyOwner(async () => {
+      try {
+        const { ReconcileService } = await import('./reconcileService');
+        if (container.isRegistered(ReconcileService)) {
+          const report = await container.resolve(ReconcileService).runAsync();
+          Logger.info({ report }, 'Index reconcile complete');
+        }
+      } catch (err) {
+        Logger.error({ err }, 'Reconcile job failed');
+      }
+    }));
+
     this.registerJob('autopost-runner', '*/15 * * * *', this.onlyOwner(async () => {
       try {
         if (container.isRegistered(Client)) {
