@@ -12,7 +12,7 @@
 - **Stack**:
   - **Runtime**: Node.js 22 LTS (managed via `fnm` on Arch Linux) + TypeScript 5.7
   - **Discord**: `discord.js` v14.18 (Gateway Intents, Interactions, Voice Message Flags `8192`)
-  - **Persistence**: Prisma ORM 6.5 + PostgreSQL (Hosted on Neon serverless)
+  - **Persistence**: Prisma ORM 6.5 + PostgreSQL (Hosted on Railway)
   - **DI Container**: `tsyringe` manual singleton registration in [startup.ts](file:///home/moha/Desktop/tvbot/src/bot/startup.ts)
   - **Cache**: `ioredis` with automatic in-memory LRU fallback in [cacheService.ts](file:///home/moha/Desktop/tvbot/src/bot/services/cacheService.ts)
   - **Music & Audio**: `moonlink.js` v5 (Lavalink v4 nodes with auto-failover) + `fluent-ffmpeg` / `/usr/bin/ffmpeg` + `essentia.js` WASM DSP (BPM & Key detection)
@@ -69,4 +69,4 @@
 - **Database Migrations**:
   - Edit `src/persistence/prisma/schema.prisma`.
   - Run `npm run db:generate`.
-  - For Neon cloud PostgreSQL, verify with `npx prisma migrate status`.
+  - For Railway PostgreSQL, verify with `npx prisma migrate status`.

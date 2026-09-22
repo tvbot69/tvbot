@@ -3,7 +3,7 @@
 
 `tvbot` is a **private, unlimited** Discord bot mirroring `fmbot-dev` for a closed friend group. Two main pillars: **Last.fm statistics & social music intelligence** (`/fm`, `wk`, `chart`, `at`, `overview`, `top*`, `taste`, `crown`, `autopost`, `settings`) + **Lavalink music playback & audio analysis** (`Moonlink.js v5` + `Spotify/YouTube` + `Essentia DSP/WASM` for BPM/key/voice messages). 
 
-Stack: `TypeScript + Node 22 (fnm) + discord.js 14 + Prisma 6 (Neon PostgreSQL) + tsyringe DI + ioredis (with in-memory fallback) + Puppeteer (Headless Chrome) + fluent-ffmpeg`.
+Stack: `TypeScript + Node 22 (fnm) + discord.js 14 + Prisma 6 (Railway PostgreSQL) + tsyringe DI + ioredis (with in-memory fallback) + Puppeteer (Headless Chrome) + fluent-ffmpeg`.
 
 ---
 
@@ -35,7 +35,7 @@ npm start              # node dist/bot/index.js (production build)
 ### Environment Variables (`.env`)
 - **Required**:
   - `DISCORD_TOKEN`: Discord bot authentication token.
-  - `DATABASE_URL`: PostgreSQL connection string (Hosted on Neon serverless PostgreSQL).
+  - `DATABASE_URL`: PostgreSQL connection string (Hosted on Railway PostgreSQL).
   - `LASTFM_API_KEY` & `LASTFM_API_SECRET`: Last.fm API credentials.
 - **Integrations & Audio**:
   - `SPOTIFY_CLIENT_ID` & `SPOTIFY_CLIENT_SECRET`: Metadata & cover art resolution.

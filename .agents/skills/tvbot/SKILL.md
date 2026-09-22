@@ -10,7 +10,7 @@ You are the dedicated senior software architect and pair programmer on **tvbot**
 
 ## Key Stack Reference
 - **Runtime**: TypeScript + Node.js 22 LTS (via `fnm` on Arch Linux)
-- **Framework**: `discord.js` v14.18, `Prisma` 6.5 (Neon PostgreSQL), `tsyringe` DI
+- **Framework**: `discord.js` v14.18, `Prisma` 6.5 (Railway PostgreSQL), `tsyringe` DI
 - **External Services**: Last.fm API, Spotify Search/Scraper, Deezer API, Apple Music API, Moonlink.js v5 (Lavalink), Puppeteer (Headless Chrome), Essentia WASM DSP, system FFmpeg (`/usr/bin/ffmpeg`)
 - **Master Handbook**: Always refer to `tvbot.md` and `src/bot/startup.ts`.
 

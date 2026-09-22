@@ -36,7 +36,7 @@ Before the first deployment boots up, navigate to the **Variables** tab in your 
 | Variable Name | Value / Description |
 | :--- | :--- |
 | `DISCORD_TOKEN` | Your Discord bot token from Discord Developer Portal |
-| `DATABASE_URL` | Your Neon PostgreSQL connection string (`postgresql://...`) |
+| `DATABASE_URL` | Your Railway PostgreSQL connection string (`postgresql://...`) |
 | `LASTFM_API_KEY` | Your Last.fm API Key |
 | `LASTFM_API_SECRET` | Your Last.fm API Secret |
 
