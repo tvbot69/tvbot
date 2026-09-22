@@ -1,8 +1,21 @@
 import { Logger } from '@domain/logger';
 import { spotifyUriToUrl } from '@domain/models/music/musicTrack';
-import type { Manager, Player } from 'moonlink.js';
-import type { SpotifyScraperService } from './spotifyScraperService';
+import type { Manager, Player, Track } from 'moonlink.js';
+import type { SpotifyScraperService, ScrapedTrack } from './spotifyScraperService';
+import type { SpotifyResolvedTrack } from './spotifyResolver';
+import type { Rung } from './youtubeHealth';
 import type { MoonlinkManager } from './moonlinkManager';
+
+/**
+ * Resolves one scraper track through the health ladder (same contract as
+ * MusicService.resolvePlaylistTrack). Injected by MusicService to avoid a
+ * service↔manager dependency cycle; without it chunks fall back to raw
+ * YouTube search (pre-resolver behavior).
+ */
+export type ChunkTrackResolver = (
+  player: Player,
+  spTrack: SpotifyResolvedTrack,
+) => Promise<{ lavalinkTrack: Track; rung: Rung } | null>;
 
 interface ChunkState {
   playlistId: string;
@@ -27,6 +40,12 @@ export class PlaylistChunkManager {
   private readonly moonlinkManager: MoonlinkManager;
   private readonly chunks = new Map<string, ChunkState>();
   private bound = false;
+  private trackResolver: ChunkTrackResolver | null = null;
+
+  /** Wires ladder resolution (resolver-first, gated, backfilled). */
+  public setTrackResolver(resolver: ChunkTrackResolver): void {
+    this.trackResolver = resolver;
+  }
 
   constructor(moonlinkManager: MoonlinkManager, scraper: SpotifyScraperService) {
     this.moonlinkManager = moonlinkManager;
@@ -126,7 +145,10 @@ export class PlaylistChunkManager {
         return;
       }
 
-      // Convert scraper tracks → Lavalink YouTube tracks (5 concurrency, same as MusicService)
+      // Convert scraper tracks → playable tracks (5 concurrency, same as MusicService).
+      // With a resolver wired, each goes through the health ladder
+      // (resolver-first, duration-gated, artwork-backfilled); otherwise raw
+      // YouTube search as before.
       const BATCH_SIZE = 5;
       let added = 0;
 
@@ -137,12 +159,40 @@ export class PlaylistChunkManager {
           return;
         }
         const batch = page.tracks.slice(i, i + BATCH_SIZE);
+        const resolver = this.trackResolver;
         const results = await Promise.all(
-          batch.map(t =>
-            manager
-              .search({ query: `${t.artist} - ${t.name}`, source: 'youtube' })
-              .then(r => ({ r, t }))
-              .catch(() => null),
+          batch.map(
+            async (
+              t,
+            ): Promise<
+              | { t: ScrapedTrack; found: { lavalinkTrack: Track; rung: Rung }; r?: undefined }
+              | { t: ScrapedTrack; found?: undefined; r: { tracks?: Track[] } | null }
+              | null
+            > => {
+              if (resolver) {
+                try {
+                  const batchPlayer = manager.players.get(guildId);
+                  if (!batchPlayer) return null;
+                  const found = await resolver(batchPlayer, {
+                    searchQuery: `${t.artist} - ${t.name}`,
+                    name: t.name,
+                    artist: t.artist,
+                    durationMs: t.durationMs ?? 0,
+                    artworkUrl: t.artworkUrl,
+                    spotifyUri: t.spotifyUri,
+                  });
+                  return found ? { t, found } : null;
+                } catch {
+                  return null;
+                }
+              }
+              try {
+                const r = await manager.search({ query: `${t.artist} - ${t.name}`, source: 'youtube' });
+                return { t, r };
+              } catch {
+                return null;
+              }
+            },
           ),
         );
 
@@ -153,6 +203,28 @@ export class PlaylistChunkManager {
           return;
         }
         for (const item of results) {
+          if (!item) continue;
+          if (item.found) {
+            const lavalinkTrack = item.found.lavalinkTrack;
+            const trackRecord = lavalinkTrack as unknown as Record<string, unknown>;
+            trackRecord.requester = { id: state.requesterId } as unknown as string;
+            trackRecord.title = item.t.name;
+            trackRecord.author = item.t.artist;
+            if (item.t.artworkUrl) {
+              trackRecord.artworkUrl = item.t.artworkUrl;
+            }
+            if (item.t.spotifyUri) {
+              trackRecord.uri = spotifyUriToUrl(item.t.spotifyUri);
+            }
+            // Resolver output stays 'local' so failure handling never
+            // mistakes it for plugin output (same convention as MusicService).
+            const backend = item.found.rung === 'resolver' ? 'local' : 'spotify';
+            trackRecord.sourceName = backend;
+            trackRecord.source = backend;
+            livePlayer.queue.add(lavalinkTrack);
+            added++;
+            continue;
+          }
           if (!item?.r?.tracks?.[0]) continue;
           const lavalinkTrack = item.r.tracks[0];
           const trackRecord = lavalinkTrack as unknown as Record<string, unknown>;

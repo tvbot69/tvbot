@@ -83,6 +83,11 @@ export class MusicService {
     this.playlistChunkManager = playlistChunkManager;
     this.artworkService = artworkService;
     this.playlistChunkManager?.bindEvents();
+    // Chunked (>100) playlist tails resolve through the same ladder
+    // (resolver-first, gated, backfilled) instead of raw YouTube search.
+    this.playlistChunkManager?.setTrackResolver((player, spTrack) =>
+      this.resolvePlaylistTrack(player, spTrack),
+    );
     this.bindPendingEvents();
   }
 
