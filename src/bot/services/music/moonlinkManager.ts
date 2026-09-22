@@ -30,6 +30,13 @@ export class MoonlinkManager {
   private readonly lastRateLimitLog = new Map<string, number>();
   private readonly cache: CacheService | null;
   private readonly lavalinkEnabled: boolean;
+  /**
+   * Configured pool snapshot (taken at construction). The resurrection sweep
+   * uses it to rebuild nodes Moonlink gave up on — e.g. the Home node after
+   * the tower slept past its retry budget (destroyed nodes never reconnect
+   * on their own, so without this the bot needs a restart to see Home again).
+   */
+  private readonly nodeConfigs: LavalinkNodeConfig[] = [];
 
   constructor(cache?: CacheService) {
     this.cache = cache ?? null;
@@ -63,6 +70,7 @@ export class MoonlinkManager {
     }
 
     const nodes = getLavalinkNodes();
+    this.nodeConfigs.push(...nodes);
     Logger.info(`Configuring Moonlink.js with ${nodes.length} Lavalink nodes (master-class staggered)...`);
     void this.restoreCooldownsFromCache(nodes);
 
@@ -189,6 +197,12 @@ export class MoonlinkManager {
       this.reconnectTimers.delete(id);
       if (node.destroyed) return;
       if (this.isNodeInCooldown(id)) {
+        // Cooldown still active (timer fired early or cooldown was extended
+        // after scheduling). Re-arm past its expiry instead of dropping the
+        // retry — dropping it here used to orphan the node forever, so the
+        // bot never saw it again without a restart.
+        const until = this.nodeCooldownUntil.get(id) ?? Date.now();
+        this.scheduleReconnect(node, Math.max(0, until - Date.now()) + 2000);
         return;
       }
       Logger.info(`[Lavalink] Manually reconnecting node "${id}" (${node.host}:${node.port})`);
@@ -336,8 +350,76 @@ export class MoonlinkManager {
           );
         }
       }
+      this.resurrectNodes();
     } catch (err) {
       Logger.debug({ err }, 'Error in Lavalink health check loop');
+    }
+  }
+
+  private nodeConnectConfig(cfg: LavalinkNodeConfig): Record<string, unknown> {
+    return {
+      identifier: cfg.identifier,
+      host: cfg.host,
+      port: cfg.port,
+      password: cfg.password,
+      secure: cfg.secure ?? cfg.port === 443,
+      retryAmount: cfg.retryAmount ?? 0,
+      retryDelay: cfg.retryDelay ?? 60000,
+    };
+  }
+
+  /**
+   * Resurrection sweep: re-adds configured nodes that vanished from the pool
+   * and rebuilds ones Moonlink destroyed after exhausting its retries (the
+   * tower-asleep case). Runs inside the 10s health loop but only ever arms
+   * ONE pending retry per node and always respects cooldowns, so
+   * rate-limited publics are never hammered — worst case one extra attempt
+   * per sweep, and cooldown nodes are skipped entirely.
+   */
+  private resurrectNodes(): void {
+    if (!this.lavalinkEnabled || !this.isInitialized) return;
+    const mgr = this.manager as unknown as {
+      nodes?: {
+        nodes?: Map<string, Node>;
+        add?: (c: Record<string, unknown>) => void;
+        remove?: (id: string) => boolean;
+      };
+    };
+    const map = mgr.nodes?.nodes;
+    if (!(map instanceof Map)) return;
+    for (const cfg of this.nodeConfigs) {
+      const id = cfg.identifier;
+      const existing = map.get(id) as (Node & { connect?: () => Promise<unknown> }) | undefined;
+      if (!existing) {
+        try {
+          mgr.nodes?.add?.(this.nodeConnectConfig(cfg));
+          const created = map.get(id) as (Node & { connect?: () => Promise<unknown> }) | undefined;
+          Logger.info(`[Lavalink] Node "${id}" missing from pool — re-added, connecting`);
+          void created?.connect?.()?.catch((err: unknown) =>
+            Logger.debug({ err, node: id }, `Resurrected node "${id}" connect failed`),
+          );
+        } catch (err) {
+          Logger.debug({ err, node: id }, `Node re-add for "${id}" failed`);
+        }
+        continue;
+      }
+      if (existing.destroyed) {
+        try {
+          mgr.nodes?.remove?.(id);
+          mgr.nodes?.add?.(this.nodeConnectConfig(cfg));
+          const created = map.get(id) as (Node & { connect?: () => Promise<unknown> }) | undefined;
+          Logger.info(`[Lavalink] Node "${id}" was destroyed (retries exhausted) — rebuilt, connecting`);
+          void created?.connect?.()?.catch((err: unknown) =>
+            Logger.debug({ err, node: id }, `Rebuilt node "${id}" connect failed`),
+          );
+        } catch (err) {
+          Logger.debug({ err, node: id }, `Node rebuild for "${id}" failed`);
+        }
+        continue;
+      }
+      if (!existing.connected && !this.reconnectTimers.has(id) && !this.isNodeInCooldown(id)) {
+        this.scheduleReconnect(existing, 5000);
+      }
     }
   }
 
