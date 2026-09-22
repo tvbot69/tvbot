@@ -394,21 +394,40 @@ export class UpdateService {
       }
     }
 
-    // Update top-lists if any changes — incremental for small deltas (<200), full recalc fallback
+    // Update top-lists if any changes — always incrementally, in chunks.
+    // Deltas are inherently incremental, so a big gap is just many small
+    // ones. Routing volume to the full recalc (60s transaction over the
+    // whole library) times out on large libraries, freezing aggregates
+    // while plays keep arriving — recalc stays a repair fallback only.
     if (newPlays.length > 0 || removedPlayIds.length > 0) {
-      const useIncremental =
+      const canIncremental =
         this.artistRepository &&
         this.albumRepository &&
-        this.trackRepository &&
-        newPlays.length + removedPlayIds.length < 400 &&
-        newPlays.length < 200 &&
-        removedPlayIds.length < 200;
-      if (useIncremental) {
-        try {
-          await this.applyIncrementalTopLists(user.userId, newPlays, removedPlayIds, existingPlays);
-        } catch (err) {
-          Logger.warn({ err }, `Incremental top-list failed for ${user.userNameLastFm}, falling back to full recalc`);
-          await this.recalculateTopLists(user.userId);
+        this.trackRepository;
+      if (canIncremental) {
+        const CHUNK = 150;
+        const rounds = Math.max(1, Math.ceil(newPlays.length / CHUNK));
+        let ok = true;
+        for (let i = 0; i < rounds; i++) {
+          try {
+            await this.applyIncrementalTopLists(
+              user.userId,
+              newPlays.slice(i * CHUNK, (i + 1) * CHUNK),
+              i === 0 ? removedPlayIds : [],
+              existingPlays,
+            );
+          } catch (err) {
+            Logger.warn({ err }, `Incremental top-list failed for ${user.userNameLastFm}, falling back to full recalc`);
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) {
+          try {
+            await this.recalculateTopLists(user.userId);
+          } catch (err) {
+            Logger.warn({ err }, `Failed to recalculate top lists for ${user.userNameLastFm}`);
+          }
         }
       } else {
         try {

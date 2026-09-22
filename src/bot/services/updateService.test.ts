@@ -148,3 +148,74 @@ describe('UpdateService delta sync (Phase 0.5)', () => {
     expect(Date.now() - stamped.getTime()).toBeLessThan(60 * 1000);
   });
 });
+
+describe('UpdateService chunked top-list maintenance', () => {
+  const makeChunkSvc = (
+    incomingCount: number,
+    applyImpl?: (...args: any[]) => Promise<void>,
+  ) => {
+    const recalc = vi.fn(async () => undefined);
+    const apply = vi.fn(applyImpl ?? (async () => undefined));
+    const incoming = Array.from({ length: incomingCount }, (_, i) => ({
+      artistName: 'Chunk Artist',
+      name: `Chunk Song ${i}`,
+      timePlayed: new Date(Date.now() - (incomingCount - i) * 60000),
+    }));
+    const svc = new UpdateService(
+      {
+        getUserById: vi.fn(async () => ({
+          userId: 9,
+          userNameLastFm: 'chunkuser',
+          totalPlayCount: 100,
+          lastUpdate: new Date(Date.now() - 5 * 3600 * 1000),
+          lastScrobbleUpdate: new Date(Date.now() - 5 * 3600 * 1000),
+        })),
+        setLastUpdate: vi.fn(async () => undefined),
+        setLastScrobbleUpdate: vi.fn(async () => undefined),
+        updateUserStats: vi.fn(async () => undefined),
+        incrementTotalPlayCount: vi.fn(async () => undefined),
+      } as never,
+      {
+        getRecentPlays: vi.fn(async () => []),
+        batchInsertPlays: vi.fn(async (p: unknown[]) => p.length),
+        removePlaysByIds: vi.fn(async (ids: unknown[]) => ids.length),
+      } as never,
+      {
+        getUserRecentTracksWithMetadata: vi.fn(async () => ({
+          tracks: incoming,
+          totalPages: 1,
+          totalScrobbles: 100 + incomingCount,
+        })),
+      } as never,
+      {
+        get: vi.fn(async () => undefined),
+        set: vi.fn(async () => undefined),
+        delete: vi.fn(async () => undefined),
+      } as never,
+      recalc,
+      {} as never,
+      {} as never,
+      {} as never,
+    ) as unknown as { updateUser: (id: number) => Promise<unknown> };
+    (svc as unknown as { applyIncrementalTopLists: unknown }).applyIncrementalTopLists = apply;
+    return { svc, recalc, apply };
+  };
+
+  it('splits a 500-play delta into 150-play incremental chunks, never recalc', async () => {
+    const { svc, recalc, apply } = makeChunkSvc(500);
+    await svc.updateUser(9);
+    expect(apply).toHaveBeenCalledTimes(4);
+    const sizes = apply.mock.calls.map((c) => (c[1] as unknown[]).length);
+    expect(sizes).toEqual([150, 150, 150, 50]);
+    expect(recalc).not.toHaveBeenCalled();
+  });
+
+  it('falls back to full recalc when a chunk throws', async () => {
+    const { svc, recalc, apply } = makeChunkSvc(300, async () => {
+      throw new Error('chunk boom');
+    });
+    await svc.updateUser(9);
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(recalc).toHaveBeenCalledTimes(1);
+  });
+});
