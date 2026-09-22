@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { PlayRepository } from './playRepository';
+import { PlayRepository, sumEntriesById } from './playRepository';
 
 const makeRepo = (existing: Array<{ artistId?: number; albumId?: number; trackId?: number; playcount: number }>) => {
   const txOps: unknown[] = [];
@@ -64,5 +64,46 @@ describe('PlayRepository batched deltas (Phase 1.2)', () => {
 
     const kinds = (txOps as Array<{ op: string }>).map((o) => o.op).sort();
     expect(kinds).toEqual(['delete']);
+  });
+});
+
+describe('sumEntriesById (case-variant collision guard)', () => {
+  it('sums colliding spellings and keeps the top entry name', () => {
+    const out = sumEntriesById(
+      [
+        { artistId: 66, name: 'mac demarco', playcount: 50 },
+        { artistId: 66, name: 'Mac DeMarco', playcount: 150 },
+      ],
+      (e) => `${e.artistId}`,
+    );
+    expect(out).toEqual([{ artistId: 66, name: 'Mac DeMarco', playcount: 200 }]);
+  });
+
+  it('keeps distinct ids apart', () => {
+    const out = sumEntriesById(
+      [
+        { artistId: 2, name: 'Mac DeMarco', playcount: 150 },
+        { artistId: 66, name: 'mac demarco', playcount: 50 },
+      ],
+      (e) => `${e.artistId}`,
+    );
+    expect(out).toHaveLength(2);
+    expect(out.reduce((s, e) => s + e.playcount, 0)).toBe(200);
+  });
+});
+
+describe('playKey normalization', () => {
+  it('keys structural variants identically (whitespace/zero-width)', () => {
+    const t = new Date('2026-01-01T00:00:00Z');
+    expect(PlayRepository.playKey(t, 'Mo  nd', 'Song')).toBe(PlayRepository.playKey(t, 'Mo nd', 'Song'));
+    expect(PlayRepository.playKey(t, 'Mond ', 'Song')).toBe(PlayRepository.playKey(t, 'Mond', 'Song'));
+  });
+
+  it('keys distinct songs differently', () => {
+    const t = new Date('2026-01-01T00:00:00Z');
+    expect(PlayRepository.playKey(t, 'A', 'X')).not.toBe(PlayRepository.playKey(t, 'A', 'Y'));
+    expect(PlayRepository.playKey(t, 'A', 'X')).not.toBe(
+      PlayRepository.playKey(new Date('2026-01-01T00:00:01Z'), 'A', 'X'),
+    );
   });
 });

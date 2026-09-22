@@ -8,10 +8,17 @@ export class ArtistRepository implements IArtistRepository {
     this.prisma = prisma;
   }
 
+  /**
+   * Case-insensitive get-or-create. The artists.name unique constraint is
+   * case-SENSITIVE, so an exact-match lookup misses ProperCase twins
+   * ("Mac DeMarco" vs "mac demarco") and creates a parallel row — every
+   * read path then sees a different arbitrary half. Always match
+   * insensitively; store lowercase (bulk/replace convention).
+   */
   public async getOrCreateArtist(artistName: string): Promise<Artist> {
     const normalized = artistName.toLowerCase();
     const existing = await this.prisma.artist.findFirst({
-      where: { name: normalized },
+      where: { name: { equals: artistName, mode: 'insensitive' } },
     });
     if (existing) {
       return existing;
@@ -39,8 +46,19 @@ export class ArtistRepository implements IArtistRepository {
 
       const missing = chunk.filter((n) => !map.has(n));
       if (missing.length > 0) {
+        // Case-insensitive second pass: exact `in` misses ProperCase twins.
+        // Parameterized ANY() — never interpolate names (quotes/apostrophes).
+        const twins = await this.prisma.$queryRaw<Array<{ artistId: number; name: string }>>`
+          SELECT artist_id AS "artistId", name FROM artists
+          WHERE UPPER(name) = ANY(${missing.map((n) => n.toUpperCase())})`;
+        for (const row of twins) {
+          map.set(row.name.toLowerCase(), row.artistId);
+        }
+      }
+      const stillMissing = chunk.filter((n) => !map.has(n));
+      if (stillMissing.length > 0) {
         await this.prisma.artist.createMany({
-          data: missing.map((name) => ({ name })),
+          data: stillMissing.map((name) => ({ name })),
           skipDuplicates: true,
         });
         const created = await this.prisma.artist.findMany({

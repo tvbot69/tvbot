@@ -9,6 +9,7 @@ import { ColorService } from '@bot/services/colorService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { prisma } from '@persistence/prismaClient';
+import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { container } from 'tsyringe';
 import { Logger } from '@domain/logger';
 
@@ -266,19 +267,10 @@ export class ArtistInteractions {
     }
 
     const name = identifier;
-    const art = await prisma.artist.findFirst({
-      where: { name: { equals: name, mode: 'insensitive' } },
-      select: { artistId: true, name: true, spotifyImageUrl: true, deezerImageUrl: true },
-    });
-    if (art) return art;
-
-    // Create artist if not found
+    // Single canonical path (case-insensitive): never create parallel rows here.
     try {
-      const created = await prisma.artist.create({
-        data: { name: name.toLowerCase() },
-        select: { artistId: true, name: true, spotifyImageUrl: true, deezerImageUrl: true },
-      });
-      return created;
+      const artist = await container.resolve(ArtistRepository).getOrCreateArtist(name);
+      return { artistId: artist.artistId, name: artist.name };
     } catch {
       return { artistId: 0, name };
     }

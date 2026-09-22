@@ -1,4 +1,5 @@
 import { Prisma, PrismaClient } from '@prisma/client';
+import { normalizeStoredName } from '@domain/textNormalize';
 import type {
   IPlayRepository,
   PlayInsert,
@@ -7,6 +8,31 @@ import type {
 
 const INSERT_CHUNK_SIZE = 500;
 const CHUNK_RETRY_DELAYS_MS = [1000, 2500, 5000, 10000];
+
+/**
+ * Collapse raw entries sharing one entity id into a single row, SUMMING
+ * playcounts and keeping the top entry's display name. Raw spellings vary
+ * in case ("Mac DeMarco" vs "mac demarco") while mapping to one id — and
+ * every replace* uses createMany(skipDuplicates) on the id PK, so without
+ * this the colliding spellings' plays vanish silently.
+ */
+export const sumEntriesById = <T extends { playcount: number; name: string }>(
+  entries: T[],
+  keyOf: (e: T) => string,
+): T[] => {
+  const merged = new Map<string, { entry: T; playcount: number }>();
+  for (const e of entries) {
+    const k = keyOf(e);
+    const cur = merged.get(k);
+    if (!cur) {
+      merged.set(k, { entry: e, playcount: e.playcount });
+    } else {
+      cur.playcount += e.playcount;
+      if (e.playcount > cur.entry.playcount) cur.entry = e;
+    }
+  }
+  return [...merged.values()].map(({ entry, playcount }) => ({ ...entry, playcount }));
+};
 
 export class PlayRepository implements IPlayRepository {
   private readonly prisma: PrismaClient;
@@ -295,7 +321,10 @@ export class PlayRepository implements IPlayRepository {
     artistName: string,
     trackName?: string | null,
   ): string {
-    return `${new Date(timePlayed).getTime()}|${artistName}|${trackName ?? ''}`;
+    // Normalized like storage (normalizeStoredName): otherwise "Mo  nd" from
+    // the API never matches stored "Mo nd", and every sync re-inserts the
+    // same plays as exact duplicates while flagging the originals removed.
+    return `${new Date(timePlayed).getTime()}|${normalizeStoredName(artistName)}|${normalizeStoredName(trackName ?? '')}`;
   }
 
   public async getRecentPlays(userId: number, limit: number): Promise<Array<{

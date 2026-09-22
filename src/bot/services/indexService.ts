@@ -1,6 +1,6 @@
 import type { IUserIndexQueue, IndexUserQueueItem } from '@domain/interfaces/iuserIndexQueue';
 import type { IPlayRepository } from '@domain/interfaces/iplayRepository';
-import { PlayRepository } from '@persistence/repositories/playRepository';
+import { PlayRepository, sumEntriesById } from '@persistence/repositories/playRepository';
 import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
 import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
@@ -143,13 +143,16 @@ export class IndexService {
         const topArtists = await this.lastfmRepository.getTopArtists(user.userNameLastFm, TimePeriod.AllTime as any, 1000);
         if (topArtists && topArtists.length > 0) {
           const artistMap = await this.artistRepository.getOrCreateArtistsBulk(topArtists.map(a => a.name));
-          const rows = topArtists
-            .map(a => {
-              const artistId = artistMap.get(a.name.toLowerCase());
-              if (!artistId) return null;
-              return { userId: user.userId, artistId, name: a.name, playcount: a.playcount };
-            })
-            .filter(Boolean) as Array<{ userId: number; artistId: number; name: string; playcount: number }>;
+          const rows = sumEntriesById(
+            topArtists
+              .map(a => {
+                const artistId = artistMap.get(a.name.toLowerCase());
+                if (!artistId) return null;
+                return { userId: user.userId, artistId, name: a.name, playcount: a.playcount };
+              })
+              .filter(Boolean) as Array<{ userId: number; artistId: number; name: string; playcount: number }>,
+            (e) => `${e.artistId}`,
+          );
 
           await prisma.$transaction([
             prisma.userArtist.deleteMany({ where: { userId: user.userId } }),
@@ -173,15 +176,18 @@ export class IndexService {
             topAlbums.map(a => ({ albumName: a.name, artistId: artistMap.get(a.artistName.toLowerCase()) ?? 0 })).filter(a => a.artistId > 0),
           );
 
-          const rows = topAlbums
-            .map(a => {
-              const artistId = artistMap.get(a.artistName.toLowerCase());
-              if (!artistId) return null;
-              const albumId = albumMap.get(`${artistId}|${a.name.toLowerCase()}`);
-              if (!albumId) return null;
-              return { userId: user.userId, albumId, name: a.name, playcount: a.playcount };
-            })
-            .filter(Boolean) as Array<{ userId: number; albumId: number; name: string; playcount: number }>;
+          const rows = sumEntriesById(
+            topAlbums
+              .map(a => {
+                const artistId = artistMap.get(a.artistName.toLowerCase());
+                if (!artistId) return null;
+                const albumId = albumMap.get(`${artistId}|${a.name.toLowerCase()}`);
+                if (!albumId) return null;
+                return { userId: user.userId, albumId, name: a.name, playcount: a.playcount };
+              })
+              .filter(Boolean) as Array<{ userId: number; albumId: number; name: string; playcount: number }>,
+            (e) => `${e.albumId}`,
+          );
 
           await prisma.$transaction([
             prisma.userAlbum.deleteMany({ where: { userId: user.userId } }),
@@ -205,15 +211,18 @@ export class IndexService {
             topTracks.map(t => ({ trackName: t.name, artistId: artistMap.get(t.artistName.toLowerCase()) ?? 0 })).filter(t => t.artistId > 0),
           );
 
-          const rows = topTracks
-            .map(t => {
-              const artistId = artistMap.get(t.artistName.toLowerCase());
-              if (!artistId) return null;
-              const trackId = trackMap.get(`${artistId}|${t.name.toLowerCase()}`);
-              if (!trackId) return null;
-              return { userId: user.userId, trackId, name: t.name, playcount: t.playcount };
-            })
-            .filter(Boolean) as Array<{ userId: number; trackId: number; name: string; playcount: number }>;
+          const rows = sumEntriesById(
+            topTracks
+              .map(t => {
+                const artistId = artistMap.get(t.artistName.toLowerCase());
+                if (!artistId) return null;
+                const trackId = trackMap.get(`${artistId}|${t.name.toLowerCase()}`);
+                if (!trackId) return null;
+                return { userId: user.userId, trackId, name: t.name, playcount: t.playcount };
+              })
+              .filter(Boolean) as Array<{ userId: number; trackId: number; name: string; playcount: number }>,
+            (e) => `${e.trackId}`,
+          );
 
           await prisma.$transaction([
             prisma.userTrack.deleteMany({ where: { userId: user.userId } }),
@@ -394,18 +403,21 @@ export class IndexService {
       ...rawTracks.map((t) => t.artistName),
     ]);
 
-    const artistEntries = rawArtists
-      .map((entry) => ({
-        artistId: artistMap.get(entry.name.toLowerCase()),
-        name: entry.name,
-        playcount: entry.playcount,
-      }))
-      .filter(
-        (
-          e,
-        ): e is { artistId: number; name: string; playcount: number } =>
-          e.artistId !== undefined,
-      );
+    const artistEntries = sumEntriesById(
+      rawArtists
+        .map((entry) => ({
+          artistId: artistMap.get(entry.name.toLowerCase()),
+          name: entry.name,
+          playcount: entry.playcount,
+        }))
+        .filter(
+          (
+            e,
+          ): e is { artistId: number; name: string; playcount: number } =>
+            e.artistId !== undefined,
+        ),
+      (e) => `${e.artistId}`,
+    );
 
     const albumEntries = rawAlbums
       .map((entry) => {
@@ -443,23 +455,29 @@ export class IndexService {
       trackEntries.map((e) => ({ trackName: e.trackName, artistId: e.artistId })),
     );
 
-    const finalAlbums = albumEntries
-      .map((e) => {
-        const albumId = albumMap.get(`${e.artistId}|${e.albumName.toLowerCase()}`);
-        return albumId === undefined
-          ? null
-          : { albumId: albumId, name: e.name, playcount: e.playcount };
-      })
-      .filter((e): e is { albumId: number; name: string; playcount: number } => e !== null);
+    const finalAlbums = sumEntriesById(
+      albumEntries
+        .map((e) => {
+          const albumId = albumMap.get(`${e.artistId}|${e.albumName.toLowerCase()}`);
+          return albumId === undefined
+            ? null
+            : { albumId: albumId, name: e.name, playcount: e.playcount };
+        })
+        .filter((e): e is { albumId: number; name: string; playcount: number } => e !== null),
+      (e) => `${e.albumId}`,
+    );
 
-    const finalTracks = trackEntries
-      .map((e) => {
-        const trackId = trackMap.get(`${e.artistId}|${e.trackName.toLowerCase()}`);
-        return trackId === undefined
-          ? null
-          : { trackId: trackId, name: e.name, playcount: e.playcount };
-      })
-      .filter((e): e is { trackId: number; name: string; playcount: number } => e !== null);
+    const finalTracks = sumEntriesById(
+      trackEntries
+        .map((e) => {
+          const trackId = trackMap.get(`${e.artistId}|${e.trackName.toLowerCase()}`);
+          return trackId === undefined
+            ? null
+            : { trackId: trackId, name: e.name, playcount: e.playcount };
+        })
+        .filter((e): e is { trackId: number; name: string; playcount: number } => e !== null),
+      (e) => `${e.trackId}`,
+    );
 
     await Promise.all([
       this.playRepository.replaceUserArtists(userId, artistEntries),

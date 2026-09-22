@@ -71,9 +71,20 @@ export class TrackRepository implements ITrackRepository {
       }
       const missing = chunk.filter((c) => !map.has(`${c.artistId}|${c.name}`));
       if (missing.length > 0) {
-        await this.prisma.track.createMany({ data: missing, skipDuplicates: true });
+        // Case-insensitive second pass: exact `in` misses ProperCase twins.
+        // Parameterized ANY() — never interpolate names (quotes/apostrophes).
+        const twins = await this.prisma.$queryRaw<Array<{ trackId: number; name: string; artistId: number }>>`
+          SELECT track_id AS "trackId", name, artist_id AS "artistId" FROM tracks
+          WHERE artist_id = ANY(${artistIds}) AND UPPER(name) = ANY(${missing.map((m) => m.name.toUpperCase())})`;
+        for (const row of twins) {
+          map.set(`${row.artistId}|${row.name.toLowerCase()}`, row.trackId);
+        }
+      }
+      const stillMissing = chunk.filter((c) => !map.has(`${c.artistId}|${c.name}`));
+      if (stillMissing.length > 0) {
+        await this.prisma.track.createMany({ data: stillMissing, skipDuplicates: true });
         const created = await this.prisma.track.findMany({
-          where: { artistId: { in: artistIds }, name: { in: missing.map((m) => m.name) } },
+          where: { artistId: { in: artistIds }, name: { in: stillMissing.map((m) => m.name) } },
           select: { trackId: true, name: true, artistId: true },
         });
         for (const row of created) {

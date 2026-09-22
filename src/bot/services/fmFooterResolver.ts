@@ -62,13 +62,15 @@ export class FmFooterResolver {
               result.artistPlays = info.userPlayCount;
             } else {
               const prisma = container.resolve(PrismaClient);
-              const ua = await prisma.userArtist.findFirst({
+              const agg = await prisma.userArtist.aggregate({
+                _sum: { playcount: true },
                 where: {
                   userId: user.userId,
                   name: { equals: track.artistName, mode: 'insensitive' },
                 },
               });
-              if (ua) result.artistPlays = ua.playcount;
+              const total = agg._sum.playcount ?? 0;
+              if (total > 0) result.artistPlays = total;
             }
           } catch {
             // graceful fallback
@@ -88,13 +90,15 @@ export class FmFooterResolver {
               result.albumPlays = info.userPlayCount;
             } else {
               const prisma = container.resolve(PrismaClient);
-              const ub = await prisma.userAlbum.findFirst({
+              const agg = await prisma.userAlbum.aggregate({
+                _sum: { playcount: true },
                 where: {
                   userId: user.userId,
                   name: { equals: track.albumName, mode: 'insensitive' },
                 },
               });
-              if (ub) result.albumPlays = ub.playcount;
+              const total = agg._sum.playcount ?? 0;
+              if (total > 0) result.albumPlays = total;
             }
           } catch {
             // graceful fallback
@@ -120,13 +124,15 @@ export class FmFooterResolver {
             }
             if (result.trackPlays === undefined && has(FmFooterOption.TrackPlays)) {
               const prisma = container.resolve(PrismaClient);
-              const ut = await prisma.userTrack.findFirst({
+              const agg = await prisma.userTrack.aggregate({
+                _sum: { playcount: true },
                 where: {
                   userId: user.userId,
                   name: { equals: track.name, mode: 'insensitive' },
                 },
               });
-              if (ut) result.trackPlays = ut.playcount;
+              const total = agg._sum.playcount ?? 0;
+              if (total > 0) result.trackPlays = total;
             }
           } catch {
             // graceful fallback

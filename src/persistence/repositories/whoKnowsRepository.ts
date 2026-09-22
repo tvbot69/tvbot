@@ -19,13 +19,16 @@ export class WhoKnowsRepository implements IWhoKnowsRepository {
     guildId: string,
     artistName: string,
   ): Promise<WhoKnowsDbRow[]> {
+    // One row per user: SUM across case-variant duplicate rows ("Mac DeMarco"
+    // vs "mac demarco"), otherwise a user with split rows ranks twice.
     const raw = await this.prisma.$queryRaw<RawWhoKnowsRow[]>`
-      SELECT ua.user_id AS "userId", ua.playcount AS "playcount"
+      SELECT ua.user_id AS "userId", SUM(ua.playcount)::bigint AS "playcount"
       FROM user_artists AS ua
       WHERE UPPER(ua.name) = UPPER(${artistName})
       AND ua.user_id = ANY(SELECT user_id FROM guild_users WHERE guild_id = ${BigInt(guildId)})
       AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ua.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
-      ORDER BY ua.playcount DESC;
+      GROUP BY ua.user_id
+      ORDER BY SUM(ua.playcount) DESC;
     `;
 
     return raw.map((r) => ({

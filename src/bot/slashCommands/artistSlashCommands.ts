@@ -14,6 +14,7 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/updateService';
 import { prisma } from '@persistence/prismaClient';
+import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { container } from 'tsyringe';
 import { ColorService } from '@bot/services/colorService';
 
@@ -237,17 +238,10 @@ export class ArtistSlashCommands implements ISlashCommandModule {
   }
 
   private async getOrCreateArtist(name: string): Promise<{ artistId: number; name: string; spotifyImageUrl?: string | null; deezerImageUrl?: string | null }> {
-    const existing = await prisma.artist.findFirst({
-      where: { name: { equals: name, mode: 'insensitive' } },
-      select: { artistId: true, name: true, spotifyImageUrl: true, deezerImageUrl: true },
-    });
-    if (existing) return existing;
-
+    // Single canonical path (case-insensitive): never create parallel rows here.
     try {
-      return await prisma.artist.create({
-        data: { name: name.toLowerCase() },
-        select: { artistId: true, name: true, spotifyImageUrl: true, deezerImageUrl: true },
-      });
+      const artist = await container.resolve(ArtistRepository).getOrCreateArtist(name);
+      return { artistId: artist.artistId, name: artist.name, spotifyImageUrl: artist.spotifyImageUrl, deezerImageUrl: artist.deezerImageUrl };
     } catch {
       return { artistId: 0, name };
     }
