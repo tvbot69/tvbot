@@ -4,6 +4,16 @@ export type Rung = 'plugin' | 'resolver' | 'soundcloud';
 
 export const HOME_NODE = 'Home';
 
+/**
+ * Trial rung: when HOME_LADDER_MODE=plugin-first-test, Home tries the
+ * YouTube plugin first (yt-cipher + pot fixes under test), falling through
+ * to resolver → soundcloud via the unchanged breakers. Any other value (or
+ * unset) keeps the proven resolver-first order. Revert = unset the var.
+ * Public nodes are never affected.
+ */
+export const pluginTestMode = (): boolean =>
+  process.env.HOME_LADDER_MODE === 'plugin-first-test';
+
 // Matches source-outage failures (login walls, bot checks, cipher death).
 // Anything else (user errors, network blips) must NOT trip the breaker.
 const OUTAGE_RE =
@@ -55,12 +65,20 @@ export class YoutubeHealth {
    * The shared ytsearch still runs to get the video id; the resolver rung
    * materializes that id via yt-dlp. `plugin: false` drops the plugin rung
    * (used on Home via HOME_PLUGIN_RUNG) while keeping the probe slot shape.
+   * `pluginFirst: true` (Home trial rung behind
+   * HOME_LADDER_MODE=plugin-first-test) leads with the plugin instead; the
+   * outage filter in musicHandler.ts still skips it on outage errors so a
+   * plugin failure falls through to resolver in the same call.
    */
-  public ladder(opts: { resolver: boolean; plugin?: boolean }, now: number = Date.now()): Rung[] {
+  public ladder(
+    opts: { resolver: boolean; plugin?: boolean; pluginFirst?: boolean },
+    now: number = Date.now(),
+  ): Rung[] {
     const wantPlugin = opts.plugin ?? true;
     const head: Rung[] = [];
+    if (opts.pluginFirst && wantPlugin) head.push('plugin');
     if (opts.resolver) head.push('resolver');
-    if (wantPlugin) head.push('plugin');
+    if (wantPlugin && !opts.pluginFirst) head.push('plugin');
     const full: Rung[] = [...head, 'soundcloud'];
     const rest: Rung[] = opts.resolver ? ['resolver', 'soundcloud'] : ['soundcloud'];
     if (!this.downUntil) return full;
@@ -116,6 +134,15 @@ export const ladderFor = (player: { node?: { identifier?: string } | null }): Ru
   // youtube-source release that actually fixes cipher/login, scratch-node
   // verified first. The plugin stays installed regardless — ytsearch is what
   // the resolver rung resolves. Public nodes always keep their plugin rung.
-  const plugin = !home || (process.env.HOME_PLUGIN_RUNG ?? 'off') === 'on';
-  return healthFor(id).ladder({ resolver: resolverEnabled() && home, plugin });
+  // Trial rung: HOME_LADDER_MODE=plugin-first-test forces the plugin rung on
+  // AND first (plugin → resolver → soundcloud) so cipher/pot fixes can be
+  // measured live; the outage + per-song breakers still cap the cost of a
+  // miss to one failed try before falling through. Unset to revert.
+  const trial = home && pluginTestMode();
+  const plugin = trial || (!home || (process.env.HOME_PLUGIN_RUNG ?? 'off') === 'on');
+  return healthFor(id).ladder({
+    resolver: resolverEnabled() && home,
+    plugin,
+    pluginFirst: trial,
+  });
 };

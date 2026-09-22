@@ -19,6 +19,24 @@ describe('YoutubeHealth', () => {
     expect(health.ladder({ resolver: false }, 1000)).toEqual(['plugin', 'soundcloud']);
   });
 
+  it('serves plugin-first order in trial mode while keeping the down-state shape', () => {
+    const health = new YoutubeHealth();
+    expect(health.ladder({ resolver: true, pluginFirst: true }, 1000)).toEqual([
+      'plugin',
+      'resolver',
+      'soundcloud',
+    ]);
+    // Down state still degrades to resolver → soundcloud (no plugin probe leak).
+    const outage = { message: 'This video requires login.' };
+    health.recordFailure('a - x', outage, 0);
+    health.recordFailure('b - y', outage, 1);
+    health.recordFailure('c - z', outage, 2);
+    expect(health.ladder({ resolver: true, pluginFirst: true }, 3)).toEqual([
+      'resolver',
+      'soundcloud',
+    ]);
+  });
+
   it('drops the plugin rung when disabled (Home without HOME_PLUGIN_RUNG)', () => {
     const health = new YoutubeHealth();
     expect(health.ladder({ resolver: true, plugin: false }, 1000)).toEqual(['resolver', 'soundcloud']);

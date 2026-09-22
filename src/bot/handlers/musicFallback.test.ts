@@ -370,14 +370,17 @@ describe('resolver rung exclusion for local tracks', () => {
 });
 
 describe('HOME_PLUGIN_RUNG flag', () => {
-  const withEnv = async (rung: string | undefined) => {
+  const withEnv = async (rung: string | undefined, ladderMode?: string) => {
     const savedUrl = process.env.HOME_RESOLVER_URL;
     const savedToken = process.env.HOME_RESOLVER_TOKEN;
     const savedRung = process.env.HOME_PLUGIN_RUNG;
+    const savedMode = process.env.HOME_LADDER_MODE;
     process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
     process.env.HOME_RESOLVER_TOKEN = 'tok';
     if (rung === undefined) delete process.env.HOME_PLUGIN_RUNG;
     else process.env.HOME_PLUGIN_RUNG = rung;
+    if (ladderMode === undefined) delete process.env.HOME_LADDER_MODE;
+    else process.env.HOME_LADDER_MODE = ladderMode;
     try {
       const { healthFor, ladderFor } = await import('@bot/services/music/youtubeHealth');
       healthFor('Home').recordSuccess();
@@ -389,6 +392,8 @@ describe('HOME_PLUGIN_RUNG flag', () => {
       else process.env.HOME_RESOLVER_TOKEN = savedToken;
       if (savedRung === undefined) delete process.env.HOME_PLUGIN_RUNG;
       else process.env.HOME_PLUGIN_RUNG = savedRung;
+      if (savedMode === undefined) delete process.env.HOME_LADDER_MODE;
+      else process.env.HOME_LADDER_MODE = savedMode;
       const { healthFor } = await import('@bot/services/music/youtubeHealth');
       healthFor('Home').recordSuccess();
     }
@@ -400,6 +405,55 @@ describe('HOME_PLUGIN_RUNG flag', () => {
 
   it('restores the plugin rung with HOME_PLUGIN_RUNG=on', async () => {
     expect(await withEnv('on')).toEqual(['resolver', 'plugin', 'soundcloud']);
+  });
+
+  it('forces plugin-first order with HOME_LADDER_MODE=plugin-first-test', async () => {
+    // Trial rung wins even when HOME_PLUGIN_RUNG is off/unset.
+    expect(await withEnv(undefined, 'plugin-first-test')).toEqual([
+      'plugin',
+      'resolver',
+      'soundcloud',
+    ]);
+    expect(await withEnv('off', 'plugin-first-test')).toEqual([
+      'plugin',
+      'resolver',
+      'soundcloud',
+    ]);
+  });
+
+  it('ignores any other HOME_LADDER_MODE value', async () => {
+    expect(await withEnv(undefined, 'resolver-first')).toEqual(['resolver', 'soundcloud']);
+  });
+
+  it('still skips the plugin rung on outage errors when trial puts it first', async () => {
+    const savedMode = process.env.HOME_LADDER_MODE;
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_LADDER_MODE = 'plugin-first-test';
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    try {
+      const { healthFor, ladderFor, YoutubeHealth } = await import(
+        '@bot/services/music/youtubeHealth'
+      );
+      healthFor('Home').recordSuccess();
+      const full = ladderFor({ node: { identifier: 'Home' } });
+      expect(full).toEqual(['plugin', 'resolver', 'soundcloud']);
+      // Same filter as findAlternatePlayableTrack: a plugin outage failure
+      // falls through to resolver in the same call, no second track start.
+      const outage = { message: 'This video requires login.' };
+      const rungs = full.filter((r) => !(YoutubeHealth.isOutage(outage) && r === 'plugin'));
+      expect(rungs).toEqual(['resolver', 'soundcloud']);
+    } finally {
+      if (savedMode === undefined) delete process.env.HOME_LADDER_MODE;
+      else process.env.HOME_LADDER_MODE = savedMode;
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+      const { healthFor } = await import('@bot/services/music/youtubeHealth');
+      healthFor('Home').recordSuccess();
+    }
   });
 
   it('never gates public nodes', async () => {
