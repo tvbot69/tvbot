@@ -861,11 +861,11 @@ describe('resolve artwork backfill', () => {
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/backfilled.jpg');
   });
 
-  it('skips the lookup when Spotify art is present (adoption covers it)', async () => {
+  it('stamps Spotify art at resolve time and skips the lookup', async () => {
     const { svc, getTrackCoverUrl } = makeArtSvc();
     const res = await svc.resolvePlaylistTrack(player, { ...spTrack, artworkUrl: 'https://img.test/sp.jpg' });
     expect(getTrackCoverUrl).not.toHaveBeenCalled();
-    expect(res?.lavalinkTrack.artworkUrl).toBeUndefined();
+    expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/sp.jpg');
   });
 
   it('skips the lookup when the raw track already has art', async () => {

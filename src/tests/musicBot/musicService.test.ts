@@ -319,6 +319,64 @@ describe('MusicService', () => {
     expect(res.errorReason).toBeUndefined();
   });
 
+  it('replaces the YouTube thumbnail with backfilled art for scraper playlists without covers', async () => {
+    const searchMock = mockMoonlinkManager.getManager().search as unknown as ReturnType<typeof vi.fn>;
+    searchMock.mockResolvedValueOnce({
+      loadType: 'track',
+      tracks: [
+        {
+          title: 'Lelly Yah',
+          author: 'Marwan Pablo',
+          duration: 189000,
+          uri: 'https://youtube.com/watch?v=scraperyt',
+          identifier: 'scraperyt',
+          artworkUrl: 'https://i.ytimg.com/vi/scraperyt/default.jpg',
+        },
+      ],
+    });
+    (mockSpotifyResolver.isSpotifyUrl as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (mockSpotifyResolver.resolve as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      type: 'playlist',
+      title: 'Scraper Mix',
+      totalTracks: 1,
+      tracks: [
+        {
+          name: 'Lelly Yah',
+          artist: 'Marwan Pablo',
+          durationMs: 189000,
+          searchQuery: 'Marwan Pablo - Lelly Yah',
+          artworkUrl: undefined,
+          spotifyUri: 'https://open.spotify.com/track/scrapermix',
+        },
+      ],
+    });
+    const artService = {
+      getTrackCoverUrl: vi.fn(async () => 'https://cdn.example.com/art.jpg'),
+      getTrackCoverBySpotifyId: vi.fn(async () => null),
+    };
+    const svcWithArt = new MusicService(
+      mockMoonlinkManager,
+      mockSpotifyResolver,
+      queueService,
+      undefined,
+      artService as never,
+    );
+    const addMock = mockPlayer.queue.add as unknown as ReturnType<typeof vi.fn>;
+    addMock.mockClear();
+
+    const res = await svcWithArt.play(
+      '123456789',
+      'vc-1',
+      'tc-1',
+      'https://open.spotify.com/playlist/scrapermix',
+      { id: 'user-1', tag: 'TestUser' },
+    );
+
+    expect(res.loadType).toBe('spotify_playlist');
+    const queued = addMock.mock.calls[addMock.mock.calls.length - 1]?.[0] as { artworkUrl?: string };
+    expect(queued?.artworkUrl).toBe('https://cdn.example.com/art.jpg');
+  });
+
   it('does NOT query Spotify or overwrite track metadata when a direct YouTube URL is played', async () => {
     vi.clearAllMocks();
     const res = await musicService.play(

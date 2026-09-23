@@ -225,6 +225,15 @@ export class MusicService {
         transportFailed = true;
       }
     }
+    if (ytHit) {
+      // Artwork pre-clean (single choke point): stamp a known-good cover, or
+      // drop a raw YouTube thumbnail so the backfill cascade below fills real
+      // (Spotify-first) art instead of skipping on the wrong image. Without
+      // this, scraper playlists (no per-track covers) inherit YouTube thumbs
+      // permanently: adoption skips missing art AND backfill skips present art.
+      if (meta?.artworkUrl) ytHit.artworkUrl = meta.artworkUrl;
+      else if (MusicService.isYoutubeThumb(ytHit.artworkUrl)) ytHit.artworkUrl = null;
+    }
     for (const rung of rungs) {
       if (rung === 'soundcloud') {
         try {
@@ -249,6 +258,15 @@ export class MusicService {
     found: { track: Track; rung: Rung } | { transportError: true } | null,
   ): found is { transportError: true } {
     return !!found && 'transportError' in found;
+  }
+
+  /** True for raw YouTube-family thumbnails (never correct on adopted tracks). */
+  private static isYoutubeThumb(url: string | null | undefined): boolean {
+    if (!url) return false;
+    const host = url.split('/')[2] ?? '';
+    return (
+      host === 'i.ytimg.com' || host.endsWith('.ytimg.com') || host === 'yt3.ggpht.net' || host === 'lh3.googleusercontent.com'
+    );
   }
 
   private async tryResolverTrack(player: Player, ytTrack: Track, meta?: ResolverMeta): Promise<Track | null> {
@@ -378,6 +396,7 @@ export class MusicService {
           const swapped = await this.searchTrackWithLadder(player, scQuery, trackOverride ? {
             title: trackOverride.title,
             artist: trackOverride.author,
+            artworkUrl: trackOverride.artworkUrl,
           } : undefined);
           if (!swapped) {
             return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
@@ -411,6 +430,7 @@ export class MusicService {
       const found = await this.searchTrackWithLadder(player, trimmedQuery, trackOverride ? {
         title: trackOverride.title,
         artist: trackOverride.author,
+        artworkUrl: trackOverride.artworkUrl,
       } : undefined);
       if (!found) {
         return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
@@ -534,6 +554,7 @@ export class MusicService {
       const found = await this.searchTrackWithLadder(player, spotifyTrack.searchQuery, {
         title: trackOverride?.title || spotifyTrack.name,
         artist: trackOverride?.author || spotifyTrack.artist,
+        artworkUrl: trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
       });
 
       if (!found) {
@@ -552,6 +573,10 @@ export class MusicService {
       }
 
       const chosenTrack = found.track;
+      this.adoptSpotifyTrack(chosenTrack, spotifyTrack, found.rung, requester, spotifyUrl, trackOverride);
+      // Backfill AFTER adoption: adoption clears the raw YouTube thumbnail
+      // when Spotify has no cover, so the cascade can fill real artwork
+      // instead of skipping on the wrong image.
       await this.maybeBackfillArt(
         chosenTrack,
         trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
@@ -560,28 +585,12 @@ export class MusicService {
         MusicService.ARTWORK_TIMEOUT_MS,
         spotifyTrack.spotifyUri,
       );
-      chosenTrack.requester = requester;
-      chosenTrack.title = trackOverride?.title || spotifyTrack.name;
-      chosenTrack.author = trackOverride?.author || spotifyTrack.artist;
-      const finalArtwork = trackOverride?.artworkUrl || spotifyTrack.artworkUrl;
-      if (finalArtwork) {
-        chosenTrack.artworkUrl = finalArtwork;
-      }
-      chosenTrack.uri = spotifyUriToUrl(spotifyTrack.spotifyUri) || spotifyUrl;
-      const trackRecord = chosenTrack as unknown as Record<string, unknown>;
-      const backend = found.rung === 'resolver' ? 'local' : 'spotify';
-      const finalSource = trackOverride?.source || backend;
-      trackRecord.sourceName = finalSource;
-      trackRecord.source = finalSource;
-      if (finalArtwork) {
-        trackRecord.artworkUrl = finalArtwork;
-      }
       player.queue.add(chosenTrack);
 
       const domainTrack = mapMoonlinkTrack(chosenTrack, requester);
       domainTrack.source = 'spotify';
-      if (finalArtwork) {
-        domainTrack.artworkUrl = finalArtwork;
+      if (trackOverride?.artworkUrl) {
+        domainTrack.artworkUrl = trackOverride.artworkUrl;
       }
 
       if (!player.playing && !player.paused) {
@@ -604,6 +613,7 @@ export class MusicService {
     const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery, {
       title: firstTrack.name,
       artist: firstTrack.artist,
+      artworkUrl: firstTrack.artworkUrl,
     });
     if (firstFound && MusicService.isTransportError(firstFound)) {
       return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
@@ -782,7 +792,9 @@ export class MusicService {
    * Stamps Spotify display metadata onto a resolved Lavalink track. The
    * moonlink track keeps its true backend label ('local' for resolver
    * output) so failure handling routes correctly; the display model keeps
-   * the familiar 'spotify' badge.
+   * the familiar 'spotify' badge. Artwork correctness is handled upstream
+   * (searchTrackWithLadder pre-cleans YouTube thumbnails), so a plain
+   * conditional stamp here can never resurrect a wrong image.
    */
   private adoptSpotifyTrack(
     lavalinkTrack: Track,
@@ -951,6 +963,7 @@ export class MusicService {
     const found = await this.searchTrackWithLadder(player, spTrack.searchQuery, {
       title: spTrack.name,
       artist: spTrack.artist,
+      artworkUrl: spTrack.artworkUrl,
     });
     if (!found || MusicService.isTransportError(found)) return null;
     // Background-only path (topUpPending): generous art timeout, nobody waits.

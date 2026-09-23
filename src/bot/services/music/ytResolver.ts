@@ -97,6 +97,8 @@ export const resolverEnabled = (): boolean =>
 export interface ResolverMeta {
   title?: string;
   artist?: string;
+  /** Known-good cover (e.g. Spotify album art) for artwork pre-cleaning. */
+  artworkUrl?: string;
 }
 
 export async function resolveViaHome(id: string, meta?: ResolverMeta): Promise<string | null> {
