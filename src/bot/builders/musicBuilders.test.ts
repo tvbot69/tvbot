@@ -3,18 +3,18 @@ import { describe, it, expect } from 'vitest';
 import { MusicBuilders } from './musicBuilders';
 
 describe('buildLyricSection', () => {
-  it('renders current big plus next small (V2)', () => {
+  it('renders current plus next line', () => {
     expect(MusicBuilders.buildLyricSection({ current: 'Hello', next: 'Is it me' })).toBe(
-      '## Hello\n-# Is it me',
+      '🎤 **Hello**\nIs it me',
     );
   });
 
   it('omits the next line when the song ends', () => {
-    expect(MusicBuilders.buildLyricSection({ current: 'Goodbye', next: null })).toBe('## Goodbye');
+    expect(MusicBuilders.buildLyricSection({ current: 'Goodbye', next: null })).toBe('🎤 **Goodbye**');
   });
 
   it('shows the upcoming line before the first timestamp', () => {
-    expect(MusicBuilders.buildLyricSection({ current: null, next: 'Hello' })).toBe('-# Hello');
+    expect(MusicBuilders.buildLyricSection({ current: null, next: 'Hello' })).toBe('🎤 ♪\nHello');
   });
 
   it('returns null when nothing is singable', () => {

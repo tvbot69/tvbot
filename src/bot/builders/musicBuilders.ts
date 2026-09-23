@@ -185,22 +185,20 @@ export class MusicBuilders {
    * minimalist metadata with live progress bar, and integrated playback controls.
    */
   /**
-   * Karaoke section for the Now Playing card: the line being sung, big, plus
-   * the next line small beneath it. The `v2` variant uses Components-V2-only
-   * markdown (header + subtext sizing); the legacy variant sticks to
-   * embed-safe bold/italic. Returns null when there is nothing singable.
+   * Karaoke section for the Now Playing card: the line being sung plus the
+   * next line, compact. The legacy variant uses embed-safe italic for the
+   * next line. Returns null when there is nothing singable.
    */
   public static buildLyricSection(
     lyricWindow?: { current: string | null; next: string | null } | null,
     v2: boolean = true,
   ): string | null {
     if (!lyricWindow || (lyricWindow.current === null && lyricWindow.next === null)) return null;
+    const head = lyricWindow.current ? `**${lyricWindow.current}**` : '♪';
     if (!v2) {
-      const head = lyricWindow.current ? `**${lyricWindow.current}**` : '♪';
       return lyricWindow.next ? `🎤 ${head}\n*${lyricWindow.next}*` : `🎤 ${head}`;
     }
-    if (lyricWindow.current === null) return `-# ${lyricWindow.next}`;
-    return lyricWindow.next ? `## ${lyricWindow.current}\n-# ${lyricWindow.next}` : `## ${lyricWindow.current}`;
+    return lyricWindow.next ? `🎤 ${head}\n${lyricWindow.next}` : `🎤 ${head}`;
   }
 
   public static buildNowPlayingResponse(
@@ -272,9 +270,6 @@ export class MusicBuilders {
         new MediaGalleryItemBuilder().setURL(current.artworkUrl),
       );
       container.addMediaGalleryComponents(gallery);
-      container.addSeparatorComponents(
-        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true),
-      );
     }
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(header));
