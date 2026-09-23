@@ -475,7 +475,8 @@ describe('MusicService', () => {
 
     const ok = await musicService.setFilter('123456789', 'bassboost', true);
 
-    expect(ok).toBe(true);
+    expect(ok.applied).toBe(true);
+    expect(ok.replaced).toEqual([]);
     expect(filters.define).toHaveBeenCalledWith('bassboost', expect.anything());
     expect(filters.enable).toHaveBeenCalledWith('bassboost');
   });
@@ -488,7 +489,25 @@ describe('MusicService', () => {
 
     const ok = await musicService.setFilter('123456789', 'nightcore', true);
 
-    expect(ok).toBe(false);
+    expect(ok.applied).toBe(false);
+  });
+
+  it('switches EQ presets instead of stacking them', async () => {
+    const filters = mockPlayer.filters as unknown as {
+      define: ReturnType<typeof vi.fn>;
+      enable: ReturnType<typeof vi.fn>;
+      disable: ReturnType<typeof vi.fn>;
+      enabled: string[];
+    };
+    filters.disable.mockClear();
+    (mockPlayer.filters as unknown as { enabled: string[] }).enabled = ['bassboost'];
+
+    const ok = await musicService.setFilter('123456789', 'audiophile', true);
+
+    expect(ok.applied).toBe(true);
+    expect(ok.replaced).toEqual(['bassboost']);
+    expect(filters.disable).toHaveBeenCalledWith('bassboost');
+    expect(filters.enable).toHaveBeenCalledWith('audiophile');
   });
 });
 

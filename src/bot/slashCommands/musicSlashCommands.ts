@@ -531,14 +531,15 @@ export class MusicSlashCommands implements ISlashCommandModule {
     }
 
     const isCurrentlyActive = queue.activeFilters.includes(filterName);
-    const applied = await this.musicService.setFilter(ctx.guildId, filterName, !isCurrentlyActive);
-    if (!applied) {
+    const result = await this.musicService.setFilter(ctx.guildId, filterName, !isCurrentlyActive);
+    if (!result.applied) {
       return GenericEmbedService.buildCommandErrorResponse(CommandResponse.Error, `Couldn't apply **${filterName}** on the audio node. Try again in a few seconds.`);
     }
+    const replacedNote = result.replaced.length > 0 ? ` (replaced ${result.replaced.map((f) => `**${f}**`).join(', ')})` : '';
 
     return MusicBuilders.buildSimpleResponse(
       '🎛️ Filter Toggled',
-      `Filter **${filterName}** is now **${!isCurrentlyActive ? 'ENABLED' : 'DISABLED'}**.`,
+      `Filter **${filterName}** is now **${!isCurrentlyActive ? 'ENABLED' : 'DISABLED'}**.${replacedNote}`,
       accentColor,
     );
   }

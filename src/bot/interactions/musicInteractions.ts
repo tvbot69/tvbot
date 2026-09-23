@@ -393,10 +393,15 @@ export class MusicInteractions {
       }
 
       const isCurrentlyEnabled = queue.activeFilters.includes(selectedFilter);
-      const applied = await this.musicService.setFilter(guildId, selectedFilter, !isCurrentlyEnabled);
-      if (!applied) {
+      const result = await this.musicService.setFilter(guildId, selectedFilter, !isCurrentlyEnabled);
+      if (!result.applied) {
         await interaction.followUp({
           content: `Couldn't apply **${selectedFilter}** on the audio node. Try again in a few seconds.`,
+          ephemeral: true,
+        }).catch(() => undefined);
+      } else if (result.replaced.length > 0) {
+        await interaction.followUp({
+          content: `**${selectedFilter}** on, ${result.replaced.map((f) => `**${f}**`).join(', ')} off (EQ presets don't stack).`,
           ephemeral: true,
         }).catch(() => undefined);
       }

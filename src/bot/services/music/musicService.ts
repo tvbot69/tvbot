@@ -123,6 +123,15 @@ export class MusicService {
     }
   }
 
+  /**
+   * Equalizer presets are mutually exclusive: Moonlink CONCATENATES the band
+   * arrays of every active EQ filter (30 entries for two presets), which
+   * Lavalink resolves unpredictably — in practice, mud. Enabling one EQ
+   * preset silently switches the other off. All other DSP blocks combine
+   * cleanly and stay stackable.
+   */
+  private static readonly EQ_EXCLUSIVE_GROUP: FilterName[] = ['bassboost', 'audiophile'];
+
   constructor(
     moonlinkManager: MoonlinkManager,
     spotifyResolver: SpotifyResolver,
@@ -201,7 +210,17 @@ export class MusicService {
         }
       }
       if (prefs.filters.length > 0) {
-        for (const filter of prefs.filters) {
+        // Sanitize: settings saved while EQ presets could stack may hold
+        // both bassboost and audiophile — keep the most recent (last).
+        const eqSeen = new Set<FilterName>();
+        const sanitized = [...prefs.filters].reverse().filter((f) => {
+          if ((MusicService.EQ_EXCLUSIVE_GROUP as string[]).includes(f)) {
+            if (eqSeen.size > 0) return false;
+            eqSeen.add(f as FilterName);
+          }
+          return true;
+        }).reverse();
+        for (const filter of sanitized) {
           try {
             this.ensureFilterDefined(player, filter as FilterName);
             player.filters.enable(filter as Parameters<typeof player.filters.enable>[0]);
@@ -1122,34 +1141,52 @@ export class MusicService {
     return clamped;
   }
 
-  public async setFilter(guildId: string, filter: FilterName, enabled: boolean): Promise<boolean> {
+  public async setFilter(
+    guildId: string,
+    filter: FilterName,
+    enabled: boolean,
+  ): Promise<{ applied: boolean; replaced: FilterName[] }> {
+    const none = { applied: false, replaced: [] as FilterName[] };
     const player = this.getPlayer(guildId);
-    if (!player) return false;
+    if (!player) return none;
 
+    const replaced: FilterName[] = [];
     if (enabled) {
       this.ensureFilterDefined(player, filter);
+      if (MusicService.EQ_EXCLUSIVE_GROUP.includes(filter)) {
+        for (const other of MusicService.EQ_EXCLUSIVE_GROUP) {
+          if (other !== filter && player.filters.enabled.includes(other)) {
+            try {
+              player.filters.disable(other);
+              replaced.push(other);
+            } catch {
+              // ignore — enable below decides
+            }
+          }
+        }
+      }
       try {
         player.filters.enable(filter);
       } catch (err) {
         Logger.warn({ err, guildId, filter }, '[Music] Enable filter failed');
-        return false;
+        return { applied: false, replaced };
       }
     } else {
       try {
         player.filters.disable(filter);
       } catch (err) {
         Logger.warn({ err, guildId, filter }, '[Music] Disable filter failed');
-        return false;
+        return { applied: false, replaced };
       }
     }
     try {
       await player.filters.apply();
     } catch (err) {
       Logger.warn({ err, guildId, filter }, '[Music] Apply filters failed');
-      return false;
+      return { applied: false, replaced };
     }
     this.queueService.saveSettings(guildId, { filters: [...player.filters.enabled] });
-    return true;
+    return { applied: true, replaced };
   }
 
   public async clearFilters(guildId: string): Promise<boolean> {
