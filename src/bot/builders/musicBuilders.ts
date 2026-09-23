@@ -498,6 +498,19 @@ export class MusicBuilders {
     return response;
   }
 
+  /** One-line effect per filter, shown in the panel and select menu. */
+  private static readonly FILTER_DESCRIPTIONS: Record<FilterName, string> = {
+    bassboost: 'Deep low-end lift',
+    nightcore: 'Sped up and pitched',
+    vaporwave: 'Slowed and pitched down',
+    karaoke: 'Vocals removed',
+    tremolo: 'Volume wobble',
+    vibrato: 'Pitch wobble',
+    rotation: '8D spinning pan',
+    distortion: 'Gritty saturation',
+    lowpass: 'Muffled highs',
+  };
+
   public static buildFiltersResponse(
     activeFilters: string[],
     accentColor?: number,
@@ -505,27 +518,28 @@ export class MusicBuilders {
     const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
-    let desc = '**Active Audio Filters:**\n';
-    if (activeFilters.length === 0) {
-      desc += '*(No filters active — standard audio)*\n\n';
-    } else {
-      desc += activeFilters.map((f) => `✅ \`${f}\``).join(', ') + '\n\n';
-    }
-
-    desc += 'Select a filter below to toggle it on or off:';
+    const lines = ALL_FILTERS.map((f: FilterName) => {
+      const on = activeFilters.includes(f);
+      const label = f.charAt(0).toUpperCase() + f.slice(1);
+      return `${on ? '🟢' : '⚪'} **${label}** — ${MusicBuilders.FILTER_DESCRIPTIONS[f]}${on ? ' *(on)*' : ''}`;
+    });
+    const desc =
+      activeFilters.length === 0
+        ? 'Standard audio — nothing applied.\n\n'
+        : `**${activeFilters.length} active:** ${activeFilters.map((f) => `\`${f}\``).join(', ')}\n\n`;
 
     response.embed
       .setTitle('🎛️ Audio Filters')
-      .setDescription(desc)
-      .setFooter({ text: 'Select a filter from the menu below' });
+      .setDescription(desc + lines.join('\n'))
+      .setFooter({ text: 'Pick from the menu to toggle • Reset clears everything' });
 
     const options = ALL_FILTERS.map((f: FilterName) => {
       const isEnabled = activeFilters.includes(f);
       return new StringSelectMenuOptionBuilder()
         .setLabel(f.charAt(0).toUpperCase() + f.slice(1))
         .setValue(f)
-        .setDescription(isEnabled ? 'Currently ENABLED (click to disable)' : 'Currently DISABLED (click to enable)')
-        .setEmoji(isEnabled ? '✅' : '⚪');
+        .setDescription(`${MusicBuilders.FILTER_DESCRIPTIONS[f]} — ${isEnabled ? 'tap to turn off' : 'tap to turn on'}`)
+        .setEmoji(isEnabled ? '🟢' : '⚪');
     });
 
     const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(

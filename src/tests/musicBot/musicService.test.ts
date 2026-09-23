@@ -45,6 +45,7 @@ describe('MusicService', () => {
     },
     filters: {
       enabled: ['bassboost'],
+      define: vi.fn(),
       enable: vi.fn(),
       disable: vi.fn(),
       clear: vi.fn(),
@@ -319,8 +320,7 @@ describe('MusicService', () => {
     expect(res.errorReason).toBeUndefined();
   });
 
-  it('replaces the YouTube thumbnail with backfilled art for scraper playlists without covers', async () => {
-    const searchMock = mockMoonlinkManager.getManager().search as unknown as ReturnType<typeof vi.fn>;
+  it('replaces the YouTube thumbnail with backfilled art for scraper playlists without covers', async () => {    const searchMock = mockMoonlinkManager.getManager().search as unknown as ReturnType<typeof vi.fn>;
     searchMock.mockResolvedValueOnce({
       loadType: 'track',
       tracks: [
@@ -462,6 +462,33 @@ describe('MusicService', () => {
     // Keeps the original title and does not adopt "Mo City Don"
     expect(res.track?.title).not.toBe('Mo City Don');
     expect(res.track?.artworkUrl).not.toBe('https://spotify.com/zro.jpg');
+  });
+
+  it('defines and enables custom filters missing from Moonlink builtins', async () => {
+    const filters = mockPlayer.filters as unknown as {
+      define: ReturnType<typeof vi.fn>;
+      enable: ReturnType<typeof vi.fn>;
+      apply: ReturnType<typeof vi.fn>;
+    };
+    filters.define.mockClear();
+    filters.enable.mockClear();
+
+    const ok = await musicService.setFilter('123456789', 'bassboost', true);
+
+    expect(ok).toBe(true);
+    expect(filters.define).toHaveBeenCalledWith('bassboost', expect.anything());
+    expect(filters.enable).toHaveBeenCalledWith('bassboost');
+  });
+
+  it('reports failure instead of throwing when the node rejects a filter', async () => {
+    const filters = mockPlayer.filters as unknown as {
+      apply: ReturnType<typeof vi.fn>;
+    };
+    filters.apply.mockRejectedValueOnce(new Error('Bad Request'));
+
+    const ok = await musicService.setFilter('123456789', 'nightcore', true);
+
+    expect(ok).toBe(false);
   });
 });
 

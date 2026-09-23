@@ -70,6 +70,47 @@ export class MusicService {
   private readonly artWarmKeys = new Set<string>();
   private readonly artworkService?: ArtworkService;
 
+  /**
+   * Custom definitions for our FilterNames that Moonlink does NOT ship
+   * built in (it only has nightcore/vaporwave/karaoke of ours — the rest
+   * throw `Filter does not exist` on enable). Registered per player via
+   * ensureFilterDefined before every enable, so toggles, restores, and
+   * interaction retries all work. Values are standard audible Lavalink
+   * shapes; distortion starts mild — ear-test before pushing further.
+   */
+  private static readonly FILTER_DEFINITIONS: Partial<Record<FilterName, Record<string, unknown>>> = {
+    bassboost: {
+      equalizer: [
+        { band: 0, gain: 0.6 }, { band: 1, gain: 0.5 }, { band: 2, gain: 0.4 },
+        { band: 3, gain: 0.2 }, { band: 4, gain: 0 }, { band: 5, gain: 0 },
+        { band: 6, gain: 0 }, { band: 7, gain: 0 }, { band: 8, gain: 0 },
+        { band: 9, gain: 0 }, { band: 10, gain: 0 }, { band: 11, gain: 0 },
+        { band: 12, gain: 0 }, { band: 13, gain: 0 }, { band: 14, gain: 0 },
+      ],
+    },
+    tremolo: { tremolo: { frequency: 2.0, depth: 0.5 } },
+    vibrato: { vibrato: { frequency: 4.0, depth: 0.5 } },
+    rotation: { rotation: { rotationHz: 0.2 } },
+    distortion: {
+      distortion: {
+        sinOffset: 0, sinScale: 1.5, cosOffset: 0, cosScale: 0.8,
+        tanOffset: 0, tanScale: 0.5, offset: 0, scale: 1,
+      },
+    },
+    lowpass: { lowPass: { smoothing: 20.0 } },
+  };
+
+  /** Registers our custom definition on the player (idempotent, silent). */
+  private ensureFilterDefined(player: Player, filter: FilterName): void {
+    const def = MusicService.FILTER_DEFINITIONS[filter];
+    if (def === undefined) return;
+    try {
+      player.filters.define(filter, def as never);
+    } catch {
+      // Already defined or client without custom support — enable decides.
+    }
+  }
+
   constructor(
     moonlinkManager: MoonlinkManager,
     spotifyResolver: SpotifyResolver,
@@ -150,6 +191,7 @@ export class MusicService {
       if (prefs.filters.length > 0) {
         for (const filter of prefs.filters) {
           try {
+            this.ensureFilterDefined(player, filter as FilterName);
             player.filters.enable(filter as Parameters<typeof player.filters.enable>[0]);
           } catch {
             // ignore unknown filter names
@@ -1073,11 +1115,27 @@ export class MusicService {
     if (!player) return false;
 
     if (enabled) {
-      player.filters.enable(filter);
+      this.ensureFilterDefined(player, filter);
+      try {
+        player.filters.enable(filter);
+      } catch (err) {
+        Logger.warn({ err, guildId, filter }, '[Music] Enable filter failed');
+        return false;
+      }
     } else {
-      player.filters.disable(filter);
+      try {
+        player.filters.disable(filter);
+      } catch (err) {
+        Logger.warn({ err, guildId, filter }, '[Music] Disable filter failed');
+        return false;
+      }
     }
-    await player.filters.apply();
+    try {
+      await player.filters.apply();
+    } catch (err) {
+      Logger.warn({ err, guildId, filter }, '[Music] Apply filters failed');
+      return false;
+    }
     this.queueService.saveSettings(guildId, { filters: [...player.filters.enabled] });
     return true;
   }

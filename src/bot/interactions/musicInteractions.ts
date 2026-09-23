@@ -368,7 +368,13 @@ export class MusicInteractions {
       }
 
       const isCurrentlyEnabled = queue.activeFilters.includes(selectedFilter);
-      await this.musicService.setFilter(guildId, selectedFilter, !isCurrentlyEnabled);
+      const applied = await this.musicService.setFilter(guildId, selectedFilter, !isCurrentlyEnabled);
+      if (!applied) {
+        await interaction.followUp({
+          content: `Couldn't apply **${selectedFilter}** on the audio node. Try again in a few seconds.`,
+          ephemeral: true,
+        }).catch(() => undefined);
+      }
 
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       const activeFilters = updatedQueue?.activeFilters ?? [];

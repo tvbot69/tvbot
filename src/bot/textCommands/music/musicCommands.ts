@@ -510,7 +510,10 @@ export class MusicCommands implements ITextCommandModule {
 
     const filterArg = args[0].toLowerCase();
     if (filterArg === 'clear' || filterArg === 'reset') {
-      await this.musicService.clearFilters(info.guildId);
+      const cleared = await this.musicService.clearFilters(info.guildId);
+      if (!cleared) {
+        return GenericEmbedService.buildCommandErrorResponse(CommandResponse.Error, 'No player is active to clear filters on.');
+      }
       return MusicBuilders.buildSimpleResponse('🎛️ Filters Cleared', 'All audio filters have been removed.', accentColor);
     }
 
@@ -522,7 +525,10 @@ export class MusicCommands implements ITextCommandModule {
 
     const filterName = filterArg as FilterName;
     const isCurrentlyActive = queue.activeFilters.includes(filterName);
-    await this.musicService.setFilter(info.guildId, filterName, !isCurrentlyActive);
+    const applied = await this.musicService.setFilter(info.guildId, filterName, !isCurrentlyActive);
+    if (!applied) {
+      return GenericEmbedService.buildCommandErrorResponse(CommandResponse.Error, `Couldn't apply **${filterName}** on the audio node. Try again in a few seconds.`);
+    }
 
     return MusicBuilders.buildSimpleResponse(
       '🎛️ Filter Toggled',

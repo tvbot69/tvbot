@@ -531,7 +531,10 @@ export class MusicSlashCommands implements ISlashCommandModule {
     }
 
     const isCurrentlyActive = queue.activeFilters.includes(filterName);
-    await this.musicService.setFilter(ctx.guildId, filterName, !isCurrentlyActive);
+    const applied = await this.musicService.setFilter(ctx.guildId, filterName, !isCurrentlyActive);
+    if (!applied) {
+      return GenericEmbedService.buildCommandErrorResponse(CommandResponse.Error, `Couldn't apply **${filterName}** on the audio node. Try again in a few seconds.`);
+    }
 
     return MusicBuilders.buildSimpleResponse(
       '🎛️ Filter Toggled',
