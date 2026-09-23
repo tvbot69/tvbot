@@ -1206,6 +1206,10 @@ export class MusicService {
     return nextState;
   }
 
+  public toggleKaraoke(guildId: string, enabled?: boolean): boolean {
+    return this.queueService.toggleKaraoke(guildId, enabled);
+  }
+
   public setLoop(guildId: string, mode: LoopMode): LoopMode | null {
     const player = this.getPlayer(guildId);
     if (!player) return null;

@@ -196,6 +196,12 @@ export class MusicSlashCommands implements ISlashCommandModule {
       },
       {
         data: new SlashCommandBuilder()
+          .setName('karaoke')
+          .setDescription('Toggle live synced lyrics on the Now Playing card'),
+        executeAsync: (ctx) => this.executeKaraoke(ctx),
+      },
+      {
+        data: new SlashCommandBuilder()
           .setName('autoplay')
           .setDescription('Toggle autoplay mode (automatically plays related songs)'),
         executeAsync: (ctx) => this.executeAutoplay(ctx),
@@ -600,6 +606,20 @@ export class MusicSlashCommands implements ISlashCommandModule {
       newState
         ? '24/7 mode is now **ENABLED**. The bot will remain in the voice channel indefinitely.'
         : '24/7 mode is now **DISABLED**. The bot will disconnect when the queue finishes.',
+    );
+  }
+
+  private async executeKaraoke(ctx: ContextModel): Promise<ResponseModel> {
+    if (!ctx.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('Must be in a server.');
+    }
+
+    const newState = this.musicService.toggleKaraoke(ctx.guildId);
+    return MusicBuilders.buildSimpleResponse(
+      '🎤 Live Lyrics',
+      newState
+        ? 'Live synced lyrics are now **ENABLED**. The Now Playing card follows along when timings exist for a song.'
+        : 'Live synced lyrics are now **DISABLED**. The Now Playing card stays clean.',
     );
   }
 

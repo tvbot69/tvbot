@@ -111,6 +111,11 @@ export class MusicCommands implements ITextCommandModule {
         executeAsync: (ctx, args) => this.lyricsAsync(ctx, args),
       },
       {
+        name: 'karaoke',
+        aliases: ['kara', 'syncedlyrics'],
+        executeAsync: (ctx, args) => this.karaokeAsync(ctx, args),
+      },
+      {
         name: 'join',
         aliases: ['summon', 'j'],
         executeAsync: (ctx) => this.joinAsync(ctx),
@@ -600,6 +605,27 @@ export class MusicCommands implements ITextCommandModule {
       newState
         ? '24/7 mode is now **ENABLED**. The bot will remain in the voice channel indefinitely.'
         : '24/7 mode is now **DISABLED**. The bot will disconnect when the queue finishes.',
+    );
+  }
+
+  private async karaokeAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+
+    let explicitState: boolean | undefined;
+    if (args[0]) {
+      const lower = args[0].toLowerCase();
+      if (['on', 'enable', 'true', '1'].includes(lower)) explicitState = true;
+      if (['off', 'disable', 'false', '0'].includes(lower)) explicitState = false;
+    }
+
+    const newState = this.musicService.toggleKaraoke(context.guildId, explicitState);
+    return MusicBuilders.buildSimpleResponse(
+      '🎤 Live Lyrics',
+      newState
+        ? 'Live synced lyrics are now **ENABLED**. The Now Playing card follows along when timings exist for a song.'
+        : 'Live synced lyrics are now **DISABLED**. The Now Playing card stays clean.',
     );
   }
 

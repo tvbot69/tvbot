@@ -8,6 +8,8 @@ import { MusicBuilders } from '@bot/builders/musicBuilders';
 import type { ColorService } from '@bot/services/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
+import type { LyricsService } from '@bot/services/music/lyricsService';
+import { lyricWindowAt, type LyricWindow, type SyncedLine } from '@bot/services/music/syncedLyrics';
 import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTrack';
 import { healthFor, ladderFor, YoutubeHealth, HOME_NODE } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome } from '@bot/services/music/ytResolver';
@@ -19,6 +21,7 @@ export class MusicHandler {
   private readonly colorService?: ColorService;
   private readonly voiceChannelStatusService?: VoiceChannelStatusService;
   private readonly botScrobblingService?: BotScrobblingService;
+  private readonly lyricsService?: LyricsService;
   private readonly emptyChannelTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly inactivityTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly updateIntervals = new Map<string, NodeJS.Timeout>();
@@ -32,6 +35,7 @@ export class MusicHandler {
     colorService?: ColorService,
     voiceChannelStatusService?: VoiceChannelStatusService,
     botScrobblingService?: BotScrobblingService,
+    lyricsService?: LyricsService,
   ) {
     this.client = client;
     this.moonlinkManager = moonlinkManager;
@@ -39,13 +43,54 @@ export class MusicHandler {
     this.colorService = colorService;
     this.voiceChannelStatusService = voiceChannelStatusService;
     this.botScrobblingService = botScrobblingService;
+    this.lyricsService = lyricsService;
 
     this.registerMoonlinkEvents();
     this.registerDiscordEvents();
   }
 
+  /**
+   * Karaoke window for the card at a playback position. Reads the synced
+   * lines stored at track start; honors the per-guild toggle. Null when
+   * disabled, missing, or nothing singable (card renders unchanged).
+   */
+  private lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
+    try {
+      if (!this.lyricsService) return null;
+      if (!this.queueService.isKaraokeEnabled(player.guildId)) return null;
+      const lines = player.get<SyncedLine[] | null>('karaokeLines');
+      if (!lines || lines.length === 0) return null;
+      return lyricWindowAt(lines, Math.max(0, positionMs));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resolves synced lines once per track start (bounded, never stalls the
+   * card) and stores them on the player for the updater ticks to reuse.
+   */
+  private async resolveKaraokeLines(player: Player, title: string, artist: string, durationMs: number): Promise<void> {
+    player.set('karaokeLines', null);
+    if (!this.lyricsService) return;
+    if (!this.queueService.isKaraokeEnabled(player.guildId)) return;
+    if (!title || !artist) return;
+    try {
+      const lines = await Promise.race([
+        this.lyricsService.getSyncedLyrics(title, artist, durationMs).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+      ]);
+      if (lines && lines.length > 0) player.set('karaokeLines', lines);
+    } catch {
+      // No synced lyrics — standard card without the section.
+    }
+  }
+
   private readonly progressFingerprints = new Map<string, string>();
-  private static readonly PROGRESS_UPDATE_MS = 15000;
+  // Karaoke cadence: 5s ticks re-evaluate the lyric window, but an edit only
+  // goes out when the fingerprint (track, state, 5s position bucket, lyric
+  // window) actually changed — quiet stretches cost zero edits.
+  private static readonly PROGRESS_UPDATE_MS = 5000;
   private readonly okTimers = new Map<string, NodeJS.Timeout>();
 
   private clearOkTimer(guildId: string): void {
@@ -68,7 +113,10 @@ export class MusicHandler {
 
         const queue = this.queueService.getQueueInfo(player);
         // Dirty check: skip the edit when nothing visible changed (same track,
-        // pause state, queue size, loop, volume, and 15s position bucket).
+        // pause state, queue size, loop, volume, 5s position bucket, and the
+        // karaoke window — lyrics advance the card between position buckets).
+        const lyricWindow = this.lyricWindowFor(player, queue.position);
+        const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
         const fingerprint = [
           queue.current?.identifier ?? queue.current?.uri ?? 'none',
           queue.isPaused ? 'p' : 'r',
@@ -76,6 +124,7 @@ export class MusicHandler {
           queue.loopMode,
           queue.volume,
           Math.floor(queue.position / MusicHandler.PROGRESS_UPDATE_MS),
+          lyricKey,
         ].join('|');
         if (this.progressFingerprints.get(player.guildId) === fingerprint) return;
 
@@ -104,7 +153,7 @@ export class MusicHandler {
         const accentColor = this.colorService
           ? await this.colorService.getAccentColorAsync(player.guildId, currentArtworkUrl)
           : undefined;
-        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor);
+        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow);
 
         await msg
           .edit(response.toMessagePayload() as unknown as Record<string, unknown>)
@@ -506,7 +555,12 @@ export class MusicHandler {
         const accentColor = this.colorService
           ? await this.colorService.getAccentColorAsync(player.guildId, currentTrack.artworkUrl)
           : undefined;
-        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor);
+        await this.resolveKaraokeLines(player, currentTrack.title, currentTrack.author, currentTrack.duration);
+        const response = MusicBuilders.buildNowPlayingResponse(
+          queue,
+          accentColor,
+          this.lyricWindowFor(player, 0),
+        );
 
         const payload = response.toMessagePayload();
         const sent = await (

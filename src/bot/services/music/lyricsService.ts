@@ -1,5 +1,6 @@
 import { singleton } from 'tsyringe';
 import { Logger } from '@domain/logger';
+import { selectSynced, type SyncedLine } from './syncedLyrics';
 
 export interface LyricsResult {
   title: string;
@@ -8,6 +9,8 @@ export interface LyricsResult {
   syncedLyrics?: string;
   instrumental: boolean;
   source?: 'lrclib' | 'genius';
+  /** Provider-reported track length in ms (LRCLIB only). */
+  durationMs?: number;
 }
 
 interface CacheEntry {
@@ -210,6 +213,7 @@ export class LyricsService {
     const isInstrumental = Boolean(data.instrumental);
     const plain = typeof data.plainLyrics === 'string' ? data.plainLyrics.trim() : '';
     const synced = typeof data.syncedLyrics === 'string' ? data.syncedLyrics.trim() : undefined;
+    const durationSec = typeof data.duration === 'number' ? data.duration : undefined;
 
     if (!plain && !isInstrumental) return null;
 
@@ -220,7 +224,23 @@ export class LyricsService {
       syncedLyrics: synced,
       instrumental: isInstrumental,
       source,
+      durationMs: durationSec !== undefined && durationSec > 0 ? Math.round(durationSec * 1000) : undefined,
     };
+  }
+
+  /**
+   * Timed lyric lines for the live karaoke card. Reuses the shared lyrics
+   * cache; applies the instrumental + wrong-version guards. Returns null
+   * when nothing singable exists — callers show the standard card instead.
+   */
+  public async getSyncedLyrics(title: string, artist: string, expectedDurationMs?: number): Promise<SyncedLine[] | null> {
+    try {
+      const result = await this.getLyrics(title, artist);
+      return selectSynced(result, expectedDurationMs);
+    } catch (err) {
+      Logger.debug({ err, title, artist }, 'Synced lyrics lookup failed');
+      return null;
+    }
   }
 
   /**

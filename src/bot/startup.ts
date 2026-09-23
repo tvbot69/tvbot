@@ -953,6 +953,7 @@ export const configureContainer = (): void => {
     colorService,
     voiceChannelStatusService,
     botScrobblingService,
+    lyricsService,
   );
   container.registerInstance(MusicHandler, musicHandler);
 

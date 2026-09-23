@@ -12,6 +12,12 @@ import { Logger } from '@domain/logger';
 export class QueueService {
   private readonly is247Guilds = new Set<string>();
   private readonly guildPrefs = new Map<string, GuildMusicPrefs>();
+  /**
+   * Live-lyrics opt-outs (in-memory only by design: a restart safely
+   * restores the default ON, so no migration is ever needed for a display
+   * nicety).
+   */
+  private readonly karaokeDisabled = new Set<string>();
   private readonly historyRepo: MusicHistoryRepository;
   private readonly settingsRepo?: GuildMusicSettingsRepository;
 
@@ -39,6 +45,17 @@ export class QueueService {
 
   public is247(guildId: string): boolean {
     return this.is247Guilds.has(guildId);
+  }
+
+  public isKaraokeEnabled(guildId: string): boolean {
+    return !this.karaokeDisabled.has(guildId);
+  }
+
+  public toggleKaraoke(guildId: string, enabled?: boolean): boolean {
+    const next = enabled ?? !this.isKaraokeEnabled(guildId);
+    if (next) this.karaokeDisabled.delete(guildId);
+    else this.karaokeDisabled.add(guildId);
+    return next;
   }
 
   public set247(guildId: string, enabled: boolean): void {

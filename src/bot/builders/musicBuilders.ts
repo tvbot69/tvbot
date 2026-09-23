@@ -184,9 +184,23 @@ export class MusicBuilders {
    * Single unified container: full-width hero media gallery on top, sleek divider,
    * minimalist metadata with live progress bar, and integrated playback controls.
    */
+  /**
+   * Karaoke section for the Now Playing card: the line being sung plus the
+   * next line. Returns null when there is nothing singable to show (keeps
+   * the card identical to the no-lyrics shape).
+   */
+  public static buildLyricSection(
+    lyricWindow?: { current: string | null; next: string | null } | null,
+  ): string | null {
+    if (!lyricWindow || (lyricWindow.current === null && lyricWindow.next === null)) return null;
+    const head = lyricWindow.current ? `**${lyricWindow.current}**` : '♪';
+    return lyricWindow.next ? `🎤 ${head}\n${lyricWindow.next}` : `🎤 ${head}`;
+  }
+
   public static buildNowPlayingResponse(
     queue: MusicQueueInfo,
     accentColor?: number,
+    lyricWindow?: { current: string | null; next: string | null } | null,
   ): ResponseModel {
     const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
@@ -256,6 +270,13 @@ export class MusicBuilders {
     }
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(desc));
+    const lyricSection = MusicBuilders.buildLyricSection(lyricWindow);
+    if (lyricSection) {
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true),
+      );
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lyricSection));
+    }
     container.addActionRowComponents(row0);
 
     response.setComponentsV2Container(container);
@@ -263,7 +284,7 @@ export class MusicBuilders {
     // Backward-compatible fallback embed & button row
     response.addButtonRow(0, row0 as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
     response.embed
-      .setDescription(desc);
+      .setDescription(lyricSection ? `${desc}\n\n${lyricSection}` : desc);
     if (current.artworkUrl) {
       response.embed.setImage(current.artworkUrl);
     }
