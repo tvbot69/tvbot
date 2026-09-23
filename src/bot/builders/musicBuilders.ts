@@ -509,6 +509,7 @@ export class MusicBuilders {
     rotation: '8D spinning pan',
     distortion: 'Gritty saturation',
     lowpass: 'Muffled highs',
+    audiophile: 'Studio-grade clarity',
   };
 
   public static buildFiltersResponse(

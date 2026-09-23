@@ -88,6 +88,18 @@ export class MusicService {
         { band: 12, gain: 0 }, { band: 13, gain: 0 }, { band: 14, gain: 0 },
       ],
     },
+    // Studio-style clarity curve: gentle sub-bass shelf, flat vocal mids,
+    // small harshness dip around 2.5k, airy top end. Deliberately modest
+    // gains — refinement, not a loudness trick.
+    audiophile: {
+      equalizer: [
+        { band: 0, gain: 0.25 }, { band: 1, gain: 0.2 }, { band: 2, gain: 0.15 },
+        { band: 3, gain: 0.05 }, { band: 4, gain: 0 }, { band: 5, gain: -0.05 },
+        { band: 6, gain: 0 }, { band: 7, gain: 0 }, { band: 8, gain: 0 },
+        { band: 9, gain: 0 }, { band: 10, gain: -0.1 }, { band: 11, gain: -0.05 },
+        { band: 12, gain: 0.1 }, { band: 13, gain: 0.2 }, { band: 14, gain: 0.15 },
+      ],
+    },
     tremolo: { tremolo: { frequency: 2.0, depth: 0.5 } },
     vibrato: { vibrato: { frequency: 4.0, depth: 0.5 } },
     rotation: { rotation: { rotationHz: 0.2 } },

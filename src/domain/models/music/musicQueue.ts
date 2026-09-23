@@ -11,7 +11,8 @@ export type FilterName =
   | 'vibrato'
   | 'rotation'
   | 'distortion'
-  | 'lowpass';
+  | 'lowpass'
+  | 'audiophile';
 
 export const ALL_FILTERS: FilterName[] = [
   'bassboost',
@@ -23,6 +24,7 @@ export const ALL_FILTERS: FilterName[] = [
   'rotation',
   'distortion',
   'lowpass',
+  'audiophile',
 ];
 
 export interface MusicQueueInfo {
