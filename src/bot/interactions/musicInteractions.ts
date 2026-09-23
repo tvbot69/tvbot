@@ -3,6 +3,7 @@ import {
   type StringSelectMenuInteraction,
   type InteractionUpdateOptions,
   GuildMember,
+  MessageFlags,
 } from 'discord.js';
 import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
 import { LyricsService } from '@bot/services/music/lyricsService';
@@ -24,6 +25,20 @@ export class MusicInteractions {
   private readonly musicService: MusicService;
   private readonly colorService: ColorService;
   private readonly lyricsService?: LyricsService;
+
+  /**
+   * True when the source message is already Components V2 (safe to update
+   * with a V2 card). Legacy messages must never be morphed into V2 via
+   * update — Discord rejects the mixed format (50035). Unknown shape reads
+   * as legacy (delete + followUp path) rather than risking the error.
+   */
+  private static isV2Message(message: ButtonInteraction['message']): boolean {
+    try {
+      return message.flags.has(MessageFlags.IsComponentsV2);
+    } catch {
+      return false;
+    }
+  }
 
   // Active search results per message/user (memory + Redis mirror so search
   // picks survive restarts; 2-minute life like before).
@@ -81,7 +96,16 @@ export class MusicInteractions {
         return;
       }
       const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor);
-      await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+      if (MusicInteractions.isV2Message(interaction.message)) {
+        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+      } else {
+        // Legacy message (filters panel, queue view) cannot morph into a
+        // Components V2 card via update — Discord rejects the mixed format.
+        // Swap the message instead: same card, no error, no clutter.
+        await interaction.deferUpdate().catch(() => undefined);
+        await interaction.message.delete().catch(() => undefined);
+        await interaction.followUp(response.toMessagePayload() as unknown as Parameters<ButtonInteraction['followUp']>[0]);
+      }
       return;
     }
 
@@ -148,12 +172,13 @@ export class MusicInteractions {
       return;
     }
 
-    // Filter: Reset All Filters
+    // Filter: Reset All Filters — refresh the panel in place (same legacy
+    // format, never morphs into a V2 card, so update always succeeds).
     if (customId === 'music:filter:reset') {
       await this.musicService.clearFilters(guildId);
       const queue = this.musicService.getQueueInfo(guildId);
       if (queue) {
-        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor);
+        const response = MusicBuilders.buildFiltersResponse(queue.activeFilters, accentColor);
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
         await interaction.deferUpdate();
