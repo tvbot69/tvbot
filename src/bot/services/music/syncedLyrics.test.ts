@@ -80,6 +80,23 @@ describe('lyricWindowAt', () => {
     expect(lyricWindowAt(lines, 999999)).toEqual({ current: 'Ooh', next: null });
   });
 
+  it('shifts the window back by the startup offset', () => {
+    // Clock reads 10s but audio only started ~3s ago: still on line one.
+    expect(lyricWindowAt(lines, 10000, 3000)).toEqual({
+      current: 'Is this the real life?',
+      next: 'Caught in a landslide',
+    });
+    // Without the offset the same clock already shows line two.
+    expect(lyricWindowAt(lines, 10000)).toEqual({
+      current: 'Caught in a landslide',
+      next: 'I see a little silhouetto',
+    });
+  });
+
+  it('clamps the offset lookup at zero', () => {
+    expect(lyricWindowAt(lines, 1000, 5000)).toEqual({ current: null, next: 'Is this the real life?' });
+  });
+
   it('returns null without lines', () => {
     expect(lyricWindowAt([], 5000)).toBeNull();
     expect(lyricWindowAt(null, 5000)).toBeNull();

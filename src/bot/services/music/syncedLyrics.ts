@@ -77,12 +77,22 @@ export function selectSynced(
  * Karaoke window at a playback position: the last started line (current)
  * plus the next non-empty line. Holds the last pair through instrumental
  * gaps instead of blanking; before the first line, current is null.
+ *
+ * `startupOffsetMs` compensates the node startup gap (card/clock starts at
+ * the trackStart event, audible audio follows seconds later while the
+ * stream connects). The lookup runs behind the clock by that amount so the
+ * shown line matches what is actually heard.
  */
-export function lyricWindowAt(lines: SyncedLine[] | null | undefined, positionMs: number): LyricWindow | null {
+export function lyricWindowAt(
+  lines: SyncedLine[] | null | undefined,
+  positionMs: number,
+  startupOffsetMs: number = 0,
+): LyricWindow | null {
   if (!lines || lines.length === 0) return null;
+  const effective = Math.max(0, positionMs - Math.max(0, startupOffsetMs));
   let idx = -1;
   for (let i = 0; i < lines.length; i++) {
-    if ((lines[i]?.ms ?? Number.MAX_SAFE_INTEGER) <= positionMs) idx = i;
+    if ((lines[i]?.ms ?? Number.MAX_SAFE_INTEGER) <= effective) idx = i;
     else break;
   }
   let current: string | null = null;

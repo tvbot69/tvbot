@@ -51,16 +51,20 @@ export class MusicHandler {
 
   /**
    * Karaoke window for the card at a playback position. Reads the synced
-   * lines stored at track start; honors the per-guild toggle. Null when
-   * disabled, missing, or nothing singable (card renders unchanged).
+   * lines stored at track start; honors the per-guild toggle. Applies the
+   * startup offset (track clock starts at the trackStart event, audible
+   * audio trails by seconds while the stream connects). Null when disabled,
+   * missing, or nothing singable (card renders unchanged).
    */
+  private static readonly KARAOKE_STARTUP_OFFSET_MS = 3000;
+
   private lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
     try {
       if (!this.lyricsService) return null;
       if (!this.queueService.isKaraokeEnabled(player.guildId)) return null;
       const lines = player.get<SyncedLine[] | null>('karaokeLines');
       if (!lines || lines.length === 0) return null;
-      return lyricWindowAt(lines, Math.max(0, positionMs));
+      return lyricWindowAt(lines, Math.max(0, positionMs), MusicHandler.KARAOKE_STARTUP_OFFSET_MS);
     } catch {
       return null;
     }
