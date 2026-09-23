@@ -136,7 +136,8 @@ describe('MoonlinkManager node resurrection (tower sleep/reboot)', () => {
     expect(home.connect).not.toHaveBeenCalled();
   });
 
-  it('does not touch rate-limited nodes (cooldown respected)', () => {
+    it('does not touch rate-limited nodes (cooldown respected)', () => {
+
     vi.useFakeTimers();
     useHomeEnv();
     const manager = new MoonlinkManager();
@@ -161,5 +162,40 @@ describe('MoonlinkManager node resurrection (tower sleep/reboot)', () => {
     vi.advanceTimersByTime(3600000);
     expect(inner.reconnectTimers.has('Home')).toBe(true);
     expect(home.connect).not.toHaveBeenCalled();
+  });
+
+  it('caps sweep-driven reconnects at one per minute (no hammer loop)', () => {
+    vi.useFakeTimers();
+    useHomeEnv();
+    const manager = new MoonlinkManager();
+    liveManagers.push(manager);
+    markInitialized(manager);
+    const map = innerMapOf(manager);
+    map.set('MilloHost', connectedFake('MilloHost'));
+    map.set('Serenetia-SSL', connectedFake('Serenetia-SSL'));
+    // Silently failing node: disconnected, but no disconnect event ever ran,
+    // so there is no cooldown and no timer chain to hold the sweep back.
+    const flapper = { ...connectedFake('Home'), connected: false, destroyed: false, connect: vi.fn(async () => undefined) };
+    map.set('Home', flapper);
+
+    const inner = manager as unknown as { reconnectTimers: Map<string, NodeJS.Timeout> };
+    sweep(manager);
+    expect(inner.reconnectTimers.has('Home')).toBe(true);
+    // The armed attempt fires (legit attempt #1) but fails silently: no
+    // disconnect event, hence no cooldown and no timer chain.
+    vi.advanceTimersByTime(5000);
+    expect(flapper.connect).toHaveBeenCalledTimes(1);
+
+    // Eleven more sweeps over the next ~100s must not re-arm inside the gap.
+    for (let i = 0; i < 5; i++) {
+      vi.advanceTimersByTime(10000);
+      sweep(manager);
+    }
+    expect(flapper.connect).toHaveBeenCalledTimes(1);
+
+    // Past the minute gap, exactly one retry is allowed again — never a loop.
+    vi.advanceTimersByTime(60000);
+    sweep(manager);
+    expect(flapper.connect).toHaveBeenCalledTimes(2);
   });
 });

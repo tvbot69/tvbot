@@ -27,6 +27,16 @@ export class MoonlinkManager {
   private readonly nodeCooldownUntil = new Map<string, number>();
   private readonly nodeReconnectAttempts = new Map<string, number>();
   private readonly reconnectTimers = new Map<string, NodeJS.Timeout>();
+  /**
+   * Last time ANY reconnect was armed for a node (disconnect handler or
+   * sweep alike — every path funnels through scheduleReconnect). The sweep
+   * refuses to arm another within RESWEEP_MIN_GAP_MS: without this, a node
+   * that fails SILENTLY (connect succeeds, then drops without a disconnect
+   * event, so no cooldown and no timer chain) gets re-armed by every sweep
+   * — a 10s hammer loop that got a public node rate-limited (4000) live.
+   */
+  private readonly lastReconnectArmed = new Map<string, number>();
+  private static readonly RESWEEP_MIN_GAP_MS = 60000;
   private readonly lastRateLimitLog = new Map<string, number>();
   private readonly cache: CacheService | null;
   private readonly lavalinkEnabled: boolean;
@@ -192,6 +202,7 @@ export class MoonlinkManager {
     const id = node.identifier;
     const existing = this.reconnectTimers.get(id);
     if (existing) clearTimeout(existing);
+    this.lastReconnectArmed.set(id, Date.now());
 
     const timer = setTimeout(async () => {
       this.reconnectTimers.delete(id);
@@ -395,6 +406,7 @@ export class MoonlinkManager {
           mgr.nodes?.add?.(this.nodeConnectConfig(cfg));
           const created = map.get(id) as (Node & { connect?: () => Promise<unknown> }) | undefined;
           Logger.info(`[Lavalink] Node "${id}" missing from pool — re-added, connecting`);
+          this.lastReconnectArmed.set(id, Date.now());
           void created?.connect?.()?.catch((err: unknown) =>
             Logger.debug({ err, node: id }, `Resurrected node "${id}" connect failed`),
           );
@@ -409,6 +421,7 @@ export class MoonlinkManager {
           mgr.nodes?.add?.(this.nodeConnectConfig(cfg));
           const created = map.get(id) as (Node & { connect?: () => Promise<unknown> }) | undefined;
           Logger.info(`[Lavalink] Node "${id}" was destroyed (retries exhausted) — rebuilt, connecting`);
+          this.lastReconnectArmed.set(id, Date.now());
           void created?.connect?.()?.catch((err: unknown) =>
             Logger.debug({ err, node: id }, `Rebuilt node "${id}" connect failed`),
           );
@@ -418,6 +431,12 @@ export class MoonlinkManager {
         continue;
       }
       if (!existing.connected && !this.reconnectTimers.has(id) && !this.isNodeInCooldown(id)) {
+        // Silent-failure guard: a node that drops without a disconnect event
+        // carries no cooldown and no timer chain, so an unguarded sweep would
+        // re-arm it every 10s forever. One attempt per minute max; tower-sleep
+        // recovery still lands within ~60s of Home coming back.
+        const lastArmed = this.lastReconnectArmed.get(id) ?? 0;
+        if (Date.now() - lastArmed < MoonlinkManager.RESWEEP_MIN_GAP_MS) continue;
         this.scheduleReconnect(existing, 5000);
       }
     }
