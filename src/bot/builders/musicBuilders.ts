@@ -185,16 +185,22 @@ export class MusicBuilders {
    * minimalist metadata with live progress bar, and integrated playback controls.
    */
   /**
-   * Karaoke section for the Now Playing card: the line being sung plus the
-   * next line. Returns null when there is nothing singable to show (keeps
-   * the card identical to the no-lyrics shape).
+   * Karaoke section for the Now Playing card: the line being sung, big, plus
+   * the next line small beneath it. The `v2` variant uses Components-V2-only
+   * markdown (header + subtext sizing); the legacy variant sticks to
+   * embed-safe bold/italic. Returns null when there is nothing singable.
    */
   public static buildLyricSection(
     lyricWindow?: { current: string | null; next: string | null } | null,
+    v2: boolean = true,
   ): string | null {
     if (!lyricWindow || (lyricWindow.current === null && lyricWindow.next === null)) return null;
-    const head = lyricWindow.current ? `**${lyricWindow.current}**` : '♪';
-    return lyricWindow.next ? `🎤 ${head}\n${lyricWindow.next}` : `🎤 ${head}`;
+    if (!v2) {
+      const head = lyricWindow.current ? `**${lyricWindow.current}**` : '♪';
+      return lyricWindow.next ? `🎤 ${head}\n*${lyricWindow.next}*` : `🎤 ${head}`;
+    }
+    if (lyricWindow.current === null) return `-# ${lyricWindow.next}`;
+    return lyricWindow.next ? `## ${lyricWindow.current}\n-# ${lyricWindow.next}` : `## ${lyricWindow.current}`;
   }
 
   public static buildNowPlayingResponse(
@@ -225,9 +231,11 @@ export class MusicBuilders {
 
     const sourceIcon = getSourceBadge(current.source);
 
-    let desc = `### [${current.title}](${current.uri})\n`;
-    desc += `**${current.author}** • ${sourceIcon}\n\n`;
-    desc += `${progressBar}`;
+    // Card order: header (title/artist) -> lyrics -> progress bar pinned at
+    // the bottom -> controls.
+    const header = `### [${current.title}](${current.uri})\n**${current.author}** • ${sourceIcon}`;
+    const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
+    const legacyLyricSection = MusicBuilders.buildLyricSection(lyricWindow, false);
 
     // Single Row of 5 Square Icon Playback Controls (Mobile-perfect, zero text squishing)
     const row0 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -269,14 +277,17 @@ export class MusicBuilders {
       );
     }
 
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(desc));
-    const lyricSection = MusicBuilders.buildLyricSection(lyricWindow);
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(header));
     if (lyricSection) {
       container.addSeparatorComponents(
         new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true),
       );
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lyricSection));
     }
+    container.addSeparatorComponents(
+      new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(false),
+    );
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(progressBar));
     container.addActionRowComponents(row0);
 
     response.setComponentsV2Container(container);
@@ -284,7 +295,7 @@ export class MusicBuilders {
     // Backward-compatible fallback embed & button row
     response.addButtonRow(0, row0 as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
     response.embed
-      .setDescription(lyricSection ? `${desc}\n\n${lyricSection}` : desc);
+      .setDescription(legacyLyricSection ? `${header}\n\n${legacyLyricSection}\n\n${progressBar}` : `${header}\n\n${progressBar}`);
     if (current.artworkUrl) {
       response.embed.setImage(current.artworkUrl);
     }
