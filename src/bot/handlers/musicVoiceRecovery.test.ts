@@ -18,7 +18,7 @@ describe('MusicHandler voice recovery (Phase 3.3)', () => {
       textChannelId: 'tc1',
       playing: true,
       paused: false,
-      current: { identifier: 't1', title: 'Esme', author: 'Mond', duration: 174000 },
+      current: { identifier: 't1', title: 'Esme', author: 'Mond', duration: 174000, isStream: false },
       queue: { isEmpty: true, size: 0 },
       data: new Map<string, unknown>(),
       get(key: string) {
@@ -36,6 +36,7 @@ describe('MusicHandler voice recovery (Phase 3.3)', () => {
       restart: vi.fn(async () => true),
       resume: vi.fn(async () => undefined),
       pause: vi.fn(async () => undefined),
+      seek: vi.fn(async () => undefined),
     };
     const voiceHandlers: Record<string, (...args: never[]) => void> = {};
     const client = {
@@ -55,7 +56,12 @@ describe('MusicHandler voice recovery (Phase 3.3)', () => {
     const handler = new MusicHandler(
       client as never,
       { getManager: () => manager } as never,
-      { getQueueInfo: () => null, is247: () => false, set247: vi.fn() } as never,
+      {
+        getQueueInfo: () => null,
+        is247: () => false,
+        set247: vi.fn(),
+        calculatePosition: vi.fn(() => 90000),
+      } as never,
     );
     void handler;
     const voiceUpdate = voiceHandlers['voiceStateUpdate'] as (
@@ -80,7 +86,14 @@ describe('MusicHandler voice recovery (Phase 3.3)', () => {
     voiceUpdate(oldState(null, guild), newState('vc2', guild));
     await vi.runAllTimersAsync();
     expect(player.connect).toHaveBeenCalledTimes(1);
-    expect(player.restart).toHaveBeenCalledTimes(1);
+    // restart() is never used on rejoin: Moonlink v5 sends a channelId-less
+    // voice payload there that Lavalink 4.2.2 rejects (400). resume() only
+    // unpauses (no voice payload, never 400s), then we seek back to the
+    // position saved at kick time instead of replaying from zero.
+    expect(player.restart).not.toHaveBeenCalled();
+    expect(player.resume).toHaveBeenCalledTimes(1);
+    expect(player.seek).toHaveBeenCalledTimes(1);
+    expect(player.seek).toHaveBeenCalledWith(90000);
     expect(player.destroy).not.toHaveBeenCalled();
   });
 

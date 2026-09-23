@@ -203,21 +203,26 @@ export class MusicService {
   /**
    * One YouTube attempt shared by the plugin + resolver rungs, then per-rung
    * selection. Resolver hits are labeled 'local' so failure handling treats
-   * them as resolver output, never as YouTube plugin output.
+   * them as resolver output, never as YouTube plugin output. Distinguishes
+   * transport failure (node unreachable mid-ladder — every search THREW)
+   * from a genuine miss so callers can report "try again" instead of the
+   * misleading "No tracks found".
    */
   private async searchTrackWithLadder(
     player: Player,
     query: string,
     meta?: ResolverMeta,
-  ): Promise<{ track: Track; rung: Rung } | null> {
+  ): Promise<{ track: Track; rung: Rung } | { transportError: true } | null> {
     const rungs = ladderFor(player);
     let ytHit: Track | undefined;
+    let transportFailed = false;
     if (rungs.includes('plugin') || rungs.includes('resolver')) {
       try {
         const yt = await this.searchWithTimeout({ query, source: 'youtube' });
         ytHit = yt?.tracks?.[0];
       } catch {
-        // fall through to remaining rungs
+        // Node unreachable, not a miss — remember it for the result below.
+        transportFailed = true;
       }
     }
     for (const rung of rungs) {
@@ -226,7 +231,7 @@ export class MusicService {
           const sc = await this.searchWithTimeout({ query, source: 'soundcloud' });
           if (sc?.tracks?.[0]) return { track: sc.tracks[0], rung };
         } catch {
-          // next rung
+          transportFailed = true;
         }
         continue;
       }
@@ -235,7 +240,15 @@ export class MusicService {
       const local = await this.tryResolverTrack(player, ytHit, meta);
       if (local) return { track: local, rung };
     }
+    if (transportFailed) return { transportError: true };
     return null;
+  }
+
+  /** Narrows a ladder result to the transport-failure variant. */
+  private static isTransportError(
+    found: { track: Track; rung: Rung } | { transportError: true } | null,
+  ): found is { transportError: true } {
+    return !!found && 'transportError' in found;
   }
 
   private async tryResolverTrack(player: Player, ytTrack: Track, meta?: ResolverMeta): Promise<Track | null> {
@@ -366,9 +379,14 @@ export class MusicService {
             title: trackOverride.title,
             artist: trackOverride.author,
           } : undefined);
-          if (swapped) {
-            const hit = swapped.track;
-            hit.requester = requester;
+          if (!swapped) {
+            return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
+          }
+          if (MusicService.isTransportError(swapped)) {
+            return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
+          }
+          const hit = swapped.track;
+          hit.requester = requester;
             hit.title = trackOverride?.title || meta.title;
             hit.author = trackOverride?.author || meta.author;
             await this.maybeBackfillArt(
@@ -384,7 +402,6 @@ export class MusicService {
             rec.sourceName = trackOverride?.source || rungSource;
             rec.source = trackOverride?.source || rungSource;
             return await this.enqueueLavalinkTracks(player, [hit], requester, trackOverride, rungSource);
-          }
           return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
         }
         return await this.enqueueLavalinkTracks(player, [meta], requester, trackOverride, 'youtube');
@@ -397,6 +414,9 @@ export class MusicService {
       } : undefined);
       if (!found) {
         return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
+      }
+      if (MusicService.isTransportError(found)) {
+        return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
       }
       await this.maybeBackfillArt(
         found.track,
@@ -523,6 +543,13 @@ export class MusicService {
           positionInQueue: 0,
         };
       }
+      if (MusicService.isTransportError(found)) {
+        return {
+          loadType: 'error',
+          totalTracksAdded: 0,
+          positionInQueue: 0,
+        };
+      }
 
       const chosenTrack = found.track;
       await this.maybeBackfillArt(
@@ -578,6 +605,9 @@ export class MusicService {
       title: firstTrack.name,
       artist: firstTrack.artist,
     });
+    if (firstFound && MusicService.isTransportError(firstFound)) {
+      return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
+    }
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
       this.adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, spotifyUrl, trackOverride);
@@ -922,7 +952,7 @@ export class MusicService {
       title: spTrack.name,
       artist: spTrack.artist,
     });
-    if (!found) return null;
+    if (!found || MusicService.isTransportError(found)) return null;
     // Background-only path (topUpPending): generous art timeout, nobody waits.
     await this.maybeBackfillArt(
       found.track,

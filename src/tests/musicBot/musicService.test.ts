@@ -302,6 +302,23 @@ describe('MusicService', () => {
     expect(res.track?.source).toBe('spotify');
   });
 
+  it('reports an error (not empty) when every ladder search throws mid-outage', async () => {
+    const searchMock = mockMoonlinkManager.getManager().search as unknown as ReturnType<typeof vi.fn>;
+    searchMock.mockRejectedValueOnce(new Error('Request error'));
+    searchMock.mockRejectedValueOnce(new Error('Request error'));
+
+    const res = await musicService.play(
+      '123456789',
+      'vc-1',
+      'tc-1',
+      'Marwan Pablo - Lelly Yah',
+      { id: 'user-1', tag: 'TestUser' },
+    );
+
+    expect(res.loadType).toBe('error');
+    expect(res.errorReason).toBeUndefined();
+  });
+
   it('does NOT query Spotify or overwrite track metadata when a direct YouTube URL is played', async () => {
     vi.clearAllMocks();
     const res = await musicService.play(

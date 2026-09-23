@@ -830,6 +830,9 @@ export class MusicHandler {
             void this.voiceChannelStatusService.clearStatus(oldState.channelId);
           }
           player.set('kickedWhilePlaying', player.playing && !player.paused);
+          if (player.current) {
+            player.set('kickedPosition', this.queueService.calculatePosition(player));
+          }
           void player.disconnect().catch(() => undefined);
           this.clearKickGrace(guildId);
           const timeout = setTimeout(() => {
@@ -853,9 +856,18 @@ export class MusicHandler {
                 await player.connect({ selfDeaf: true });
                 if (player.current && player.get<boolean>('kickedWhilePlaying')) {
                   player.set('kickedWhilePlaying', false);
-                  const restarted = await player.restart().catch(() => false);
-                  if (!restarted) {
-                    await player.resume().catch(() => undefined);
+                  // Never player.restart() here: Moonlink v5's restart()
+                  // re-sends a voice payload WITHOUT channelId, which
+                  // Lavalink 4.2.2 rejects with 400 (stock and fork alike),
+                  // aborting the resume and replaying from zero. connect()
+                  // above already re-established voice WITH channelId, so
+                  // resume() (paused:false only, never 400s) plus an
+                  // explicit seek-back is the correct, deterministic resume.
+                  await player.resume().catch(() => undefined);
+                  const saved = player.get<number>('kickedPosition') ?? 0;
+                  const duration = player.current.duration || 0;
+                  if (saved > 5000 && !player.current.isStream && (!duration || saved < duration)) {
+                    await player.seek(Math.min(saved, duration ? duration - 1000 : saved)).catch(() => undefined);
                   }
                 }
               } catch (err) {
