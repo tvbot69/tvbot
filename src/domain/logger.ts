@@ -2,6 +2,7 @@ import util from 'util';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import { shipLogLine } from './logShipper';
 
 export interface LogContext {
   traceId?: string;
@@ -171,7 +172,9 @@ export class CustomLogger {
   public ready(message: string): void {
     const time = formatTimestamp();
     const tag = `${ansi.bgGreen}${ansi.black}${ansi.bold} READY ${ansi.reset}`;
-    console.log(`${time} ${tag} ${ansi.brightGreen}${ansi.bold}${message}${ansi.reset}`);
+    const line = `${time} ${tag} ${ansi.brightGreen}${ansi.bold}${message}${ansi.reset}`;
+    console.log(line);
+    shipLogLine(stripAnsi(line));
   }
 
   public command(info: {
@@ -192,7 +195,9 @@ export class CustomLogger {
       : `${ansi.dim}(DM)${ansi.reset}`;
     const latency = formatLatency(info.durationMs);
 
-    console.log(`${time} ${tag} ${cmdText} ${ansi.dim}│${ansi.reset} ${userText} ${locationText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
+    const line = `${time} ${tag} ${cmdText} ${ansi.dim}│${ansi.reset} ${userText} ${locationText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`;
+    console.log(line);
+    shipLogLine(stripAnsi(line));
   }
 
   public slash(info: {
@@ -214,7 +219,9 @@ export class CustomLogger {
       : `${ansi.dim}(DM)${ansi.reset}`;
     const latency = formatLatency(info.durationMs);
 
-    console.log(`${time} ${tag} ${cmdText} ${ansi.dim}│${ansi.reset} ${userText} ${locationText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
+    const line = `${time} ${tag} ${cmdText} ${ansi.dim}│${ansi.reset} ${userText} ${locationText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`;
+    console.log(line);
+    shipLogLine(stripAnsi(line));
   }
 
   public button(info: {
@@ -230,14 +237,18 @@ export class CustomLogger {
     const guildText = info.guildName ? `${ansi.dim}(${info.guildName})${ansi.reset}` : '';
     const latency = formatLatency(info.durationMs);
 
-    console.log(`${time} ${tag} ${idText} ${ansi.dim}│${ansi.reset} ${userText} ${guildText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
+    const line = `${time} ${tag} ${idText} ${ansi.dim}│${ansi.reset} ${userText} ${guildText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`;
+    console.log(line);
+    shipLogLine(stripAnsi(line));
   }
 
   public sync(message: string, durationMs?: number): void {
     const time = formatTimestamp();
     const tag = `${ansi.bgYellow}${ansi.black}${ansi.bold} SYNC  ${ansi.reset}`;
     const latencyText = durationMs !== undefined ? ` ${ansi.dim}[${formatLatency(durationMs)}${ansi.dim}]${ansi.reset}` : '';
-    console.log(`${time} ${tag} ${ansi.yellow}${message}${ansi.reset}${latencyText}`);
+    const line = `${time} ${tag} ${ansi.yellow}${message}${ansi.reset}${latencyText}`;
+    console.log(line);
+    shipLogLine(stripAnsi(line));
   }
 
   public generateReferenceId(): string {
@@ -280,7 +291,9 @@ export class CustomLogger {
     const time = formatTimestamp();
     const tag = `${ansi.bgBlue}${ansi.brightWhite}${ansi.bold} SHARD ${ansi.reset}`;
     const desc = details ? ` - ${details}` : '';
-    console.log(`${time} ${tag} ${ansi.brightBlue}Shard #${shardId} ${event}${desc}${ansi.reset}`);
+    const line = `${time} ${tag} ${ansi.brightBlue}Shard #${shardId} ${event}${desc}${ansi.reset}`;
+    console.log(line);
+    shipLogLine(stripAnsi(line));
   }
 
   public errorWithRef(
@@ -353,7 +366,9 @@ export class CustomLogger {
     }
 
     const tracePrefix = this.boundContext?.traceId ? `${ansi.dim}[${this.boundContext.traceId}]${ansi.reset} ` : '';
-    console.log(`${time} ${badge} ${tracePrefix}${textColor}${message}${ansi.reset}`);
+    const line = `${time} ${badge} ${tracePrefix}${textColor}${message}${ansi.reset}`;
+    console.log(line);
+    shipLogLine(stripAnsi(line));
 
     this.writeLogToFile(level, message, errObject);
 

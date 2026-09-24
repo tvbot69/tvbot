@@ -875,6 +875,8 @@ export class MusicService {
         const thumb = trackRec._videoThumb;
         if (typeof thumb === 'string' && thumb) {
           track.artworkUrl = thumb;
+          trackRec._artLookupResolvedAt = Date.now();
+          trackRec._artLookupOutcome = 'longform-thumb';
           Logger.info(
             { title: t, artist: a, durationMs: dur },
             '[Music] Long-form art: video thumbnail, cascade skipped',
@@ -932,11 +934,14 @@ export class MusicService {
         const url = await Promise.race([lookup, timeout]);
         if (url) {
           track.artworkUrl = url;
+          trackRec._artLookupResolvedAt = Date.now();
+          trackRec._artLookupOutcome = 'hit';
           Logger.info(
             { title: t, artist: a, resolveMs: Date.now() - started },
             '[Music] Artwork backfilled',
           );
         } else {
+          trackRec._artLookupOutcome = 'miss';
           Logger.debug(
             { title: t, artist: a, resolveMs: Date.now() - started },
             '[Music] Artwork backfill miss',
@@ -949,10 +954,10 @@ export class MusicService {
             .then((late) => {
               if (late && !track.artworkUrl) {
                 track.artworkUrl = late;
-                Logger.info(
-                  { title: t, artist: a, resolveMs: Date.now() - started },
-                  '[Music] Artwork late-attached',
-                );
+                const lateMs = Date.now() - started;
+                trackRec._artLookupResolvedAt = Date.now();
+                trackRec._artLookupOutcome = 'late-hit';
+                Logger.info({ title: t, artist: a, resolveMs: lateMs }, '[Music] Artwork late-attached');
               }
             })
             .catch(() => undefined);

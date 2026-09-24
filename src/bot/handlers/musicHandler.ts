@@ -749,21 +749,39 @@ export class MusicHandler {
         );
 
         // Timing triangulation (artwork flash diagnosis): lookup start is
-        // stamped in maybeBackfillArt, resolve is logged there with
-        // resolveMs, and this line marks first card render. Correlate the
-        // three by title across ~10-15 normal tracks before optimizing.
+        // stamped in maybeBackfillArt, resolve is stamped there with an
+        // outcome, and this marks first card render. The full log mirror
+        // ships this line to Discord, so correlate ~10-15 normal tracks
+        // there before optimizing further.
         try {
-          const curRec = (player.current ?? track) as unknown as { _artLookupStartedAt?: unknown };
+          const curRec = (player.current ?? track) as unknown as {
+            _artLookupStartedAt?: unknown;
+            _artLookupResolvedAt?: unknown;
+            _artLookupOutcome?: unknown;
+          };
           const lookupStarted = typeof curRec._artLookupStartedAt === 'number' ? curRec._artLookupStartedAt : null;
+          const resolvedAt = typeof curRec._artLookupResolvedAt === 'number' ? curRec._artLookupResolvedAt : null;
+          const outcome = typeof curRec._artLookupOutcome === 'string' ? curRec._artLookupOutcome : 'no-lookup';
+          const now = Date.now();
           Logger.info(
             {
               guildId: player.guildId,
               title: currentTrack.title,
-              lookupStartedMsAgo: lookupStarted !== null ? Date.now() - lookupStarted : null,
+              lookupStartedMsAgo: lookupStarted !== null ? now - lookupStarted : null,
               artPresent: !!currentTrack.artworkUrl,
             },
             '[Music] Card render timing',
           );
+          const clock = (ms: number): string => new Date(ms).toISOString().slice(11, 23);
+          const line =
+            lookupStarted === null
+              ? `[art-timing] "${currentTrack.title}" — ${currentTrack.author} | no lookup (art present from resolve) | art at render: ${currentTrack.artworkUrl ? 'yes' : 'no'}`
+              : `[art-timing] "${currentTrack.title}" — ${currentTrack.author} | lookup ${clock(lookupStarted)}` +
+                (resolvedAt !== null
+                  ? ` → resolve +${resolvedAt - lookupStarted}ms (${outcome})`
+                  : ` → unresolved at render (${outcome}, late pending)`) +
+                ` → render +${now - lookupStarted}ms | art at render: ${currentTrack.artworkUrl ? 'yes' : 'no'}`;
+          Logger.info(line);
         } catch {
           // Timing only — never break the card.
         }
