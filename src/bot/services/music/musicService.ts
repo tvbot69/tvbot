@@ -832,15 +832,16 @@ export class MusicService {
           const cover = await svc.getTrackCoverUrl(t, a);
           if (cover) return cover;
           // Artist fallback (live sets, bootlegs, cover-less tracks): the
-          // artist's profile picture beats a blank card. First the billed
-          // author, then — because uploaders often differ from performers
-          // ("gloss" uploading an EsDeeKid set) — the artist named in the
-          // title itself. Strict cascade matching rejects wrong guesses.
-          const candidates = [MusicService.leadArtist(a)];
-          const fromTitle = extractArtistFromTitle(t);
-          if (fromTitle && fromTitle.toLowerCase() !== candidates[0]?.toLowerCase()) {
-            candidates.push(fromTitle);
-          }
+          // artist's profile picture beats a blank card. When the title
+          // names the performer ("EsDeeKid - Live...") THAT is the search
+          // target and the uploader channel is skipped entirely — channels
+          // ("gloss") can strictly match same-named wrong artists.
+          // Otherwise the billed author is tried as before.
+          const titleLead = extractArtistFromTitle(t);
+          const candidates =
+            titleLead && titleLead.toLowerCase() !== MusicService.leadArtist(a).toLowerCase()
+              ? [titleLead]
+              : [MusicService.leadArtist(a)];
           for (const lead of candidates) {
             if (!lead) continue;
             const pic = await svc.getArtistImageUrl(lead, t).catch(() => null);

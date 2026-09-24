@@ -91,4 +91,13 @@ describe('buildNowPlayingResponse chapters', () => {
     const json = JSON.stringify(res.toMessagePayload());
     expect(json).toContain('video.jpg');
   });
+
+  it('trims bracket junk from the displayed title', () => {
+    const longQueue = JSON.parse(JSON.stringify(npQueue)) as { current: { title: string } };
+    longQueue.current.title = 'EsDeeKid - Live at Silver Spring, MD [FULL SET | 9/13/26]';
+    const res = MusicBuilders.buildNowPlayingResponse(longQueue as never, 0xff0000, null, null);
+    const texts = textsOf(res);
+    expect(texts.some((t) => t.includes('EsDeeKid - Live at Silver Spring, MD'))).toBe(true);
+    expect(texts.some((t) => t.includes('FULL SET'))).toBe(false);
+  });
 });

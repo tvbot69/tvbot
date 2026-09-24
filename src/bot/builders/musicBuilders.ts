@@ -201,6 +201,23 @@ export class MusicBuilders {
     return lyricWindow.next ? `🎤 ${head}\n${lyricWindow.next}` : `🎤 ${head}`;
   }
 
+  /**
+   * Display-only title trim for the Now Playing card: drops trailing
+   * bracket junk ("[FULL SET | 9/13/26]", "[Official Video]") and
+   * metadata-like parens ("(Official Video)", "(4K)"). Never touches
+   * matching/search data — card rendering only.
+   */
+  private static trimDisplayTitle(title: string): string {
+    let t = title.trim().replace(/(\s*\[[^\[\]]*\]\s*)+$/, '').trim();
+    for (;;) {
+      const m = /^(.*)\s*\(([^()]*)\)\s*$/.exec(t);
+      if (!m) break;
+      if (!/(official|video|audio|lyric|visualiz|remaster|explicit|\bhd\b|4k|full|premiere|\bmv\b|m\/v)/i.test(m[2] ?? '')) break;
+      t = (m[1] ?? '').trim();
+    }
+    return t || title.trim();
+  }
+
   public static buildNowPlayingResponse(
     queue: MusicQueueInfo,
     accentColor?: number,
@@ -232,7 +249,7 @@ export class MusicBuilders {
 
     // Card order: header (title/artist) -> live chapter -> lyrics ->
     // progress bar pinned at the bottom -> controls.
-    const header = `### [${current.title}](${current.uri})\n**${current.author}** • ${sourceIcon}`;
+    const header = `### [${MusicBuilders.trimDisplayTitle(current.title)}](${current.uri})\n**${current.author}** • ${sourceIcon}`;
     const chapterLine = chapter ? `▶ **${chapter.title}**` : null;
     const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
     const legacyLyricSection = MusicBuilders.buildLyricSection(lyricWindow, false);

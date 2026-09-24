@@ -907,6 +907,7 @@ describe('resolve artwork backfill', () => {
     };
     const res = await svc.resolvePlaylistTrack(player, liveTrack);
     expect(getArtistImageUrl).toHaveBeenCalledWith('EsDeeKid', liveTrack.name);
+    expect(getArtistImageUrl).not.toHaveBeenCalledWith('gloss', expect.anything());
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/esdeekid.jpg');
   });
 
