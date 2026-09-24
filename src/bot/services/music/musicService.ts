@@ -798,7 +798,8 @@ export class MusicService {
       if (!t || !a) return;
       const started = Date.now();
       // Never-rejecting lookup: exact by-ID first (no matching risk), then
-      // the name cascade. One slow leg can't hang the race.
+      // the name cascade, then the artist profile picture. One slow leg
+      // can't hang the race.
       const lookup: Promise<string | null> = (async () => {
         try {
           const id = this.spotifyTrackId(spotifyUri);
@@ -806,7 +807,14 @@ export class MusicService {
             const byId = await svc.getTrackCoverBySpotifyId(id);
             if (byId) return byId;
           }
-          return await svc.getTrackCoverUrl(t, a);
+          const cover = await svc.getTrackCoverUrl(t, a);
+          if (cover) return cover;
+          // Artist fallback (live sets, bootlegs, cover-less tracks): the
+          // artist's profile picture beats a blank card. First billed
+          // artist only, title passed for disambiguation.
+          const lead = MusicService.leadArtist(a);
+          if (!lead) return null;
+          return await svc.getArtistImageUrl(lead, t);
         } catch {
           return null;
         }
@@ -861,6 +869,15 @@ export class MusicService {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * First billed artist for profile-picture fallback ("A, B & C feat. D" →
+   * "A"). Mirrors the fallback-query artist logic.
+   */
+  private static leadArtist(artist: string): string {
+    const first = artist.split(/[,/&]/)[0] ?? '';
+    return first.replace(/\s+(feat\.?|ft\.?|featuring|with|x)\s+.*$/i, '').trim();
   }
   /**
    * Stamps Spotify display metadata onto a resolved Lavalink track. The
