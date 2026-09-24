@@ -328,6 +328,133 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
   });
 });
 
+describe('stuck/exception updater survival + resume carryover', () => {
+  const captureAll = (queueService: unknown) => {
+    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const manager = {
+      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
+        handlers.set(event, cb);
+      }),
+      players: { get: () => undefined },
+      search: vi.fn(async () => ({ tracks: [] })),
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const handler = new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      (queueService ?? { getQueueInfo: () => null, is247: () => false }) as never,
+    ) as unknown as {
+      stopProgressUpdater: (guildId: string) => void;
+    };
+    const stopSpy = vi.fn();
+    handler.stopProgressUpdater = stopSpy;
+    return { handlers, manager, stopSpy };
+  };
+
+  const stuckTrack = () => ({
+    identifier: 'v1',
+    encoded: 'enc-v1',
+    uri: 'u1',
+    title: 'Hour Set',
+    author: 'DJ',
+    duration: 3600000,
+  });
+
+  it('keeps the updater alive across a seek-stall re-issue', async () => {
+    const { handlers, stopSpy } = captureAll(null);
+    const onStuck = handlers.get('trackStuck')!;
+    const data = new Map<string, unknown>([
+      ['lastUserSeekAt', Date.now() - 5000],
+      ['lastUserSeekPos', 1500000],
+    ]);
+    const player = {
+      guildId: 'g-seek',
+      current: { ...stuckTrack(), position: 0 },
+      queue: { unshift: vi.fn(), size: 1, isEmpty: false },
+      skip: vi.fn(async () => true),
+      play: vi.fn(async () => true),
+      seek: vi.fn(async () => true),
+      playing: true,
+      paused: false,
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    } as never;
+
+    await onStuck(player, stuckTrack(), 10000);
+
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(player.seek).toHaveBeenCalledWith(1500000);
+    // Nudge alignment: Moonlink's own +1000 recovery reads this state.
+    expect(player.current.position).toBe(1500000);
+  });
+
+  it('resumes the fallback alternate where the stuck track died', async () => {
+    const altTrack = {
+      identifier: 'yt-alt',
+      encoded: 'enc-alt',
+      uri: 'u-alt',
+      title: 'Hour Set',
+      author: 'DJ',
+      duration: 3600000,
+    };
+    const { handlers, manager, stopSpy } = captureAll({
+      getQueueInfo: () => null,
+      is247: () => false,
+      calculatePosition: () => 1800000,
+    });
+    (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({
+      tracks: [altTrack],
+    }));
+    const onStuck = handlers.get('trackStuck')!;
+    const data = new Map<string, unknown>([['lastUserSeekAt', Date.now() - 120000]]);
+    const player = {
+      guildId: 'g-seek',
+      current: { ...stuckTrack() },
+      queue: { unshift: vi.fn(), size: 1, isEmpty: false },
+      skip: vi.fn(async function (this: any) {
+        player.current = { ...altTrack };
+        return true;
+      }),
+      play: vi.fn(async () => true),
+      seek: vi.fn(async () => true),
+      playing: true,
+      paused: false,
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    } as never;
+
+    await onStuck(player, stuckTrack(), 10000);
+
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(player.skip).toHaveBeenCalled();
+    expect(player.seek).toHaveBeenCalledWith(1800000);
+    expect(player.current.position).toBe(1800000);
+  });
+
+  it('keeps the updater alive when an exception has no fallback', async () => {
+    const { handlers, manager, stopSpy } = captureAll(null);
+    (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
+    const onException = handlers.get('trackException')!;
+    const player = {
+      guildId: 'g-exc',
+      current: { ...stuckTrack() },
+      queue: { unshift: vi.fn(), size: 1, isEmpty: false },
+      skip: vi.fn(async () => true),
+      play: vi.fn(async () => true),
+      seek: vi.fn(async () => true),
+      playing: true,
+      paused: false,
+      get: () => undefined,
+      set: () => undefined,
+    } as never;
+
+    await onException(player, stuckTrack(), { severity: 'common', message: 'blocked' });
+
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(player.skip).toHaveBeenCalled();
+  });
+});
+
 describe('preview-cut detection (short finishes feed the breaker)', () => {  const captureHandlers = () => {
     const handlers = new Map<string, (...args: any[]) => Promise<void>>();
     const manager = {

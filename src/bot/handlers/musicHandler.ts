@@ -416,6 +416,46 @@ export class MusicHandler {
     rec.source = source;
   }
 
+  /** Frozen position snapshot for resume carryover; 0 when unknowable. */
+  private frozenPosition(player: Player): number {
+    try {
+      const ms = this.queueService.calculatePosition(player);
+      return typeof ms === 'number' && ms > 0 ? ms : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Resume-position carryover: when a stuck/failed track is replaced by a
+   * fallback alternate, land the replacement where the listener was (the
+   * frozen position ≈ the user's seek target after a seek-stall). Clamped
+   * to the replacement's duration; skipped for streams/unknown lengths and
+   * unless the replacement is actually current. Never throws — advancement
+   * already succeeded when this runs.
+   */
+  private async resumeFallbackAt(player: Player, fallback: Track, resumeMs: number): Promise<void> {
+    try {
+      const totalMs = fallback.duration || 0;
+      if (!resumeMs || resumeMs < 5000 || !totalMs) return;
+      const cur = player.current as unknown as { encoded?: string; uri?: string | null; identifier?: string } | null;
+      const key = (
+        t: { encoded?: string; uri?: string | null; identifier?: string } | null | undefined,
+      ): string => String(t?.encoded ?? t?.uri ?? t?.identifier ?? '');
+      if (!cur || key(cur) !== key(fallback)) return;
+      const at = Math.max(0, Math.min(resumeMs, totalMs - 1000));
+      if (at <= 0) return;
+      await player.seek(at).catch(() => undefined);
+      if (player.current) {
+        player.current.position = at;
+        player.current.time = Date.now();
+      }
+      Logger.info({ guildId: player.guildId, at }, '[Music] Fallback resumed at last-known position.');
+    } catch {
+      // Best-effort only.
+    }
+  }
+
   // Fallback budgets: every failure runs up to 2 node searches. A poison
   // playlist must never turn that into a search storm or an infinite
   // fallback-that-fails loop.
@@ -860,7 +900,11 @@ export class MusicHandler {
     });
 
     manager.on('trackStuck', async (player: Player, track: Track, threshold: number) => {
-      this.stopProgressUpdater(player.guildId);
+      // No stopProgressUpdater here: a stall often resolves on the SAME
+      // track (re-seek below, or Moonlink's own nudge), and the fingerprint
+      // dirty-check already suppresses useless edits while frozen. Stopping
+      // it would freeze the card + progress bar permanently for recovered
+      // playback — terminal paths (trackEnd/queueEnd/playerDestroy) stop it.
       this.clearOkTimer(player.guildId);
 
       // Moonlink can emit with a null track when the failure arrives after the
@@ -897,6 +941,14 @@ export class MusicHandler {
           { guildId: player.guildId, track: track.title, pos },
           '[Music] Stall right after user seek — re-issuing seek once instead of fallback.',
         );
+        // Align Moonlink's own post-emit nudge (currentPosition+1000) with
+        // our target: it reads this state after our sync prefix, so a stale
+        // 0 (seek never took server-side) would teleport a deep recovery
+        // to 0:01. Ours lands first; its nudge becomes a harmless +1s.
+        if (player.current) {
+          player.current.position = pos;
+          player.current.time = Date.now();
+        }
         await player.seek(pos).catch(() => undefined);
         return;
       }
@@ -927,6 +979,7 @@ export class MusicHandler {
       );
       const fallback = await this.findAlternatePlayableTrack(manager, player, track, player.guildId, failedKeyStr);
       if (fallback) {
+        const resumeMs = this.frozenPosition(player);
         player.queue.unshift(fallback);
         Logger.info({ guildId: player.guildId, track: track.title }, `[Music] Alternate upload queued for stuck track — advancing to it.`);
         // Moonlink does NOT auto-advance on stuck (it seeks/retries by default), so we
@@ -942,6 +995,7 @@ export class MusicHandler {
             Logger.warn({ err, guildId: player.guildId }, '[Music] Play of alternate upload failed');
           });
         }
+        await this.resumeFallbackAt(player, fallback, resumeMs);
         return;
       }
 
@@ -953,7 +1007,9 @@ export class MusicHandler {
 
 
     manager.on('trackException', async (player: Player, track: Track, exception: unknown) => {
-      this.stopProgressUpdater(player.guildId);
+      // Same updater reasoning as trackStuck: the dirty-check suppresses
+      // edits while frozen, and every terminal path stops it. Only a track
+      // that never resumes keeps stale output — which is correct output.
 
       // Same null-track guard as trackStuck: late-arriving failures for an
       // already-advanced player carry no track to retry.
@@ -1035,6 +1091,7 @@ export class MusicHandler {
         // Inject at the front of the queue so it plays next, then advance to it —
         // Moonlink only auto-skips fault-severity exceptions, so common-severity
         // YouTube failures (unavailable/age-restricted/blocked) would stall forever.
+        const resumeMs = this.frozenPosition(player);
         player.queue.unshift(fallback);
         Logger.info(
           { guildId: player.guildId, track: track.title },
@@ -1049,9 +1106,11 @@ export class MusicHandler {
           } catch (err) {
             Logger.warn({ err, guildId: player.guildId }, '[Music] Play of alternate upload failed');
           }
+          await this.resumeFallbackAt(player, fallback, resumeMs);
           return;
         }
         await skipPastFailed();
+        await this.resumeFallbackAt(player, fallback, resumeMs);
         return;
       }
 
