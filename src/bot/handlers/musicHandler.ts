@@ -463,6 +463,10 @@ export class MusicHandler {
   private readonly guildFallbackBudget = new Map<string, { count: number; windowStart: number }>();
   private readonly triedFallbackIds = new Map<string, Set<string>>();
   private static readonly MAX_FALLBACKS_PER_TRACK = 3;
+  // Post-seek catch-up grace: ~5 extra stuck cycles (~50s past the first
+  // stuck) for far seeks in long videos before normal machinery resumes.
+  private static readonly MAX_SEEK_GRACE_STUCKS = 5;
+  private static readonly SEEK_GRACE_WINDOW_MS = 90000;
   private static readonly MAX_FALLBACKS_PER_GUILD_WINDOW = 5;
   private static readonly FALLBACK_BUDGET_WINDOW_MS = 60000;
 
@@ -951,6 +955,38 @@ export class MusicHandler {
         }
         await player.seek(pos).catch(() => undefined);
         return;
+      }
+
+      // Seek-download grace (SABR long-form class, measured live): a far seek
+      // into a long plugin stream downloads ~30MB sequentially (~55s at the
+      // observed ~0.5MB/s), which always outlasts the 10s stuck clock. The
+      // retained buffer accumulates across re-demands, so the seek WOULD land
+      // if nothing interfered — but Moonlink stops/skips at its 3rd strike
+      // and our fallback below would replace the track (empty buffer, progress
+      // lost). While grace remains: reset Moonlink's strike counter (our sync
+      // prefix runs during emit, before its post-emit counting) and return
+      // without touching fallback machinery. Bounded: after MAX cycles the
+      // normal path resumes, so a genuinely dead stream still fails loud.
+      // Short tracks skip this entirely — their post-seek stalls are real.
+      if (
+        seekRetried &&
+        lastSeekAt > 0 &&
+        Date.now() - lastSeekAt < MusicHandler.SEEK_GRACE_WINDOW_MS &&
+        isLiveVideo(track.duration) &&
+        stillCurrent()
+      ) {
+        const graceSeekAt = player.get<number>('seekStallGraceSeekAt') ?? 0;
+        const graceUsed = graceSeekAt === lastSeekAt ? (player.get<number>('seekStallGraceUsed') ?? 0) : 0;
+        if (graceUsed < MusicHandler.MAX_SEEK_GRACE_STUCKS) {
+          player.set('seekStallGraceSeekAt', lastSeekAt);
+          player.set('seekStallGraceUsed', graceUsed + 1);
+          player.set('stuckCount', 0);
+          Logger.info(
+            { guildId: player.guildId, track: track.title, cycle: graceUsed + 1 },
+            '[Music] Post-seek stall inside grace — holding for catch-up download, no fallback.',
+          );
+          return;
+        }
       }
 
       if (this.isSongExhausted(player.guildId, track)) {

@@ -310,6 +310,10 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
 
     await onStuck(player, stuckTrack(), 10000);
     expect(search).not.toHaveBeenCalled();
+    // Seek-download grace holds post-seek stalls on long tracks; exhaust it
+    // here so this test keeps asserting the fall-through that follows.
+    player.set('seekStallGraceSeekAt', player.get('lastUserSeekAt'));
+    player.set('seekStallGraceUsed', 5);
     await onStuck(player, stuckTrack(), 10000);
     expect(search.mock.calls.length).toBeGreaterThan(0);
   });
@@ -429,6 +433,97 @@ describe('stuck/exception updater survival + resume carryover', () => {
     expect(player.skip).toHaveBeenCalled();
     expect(player.seek).toHaveBeenCalledWith(1800000);
     expect(player.current.position).toBe(1800000);
+  });
+
+  it('holds post-seek stalls inside grace instead of falling back', async () => {
+    const { handlers, manager, stopSpy } = captureAll(null);
+    (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
+    const onStuck = handlers.get('trackStuck')!;
+    const data = new Map<string, unknown>([
+      ['lastUserSeekAt', Date.now() - 30000],
+      ['lastUserSeekPos', 1800000],
+      ['seekStallRetried', true],
+    ]);
+    const player = {
+      guildId: 'g-seek',
+      current: { ...stuckTrack(), position: 1800000 },
+      queue: { unshift: vi.fn(), size: 1, isEmpty: false },
+      skip: vi.fn(async () => true),
+      play: vi.fn(async () => true),
+      seek: vi.fn(async () => true),
+      playing: true,
+      paused: false,
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    } as any;
+
+    await onStuck(player, stuckTrack(), 10000);
+
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(manager.search).not.toHaveBeenCalled();
+    expect(player.skip).not.toHaveBeenCalled();
+    expect(player.seek).not.toHaveBeenCalled();
+    expect(data.get('stuckCount')).toBe(0);
+    expect(data.get('seekStallGraceUsed')).toBe(1);
+  });
+
+  it('resumes normal machinery once grace is exhausted', async () => {
+    const { handlers, manager } = captureAll(null);
+    (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
+    const onStuck = handlers.get('trackStuck')!;
+    const seekAt = Date.now() - 60000;
+    const data = new Map<string, unknown>([
+      ['lastUserSeekAt', seekAt],
+      ['lastUserSeekPos', 1800000],
+      ['seekStallRetried', true],
+      ['seekStallGraceSeekAt', seekAt],
+      ['seekStallGraceUsed', 5],
+    ]);
+    const player = {
+      guildId: 'g-seek',
+      current: { ...stuckTrack() },
+      queue: { unshift: vi.fn(), size: 1, isEmpty: false },
+      skip: vi.fn(async () => true),
+      play: vi.fn(async () => true),
+      seek: vi.fn(async () => true),
+      playing: true,
+      paused: false,
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    } as any;
+
+    await onStuck(player, stuckTrack(), 10000);
+
+    expect(manager.search).toHaveBeenCalled();
+  });
+
+  it('never graces short tracks (their stalls are real)', async () => {
+    const { handlers, manager } = captureAll(null);
+    (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
+    const onStuck = handlers.get('trackStuck')!;
+    const data = new Map<string, unknown>([
+      ['lastUserSeekAt', Date.now() - 30000],
+      ['lastUserSeekPos', 60000],
+      ['seekStallRetried', true],
+    ]);
+    const shortTrack = { ...stuckTrack(), duration: 180000 };
+    const player = {
+      guildId: 'g-seek',
+      current: { ...shortTrack },
+      queue: { unshift: vi.fn(), size: 1, isEmpty: false },
+      skip: vi.fn(async () => true),
+      play: vi.fn(async () => true),
+      seek: vi.fn(async () => true),
+      playing: true,
+      paused: false,
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    } as any;
+
+    await onStuck(player, shortTrack, 10000);
+
+    expect(manager.search).toHaveBeenCalled();
+    expect(data.get('seekStallGraceUsed')).toBeUndefined();
   });
 
   it('keeps the updater alive when an exception has no fallback', async () => {
