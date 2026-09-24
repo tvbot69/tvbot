@@ -572,6 +572,12 @@ export class MusicHandler {
    */
   private async tryResolver(player: Player, src: Track): Promise<Track | null> {
     if (player.node?.identifier !== HOME_NODE) return null;
+    // Skip fast when Home is REST-dead instead of burning a doomed loadTracks
+    // (tolerant of partial test doubles).
+    const coolingFn = this.moonlinkManager.isNodeCoolingDown;
+    if (typeof coolingFn === 'function' && coolingFn.call(this.moonlinkManager, player.node?.identifier ?? '')) {
+      return null;
+    }
     const videoId = getSourceVideoId(src as unknown as { sourceName?: string; identifier?: string });
     if (!videoId) return null;
     const path = await resolveViaHome(videoId, {

@@ -1249,3 +1249,125 @@ describe('chapter art retry + prefetch', () => {
     expect(songs).toContain('Century');
   });
 });
+
+describe('REST-dead search failover (uplink-stall class)', () => {
+  const failoverManager = (
+    searchImpl: (args: { node?: string }) => Promise<unknown>,
+    pickImpl?: (exclude: string[]) => { identifier: string } | undefined,
+  ) => {
+    const search = vi.fn(searchImpl);
+    const noteRestFailure = vi.fn();
+    const mm = {
+      getManager: () => ({ search, on: vi.fn(), players: { get: () => undefined } }),
+      pickSearchNode: vi.fn(
+        pickImpl ??
+          ((exclude: string[]) =>
+            exclude.includes('Home') ? { identifier: 'Serenetia-SSL' } : { identifier: 'Home' }),
+      ),
+      noteRestFailure,
+      isNodeCoolingDown: () => false,
+    };
+    const svc = new MusicService(mm as never, {} as never, {} as never) as unknown as {
+      searchWithTimeout: (args: { query: string; source: string }, ms?: number) => Promise<{ tracks?: unknown[] } | null>;
+    };
+    return { svc, search, noteRestFailure, pick: mm.pickSearchNode };
+  };
+
+  it('retries a failed node on the next candidate in the same command', async () => {
+    const { svc, search, noteRestFailure } = failoverManager(async (args) => {
+      if (args.node === 'Home') throw new Error('Request error: ');
+      return { tracks: [{ identifier: 'ok-track' }] };
+    });
+    const res = await svc.searchWithTimeout({ query: 'in my feelings drake', source: 'youtube' });
+    expect(res?.tracks?.[0]).toMatchObject({ identifier: 'ok-track' });
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[0]?.[0]).toMatchObject({ node: 'Home' });
+    expect(search.mock.calls[1]?.[0]).toMatchObject({ node: 'Serenetia-SSL' });
+    expect(noteRestFailure).toHaveBeenCalledTimes(1);
+    expect(noteRestFailure).toHaveBeenCalledWith('Home');
+  });
+
+  it('treats a hung node (timeout-null) like a throw — the incident shape', async () => {
+    const { svc, search, noteRestFailure } = failoverManager(async (args) => {
+      if (args.node === 'Home') return new Promise<never>(() => undefined);
+      return { tracks: [{ identifier: 'ok-track' }] };
+    });
+    const res = await svc.searchWithTimeout({ query: 'in my feelings drake', source: 'youtube' }, 50);
+    expect(res?.tracks?.[0]).toMatchObject({ identifier: 'ok-track' });
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(noteRestFailure).toHaveBeenCalledWith('Home');
+  });
+
+  it('gives up bounded when every candidate fails', async () => {
+    const { svc, search, noteRestFailure } = failoverManager(
+      async () => {
+        throw new Error('Request error: ');
+      },
+      (exclude: string[]) => (exclude.length > 0 ? undefined : { identifier: 'Home' }),
+    );
+    const res = await svc.searchWithTimeout({ query: 'x', source: 'youtube' });
+    expect(res).toBeNull();
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(noteRestFailure).toHaveBeenCalledWith('Home');
+  });
+
+  it('tryResolver skips fast while Home cools (no fetch burned)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('net down'));
+    try {
+      const manager = { on: vi.fn(), players: { get: () => undefined } };
+      const client = { on: vi.fn(), channels: { cache: new Map() } };
+      const handler = new MusicHandler(
+        client as never,
+        { getManager: () => manager, isNodeCoolingDown: () => true } as never,
+        { getQueueInfo: () => null, is247: () => false } as never,
+      ) as unknown as {
+        tryResolver: (player: unknown, track: unknown) => Promise<unknown>;
+      };
+      const res = await handler.tryResolver(
+        { node: { identifier: 'Home' } },
+        { sourceName: 'youtube', identifier: 'dQw4w9WgXcQ', title: 'T', author: 'A' },
+      );
+      expect(res).toBeNull();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('getOrCreatePlayer skips the Home pin while Home cools', async () => {
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    try {
+      const transferNode = vi.fn(async () => undefined);
+      const freshPlayer = {
+        guildId: 'g-pin',
+        voiceChannelId: 'vc',
+        textChannelId: 'tc',
+        transferNode,
+        setVoiceChannelId: vi.fn(),
+        setTextChannelId: vi.fn(),
+      };
+      const mm = {
+        getManager: () => ({
+          on: vi.fn(),
+          players: { get: () => undefined, create: () => freshPlayer },
+        }),
+        isNodeCoolingDown: () => true,
+      };
+      const svc = new MusicService(mm as never, {} as never, {
+        getSettings: () => ({ autoplay: false, volume: 100, loopMode: 'off', filters: [] }),
+      } as never);
+      const player = await svc.getOrCreatePlayer('g-pin', 'vc', 'tc');
+      expect(player).toBe(freshPlayer);
+      expect(transferNode).not.toHaveBeenCalled();
+    } finally {
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+      vi.restoreAllMocks();
+    }
+  });
+});

@@ -199,3 +199,103 @@ describe('MoonlinkManager node resurrection (tower sleep/reboot)', () => {
     expect(flapper.connect).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('MoonlinkManager REST-dead failover (uplink-stall class)', () => {
+  const useHomeEnv = () => {
+    process.env.ENVIRONMENT = 'production';
+    delete process.env.ENABLE_LAVALINK;
+    process.env.HOME_LAVALINK_URL = 'http://127.0.0.1:1';
+    process.env.HOME_LAVALINK_PASSWORD = 'test-pw';
+    process.env.HOME_LAVALINK_SECURE = 'false';
+  };
+
+  const innerMapOf = (manager: MoonlinkManager): Map<string, unknown> => {
+    const inner = manager.getManager() as unknown as { nodes: { nodes: Map<string, unknown> } };
+    return inner.nodes.nodes;
+  };
+
+  const statsFor = (players: number) => ({
+    players,
+    playingPlayers: 0,
+    cpu: { systemLoad: 0.05, lavalinkLoad: 0.05 },
+    memory: { used: 100, allocated: 1000 },
+    uptime: 999,
+  });
+
+  const statNode = (identifier: string, players: number) => ({
+    identifier,
+    host: 'example.com',
+    port: 443,
+    connected: true,
+    destroyed: false,
+    stats: statsFor(players),
+    connect: vi.fn(async () => undefined),
+    destroy: vi.fn(),
+  });
+
+  it('cools a REST-dead node and excludes it from search picks', () => {
+    useHomeEnv();
+    const manager = new MoonlinkManager();
+    liveManagers.push(manager);
+    const map = innerMapOf(manager);
+    map.set('Home', statNode('Home', 0));
+    map.set('Serenetia-SSL', statNode('Serenetia-SSL', 0));
+
+    manager.noteRestFailure('Home');
+
+    expect(manager.isNodeCoolingDown('Home')).toBe(true);
+    expect(manager.pickSearchNode([])?.identifier).toBe('Serenetia-SSL');
+    const stats = manager.getNodeStats();
+    expect(stats.find((s) => s.identifier.startsWith('Home'))?.identifier).toBe('Home (cooldown)');
+  });
+
+  it('lets the cooldown expire on its own (self-healing picks)', () => {
+    vi.useFakeTimers();
+    useHomeEnv();
+    const manager = new MoonlinkManager();
+    liveManagers.push(manager);
+    const map = innerMapOf(manager);
+    map.set('Home', statNode('Home', 0));
+    map.set('Serenetia-SSL', statNode('Serenetia-SSL', 0));
+
+    manager.noteRestFailure('Home');
+    expect(manager.isNodeCoolingDown('Home')).toBe(true);
+
+    vi.advanceTimersByTime(125000);
+    expect(manager.isNodeCoolingDown('Home')).toBe(false);
+    // Tie on penalty resolves to map order — Home was inserted first.
+    expect(manager.pickSearchNode([])?.identifier).toBe('Home');
+  });
+
+  it('migrates players via transferNode, never restart()', async () => {
+    useHomeEnv();
+    const manager = new MoonlinkManager();
+    liveManagers.push(manager);
+    const map = innerMapOf(manager);
+    const home = statNode('Home', 1);
+    const serenetia = statNode('Serenetia-SSL', 0);
+    map.set('Home', home);
+    map.set('Serenetia-SSL', serenetia);
+
+    const fakePlayer = {
+      guildId: 'g1',
+      node: { identifier: 'Home' },
+      volume: 100,
+      loop: 'off',
+      autoPlay: false,
+      filters: { enabled: [] as string[] },
+      current: null,
+      transferNode: vi.fn(async () => undefined),
+      restart: vi.fn(async () => undefined),
+    };
+    const playersMgr = manager.getManager().players as unknown as Record<string, unknown>;
+    Object.defineProperty(playersMgr, 'all', { value: [fakePlayer], configurable: true });
+
+    manager.handleNodeFailover(home as never);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(fakePlayer.transferNode).toHaveBeenCalledTimes(1);
+    expect(fakePlayer.transferNode).toHaveBeenCalledWith(serenetia);
+    expect(fakePlayer.restart).not.toHaveBeenCalled();
+  });
+});

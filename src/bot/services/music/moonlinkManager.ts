@@ -171,12 +171,59 @@ export class MoonlinkManager {
     return !!until && Date.now() < until;
   }
 
-  private setNodeCooldown(identifier: string, ms: number): void {
+  /** True while a node cools down from any failure class (rate-limit, flake, REST-dead). */
+  public isNodeCoolingDown(identifier: string): boolean {
+    return this.isNodeInCooldown(identifier);
+  }
+
+  private setNodeCooldown(identifier: string, ms: number, persist = true): void {
     this.nodeCooldownUntil.set(identifier, Date.now() + ms);
     Logger.debug(`[Lavalink] Node "${identifier}" put on cooldown for ${ms / 1000}s`);
-    // Persist across restarts so rapid `npm run dev` doesn't reset backoff
-    if (this.cache) {
+    // Persist across restarts so rapid `npm run dev` doesn't reset backoff.
+    // REST-dead cooldowns skip this: a fresh process should re-probe the
+    // node, not inherit a stale suspicion.
+    if (persist && this.cache) {
       void this.cache.set(`lavalink:cooldown:${identifier}`, Date.now() + ms, Math.ceil(ms / 1000)).catch(() => undefined);
+    }
+  }
+
+  /**
+   * REST-dead signal (tower-uplink-stall class, proven live 2026-09-24):
+   * Moonlink still reports the node `connected` (half-open WS), so the
+   * least-penalty picker keeps routing every search at it and each burns
+   * ~4 REST attempts. One observed transport failure already cost that,
+   * so a single sighting earns a short cooldown — no extra threshold.
+   * Incident cost is one-time detection: subsequent commands route past
+   * via pickSearchNode exclusions until this expires on its own.
+   */
+  public noteRestFailure(identifier: string): void {
+    this.setNodeCooldown(identifier, MoonlinkManager.REST_DEAD_COOLDOWN_MS, false);
+    Logger.info(
+      `[Lavalink] Node "${identifier}" REST failed — cooling down ${MoonlinkManager.REST_DEAD_COOLDOWN_MS / 1000}s and migrating players`,
+    );
+    const node = this.getAllNodes().find((n) => n.identifier === identifier);
+    if (node) this.handleNodeFailover(node);
+  }
+
+  private static readonly REST_DEAD_COOLDOWN_MS = 120_000;
+
+  /**
+   * Search candidate excluding REST-dead / cooling nodes. Moonlink's own
+   * picker only scores CPU/memory, so callers pass our cooldown list as
+   * exclusions. Returns undefined when nothing usable remains.
+   */
+  public pickSearchNode(exclude: string[] = []): Node | undefined {
+    try {
+      const mgr = this.manager as unknown as {
+        nodes?: { findNode?: (opts?: { exclude?: string[] }) => Node | undefined };
+      };
+      const skip = new Set(exclude);
+      for (const n of this.getAllNodes()) {
+        if (this.isNodeInCooldown(n.identifier)) skip.add(n.identifier);
+      }
+      return mgr.nodes?.findNode?.({ exclude: [...skip] });
+    } catch {
+      return undefined;
     }
   }
 
@@ -442,6 +489,14 @@ export class MoonlinkManager {
     }
   }
 
+  /**
+   * Moves every player off a failed node onto the healthiest backup.
+   * Migration MUST go through transferNode (proper voice handshake WITH
+   * channelId). Never player.restart() here: Moonlink v5's restart
+   * re-sends channelId-less voice, which Lavalink 4.2.2 rejects with 400
+   * (proven on the voice-rejoin path). This is the single move primitive
+   * for every failure class — disconnects, rate-limits, and REST-dead.
+   */
   public handleNodeFailover(failedNode: Node): void {
     try {
       const players: Player[] = this.manager.players?.all ?? [];

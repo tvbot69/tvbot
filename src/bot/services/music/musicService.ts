@@ -245,7 +245,9 @@ export class MusicService {
     // Fresh players start on Home when the resolver is configured: local
     // files only exist there, and Home-first is the standing preference.
     // Existing (playing) players are never moved here — failover owns that.
-    if (created && resolverEnabled()) {
+    // A REST-dead Home is never pinned: the least-load pick stands and
+    // search-level exclusions route around it.
+    if (created && resolverEnabled() && !this.isCooling(HOME_NODE)) {
       try {
         await player.transferNode(HOME_NODE).catch(() => undefined);
       } catch {
@@ -263,11 +265,17 @@ export class MusicService {
     return player;
   }
 
-  private async searchWithTimeout(
-    args: { query: string; source: string },
-    ms: number = 8000,
+  /** REST-dead cooldown check, tolerant of partial test doubles. */
+  private isCooling(identifier: string): boolean {
+    const fn = this.moonlinkManager.isNodeCoolingDown;
+    return typeof fn === 'function' ? fn.call(this.moonlinkManager, identifier) : false;
+  }
+
+  private async raceSearch(
+    manager: { search: (args: { query: string; source: string; node?: string }) => Promise<unknown> },
+    args: { query: string; source: string; node?: string },
+    ms: number,
   ): Promise<{ tracks?: Track[] } | null> {
-    const manager = this.moonlinkManager.getManager();
     let timer: NodeJS.Timeout | undefined;
     try {
       const raced = await Promise.race([
@@ -280,6 +288,44 @@ export class MusicService {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /**
+   * Node-aware search with cross-node retry (tower-uplink-stall class,
+   * proven live 2026-09-24): Moonlink's picker can't see REST-death, so a
+   * REST-dead-but-WS-connected node absorbs every search. We pick
+   * exclusions-aware and mark failures — one observed failure (throw OR
+   * timeout-null; the incident surfaced as timeouts) already cost ~4 REST
+   * attempts, so it cools the node down immediately and the same command
+   * retries on the next candidate. Partial test doubles without the new
+   * manager methods fall back to the legacy single attempt.
+   */
+  private async searchWithTimeout(
+    args: { query: string; source: string },
+    ms: number = 8000,
+  ): Promise<{ tracks?: Track[] } | null> {
+    const manager = this.moonlinkManager.getManager();
+    const canFailover =
+      typeof this.moonlinkManager.pickSearchNode === 'function' &&
+      typeof this.moonlinkManager.noteRestFailure === 'function';
+    if (!canFailover) {
+      return this.raceSearch(manager, args, ms);
+    }
+    const tried = new Set<string>();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const node = this.moonlinkManager.pickSearchNode([...tried]);
+      if (!node) return null;
+      try {
+        const res = await this.raceSearch(manager, { ...args, node: node.identifier }, ms);
+        if (res) return res;
+        this.moonlinkManager.noteRestFailure(node.identifier);
+        tried.add(node.identifier);
+      } catch {
+        this.moonlinkManager.noteRestFailure(node.identifier);
+        tried.add(node.identifier);
+      }
+    }
+    return null;
   }
 
   /**
@@ -380,6 +426,8 @@ export class MusicService {
 
   private async tryResolverTrack(player: Player, ytTrack: Track, meta?: ResolverMeta): Promise<Track | null> {
     if (player.node?.identifier !== HOME_NODE) return null;
+    // Skip fast when Home is REST-dead instead of burning a doomed loadTracks.
+    if (this.isCooling(player.node?.identifier ?? '')) return null;
     if (!/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) return null;
     const path = await resolveViaHome(ytTrack.identifier, meta);
     if (!path) return null;
