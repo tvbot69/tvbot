@@ -1566,6 +1566,82 @@ describe('REST-dead search failover (uplink-stall class)', () => {
     }
   });
 
+  it('routes trial live videos to the resolver rung first (seekable file)', async () => {
+    const savedLadder = process.env.HOME_LADDER_MODE;
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_LADDER_MODE = 'plugin-first-test';
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ path: 'C:\\c\\x.webm', cached: true }),
+    } as Response);
+    try {
+      const search = vi.fn(async () => ({
+        tracks: [
+          {
+            identifier: 'dQw4w9WgXcQ',
+            duration: 3600000,
+            title: 'Full Set',
+            author: 'gloss',
+            artworkUrl: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg',
+          },
+        ],
+      }));
+      const player = {
+        guildId: 'g-live',
+        node: {
+          identifier: 'Home',
+          rest: {
+            loadTracks: async () => ({
+              loadType: 'track',
+              data: {
+                encoded: 'enc-live',
+                info: {
+                  title: 'Full Set',
+                  author: 'gloss',
+                  length: 3600000,
+                  uri: 'u',
+                  artworkUrl: undefined,
+                  isStream: false,
+                },
+              },
+            }),
+          },
+        },
+      };
+      const svc = new MusicService(
+        { getManager: () => ({ search, on: vi.fn(), players: { get: () => undefined } }) } as never,
+        new SpotifyResolver({} as never, {} as never),
+        {} as never,
+      ) as unknown as {
+        resolvePlaylistTrack: (
+          player: unknown,
+          spTrack: unknown,
+        ) => Promise<{ lavalinkTrack: { artworkUrl?: string }; rung: string } | null>;
+      };
+      const res = await svc.resolvePlaylistTrack(player, {
+        searchQuery: 'gloss - Full Set',
+        name: 'Full Set',
+        artist: 'gloss',
+        durationMs: 3600000,
+      });
+      expect(res?.rung).toBe('resolver');
+      expect(res?.lavalinkTrack.artworkUrl).toBe('https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      if (savedLadder === undefined) delete process.env.HOME_LADDER_MODE;
+      else process.env.HOME_LADDER_MODE = savedLadder;
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+      vi.restoreAllMocks();
+    }
+  });
+
   it('getOrCreatePlayer skips the Home pin while Home cools', async () => {
     const savedUrl = process.env.HOME_RESOLVER_URL;
     const savedToken = process.env.HOME_RESOLVER_TOKEN;

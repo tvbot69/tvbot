@@ -542,5 +542,83 @@ describe('MusicService', () => {
     // cascade is skipped — no studio cover exists for a full live set.
     expect(queued?.artworkUrl).toBe('https://i.ytimg.com/vi/livevid12345/maxresdefault.jpg');
   });
+
+  it('resolves long direct URLs to the local file first (seekable)', async () => {
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ path: 'C:\\c\\x.webm', cached: true }),
+    } as Response);
+    const searchMock = mockMoonlinkManager.getManager().search as unknown as ReturnType<typeof vi.fn>;
+    const savedSearchImpl = searchMock.getMockImplementation();
+    searchMock.mockImplementation(async () => ({
+      loadType: 'track',
+      tracks: [
+        {
+          title: 'Don Toliver - Live at Baltimore',
+          author: 'gloss',
+          duration: 4866000,
+          uri: 'https://www.youtube.com/watch?v=jWdQn5fFMZ0',
+          identifier: 'jWdQn5fFMZ0',
+          artworkUrl: 'https://i.ytimg.com/vi/jWdQn5fFMZ0/maxresdefault.jpg',
+        },
+      ],
+    }));
+    const playerAny = mockPlayer as unknown as Record<string, unknown>;
+    const savedNode = playerAny.node;
+    playerAny.node = {
+      identifier: 'Home',
+      rest: {
+        loadTracks: async () => ({
+          loadType: 'track',
+          data: {
+            encoded: 'enc-long',
+            info: {
+              title: 'Don Toliver - Live at Baltimore',
+              author: 'gloss',
+              length: 4866000,
+              uri: 'u',
+              artworkUrl: undefined,
+              isStream: false,
+            },
+          },
+        }),
+      },
+    };
+    const addMock = mockPlayer.queue.add as unknown as ReturnType<typeof vi.fn>;
+    addMock.mockClear();
+    try {
+      const res = await musicService.play(
+        '123456789',
+        'vc-1',
+        'tc-1',
+        'https://www.youtube.com/watch?v=jWdQn5fFMZ0',
+        { id: 'user-1', tag: 'TestUser' },
+      );
+
+      expect(res.loadType).toBe('track');
+      expect(res.track?.source).toBe('local');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const queued = addMock.mock.calls[addMock.mock.calls.length - 1]?.[0] as {
+        artworkUrl?: string | null;
+        sourceName?: string;
+      };
+      expect(queued?.sourceName).toBe('local');
+      expect(queued?.artworkUrl).toBe('https://i.ytimg.com/vi/jWdQn5fFMZ0/maxresdefault.jpg');
+    } finally {
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+      if (savedNode === undefined) delete playerAny.node;
+      else playerAny.node = savedNode;
+      searchMock.mockImplementation(savedSearchImpl);
+      vi.restoreAllMocks();
+    }
+  });
 });
 
