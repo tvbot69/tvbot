@@ -33,230 +33,214 @@ export class MusicSlashCommands implements ISlashCommandModule {
     this.commands = [
       {
         data: new SlashCommandBuilder()
-          .setName('play')
-          .setDescription('Play a song from YouTube or Spotify')
-          .addStringOption((opt) =>
-            opt
-              .setName('query')
-              .setDescription('Song title, artist, or YouTube/Spotify URL')
-              .setRequired(true),
-          ),
-        executeAsync: (ctx) => this.executePlay(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('search')
-          .setDescription('Search YouTube for songs and pick one from an interactive menu')
-          .addStringOption((opt) =>
-            opt
-              .setName('query')
-              .setDescription('Song title or artist to search')
-              .setRequired(true),
-          ),
-        executeAsync: (ctx) => this.executeSearch(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('nowplaying')
-          .setDescription('View the currently playing track with interactive controls'),
-        executeAsync: (ctx) => this.executeNowPlaying(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('queue')
-          .setDescription('View the current music queue')
-          .addIntegerOption((opt) =>
-            opt.setName('page').setDescription('Page number').setMinValue(1),
-          ),
-        executeAsync: (ctx) => this.executeQueue(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('skip')
-          .setDescription('Skip current song or multiple songs')
-          .addIntegerOption((opt) =>
-            opt.setName('amount').setDescription('Number of tracks to skip').setMinValue(1),
-          ),
-        executeAsync: (ctx) => this.executeSkip(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('previous')
-          .setDescription('Replay the previous track from history'),
-        executeAsync: (ctx) => this.executePrevious(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('skipto')
-          .setDescription('Jump directly to a specific track in the queue')
-          .addIntegerOption((opt) =>
-            opt
-              .setName('position')
-              .setDescription('Position of the track in queue (1-based)')
-              .setRequired(true)
-              .setMinValue(1),
-          ),
-        executeAsync: (ctx) => this.executeSkipTo(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('move')
-          .setDescription('Move a track to a different position in the queue')
-          .addIntegerOption((opt) =>
-            opt
-              .setName('from')
-              .setDescription('Current position of the track')
-              .setRequired(true)
-              .setMinValue(1),
-          )
-          .addIntegerOption((opt) =>
-            opt
-              .setName('to')
-              .setDescription('Target position in the queue')
-              .setRequired(true)
-              .setMinValue(1),
-          ),
-        executeAsync: (ctx) => this.executeMove(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('replay')
-          .setDescription('Restart the current song from the beginning'),
-        executeAsync: (ctx) => this.executeReplay(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('stop')
-          .setDescription('Stop music playback and disconnect the bot'),
-        executeAsync: (ctx) => this.executeStop(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('pause')
-          .setDescription('Pause music playback'),
-        executeAsync: (ctx) => this.executePause(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('resume')
-          .setDescription('Resume music playback'),
-        executeAsync: (ctx) => this.executeResume(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('seek')
-          .setDescription('Seek to a position in seconds')
-          .addIntegerOption((opt) =>
-            opt.setName('seconds').setDescription('Seconds into the track').setMinValue(0).setRequired(true),
-          ),
-        executeAsync: (ctx) => this.executeSeek(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('volume')
-          .setDescription('View or change player volume (0 - 150%)')
-          .addIntegerOption((opt) =>
-            opt.setName('level').setDescription('Volume level (0-150)').setMinValue(0).setMaxValue(150),
-          ),
-        executeAsync: (ctx) => this.executeVolume(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('filter')
-          .setDescription('Toggle or configure audio filters')
-          .addStringOption((opt) => {
-            opt.setName('type').setDescription('Filter name');
-            for (const f of ALL_FILTERS) {
-              opt.addChoices({ name: f, value: f });
-            }
-            return opt;
-          }),
-        executeAsync: (ctx) => this.executeFilter(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('lyrics')
-          .setDescription('Display lyrics for the current song or a search query')
-          .addStringOption((opt) =>
-            opt.setName('query').setDescription('Song title to look up (defaults to currently playing)'),
-          ),
-        executeAsync: (ctx) => this.executeLyrics(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('join')
-          .setDescription('Summon the bot into your current voice channel'),
-        executeAsync: (ctx) => this.executeJoin(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('247')
-          .setDescription('Toggle 24/7 mode (keeps bot in voice channel indefinitely)'),
-        executeAsync: (ctx) => this.execute247(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('karaoke')
-          .setDescription('Toggle live synced lyrics on the Now Playing card'),
-        executeAsync: (ctx) => this.executeKaraoke(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('autoplay')
-          .setDescription('Toggle autoplay mode (automatically plays related songs)'),
-        executeAsync: (ctx) => this.executeAutoplay(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('loop')
-          .setDescription('Set loop mode (off, track, or queue)')
-          .addStringOption((opt) =>
-            opt
-              .setName('mode')
-              .setDescription('Loop mode')
-              .setRequired(true)
-              .addChoices(
-                { name: 'Off', value: 'off' },
-                { name: 'Track', value: 'track' },
-                { name: 'Queue', value: 'queue' },
+          .setName('music')
+          .setDescription('Music playback and controls (was /play, /skip, /queue, ...)')
+          .addSubcommand((sub) =>
+            sub
+              .setName('play')
+              .setDescription('Play a song from YouTube or Spotify')
+              .addStringOption((opt) =>
+                opt
+                  .setName('query')
+                  .setDescription('Song title, artist, or YouTube/Spotify URL')
+                  .setRequired(true),
               ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('search')
+              .setDescription('Search YouTube for songs and pick one from an interactive menu')
+              .addStringOption((opt) =>
+                opt
+                  .setName('query')
+                  .setDescription('Song title or artist to search')
+                  .setRequired(true),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('nowplaying').setDescription('View the currently playing track with interactive controls'),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('queue')
+              .setDescription('View the current music queue')
+              .addIntegerOption((opt) =>
+                opt.setName('page').setDescription('Page number').setMinValue(1),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('skip')
+              .setDescription('Skip current song or multiple songs')
+              .addIntegerOption((opt) =>
+                opt.setName('amount').setDescription('Number of tracks to skip').setMinValue(1),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('previous').setDescription('Replay the previous track from history'),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('skipto')
+              .setDescription('Jump directly to a specific track in the queue')
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('position')
+                  .setDescription('Position of the track in queue (1-based)')
+                  .setRequired(true)
+                  .setMinValue(1),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('move')
+              .setDescription('Move a track to a different position in the queue')
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('from')
+                  .setDescription('Current position of the track')
+                  .setRequired(true)
+                  .setMinValue(1),
+              )
+              .addIntegerOption((opt) =>
+                opt
+                  .setName('to')
+                  .setDescription('Target position in the queue')
+                  .setRequired(true)
+                  .setMinValue(1),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('replay').setDescription('Restart the current song from the beginning'),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('stop').setDescription('Stop music playback and disconnect the bot'),
+          )
+          .addSubcommand((sub) => sub.setName('pause').setDescription('Pause music playback'))
+          .addSubcommand((sub) => sub.setName('resume').setDescription('Resume music playback'))
+          .addSubcommand((sub) =>
+            sub
+              .setName('seek')
+              .setDescription('Seek to a position in seconds')
+              .addIntegerOption((opt) =>
+                opt.setName('seconds').setDescription('Seconds into the track').setMinValue(0).setRequired(true),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('volume')
+              .setDescription('View or change player volume (0 - 150%)')
+              .addIntegerOption((opt) =>
+                opt.setName('level').setDescription('Volume level (0-150)').setMinValue(0).setMaxValue(150),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('filter')
+              .setDescription('Toggle or configure audio filters')
+              .addStringOption((opt) => {
+                opt.setName('type').setDescription('Filter name');
+                for (const f of ALL_FILTERS) {
+                  opt.addChoices({ name: f, value: f });
+                }
+                return opt;
+              }),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('lyrics')
+              .setDescription('Display lyrics for the current song or a search query')
+              .addStringOption((opt) =>
+                opt.setName('query').setDescription('Song title to look up (defaults to currently playing)'),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('join').setDescription('Summon the bot into your current voice channel'),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('247').setDescription('Toggle 24/7 mode (keeps bot in voice channel indefinitely)'),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('karaoke').setDescription('Toggle live synced lyrics on the Now Playing card'),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('autoplay').setDescription('Toggle autoplay mode (automatically plays related songs)'),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('loop')
+              .setDescription('Set loop mode (off, track, or queue)')
+              .addStringOption((opt) =>
+                opt
+                  .setName('mode')
+                  .setDescription('Loop mode')
+                  .setRequired(true)
+                  .addChoices(
+                    { name: 'Off', value: 'off' },
+                    { name: 'Track', value: 'track' },
+                    { name: 'Queue', value: 'queue' },
+                  ),
+              ),
+          )
+          .addSubcommand((sub) => sub.setName('shuffle').setDescription('Shuffle the current queue'))
+          .addSubcommand((sub) => sub.setName('clear').setDescription('Clear all tracks from the queue'))
+          .addSubcommand((sub) =>
+            sub
+              .setName('remove')
+              .setDescription('Remove a track from the queue by position')
+              .addIntegerOption((opt) =>
+                opt.setName('position').setDescription('Position in queue').setRequired(true).setMinValue(1),
+              ),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('history').setDescription('View recently played tracks in this server'),
+          )
+          .addSubcommand((sub) =>
+            sub.setName('nodes').setDescription('View connected Lavalink node metrics and health'),
           ),
-        executeAsync: (ctx) => this.executeLoop(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('shuffle')
-          .setDescription('Shuffle the current queue'),
-        executeAsync: (ctx) => this.executeShuffle(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('clear')
-          .setDescription('Clear all tracks from the queue'),
-        executeAsync: (ctx) => this.executeClear(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('remove')
-          .setDescription('Remove a track from the queue by position')
-          .addIntegerOption((opt) =>
-            opt.setName('position').setDescription('Position in queue').setRequired(true).setMinValue(1),
-          ),
-        executeAsync: (ctx) => this.executeRemove(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('history')
-          .setDescription('View recently played tracks in this server'),
-        executeAsync: (ctx) => this.executeHistory(ctx),
-      },
-      {
-        data: new SlashCommandBuilder()
-          .setName('nodes')
-          .setDescription('View connected Lavalink node metrics and health'),
-        executeAsync: (ctx) => this.executeNodes(ctx),
+        executeAsync: (ctx) => this.executeMusic(ctx),
       },
     ];
+  }
+
+  private async executeMusic(ctx: ContextModel): Promise<ResponseModel> {
+    const sub = (() => {
+      try {
+        return ctx.interaction?.options.getSubcommand() ?? null;
+      } catch {
+        return null;
+      }
+    })();
+    switch (sub) {
+      case 'play': return this.executePlay(ctx);
+      case 'search': return this.executeSearch(ctx);
+      case 'nowplaying': return this.executeNowPlaying(ctx);
+      case 'queue': return this.executeQueue(ctx);
+      case 'skip': return this.executeSkip(ctx);
+      case 'previous': return this.executePrevious(ctx);
+      case 'skipto': return this.executeSkipTo(ctx);
+      case 'move': return this.executeMove(ctx);
+      case 'replay': return this.executeReplay(ctx);
+      case 'stop': return this.executeStop(ctx);
+      case 'pause': return this.executePause(ctx);
+      case 'resume': return this.executeResume(ctx);
+      case 'seek': return this.executeSeek(ctx);
+      case 'volume': return this.executeVolume(ctx);
+      case 'filter': return this.executeFilter(ctx);
+      case 'lyrics': return this.executeLyrics(ctx);
+      case 'join': return this.executeJoin(ctx);
+      case '247': return this.execute247(ctx);
+      case 'karaoke': return this.executeKaraoke(ctx);
+      case 'autoplay': return this.executeAutoplay(ctx);
+      case 'loop': return this.executeLoop(ctx);
+      case 'shuffle': return this.executeShuffle(ctx);
+      case 'clear': return this.executeClear(ctx);
+      case 'remove': return this.executeRemove(ctx);
+      case 'history': return this.executeHistory(ctx);
+      case 'nodes': return this.executeNodes(ctx);
+      default:
+        return GenericEmbedService.buildWrongInputResponse('Unknown music command. Try `/music play`, `/music skip`, …');
+    }
   }
 
   private async executePlay(ctx: ContextModel): Promise<ResponseModel> {

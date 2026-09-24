@@ -360,7 +360,7 @@ export class MusicBuilders {
         desc += `\`${itemNumber}.\` [${track.title}](${track.uri}) \`[${track.isStream ? 'LIVE' : formatDuration(track.duration)}]\`${reqStr}\n`;
       });
     } else if (queue.tracks.length === 0) {
-      desc += '*Queue is empty. Use `/play` or `+play` to add tracks.*';
+      desc += '*Queue is empty. Use `/music play` or `+play` to add tracks.*';
     }
 
     response.embed
