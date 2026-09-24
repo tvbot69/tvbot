@@ -40,6 +40,20 @@ export class MusicInteractions {
     }
   }
 
+  /**
+   * Stored chapter card for Now Playing rebuilds (pause/skip/views). The
+   * updater owns live derivation; interactions reuse the last published
+   * card so chapter context survives button presses (≤5s stale at worst).
+   */
+  private chapterCardFor(guildId: string): { title: string; artworkUrl?: string | null } | null {
+    try {
+      const player = this.musicService.getPlayer(guildId);
+      return (player?.get('chapterCard') as { title: string; artworkUrl?: string | null } | null) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   // Active search results per message/user (memory + Redis mirror so search
   // picks survive restarts; 2-minute life like before).
   private readonly activeSearches = new TtlStore<MusicTrack[]>('session:music-search:', 120);
@@ -95,7 +109,7 @@ export class MusicInteractions {
         await interaction.reply({ content: 'No music is currently playing.', ephemeral: true });
         return;
       }
-      const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor);
+      const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, undefined, this.chapterCardFor(guildId));
       if (MusicInteractions.isV2Message(interaction.message)) {
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
@@ -228,7 +242,7 @@ export class MusicInteractions {
         const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
         const response = isQueueView
           ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
-          : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor);
+          : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
         await interaction.deferUpdate();
@@ -245,7 +259,7 @@ export class MusicInteractions {
           const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
           const response = isQueueView
             ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
-            : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor);
+            : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
           await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
         } else {
           await interaction.deferUpdate().catch(() => undefined);
@@ -263,7 +277,7 @@ export class MusicInteractions {
       if (success) {
         const updatedQueue = this.musicService.getQueueInfo(guildId);
         if (updatedQueue) {
-          const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor);
+          const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
           await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
         } else {
           await interaction.deferUpdate();
@@ -283,7 +297,7 @@ export class MusicInteractions {
           const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
           const response = isQueueView
             ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
-            : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor);
+            : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
           await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
         } else {
           await interaction.deferUpdate();
@@ -302,7 +316,7 @@ export class MusicInteractions {
         const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
         const response = isQueueView
           ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
-          : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor);
+          : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
         await interaction.deferUpdate();
@@ -315,7 +329,7 @@ export class MusicInteractions {
       this.musicService.cycleLoop(guildId);
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
-        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor);
+        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
         await interaction.deferUpdate();
@@ -328,7 +342,7 @@ export class MusicInteractions {
       this.musicService.adjustVolume(guildId, -10);
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
-        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor);
+        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
         await interaction.deferUpdate();
@@ -341,7 +355,7 @@ export class MusicInteractions {
       this.musicService.adjustVolume(guildId, +10);
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
-        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor);
+        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
         await interaction.deferUpdate();

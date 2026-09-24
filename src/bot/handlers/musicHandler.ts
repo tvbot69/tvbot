@@ -9,7 +9,16 @@ import type { ColorService } from '@bot/services/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import type { LyricsService } from '@bot/services/music/lyricsService';
+import type { ArtworkService } from '@bot/services/artworkService';
 import { lyricWindowAt, type LyricWindow, type SyncedLine } from '@bot/services/music/syncedLyrics';
+import {
+  chapterIndexAt,
+  isGenericChapterTitle,
+  splitChapterTitle,
+  type ChapterCard,
+  type VideoChapter,
+} from '@bot/services/music/videoChapters';
+import { getVideoChapters } from '@bot/services/music/ytResolver';
 import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTrack';
 import { healthFor, ladderFor, YoutubeHealth, HOME_NODE } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome } from '@bot/services/music/ytResolver';
@@ -22,6 +31,7 @@ export class MusicHandler {
   private readonly voiceChannelStatusService?: VoiceChannelStatusService;
   private readonly botScrobblingService?: BotScrobblingService;
   private readonly lyricsService?: LyricsService;
+  private readonly artworkService?: ArtworkService;
   private readonly emptyChannelTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly inactivityTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly updateIntervals = new Map<string, NodeJS.Timeout>();
@@ -36,6 +46,7 @@ export class MusicHandler {
     voiceChannelStatusService?: VoiceChannelStatusService,
     botScrobblingService?: BotScrobblingService,
     lyricsService?: LyricsService,
+    artworkService?: ArtworkService,
   ) {
     this.client = client;
     this.moonlinkManager = moonlinkManager;
@@ -44,6 +55,7 @@ export class MusicHandler {
     this.voiceChannelStatusService = voiceChannelStatusService;
     this.botScrobblingService = botScrobblingService;
     this.lyricsService = lyricsService;
+    this.artworkService = artworkService;
 
     this.registerMoonlinkEvents();
     this.registerDiscordEvents();
@@ -56,7 +68,7 @@ export class MusicHandler {
    * audio trails by seconds while the stream connects). Null when disabled,
    * missing, or nothing singable (card renders unchanged).
    */
-  private static readonly KARAOKE_STARTUP_OFFSET_MS = 3000;
+  private static readonly CLOCK_STARTUP_OFFSET_MS = 3000;
 
   private lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
     try {
@@ -64,7 +76,7 @@ export class MusicHandler {
       if (!this.queueService.isKaraokeEnabled(player.guildId)) return null;
       const lines = player.get<SyncedLine[] | null>('karaokeLines');
       if (!lines || lines.length === 0) return null;
-      return lyricWindowAt(lines, Math.max(0, positionMs), MusicHandler.KARAOKE_STARTUP_OFFSET_MS);
+      return lyricWindowAt(lines, Math.max(0, positionMs), MusicHandler.CLOCK_STARTUP_OFFSET_MS);
     } catch {
       return null;
     }
@@ -87,6 +99,89 @@ export class MusicHandler {
       if (lines && lines.length > 0) player.set('karaokeLines', lines);
     } catch {
       // No synced lyrics — standard card without the section.
+    }
+  }
+
+  /**
+   * Kicks off a chapter probe for a YouTube track (fire-and-forget: the card
+   * goes out immediately and upgrades when chapters land). Only videos with
+   * 2+ chapters qualify — a single chapter carries no segmentation info.
+   * Resolver-side caching makes repeat plays free.
+   */
+  private resolveVideoChapters(player: Player, track: Track | null | undefined): void {
+    player.set('chapters', null);
+    player.set('chapterIdx', -2);
+    player.set('chapterCard', null);
+    try {
+      const rec = track as unknown as { sourceName?: string; identifier?: string } | null;
+      if (!rec || rec.sourceName !== 'youtube') return;
+      const id = rec.identifier ?? '';
+      if (!/^[\w-]{11}$/.test(id)) return;
+      void (async () => {
+        try {
+          const chapters = await getVideoChapters(id);
+          if (chapters && chapters.length >= 2) {
+            player.set('chapters', chapters);
+            Logger.info(
+              { guildId: player.guildId, chapters: chapters.length },
+              '[Music] Video chapters attached',
+            );
+          }
+        } catch {
+          // Plain card — chapters are decoration, never load-bearing.
+        }
+      })();
+    } catch {
+      // Plain card.
+    }
+  }
+
+  /**
+   * Display-ready chapter card for a tick. Advances with playback; on a
+   * chapter change it publishes the title immediately and resolves that
+   * chapter's cover in the background (late-attach via the fingerprint).
+   * Generic container titles (Intro/Outro/...) suppress the card.
+   */
+  private chapterCardFor(player: Player, positionMs: number): ChapterCard | null {
+    try {
+      const chapters = player.get<VideoChapter[] | null>('chapters');
+      if (!chapters || chapters.length < 2) return player.get<ChapterCard | null>('chapterCard') ?? null;
+      const idx = chapterIndexAt(chapters, Math.max(0, positionMs), MusicHandler.CLOCK_STARTUP_OFFSET_MS);
+      const lastIdx = player.get<number>('chapterIdx') ?? -2;
+      if (idx === lastIdx) return player.get<ChapterCard | null>('chapterCard') ?? null;
+      player.set('chapterIdx', idx);
+      const ch = idx >= 0 ? chapters[idx] : undefined;
+      if (!ch || isGenericChapterTitle(ch.title)) {
+        player.set('chapterCard', null);
+        return null;
+      }
+      const card: ChapterCard = { title: ch.title, artworkUrl: null };
+      player.set('chapterCard', card);
+      void this.resolveChapterArt(player, idx, chapters);
+      return card;
+    } catch {
+      return null;
+    }
+  }
+
+  private async resolveChapterArt(player: Player, idx: number, chapters: VideoChapter[]): Promise<void> {
+    try {
+      const ch = chapters[idx];
+      if (!ch) return;
+      const { artist, song } = splitChapterTitle(ch.title);
+      if (!song) return;
+      const svc = this.artworkService;
+      if (!svc) return;
+      const art = await Promise.race([
+        svc.getTrackCoverUrl(song, artist).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      ]);
+      if (!art) return;
+      // Only publish if the listener hasn't moved on meanwhile.
+      if ((player.get<number>('chapterIdx') ?? -2) !== idx) return;
+      player.set('chapterCard', { title: ch.title, artworkUrl: art });
+    } catch {
+      // Card keeps the track art.
     }
   }
 
@@ -117,10 +212,13 @@ export class MusicHandler {
 
         const queue = this.queueService.getQueueInfo(player);
         // Dirty check: skip the edit when nothing visible changed (same track,
-        // pause state, queue size, loop, volume, 5s position bucket, and the
-        // karaoke window — lyrics advance the card between position buckets).
+        // pause state, queue size, loop, volume, 5s position bucket, karaoke
+        // window, and chapter card — lyrics/chapters advance the card between
+        // position buckets).
         const lyricWindow = this.lyricWindowFor(player, queue.position);
         const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
+        const chapter = this.chapterCardFor(player, queue.position);
+        const chapterKey = chapter ? `${chapter.title}~${chapter.artworkUrl ? 'a' : ''}` : 'none';
         const fingerprint = [
           queue.current?.identifier ?? queue.current?.uri ?? 'none',
           queue.isPaused ? 'p' : 'r',
@@ -129,6 +227,7 @@ export class MusicHandler {
           queue.volume,
           Math.floor(queue.position / MusicHandler.PROGRESS_UPDATE_MS),
           lyricKey,
+          chapterKey,
         ].join('|');
         if (this.progressFingerprints.get(player.guildId) === fingerprint) return;
 
@@ -157,7 +256,7 @@ export class MusicHandler {
         const accentColor = this.colorService
           ? await this.colorService.getAccentColorAsync(player.guildId, currentArtworkUrl)
           : undefined;
-        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow);
+        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, chapter);
 
         await msg
           .edit(response.toMessagePayload() as unknown as Record<string, unknown>)
@@ -560,10 +659,12 @@ export class MusicHandler {
           ? await this.colorService.getAccentColorAsync(player.guildId, currentTrack.artworkUrl)
           : undefined;
         await this.resolveKaraokeLines(player, currentTrack.title, currentTrack.author, currentTrack.duration);
+        this.resolveVideoChapters(player, player.current ?? track);
         const response = MusicBuilders.buildNowPlayingResponse(
           queue,
           accentColor,
           this.lyricWindowFor(player, 0),
+          this.chapterCardFor(player, 0),
         );
 
         const payload = response.toMessagePayload();

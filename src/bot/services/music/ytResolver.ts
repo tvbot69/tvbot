@@ -81,6 +81,45 @@ export const resolverEnabled = (): boolean =>
   !!process.env.HOME_RESOLVER_TOKEN &&
   Date.now() >= pausedUntil;
 
+export interface VideoChapterDto {
+  title: string;
+  startMs: number;
+}
+
+/**
+ * Chapter list for lives/mixes (song titles + start times) from the home
+ * resolver's metadata probe. Returns null when unusable (resolver down,
+ * bad id) — distinct from `[]`, which means the video simply has no
+ * chapters. Deliberately side-effect-free: a chapter miss must never trip
+ * the audio resolver's pause/miss/alert machinery.
+ */
+export async function getVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
+  if (!resolverEnabled()) return null;
+  if (!/^[\w-]{11}$/.test(id)) return null;
+  const base = process.env.HOME_RESOLVER_URL as string;
+  const token = process.env.HOME_RESOLVER_TOKEN as string;
+  try {
+    const r = await fetch(`${base}/chapters?${new URLSearchParams({ id }).toString()}`, {
+      headers: { authorization: token },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!r.ok) return null;
+    const body = (await r.json()) as { chapters?: unknown };
+    if (!Array.isArray(body.chapters)) return null;
+    const out: VideoChapterDto[] = [];
+    for (const c of body.chapters) {
+      const cc = c as { title?: unknown; startMs?: unknown };
+      if (typeof cc.title !== 'string' || !cc.title.trim()) continue;
+      if (typeof cc.startMs !== 'number' || !Number.isFinite(cc.startMs) || cc.startMs < 0) continue;
+      out.push({ title: cc.title.trim(), startMs: Math.round(cc.startMs) });
+    }
+    out.sort((a, b) => a.startMs - b.startMs);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Asks the home PC's yt-dlp resolver to materialize a YouTube video id into
  * a cached audio file. Returns the node's local filesystem path, or null.

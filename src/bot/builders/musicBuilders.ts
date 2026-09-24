@@ -205,6 +205,7 @@ export class MusicBuilders {
     queue: MusicQueueInfo,
     accentColor?: number,
     lyricWindow?: { current: string | null; next: string | null } | null,
+    chapter?: { title: string; artworkUrl?: string | null } | null,
   ): ResponseModel {
     const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
@@ -229,11 +230,13 @@ export class MusicBuilders {
 
     const sourceIcon = getSourceBadge(current.source);
 
-    // Card order: header (title/artist) -> lyrics -> progress bar pinned at
-    // the bottom -> controls.
+    // Card order: header (title/artist) -> live chapter -> lyrics ->
+    // progress bar pinned at the bottom -> controls.
     const header = `### [${current.title}](${current.uri})\n**${current.author}** • ${sourceIcon}`;
+    const chapterLine = chapter ? `▶ **${chapter.title}**` : null;
     const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
     const legacyLyricSection = MusicBuilders.buildLyricSection(lyricWindow, false);
+    const galleryUrl = chapter?.artworkUrl || current.artworkUrl;
 
     // Single Row of 5 Square Icon Playback Controls (Mobile-perfect, zero text squishing)
     const row0 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -265,14 +268,17 @@ export class MusicBuilders {
       container.setAccentColor(color);
     }
 
-    if (current.artworkUrl) {
+    if (galleryUrl) {
       const gallery = new MediaGalleryBuilder().addItems(
-        new MediaGalleryItemBuilder().setURL(current.artworkUrl),
+        new MediaGalleryItemBuilder().setURL(galleryUrl),
       );
       container.addMediaGalleryComponents(gallery);
     }
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(header));
+    if (chapterLine) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(chapterLine));
+    }
     if (lyricSection) {
       container.addSeparatorComponents(
         new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true),
@@ -289,10 +295,11 @@ export class MusicBuilders {
 
     // Backward-compatible fallback embed & button row
     response.addButtonRow(0, row0 as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    const legacyBody = chapterLine ? `${header}\n${chapterLine}` : header;
     response.embed
-      .setDescription(legacyLyricSection ? `${header}\n\n${legacyLyricSection}\n\n${progressBar}` : `${header}\n\n${progressBar}`);
-    if (current.artworkUrl) {
-      response.embed.setImage(current.artworkUrl);
+      .setDescription(legacyLyricSection ? `${legacyBody}\n\n${legacyLyricSection}\n\n${progressBar}` : `${legacyBody}\n\n${progressBar}`);
+    if (galleryUrl) {
+      response.embed.setImage(galleryUrl);
     }
 
     return response;
