@@ -7,7 +7,7 @@ import { MoonlinkManager, type LavalinkNodeStats } from './moonlinkManager';
 import { SpotifyResolver, type SpotifyResolvedTrack } from './spotifyResolver';
 import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
-import { ladderFor, HOME_NODE, pluginTestMode, type Rung } from './youtubeHealth';
+import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
 import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
 import { extractArtistFromTitle, isLiveVideo } from './videoChapters';
 import type { ArtworkService } from '@bot/services/artworkService';
@@ -376,19 +376,7 @@ export class MusicService {
         continue;
       }
       if (!ytHit) continue;
-      if (rung === 'plugin') {
-        // Live-video workaround (fork SABR seeks): long videos prefer the
-        // byte-addressable resolver file, because deep seeks into plugin
-        // SABR streams stall past the stuck threshold (proven live). Only
-        // under the plugin-first trial — default order already tries the
-        // resolver rung first. Trial cipher/PoT signal on short videos is
-        // unaffected; a failed resolve falls straight through to plugin.
-        if (pluginTestMode() && isLiveVideo(ytHit.duration)) {
-          const liveLocal = await this.tryResolverTrack(player, ytHit, meta);
-          if (liveLocal) return { track: liveLocal, rung: 'resolver' };
-        }
-        return { track: ytHit, rung };
-      }
+      if (rung === 'plugin') return { track: ytHit, rung };
       const local = await this.tryResolverTrack(player, ytHit, meta);
       if (local) return { track: local, rung };
     }
@@ -597,31 +585,11 @@ export class MusicService {
             return await this.enqueueLavalinkTracks(player, [hit], requester, trackOverride, rungSource);
           return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
         }
-        // Live-video workaround (fork SABR seeks): a long direct URL resolves
-        // to the byte-addressable local file first, so deep seeks work.
-        // Falls through to the plugin stream below when unresolvable.
-        MusicService.preCleanArtwork(meta, trackOverride?.artworkUrl);
-        if (isLiveVideo(meta.duration)) {
-          const liveLocal = await this.tryResolverTrack(player, meta, {
-            title: trackOverride?.title || meta.title,
-            artist: trackOverride?.author || meta.author,
-          });
-          if (liveLocal) {
-            void this.maybeBackfillArt(
-              liveLocal,
-              trackOverride?.artworkUrl,
-              trackOverride?.title || meta.title,
-              trackOverride?.author || meta.author,
-              MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
-              liveLocal.uri,
-            );
-            return await this.enqueueLavalinkTracks(player, [liveLocal], requester, trackOverride, 'local');
-          }
-        }
         // Direct plugin-rung URL plays skip the ladder: pre-clean + backfill
         // here so lives on third-party channels get artist/chapter art, not
         // raw thumbnails. Fire-and-forget (never stalls the fast path — the
         // progress ticker picks up late-arriving art within seconds).
+        MusicService.preCleanArtwork(meta, trackOverride?.artworkUrl);
         void this.maybeBackfillArt(
           meta,
           trackOverride?.artworkUrl,
