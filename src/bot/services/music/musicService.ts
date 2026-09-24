@@ -67,6 +67,13 @@ export class MusicService {
   private static readonly ARTWORK_TIMEOUT_MS = 6000;
   /** Background paths (JIT top-up, warmup) can afford to wait out slow cascades. */
   private static readonly BACKGROUND_ARTWORK_TIMEOUT_MS = 10000;
+  /**
+   * Long-form threshold: videos longer than this (DJ sets, full concerts)
+   * have no single correct studio cover, so the top-level card uses the
+   * video thumbnail immediately and skips the provider cascade. Per-chapter
+   * art still resolves per song inside the set.
+   */
+  private static readonly LONG_FORM_MS = 20 * 60 * 1000;
   /** Upcoming entries with a warmup cascade already in flight (dedupes overlap). */
   private readonly artWarmKeys = new Set<string>();
   private readonly artworkService?: ArtworkService;
@@ -357,9 +364,16 @@ export class MusicService {
   /**
    * Artwork pre-clean (single choke point, also used by the direct URL
    * path): stamp a known-good cover, or drop a raw YouTube thumbnail so a
-   * later backfill cascade fills real art instead of skipping on it.
+   * later backfill cascade fills real art instead of skipping on it. The
+   * raw video thumbnail is stashed first — long-form content (>20min)
+   * skips the cascade and uses it directly, since no studio cover exists
+   * for a DJ set / full concert.
    */
   public static preCleanArtwork(track: { artworkUrl?: string | null }, artworkUrl?: string | null): void {
+    const rec = track as unknown as Record<string, unknown>;
+    if (typeof rec._videoThumb !== 'string' && typeof track.artworkUrl === 'string' && track.artworkUrl) {
+      rec._videoThumb = track.artworkUrl;
+    }
     if (artworkUrl) track.artworkUrl = artworkUrl;
     else if (MusicService.isYoutubeThumb(track.artworkUrl)) track.artworkUrl = null;
   }
@@ -399,6 +413,9 @@ export class MusicService {
       }
       if (/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) {
         dstRec._sourceVideoId = ytTrack.identifier;
+      }
+      if (typeof srcRec._videoThumb === 'string' && typeof dstRec._videoThumb !== 'string') {
+        dstRec._videoThumb = srcRec._videoThumb;
       }
       return track;
     } catch (err) {
@@ -841,15 +858,39 @@ export class MusicService {
   ): Promise<void> {
     try {
       if (!track || track.artworkUrl || knownArtworkUrl) return;
+      const t = (title || track.title)?.trim();
+      const a = (artist || track.author)?.trim();
+      if (!t || !a) return;
+      const started = Date.now();
+      const trackRec = track as unknown as Record<string, unknown>;
+      trackRec._artLookupStartedAt = started;
+      // Long-form content (DJ sets, full concerts): the cascade chases a
+      // studio cover that doesn't exist. Use the stashed video thumbnail
+      // immediately and skip the network round-trips — the card renders
+      // with art from frame one. Needs no service, so it runs even when
+      // the artwork stack is unwired. Falls through to the cascade only
+      // when no thumbnail survived (nothing to show otherwise).
+      const dur = track.duration || 0;
+      if (dur > MusicService.LONG_FORM_MS) {
+        const thumb = trackRec._videoThumb;
+        if (typeof thumb === 'string' && thumb) {
+          track.artworkUrl = thumb;
+          Logger.info(
+            { title: t, artist: a, durationMs: dur },
+            '[Music] Long-form art: video thumbnail, cascade skipped',
+          );
+          return;
+        }
+      }
       const svc = this.artworkService;
       if (!svc) {
         Logger.debug('[Music] Artwork backfill skipped — no artwork service wired');
         return;
       }
-      const t = (title || track.title)?.trim();
-      const a = (artist || track.author)?.trim();
-      if (!t || !a) return;
-      const started = Date.now();
+      Logger.info(
+        { title: t, artist: a, timeoutMs, durationMs: dur },
+        '[Music] Artwork lookup start',
+      );
       // Never-rejecting lookup: exact by-ID first (no matching risk), then
       // the name cascade, then the artist profile picture. One slow leg
       // can't hang the race.

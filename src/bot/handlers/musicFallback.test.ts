@@ -1090,6 +1090,44 @@ describe('resolve artwork backfill', () => {
     expect(track.artworkUrl).toBe('https://img.test/first.jpg');
   });
 
+  it('uses the video thumbnail and skips the cascade for long-form content', async () => {
+    const { svc, getTrackCoverUrl, getArtistImageUrl } = makeArtSvc();
+    const track = {
+      title: 'DJ Set - Live at Home [FULL SET]',
+      author: 'some-channel',
+      duration: 3600000,
+      _videoThumb: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+    } as unknown as { title: string; author: string; duration: number; artworkUrl?: string };
+    await svc.maybeBackfillArt(track, undefined, 'DJ Set', 'DJ', 6000);
+    expect(track.artworkUrl).toBe('https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg');
+    expect(getTrackCoverUrl).not.toHaveBeenCalled();
+    expect(getArtistImageUrl).not.toHaveBeenCalled();
+  });
+
+  it('falls through to the cascade for long-form content with no thumbnail', async () => {
+    const { svc, getTrackCoverUrl } = makeArtSvc();
+    const track = {
+      title: 'DJ Set - Live at Home [FULL SET]',
+      author: 'some-channel',
+      duration: 3600000,
+    } as unknown as { title: string; author: string; duration: number; artworkUrl?: string };
+    await svc.maybeBackfillArt(track, undefined, 'DJ Set', 'DJ', 6000);
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('DJ Set', 'DJ');
+  });
+
+  it('runs the cascade for normal-length tracks without art', async () => {
+    const { svc, getTrackCoverUrl } = makeArtSvc();
+    const track = {
+      title: 'Esme',
+      author: 'Mond',
+      duration: 180000,
+      _videoThumb: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+    } as unknown as { title: string; author: string; duration: number; artworkUrl?: string };
+    await svc.maybeBackfillArt(track, undefined, 'Esme', 'Mond', 6000);
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');
+    expect(track.artworkUrl).toBe('https://img.test/backfilled.jpg');
+  });
+
   it('backfills the playlist first track (playSpotify path)', async () => {
     const search = vi.fn(async () => ({
       tracks: [{ identifier: 'yt1', duration: 135000, title: 'Vid', author: 'Art' }],

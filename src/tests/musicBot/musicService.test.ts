@@ -538,7 +538,9 @@ describe('MusicService', () => {
 
     expect(res.loadType).toBe('track');
     const queued = addMock.mock.calls[addMock.mock.calls.length - 1]?.[0] as { artworkUrl?: string | null };
-    expect(queued?.artworkUrl).toBeNull();
+    // Long-form (>20min): the video thumbnail is kept immediately and the
+    // cascade is skipped — no studio cover exists for a full live set.
+    expect(queued?.artworkUrl).toBe('https://i.ytimg.com/vi/livevid12345/maxresdefault.jpg');
   });
 });
 

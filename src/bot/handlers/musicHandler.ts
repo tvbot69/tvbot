@@ -606,6 +606,9 @@ export class MusicHandler {
       const rawTitle = srcRec._rawVideoTitle ?? getVideoTitle(src as unknown as { title?: string }) ?? src.title;
       if (typeof rawTitle === 'string' && rawTitle) dstRec._rawVideoTitle = rawTitle;
       if (videoId) dstRec._sourceVideoId = videoId;
+      if (typeof srcRec._videoThumb === 'string' && typeof dstRec._videoThumb !== 'string') {
+        dstRec._videoThumb = srcRec._videoThumb;
+      }
       return t;
     } catch (err) {
       Logger.debug(
@@ -744,6 +747,26 @@ export class MusicHandler {
           this.lyricWindowFor(player, 0),
           this.chapterCardFor(player, 0),
         );
+
+        // Timing triangulation (artwork flash diagnosis): lookup start is
+        // stamped in maybeBackfillArt, resolve is logged there with
+        // resolveMs, and this line marks first card render. Correlate the
+        // three by title across ~10-15 normal tracks before optimizing.
+        try {
+          const curRec = (player.current ?? track) as unknown as { _artLookupStartedAt?: unknown };
+          const lookupStarted = typeof curRec._artLookupStartedAt === 'number' ? curRec._artLookupStartedAt : null;
+          Logger.info(
+            {
+              guildId: player.guildId,
+              title: currentTrack.title,
+              lookupStartedMsAgo: lookupStarted !== null ? Date.now() - lookupStarted : null,
+              artPresent: !!currentTrack.artworkUrl,
+            },
+            '[Music] Card render timing',
+          );
+        } catch {
+          // Timing only — never break the card.
+        }
 
         const payload = response.toMessagePayload();
         const sent = await (
