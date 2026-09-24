@@ -322,6 +322,23 @@ export class MusicService {
   }
 
   /**
+   * Lead-artist fallback query ("ZAF, Omar Taa'i - cashwekaas" -> "ZAF -
+   * cashwekaas"). Multi-artist Spotify billing poisons YouTube search into
+   * a genuine empty while the video exists; the lead artist + exact title
+   * surfaces it. Returns null when no distinct fallback exists.
+   */
+  public static fallbackSearchQuery(query: string, meta?: ResolverMeta): string | null {
+    const title = meta?.title?.trim();
+    const artist = meta?.artist?.trim();
+    if (!title || !artist) return null;
+    const lead = MusicService.leadArtist(artist);
+    if (!lead || lead.toLowerCase() === artist.toLowerCase()) return null;
+    const fallback = `${lead} - ${title}`;
+    if (fallback.toLowerCase() === query.trim().toLowerCase()) return null;
+    return fallback;
+  }
+
+  /**
    * One YouTube attempt shared by the plugin + resolver rungs, then per-rung
    * selection. Resolver hits are labeled 'local' so failure handling treats
    * them as resolver output, never as YouTube plugin output. Distinguishes
@@ -330,6 +347,19 @@ export class MusicService {
    * misleading "No tracks found".
    */
   private async searchTrackWithLadder(
+    player: Player,
+    query: string,
+    meta?: ResolverMeta,
+  ): Promise<{ track: Track; rung: Rung } | { transportError: true } | null> {
+    const first = await this.searchTrackWithLadderOnce(player, query, meta);
+    if (first) return first;
+    const fallbackQuery = MusicService.fallbackSearchQuery(query, meta);
+    if (!fallbackQuery) return null;
+    Logger.info({ query, fallbackQuery }, '[Music] Search empty — retrying with lead artist');
+    return this.searchTrackWithLadderOnce(player, fallbackQuery, meta);
+  }
+
+  private async searchTrackWithLadderOnce(
     player: Player,
     query: string,
     meta?: ResolverMeta,
