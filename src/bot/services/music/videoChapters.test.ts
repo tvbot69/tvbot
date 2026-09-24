@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, extractArtistFromTitle } from './videoChapters';
+import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, extractArtistFromTitle, resolveDisplayedChapter } from './videoChapters';
 
 const SHOW = [
   { title: 'Rottweiler', startMs: 0 },
@@ -71,5 +71,32 @@ describe('extractArtistFromTitle', () => {
     expect(extractArtistFromTitle('Live - Full Set')).toBeNull();
     expect(extractArtistFromTitle('')).toBeNull();
     expect(extractArtistFromTitle(null)).toBeNull();
+  });
+});
+
+describe('resolveDisplayedChapter', () => {
+  it('holds the previous cover while the new one resolves', () => {
+    expect(
+      resolveDisplayedChapter({ title: '4 Raws', artworkUrl: null }, 'https://cdn.example.com/rottweiler.jpg', 'https://cdn.example.com/artist.jpg'),
+    ).toEqual({
+      card: { title: '4 Raws', artworkUrl: 'https://cdn.example.com/rottweiler.jpg' },
+      shownCover: 'https://cdn.example.com/rottweiler.jpg',
+    });
+  });
+
+  it('prefers fresh chapter art over the held cover', () => {
+    expect(
+      resolveDisplayedChapter({ title: 'Century', artworkUrl: 'https://cdn.example.com/century.jpg' }, 'https://cdn.example.com/old.jpg', null),
+    ).toEqual({
+      card: { title: 'Century', artworkUrl: 'https://cdn.example.com/century.jpg' },
+      shownCover: 'https://cdn.example.com/century.jpg',
+    });
+  });
+
+  it('falls back to track art with no chapter and no hold', () => {
+    expect(resolveDisplayedChapter(null, null, 'https://cdn.example.com/video.jpg')).toEqual({
+      card: null,
+      shownCover: 'https://cdn.example.com/video.jpg',
+    });
   });
 });

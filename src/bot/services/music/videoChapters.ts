@@ -16,6 +16,25 @@ export interface ChapterCard {
 }
 
 /**
+ * Applies the hold-last-cover rule: a chapter still waiting on its art
+ * keeps the previously displayed cover instead of flashing generic track
+ * art and swapping again when the real cover lands. Returns the card to
+ * render plus the effective cover (also persisted as the next hold).
+ */
+export function resolveDisplayedChapter(
+  chapter: ChapterCard | null,
+  lastCoverUrl: string | null,
+  trackArtworkUrl?: string | null,
+): { card: ChapterCard | null; shownCover: string | null } {
+  let display = chapter;
+  if (chapter && !chapter.artworkUrl && lastCoverUrl) {
+    display = { title: chapter.title, artworkUrl: lastCoverUrl };
+  }
+  const shownCover = display?.artworkUrl ?? trackArtworkUrl ?? null;
+  return { card: display, shownCover };
+}
+
+/**
  * Titles that describe the video container rather than a song. Showing
  * "Now: Intro" is silly, so these suppress the chapter card (the normal
  * card + artist fallback carry on underneath).

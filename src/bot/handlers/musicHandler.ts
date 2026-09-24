@@ -15,6 +15,7 @@ import {
   chapterIndexAt,
   extractArtistFromTitle,
   isGenericChapterTitle,
+  resolveDisplayedChapter,
   splitChapterTitle,
   type ChapterCard,
   type VideoChapter,
@@ -114,6 +115,7 @@ export class MusicHandler {
     player.set('chapters', null);
     player.set('chapterIdx', -2);
     player.set('chapterCard', null);
+    player.set('lastCoverUrl', null);
     try {
       const rec = track as unknown as { sourceName?: string; identifier?: string } | null;
       if (!rec || rec.sourceName !== 'youtube') return;
@@ -268,7 +270,13 @@ export class MusicHandler {
         const lyricWindow = this.lyricWindowFor(player, queue.position);
         const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
         const chapter = this.chapterCardFor(player, queue.position);
-        const chapterKey = chapter ? `${chapter.title}~${chapter.artworkUrl ? 'a' : ''}` : 'none';
+        const { card: displayChapter, shownCover } = resolveDisplayedChapter(
+          chapter,
+          player.get<string | null>('lastCoverUrl') ?? null,
+          queue.current?.artworkUrl,
+        );
+        if (shownCover) player.set('lastCoverUrl', shownCover);
+        const chapterKey = displayChapter ? `${displayChapter.title}~${displayChapter.artworkUrl ? 'a' : ''}` : 'none';
         const fingerprint = [
           queue.current?.identifier ?? queue.current?.uri ?? 'none',
           queue.isPaused ? 'p' : 'r',
@@ -306,7 +314,7 @@ export class MusicHandler {
         const accentColor = this.colorService
           ? await this.colorService.getAccentColorAsync(player.guildId, currentArtworkUrl)
           : undefined;
-        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, chapter);
+        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, displayChapter);
 
         await msg
           .edit(response.toMessagePayload() as unknown as Record<string, unknown>)

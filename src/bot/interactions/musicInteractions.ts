@@ -12,6 +12,7 @@ import { ColorService } from '@bot/services/colorService';
 import type { FilterName } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 import { TtlStore } from '@bot/services/ttlStore';
+import { resolveDisplayedChapter } from '@bot/services/music/videoChapters';
 
 export const MUSIC_INTERACTION_PREFIXES = [
   'music:queue:',
@@ -44,11 +45,20 @@ export class MusicInteractions {
    * Stored chapter card for Now Playing rebuilds (pause/skip/views). The
    * updater owns live derivation; interactions reuse the last published
    * card so chapter context survives button presses (≤5s stale at worst).
+   * Applies the same hold-last-cover rule as the updater: a pending chapter
+   * keeps the previous cover instead of flashing generic track art.
    */
   private chapterCardFor(guildId: string): { title: string; artworkUrl?: string | null } | null {
     try {
       const player = this.musicService.getPlayer(guildId);
-      return (player?.get('chapterCard') as { title: string; artworkUrl?: string | null } | null) ?? null;
+      const card = (player?.get('chapterCard') as { title: string; artworkUrl?: string | null } | null) ?? null;
+      if (!card) return null;
+      const queue = player ? this.musicService.getQueueInfo(guildId) : null;
+      return resolveDisplayedChapter(
+        card,
+        (player?.get('lastCoverUrl') as string | null) ?? null,
+        queue?.current?.artworkUrl,
+      ).card;
     } catch {
       return null;
     }
