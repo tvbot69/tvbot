@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, extractArtistFromTitle, resolveDisplayedChapter } from './videoChapters';
+import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, extractArtistFromTitle, resolveDisplayedChapter, getVideoTitle, getSourceVideoId } from './videoChapters';
 
 const SHOW = [
   { title: 'Rottweiler', startMs: 0 },
@@ -44,6 +44,16 @@ describe('isGenericChapterTitle', () => {
     expect(isGenericChapterTitle(null)).toBe(true);
   });
 
+  it('flags slash-joined container titles', () => {
+    expect(isGenericChapterTitle('Intro/Outro')).toBe(true);
+    expect(isGenericChapterTitle('Intro / Outro')).toBe(true);
+    expect(isGenericChapterTitle('intro|outro')).toBe(true);
+  });
+
+  it('keeps mixed slash titles with a real song', () => {
+    expect(isGenericChapterTitle('Intro / Rottweiler')).toBe(false);
+  });
+
   it('keeps real song titles', () => {
     expect(isGenericChapterTitle('Rottweiler')).toBe(false);
     expect(isGenericChapterTitle('4 Raws')).toBe(false);
@@ -53,6 +63,11 @@ describe('isGenericChapterTitle', () => {
 describe('splitChapterTitle', () => {
   it('splits artist and song', () => {
     expect(splitChapterTitle('EsDeeKid - Rottweiler')).toEqual({ artist: 'EsDeeKid', song: 'Rottweiler' });
+  });
+
+  it('splits en/em-dash separators', () => {
+    expect(splitChapterTitle('Rihanna – Diamonds')).toEqual({ artist: 'Rihanna', song: 'Diamonds' });
+    expect(splitChapterTitle('Rihanna — Diamonds')).toEqual({ artist: 'Rihanna', song: 'Diamonds' });
   });
 
   it('strips track numbers and keeps song-only titles', () => {
@@ -66,11 +81,33 @@ describe('extractArtistFromTitle', () => {
     expect(extractArtistFromTitle('EsDeeKid - Live at Silver Spring, MD [FULL SET | 9/13/26]')).toBe('EsDeeKid');
   });
 
+  it('finds the performer with en-dash separators', () => {
+    expect(extractArtistFromTitle('Rihanna – Live at Home')).toBe('Rihanna');
+  });
+
   it('rejects non-artists and missing patterns', () => {
     expect(extractArtistFromTitle('Rottweiler')).toBeNull();
     expect(extractArtistFromTitle('Live - Full Set')).toBeNull();
     expect(extractArtistFromTitle('')).toBeNull();
     expect(extractArtistFromTitle(null)).toBeNull();
+  });
+});
+
+describe('getVideoTitle/getSourceVideoId', () => {
+  it('prefers the stashed raw video title over the adopted Spotify title', () => {
+    const track = { title: 'Diamonds', _rawVideoTitle: 'Rihanna - Live at Home' } as unknown as { title: string };
+    expect(getVideoTitle(track)).toBe('Rihanna - Live at Home');
+    expect(extractArtistFromTitle(getVideoTitle(track))).toBe('Rihanna');
+  });
+
+  it('resolves video IDs for youtube, adopted spotify, and stamped local tracks', () => {
+    expect(getSourceVideoId({ sourceName: 'youtube', identifier: 'dQw4w9WgXcQ' })).toBe('dQw4w9WgXcQ');
+    expect(getSourceVideoId({ sourceName: 'spotify', identifier: 'dQw4w9WgXcQ' })).toBe('dQw4w9WgXcQ');
+    expect(
+      getSourceVideoId({ sourceName: 'local', identifier: 'local-cache-id', _sourceVideoId: 'dQw4w9WgXcQ' } as unknown as { sourceName: string; identifier: string }),
+    ).toBe('dQw4w9WgXcQ');
+    expect(getSourceVideoId({ sourceName: 'soundcloud', identifier: 'dQw4w9WgXcQ' })).toBeNull();
+    expect(getSourceVideoId({ sourceName: 'local', identifier: 'local-cache-id' })).toBeNull();
   });
 });
 

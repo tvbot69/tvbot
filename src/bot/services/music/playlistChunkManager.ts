@@ -207,6 +207,13 @@ export class PlaylistChunkManager {
           if (item.found) {
             const lavalinkTrack = item.found.lavalinkTrack;
             const trackRecord = lavalinkTrack as unknown as Record<string, unknown>;
+            if (typeof trackRecord._rawVideoTitle !== 'string' && lavalinkTrack.title) {
+              trackRecord._rawVideoTitle = lavalinkTrack.title;
+            }
+            if (typeof trackRecord._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(lavalinkTrack.identifier ?? '')) {
+              const src = String(trackRecord.sourceName ?? '');
+              if (src === 'youtube' || src === '') trackRecord._sourceVideoId = lavalinkTrack.identifier;
+            }
             trackRecord.requester = { id: state.requesterId } as unknown as string;
             trackRecord.title = item.t.name;
             trackRecord.author = item.t.artist;
@@ -228,6 +235,12 @@ export class PlaylistChunkManager {
           if (!item?.r?.tracks?.[0]) continue;
           const lavalinkTrack = item.r.tracks[0];
           const trackRecord = lavalinkTrack as unknown as Record<string, unknown>;
+          if (typeof trackRecord._rawVideoTitle !== 'string' && lavalinkTrack.title) {
+            trackRecord._rawVideoTitle = lavalinkTrack.title;
+          }
+          if (typeof trackRecord._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(lavalinkTrack.identifier ?? '')) {
+            trackRecord._sourceVideoId = lavalinkTrack.identifier;
+          }
           trackRecord.requester = { id: state.requesterId } as unknown as string;
           trackRecord.title = item.t.name;
           trackRecord.author = item.t.artist;

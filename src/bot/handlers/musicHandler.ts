@@ -14,6 +14,8 @@ import { lyricWindowAt, type LyricWindow, type SyncedLine } from '@bot/services/
 import {
   chapterIndexAt,
   extractArtistFromTitle,
+  getSourceVideoId,
+  getVideoTitle,
   isGenericChapterTitle,
   resolveDisplayedChapter,
   splitChapterTitle,
@@ -116,11 +118,11 @@ export class MusicHandler {
     player.set('chapterIdx', -2);
     player.set('chapterCard', null);
     player.set('lastCoverUrl', null);
+    player.set('chapterStartedAt', null);
     try {
       const rec = track as unknown as { sourceName?: string; identifier?: string } | null;
-      if (!rec || rec.sourceName !== 'youtube') return;
-      const id = rec.identifier ?? '';
-      if (!/^[\w-]{11}$/.test(id)) return;
+      const id = getSourceVideoId(rec);
+      if (!id) return;
       void (async () => {
         try {
           const chapters = await getVideoChapters(id);
@@ -153,7 +155,7 @@ export class MusicHandler {
       const svc = this.artworkService;
       if (!svc) return;
       const cur = player.current as unknown as { title?: string } | null;
-      const videoArtist = extractArtistFromTitle(cur?.title) ?? undefined;
+      const videoArtist = extractArtistFromTitle(getVideoTitle(cur)) ?? undefined;
       for (const i of indices) {
         const ch = chapters[i];
         if (!ch || isGenericChapterTitle(ch.title)) continue;
@@ -192,6 +194,7 @@ export class MusicHandler {
         return stored;
       }
       player.set('chapterIdx', idx);
+      player.set('chapterStartedAt', Date.now());
       const ch = idx >= 0 ? chapters[idx] : undefined;
       if (!ch || isGenericChapterTitle(ch.title)) {
         player.set('chapterCard', null);
@@ -220,7 +223,7 @@ export class MusicHandler {
       let useArtist = artist;
       if (!useArtist) {
         const cur = player.current as unknown as { title?: string } | null;
-        useArtist = extractArtistFromTitle(cur?.title) ?? undefined;
+        useArtist = extractArtistFromTitle(getVideoTitle(cur)) ?? undefined;
       }
       const svc = this.artworkService;
       if (!svc) return;
@@ -270,9 +273,19 @@ export class MusicHandler {
         const lyricWindow = this.lyricWindowFor(player, queue.position);
         const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
         const chapter = this.chapterCardFor(player, queue.position);
+        // Borrowed-cover expiry: holding the previous chapter's art avoids a
+        // flash, but after ~90s without a resolve it looks like a confirmed
+        // (wrong) answer. Fall through to track art instead.
+        let holdCover = player.get<string | null>('lastCoverUrl') ?? null;
+        if (chapter && !chapter.artworkUrl) {
+          const startedAt = player.get<number | null>('chapterStartedAt') ?? null;
+          if (typeof startedAt === 'number' && Date.now() - startedAt > 90000) {
+            holdCover = null;
+          }
+        }
         const { card: displayChapter, shownCover } = resolveDisplayedChapter(
           chapter,
-          player.get<string | null>('lastCoverUrl') ?? null,
+          holdCover,
           queue.current?.artworkUrl,
         );
         if (shownCover) player.set('lastCoverUrl', shownCover);
@@ -557,8 +570,9 @@ export class MusicHandler {
    */
   private async tryResolver(player: Player, src: Track): Promise<Track | null> {
     if (player.node?.identifier !== HOME_NODE) return null;
-    if (src.sourceName !== 'youtube' || !/^[\w-]{11}$/.test(src.identifier ?? '')) return null;
-    const path = await resolveViaHome(src.identifier, {
+    const videoId = getSourceVideoId(src as unknown as { sourceName?: string; identifier?: string });
+    if (!videoId) return null;
+    const path = await resolveViaHome(videoId, {
       title: src.title,
       artist: src.author,
     });
@@ -587,6 +601,11 @@ export class MusicHandler {
       t.artworkUrl = src.artworkUrl;
       t.uri = src.uri;
       if (!t.duration || t.isStream) t.duration = src.duration;
+      const srcRec = src as unknown as Record<string, unknown>;
+      const dstRec = t as unknown as Record<string, unknown>;
+      const rawTitle = srcRec._rawVideoTitle ?? getVideoTitle(src as unknown as { title?: string }) ?? src.title;
+      if (typeof rawTitle === 'string' && rawTitle) dstRec._rawVideoTitle = rawTitle;
+      if (videoId) dstRec._sourceVideoId = videoId;
       return t;
     } catch (err) {
       Logger.debug(

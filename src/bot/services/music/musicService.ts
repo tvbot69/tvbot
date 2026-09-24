@@ -307,6 +307,17 @@ export class MusicService {
       // this, scraper playlists (no per-track covers) inherit YouTube thumbs
       // permanently: adoption skips missing art AND backfill skips present art.
       MusicService.preCleanArtwork(ytHit, meta?.artworkUrl);
+      // Chapter context: stash the raw video title + ID before Spotify
+      // adoption overwrites title/author. Without this, extractArtistFromTitle
+      // reads the Spotify title (no " - ") and resolver local files lose the
+      // video ID entirely.
+      const rec = ytHit as unknown as Record<string, unknown>;
+      if (typeof rec._rawVideoTitle !== 'string' && ytHit.title) {
+        rec._rawVideoTitle = ytHit.title;
+      }
+      if (typeof rec._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(ytHit.identifier ?? '')) {
+        rec._sourceVideoId = ytHit.identifier;
+      }
     }
     for (const rung of rungs) {
       if (rung === 'soundcloud') {
@@ -378,6 +389,16 @@ export class MusicService {
           '[Music] Resolver file duration-mismatched — refusing a wrong song.',
         );
         return null;
+      }
+      // Carry chapter context onto the local file (it has no video ID itself).
+      const srcRec = ytTrack as unknown as Record<string, unknown>;
+      const dstRec = track as unknown as Record<string, unknown>;
+      const rawTitle = srcRec._rawVideoTitle ?? ytTrack.title;
+      if (typeof rawTitle === 'string' && rawTitle && typeof dstRec._rawVideoTitle !== 'string') {
+        dstRec._rawVideoTitle = rawTitle;
+      }
+      if (/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) {
+        dstRec._sourceVideoId = ytTrack.identifier;
       }
       return track;
     } catch (err) {
@@ -576,6 +597,16 @@ export class MusicService {
       if (trackOverride?.artworkUrl) rawTrack.artworkUrl = trackOverride.artworkUrl;
       const trackRecord = rawTrack as unknown as Record<string, unknown>;
       const finalSource = trackOverride?.source || source;
+      // Stash raw video context before any title overwrite (trackOverride or
+      // Spotify enrichment) so chapter artist extraction keeps working.
+      if ((finalSource === 'youtube' || finalSource === 'spotify' || finalSource === 'local')) {
+        if (typeof trackRecord._rawVideoTitle !== 'string' && rawTrack.title) {
+          trackRecord._rawVideoTitle = rawTrack.title;
+        }
+        if (typeof trackRecord._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(rawTrack.identifier ?? '')) {
+          trackRecord._sourceVideoId = rawTrack.identifier;
+        }
+      }
       trackRecord.sourceName = finalSource;
       trackRecord.source = finalSource;
       if (enrichWithSpotify && source === 'youtube' && !trackOverride?.title) {
@@ -934,6 +965,17 @@ export class MusicService {
     spotifyUrl: string,
     trackOverride?: { title?: string; author?: string; artworkUrl?: string; source?: string },
   ): void {
+    const record = lavalinkTrack as unknown as Record<string, unknown>;
+    // Preserve chapter context: the raw video title is captured in
+    // searchTrackWithLadder before this overwrite runs. Fall back to the
+    // pre-adoption title when the stash is missing (older queue entries).
+    if (typeof record._rawVideoTitle !== 'string' && lavalinkTrack.title) {
+      record._rawVideoTitle = lavalinkTrack.title;
+    }
+    if (typeof record._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(lavalinkTrack.identifier ?? '')) {
+      const src = String(record.sourceName ?? '');
+      if (src === 'youtube' || src === '') record._sourceVideoId = lavalinkTrack.identifier;
+    }
     lavalinkTrack.requester = requester;
     lavalinkTrack.title = spTrack.name;
     lavalinkTrack.author = spTrack.artist;
@@ -941,7 +983,6 @@ export class MusicService {
       lavalinkTrack.artworkUrl = spTrack.artworkUrl;
     }
     lavalinkTrack.uri = spotifyUriToUrl(spTrack.spotifyUri) || spotifyUrl;
-    const record = lavalinkTrack as unknown as Record<string, unknown>;
     const backend = rung === 'resolver' ? 'local' : 'spotify';
     record.sourceName = trackOverride?.source || backend;
     record.source = trackOverride?.source || backend;

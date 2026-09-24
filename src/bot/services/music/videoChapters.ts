@@ -45,10 +45,24 @@ const GENERIC_TOKENS = [
   'epilogue', 'preview', 'snippet', 'teaser', 'announcement', 'talk',
 ];
 
+function isGenericSingleTitle(t: string): boolean {
+  return GENERIC_TOKENS.some((g) => t === g || t.startsWith(`${g} `) || t.startsWith(`${g}-`) || t.endsWith(` ${g}`));
+}
+
 export function isGenericChapterTitle(title: string | null | undefined): boolean {
   const t = (title ?? '').trim().toLowerCase();
   if (!t) return true;
-  return GENERIC_TOKENS.some((g) => t === g || t.startsWith(`${g} `) || t.startsWith(`${g}-`) || t.endsWith(` ${g}`));
+  // Slash/pipe-joined container titles ("Intro/Outro") are common on YouTube.
+  // All parts must be generic to suppress — "Intro / Real Song" still shows.
+  if (/[/|]/.test(t)) {
+    const parts = t
+      .split(/[/|]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return true;
+    return parts.every((p) => isGenericSingleTitle(p));
+  }
+  return isGenericSingleTitle(t);
 }
 
 /**
@@ -56,15 +70,18 @@ export function isGenericChapterTitle(title: string | null | undefined): boolean
  * "EsDeeKid - Rottweiler" -> both; "Rottweiler" -> song only (caller falls
  * back to the video author). Leading track numbers ("01. X") are stripped.
  */
+/** Matches " - " plus en/em-dash variants ("Rihanna – Diamonds"). */
+const DASH_SEP = /\s[-–—]\s/;
+
 export function splitChapterTitle(title: string): { artist?: string; song: string } {
   const cleaned = title
     .trim()
     .replace(/^\d{1,3}[.):-]+/, '')
     .trim();
-  const dash = cleaned.indexOf(' - ');
-  if (dash > 0) {
-    const artist = cleaned.slice(0, dash).trim();
-    const song = cleaned.slice(dash + 3).trim();
+  const m = DASH_SEP.exec(cleaned);
+  if (m && m.index > 0) {
+    const artist = cleaned.slice(0, m.index).trim();
+    const song = cleaned.slice(m.index + m[0].length).trim();
     if (artist && song) return { artist, song };
   }
   return { song: cleaned };
@@ -81,10 +98,10 @@ export function splitChapterTitle(title: string): { artist?: string; song: strin
 export function extractArtistFromTitle(title: string | null | undefined): string | null {
   const t = (title ?? '').trim();
   if (!t) return null;
-  const dash = t.indexOf(' - ');
-  if (dash <= 0) return null;
+  const m = DASH_SEP.exec(t);
+  if (!m || m.index <= 0) return null;
   const candidate = t
-    .slice(0, dash)
+    .slice(0, m.index)
     .replace(/^\d{1,3}[.):-]+/, '')
     .trim();
   if (candidate.length < 2) return null;
@@ -92,6 +109,36 @@ export function extractArtistFromTitle(title: string | null | undefined): string
     return null;
   }
   return candidate;
+}
+
+/**
+ * Raw YouTube video title stashed before Spotify adoption overwrites
+ * title/author. Spotify titles ("Diamonds") carry no " - " separator, so
+ * reading player.current.title directly silently loses the video-artist
+ * fallback. Callers must read through this helper.
+ */
+export function getVideoTitle(track: { title?: string } | null | undefined): string | null {
+  if (!track) return null;
+  const raw = (track as unknown as { _rawVideoTitle?: unknown })._rawVideoTitle;
+  if (typeof raw === 'string' && raw.trim()) return raw;
+  return track.title ?? null;
+}
+
+/**
+ * Video ID for chapter probing. YouTube-rung tracks carry it as the
+ * identifier; resolver-served local files carry the stamped
+ * `_sourceVideoId` (the resolver's input ID, never copied back before).
+ */
+export function getSourceVideoId(
+  track: { sourceName?: string; identifier?: string } | null | undefined,
+): string | null {
+  if (!track) return null;
+  const stamped = (track as unknown as { _sourceVideoId?: unknown })._sourceVideoId;
+  if (typeof stamped === 'string' && /^[\w-]{11}$/.test(stamped)) return stamped;
+  const id = track.identifier ?? '';
+  if (!/^[\w-]{11}$/.test(id)) return null;
+  if (track.sourceName === 'youtube' || track.sourceName === 'spotify') return id;
+  return null;
 }
 
 /**

@@ -54,9 +54,16 @@ export class MusicInteractions {
       const card = (player?.get('chapterCard') as { title: string; artworkUrl?: string | null } | null) ?? null;
       if (!card) return null;
       const queue = player ? this.musicService.getQueueInfo(guildId) : null;
+      let holdCover = (player?.get('lastCoverUrl') as string | null) ?? null;
+      if (!card.artworkUrl) {
+        const startedAt = player?.get('chapterStartedAt') as number | null;
+        if (typeof startedAt === 'number' && Date.now() - startedAt > 90000) {
+          holdCover = null;
+        }
+      }
       return resolveDisplayedChapter(
         card,
-        (player?.get('lastCoverUrl') as string | null) ?? null,
+        holdCover,
         queue?.current?.artworkUrl,
       ).card;
     } catch {
