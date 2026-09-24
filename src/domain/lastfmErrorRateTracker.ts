@@ -30,6 +30,14 @@ export class LastfmErrorRateTracker {
     if (this.totalCalls === 0) {
       return;
     }
+    // Stay quiet on tiny windows (a single stray call reads as 100% and
+    // only trains everyone to ignore the report).
+    if (this.totalCalls < 5) {
+      this.totalCalls = 0;
+      this.errorCalls = 0;
+      this.errorsByCode.clear();
+      return;
+    }
     const errorRate = ((this.errorCalls / this.totalCalls) * 100).toFixed(2);
     Logger.warn(
       {

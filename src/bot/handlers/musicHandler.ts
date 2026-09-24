@@ -621,6 +621,7 @@ export class MusicHandler {
       this.queueService.recordTrackStart(player.guildId, player.current ?? track);
 
       player.set('trackStartedAt', Date.now());
+      player.set('seekStallRetried', false);
       if (player.current) {
         player.current.position = 0;
         player.current.time = Date.now();
@@ -754,6 +755,24 @@ export class MusicHandler {
         if (!cur) return false;
         return (cur.encoded ?? cur.uri ?? cur.identifier) === failedKey;
       };
+
+      // Seek-stall recovery: a stall within seconds of a USER seek is usually
+      // the range request dying (especially on pot-bound YouTube streams),
+      // not a poison upload. Re-issue the same seek once — no fallback
+      // budget burn, no per-song strike — and only fall through to the
+      // alternate-upload machinery if it stalls again.
+      const lastSeekAt = player.get<number>('lastUserSeekAt') ?? 0;
+      const seekRetried = player.get<boolean>('seekStallRetried') ?? false;
+      if (!seekRetried && lastSeekAt > 0 && Date.now() - lastSeekAt < 25000 && stillCurrent()) {
+        player.set('seekStallRetried', true);
+        const pos = player.get<number>('lastUserSeekPos') ?? 0;
+        Logger.info(
+          { guildId: player.guildId, track: track.title, pos },
+          '[Music] Stall right after user seek — re-issuing seek once instead of fallback.',
+        );
+        await player.seek(pos).catch(() => undefined);
+        return;
+      }
 
       if (this.isSongExhausted(player.guildId, track)) {
         Logger.warn(

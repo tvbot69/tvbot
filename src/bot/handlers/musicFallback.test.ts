@@ -241,8 +241,94 @@ describe('song-identity circuit breaker', () => {
   });
 });
 
-describe('preview-cut detection (short finishes feed the breaker)', () => {
+describe('seek-stall recovery (re-seek once before fallback)', () => {
   const captureHandlers = () => {
+    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const manager = {
+      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
+        handlers.set(event, cb);
+      }),
+      players: { get: () => undefined },
+      search: vi.fn(async () => ({ tracks: [{ identifier: 'alt-1', duration: 174000 }] })),
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false } as never,
+    );
+    return { handlers, manager };
+  };
+
+  const seekPlayer = (): any => {
+    const data = new Map<string, unknown>([
+      ['lastUserSeekAt', Date.now() - 5000],
+      ['lastUserSeekPos', 1500000],
+    ]);
+    return {
+      guildId: 'g-seek',
+      current: { identifier: 'v1', encoded: 'enc-v1', uri: 'u1', title: 'Hour Set', author: 'DJ', duration: 3600000 },
+      queue: { unshift: vi.fn(), size: 1, isEmpty: false },
+      skip: vi.fn(async () => true),
+      play: vi.fn(async () => true),
+      seek: vi.fn(async () => true),
+      playing: true,
+      paused: false,
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    } as never;
+  };
+
+  const stuckTrack = () => ({
+    identifier: 'v1',
+    encoded: 'enc-v1',
+    uri: 'u1',
+    title: 'Hour Set',
+    author: 'DJ',
+    duration: 3600000,
+  });
+
+  it('re-issues the user seek once instead of burning fallback budget', async () => {
+    const { handlers, manager } = captureHandlers();
+    const onStuck = handlers.get('trackStuck')!;
+    const player = seekPlayer();
+    const search = manager.search as ReturnType<typeof vi.fn>;
+
+    await onStuck(player, stuckTrack(), 10000);
+
+    expect(player.seek).toHaveBeenCalledTimes(1);
+    expect(player.seek).toHaveBeenCalledWith(1500000);
+    expect(search).not.toHaveBeenCalled();
+    expect(player.get('seekStallRetried')).toBe(true);
+  });
+
+  it('falls through to normal fallback when it stalls again', async () => {
+    const { handlers, manager } = captureHandlers();
+    const onStuck = handlers.get('trackStuck')!;
+    const player = seekPlayer();
+    const search = manager.search as ReturnType<typeof vi.fn>;
+
+    await onStuck(player, stuckTrack(), 10000);
+    expect(search).not.toHaveBeenCalled();
+    await onStuck(player, stuckTrack(), 10000);
+    expect(search.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it('ignores stale seeks outside the window', async () => {
+    const { handlers, manager } = captureHandlers();
+    const onStuck = handlers.get('trackStuck')!;
+    const player = seekPlayer();
+    player.set('lastUserSeekAt', Date.now() - 120000);
+    const search = manager.search as ReturnType<typeof vi.fn>;
+
+    await onStuck(player, stuckTrack(), 10000);
+
+    expect(player.seek).not.toHaveBeenCalled();
+    expect(search.mock.calls.length).toBeGreaterThan(0);
+  });
+});
+
+describe('preview-cut detection (short finishes feed the breaker)', () => {  const captureHandlers = () => {
     const handlers = new Map<string, (...args: any[]) => Promise<void>>();
     const manager = {
       on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {

@@ -1186,6 +1186,15 @@ export class MusicService {
       player.current.position = ms;
       player.current.time = Date.now();
     }
+    // Record user seeks so a stall in the seconds after one retries the seek
+    // itself instead of burning fallback budget on a healthy upload.
+    try {
+      player.set('lastUserSeekAt', Date.now());
+      player.set('lastUserSeekPos', ms);
+      player.set('seekStallRetried', false);
+    } catch {
+      // Non-critical metadata; seek already succeeded.
+    }
     return true;
   }
 
