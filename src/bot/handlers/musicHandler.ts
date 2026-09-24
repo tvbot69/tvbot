@@ -13,6 +13,7 @@ import type { ArtworkService } from '@bot/services/artworkService';
 import { lyricWindowAt, type LyricWindow, type SyncedLine } from '@bot/services/music/syncedLyrics';
 import {
   chapterIndexAt,
+  extractArtistFromTitle,
   isGenericChapterTitle,
   splitChapterTitle,
   type ChapterCard,
@@ -170,10 +171,18 @@ export class MusicHandler {
       if (!ch) return;
       const { artist, song } = splitChapterTitle(ch.title);
       if (!song) return;
+      // Song-only chapters ("Rottweiler") carry no artist; fall back to the
+      // performer named in the VIDEO title ("EsDeeKid - Live..."), since the
+      // uploader channel often differs (or is useless) for lives.
+      let useArtist = artist;
+      if (!useArtist) {
+        const cur = player.current as unknown as { title?: string } | null;
+        useArtist = extractArtistFromTitle(cur?.title) ?? undefined;
+      }
       const svc = this.artworkService;
       if (!svc) return;
       const art = await Promise.race([
-        svc.getTrackCoverUrl(song, artist).catch(() => null),
+        svc.getTrackCoverUrl(song, useArtist).catch(() => null),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
       ]);
       if (!art) return;

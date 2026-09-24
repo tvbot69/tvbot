@@ -9,6 +9,7 @@ import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
 import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
+import { extractArtistFromTitle } from './videoChapters';
 import type { ArtworkService } from '@bot/services/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
@@ -810,11 +811,21 @@ export class MusicService {
           const cover = await svc.getTrackCoverUrl(t, a);
           if (cover) return cover;
           // Artist fallback (live sets, bootlegs, cover-less tracks): the
-          // artist's profile picture beats a blank card. First billed
-          // artist only, title passed for disambiguation.
-          const lead = MusicService.leadArtist(a);
-          if (!lead) return null;
-          return await svc.getArtistImageUrl(lead, t);
+          // artist's profile picture beats a blank card. First the billed
+          // author, then — because uploaders often differ from performers
+          // ("gloss" uploading an EsDeeKid set) — the artist named in the
+          // title itself. Strict cascade matching rejects wrong guesses.
+          const candidates = [MusicService.leadArtist(a)];
+          const fromTitle = extractArtistFromTitle(t);
+          if (fromTitle && fromTitle.toLowerCase() !== candidates[0]?.toLowerCase()) {
+            candidates.push(fromTitle);
+          }
+          for (const lead of candidates) {
+            if (!lead) continue;
+            const pic = await svc.getArtistImageUrl(lead, t).catch(() => null);
+            if (pic) return pic;
+          }
+          return null;
         } catch {
           return null;
         }
@@ -873,11 +884,17 @@ export class MusicService {
 
   /**
    * First billed artist for profile-picture fallback ("A, B & C feat. D" →
-   * "A"). Mirrors the fallback-query artist logic.
+   * "A"). Channel suffixes ("X - Topic", "X VEVO") are stripped — uploads
+   * come from auto-generated topic channels as often as from the artist.
+   * Mirrors the fallback-query artist logic.
    */
   private static leadArtist(artist: string): string {
     const first = artist.split(/[,/&]/)[0] ?? '';
-    return first.replace(/\s+(feat\.?|ft\.?|featuring|with|x)\s+.*$/i, '').trim();
+    return first
+      .replace(/\s*-\s*Topic$/i, '')
+      .replace(/\s*VEVO$/i, '')
+      .replace(/\s+(feat\.?|ft\.?|featuring|with|x)\s+.*$/i, '')
+      .trim();
   }
   /**
    * Stamps Spotify display metadata onto a resolved Lavalink track. The

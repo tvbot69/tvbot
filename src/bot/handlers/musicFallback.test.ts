@@ -823,7 +823,7 @@ describe('resolve artwork backfill', () => {
     artImpl?: () => Promise<string | null>,
     searchImpl?: (args: { query: string; source: string }) => Promise<unknown>,
     byIdImpl?: () => Promise<string | null>,
-    artistImpl?: () => Promise<string | null>,
+    artistImpl?: (...args: never[]) => Promise<string | null>,
   ) => {
     const search = vi.fn(
       searchImpl ??
@@ -891,6 +891,23 @@ describe('resolve artwork backfill', () => {
     expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');
     expect(getArtistImageUrl).toHaveBeenCalledWith('Mond', 'Esme');
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/artist.jpg');
+  });
+
+  it('finds the performer in the video title when the uploader differs', async () => {
+    const { svc, getArtistImageUrl } = makeArtSvc(
+      async () => null,
+      undefined,
+      undefined,
+      async (artist: string) => (artist === 'EsDeeKid' ? 'https://img.test/esdeekid.jpg' : null),
+    );
+    const liveTrack = {
+      searchQuery: 'gloss - EsDeeKid live',
+      name: 'EsDeeKid - Live at Silver Spring, MD [FULL SET | 9/13/26]',
+      artist: 'gloss',
+    };
+    const res = await svc.resolvePlaylistTrack(player, liveTrack);
+    expect(getArtistImageUrl).toHaveBeenCalledWith('EsDeeKid', liveTrack.name);
+    expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/esdeekid.jpg');
   });
 
   it('gives up after the background timeout when providers hang', async () => {

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle } from './videoChapters';
+import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, extractArtistFromTitle } from './videoChapters';
 
 const SHOW = [
   { title: 'Rottweiler', startMs: 0 },
@@ -58,5 +58,18 @@ describe('splitChapterTitle', () => {
   it('strips track numbers and keeps song-only titles', () => {
     expect(splitChapterTitle('01. Rottweiler')).toEqual({ song: 'Rottweiler' });
     expect(splitChapterTitle('Rottweiler')).toEqual({ song: 'Rottweiler' });
+  });
+});
+
+describe('extractArtistFromTitle', () => {
+  it('finds the performer in a live video title', () => {
+    expect(extractArtistFromTitle('EsDeeKid - Live at Silver Spring, MD [FULL SET | 9/13/26]')).toBe('EsDeeKid');
+  });
+
+  it('rejects non-artists and missing patterns', () => {
+    expect(extractArtistFromTitle('Rottweiler')).toBeNull();
+    expect(extractArtistFromTitle('Live - Full Set')).toBeNull();
+    expect(extractArtistFromTitle('')).toBeNull();
+    expect(extractArtistFromTitle(null)).toBeNull();
   });
 });

@@ -35,7 +35,7 @@ export function isGenericChapterTitle(title: string | null | undefined): boolean
 /**
  * Splits a chapter title into artist + song for artwork lookup.
  * "EsDeeKid - Rottweiler" -> both; "Rottweiler" -> song only (caller falls
- * back to the video author); leading track numbers ("01. X") are stripped.
+ * back to the video author). Leading track numbers ("01. X") are stripped.
  */
 export function splitChapterTitle(title: string): { artist?: string; song: string } {
   const cleaned = title
@@ -49,6 +49,30 @@ export function splitChapterTitle(title: string): { artist?: string; song: strin
     if (artist && song) return { artist, song };
   }
   return { song: cleaned };
+}
+
+/**
+ * Extracts the artist from a VIDEO title ("EsDeeKid - Live at Silver
+ * Spring [FULL SET]" -> "EsDeeKid"). Uploader channels often differ from
+ * the performer (a "gloss" channel uploading an EsDeeKid set), in which
+ * case the author-based lookup misses while the title names the artist.
+ * Returns null when no artist-like prefix exists. Callers validate via the
+ * cascade's strict name matching, so a wrong guess just misses.
+ */
+export function extractArtistFromTitle(title: string | null | undefined): string | null {
+  const t = (title ?? '').trim();
+  if (!t) return null;
+  const dash = t.indexOf(' - ');
+  if (dash <= 0) return null;
+  const candidate = t
+    .slice(0, dash)
+    .replace(/^\d{1,3}[.)\s:-]+/, '')
+    .trim();
+  if (candidate.length < 2) return null;
+  if (/^(live|full|official|video|audio|performance|set|show|concert|mix|playlist|visualizer|lyric|stream)$/i.test(candidate)) {
+    return null;
+  }
+  return candidate;
 }
 
 /**
