@@ -954,6 +954,7 @@ export const configureContainer = (): void => {
     voiceChannelStatusService,
     botScrobblingService,
     lyricsService,
+    artworkService,
   );
   container.registerInstance(MusicHandler, musicHandler);
 

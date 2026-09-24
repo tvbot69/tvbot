@@ -320,7 +320,7 @@ describe('MusicService', () => {
     expect(res.errorReason).toBeUndefined();
   });
 
-  it('replaces the YouTube thumbnail with backfilled art for scraper playlists without covers', async () => {    const searchMock = mockMoonlinkManager.getManager().search as unknown as ReturnType<typeof vi.fn>;
+    it('replaces the YouTube thumbnail with backfilled art for scraper playlists without covers', async () => {    const searchMock = mockMoonlinkManager.getManager().search as unknown as ReturnType<typeof vi.fn>;
     searchMock.mockResolvedValueOnce({
       loadType: 'track',
       tracks: [
@@ -508,6 +508,37 @@ describe('MusicService', () => {
     expect(ok.replaced).toEqual(['bassboost']);
     expect(filters.disable).toHaveBeenCalledWith('bassboost');
     expect(filters.enable).toHaveBeenCalledWith('audiophile');
+  });
+
+  it('pre-cleans YouTube thumbnails on direct URL plays', async () => {
+    const searchMock = mockMoonlinkManager.getManager().search as unknown as ReturnType<typeof vi.fn>;
+    searchMock.mockResolvedValueOnce({
+      loadType: 'track',
+      tracks: [
+        {
+          title: 'EsDeeKid - Live at Silver Spring',
+          author: 'gloss',
+          duration: 3600000,
+          uri: 'https://www.youtube.com/watch?v=livevid12345',
+          identifier: 'livevid12345',
+          artworkUrl: 'https://i.ytimg.com/vi/livevid12345/maxresdefault.jpg',
+        },
+      ],
+    });
+    const addMock = mockPlayer.queue.add as unknown as ReturnType<typeof vi.fn>;
+    addMock.mockClear();
+
+    const res = await musicService.play(
+      '123456789',
+      'vc-1',
+      'tc-1',
+      'https://www.youtube.com/watch?v=livevid12345',
+      { id: 'user-1', tag: 'TestUser' },
+    );
+
+    expect(res.loadType).toBe('track');
+    const queued = addMock.mock.calls[addMock.mock.calls.length - 1]?.[0] as { artworkUrl?: string | null };
+    expect(queued?.artworkUrl).toBeNull();
   });
 });
 

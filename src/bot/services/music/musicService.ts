@@ -306,8 +306,7 @@ export class MusicService {
       // (Spotify-first) art instead of skipping on the wrong image. Without
       // this, scraper playlists (no per-track covers) inherit YouTube thumbs
       // permanently: adoption skips missing art AND backfill skips present art.
-      if (meta?.artworkUrl) ytHit.artworkUrl = meta.artworkUrl;
-      else if (MusicService.isYoutubeThumb(ytHit.artworkUrl)) ytHit.artworkUrl = null;
+      MusicService.preCleanArtwork(ytHit, meta?.artworkUrl);
     }
     for (const rung of rungs) {
       if (rung === 'soundcloud') {
@@ -336,12 +335,22 @@ export class MusicService {
   }
 
   /** True for raw YouTube-family thumbnails (never correct on adopted tracks). */
-  private static isYoutubeThumb(url: string | null | undefined): boolean {
+  public static isYoutubeThumb(url: string | null | undefined): boolean {
     if (!url) return false;
     const host = url.split('/')[2] ?? '';
     return (
       host === 'i.ytimg.com' || host.endsWith('.ytimg.com') || host === 'yt3.ggpht.net' || host === 'lh3.googleusercontent.com'
     );
+  }
+
+  /**
+   * Artwork pre-clean (single choke point, also used by the direct URL
+   * path): stamp a known-good cover, or drop a raw YouTube thumbnail so a
+   * later backfill cascade fills real art instead of skipping on it.
+   */
+  public static preCleanArtwork(track: { artworkUrl?: string | null }, artworkUrl?: string | null): void {
+    if (artworkUrl) track.artworkUrl = artworkUrl;
+    else if (MusicService.isYoutubeThumb(track.artworkUrl)) track.artworkUrl = null;
   }
 
   private async tryResolverTrack(player: Player, ytTrack: Track, meta?: ResolverMeta): Promise<Track | null> {
@@ -466,8 +475,7 @@ export class MusicService {
         }
         const meta = urlRes.tracks[0]!;
         const rungs = ladderFor(player);
-        if (!rungs.includes('plugin')) {
-          const scQuery = `${meta.author} - ${meta.title}`;
+        if (!rungs.includes('plugin')) {          const scQuery = `${meta.author} - ${meta.title}`;
           const swapped = await this.searchTrackWithLadder(player, scQuery, trackOverride ? {
             title: trackOverride.title,
             artist: trackOverride.author,
@@ -498,6 +506,19 @@ export class MusicService {
             return await this.enqueueLavalinkTracks(player, [hit], requester, trackOverride, rungSource);
           return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
         }
+        // Direct plugin-rung URL plays skip the ladder: pre-clean + backfill
+        // here so lives on third-party channels get artist/chapter art, not
+        // raw thumbnails. Fire-and-forget (never stalls the fast path — the
+        // progress ticker picks up late-arriving art within seconds).
+        MusicService.preCleanArtwork(meta, trackOverride?.artworkUrl);
+        void this.maybeBackfillArt(
+          meta,
+          trackOverride?.artworkUrl,
+          trackOverride?.title || meta.title,
+          trackOverride?.author || meta.author,
+          MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+          meta.uri,
+        );
         return await this.enqueueLavalinkTracks(player, [meta], requester, trackOverride, 'youtube');
       }
 
