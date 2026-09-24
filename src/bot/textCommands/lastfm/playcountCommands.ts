@@ -60,7 +60,7 @@ export class PlaycountCommands implements ITextCommandModule {
       },
       {
         name: 'plays',
-        aliases: ['p', 'scrobbles'],
+        aliases: ['scrobbles'],
         executeAsync: (context, args) => this.playsAsync(context, args?.join(' ') ?? ''),
       },
       {

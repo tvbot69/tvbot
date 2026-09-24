@@ -37,7 +37,7 @@ export class AlbumCommands implements ITextCommandModule {
       },
       {
         name: 'albumtracks',
-        aliases: ['abt', 'tracks', 'albumtrack', 'atracks'],
+        aliases: ['abt', 'albumtrack', 'atracks'],
         executeAsync: (context, args) => this.albumTracksAsync(context, args),
       },
     ];

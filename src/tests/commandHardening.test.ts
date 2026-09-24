@@ -98,19 +98,22 @@ describe('Bugfixes & Hardening Validation', () => {
 
   describe('Issue 5: .love list routes to loved tracks list', () => {
     it('redirects .love list directly to lovedAsync', async () => {
+      // NOTE: the shadowed IntelligenceCommands love-cluster was removed;
+      // TrackCommands is the registered implementation (same list-branch).
       const mockUserService = {} as any;
-      const mockSettingService = {} as any;
+      const mockTrackService = {} as any;
+      const mockTrackDetailsService = {} as any;
       const mockLastFmRepository = {} as any;
-      const mockIntelligenceService = {
-        getLovedTracks: vi.fn().mockResolvedValue({ tracks: [], total: 0 }),
-        loveTrack: vi.fn(),
-      } as any;
+      const mockUpdateService = {} as any;
+      const mockLyricsService = {} as any;
 
-      const commands = new IntelligenceCommands(
+      const commands = new TrackCommands(
         mockUserService,
-        mockSettingService,
+        mockTrackService,
+        mockTrackDetailsService,
         mockLastFmRepository,
-        mockIntelligenceService,
+        mockUpdateService,
+        mockLyricsService,
       );
 
       const loveCmd = commands.commands.find((c) => c.name === 'love');
@@ -295,6 +298,57 @@ describe('Bugfixes & Hardening Validation', () => {
       expect(callArgs.flags & MessageFlags.IsComponentsV2).toBeTruthy();
       expect(callArgs.flags & MessageFlags.Ephemeral).toBeTruthy();
       expect(callArgs.components.length).toBe(1);
+    });
+  });
+
+  describe('Issue 11: no shadowed duplicate triggers across modules', () => {
+    const triggersOf = (mod: { commands: Array<{ name: string; aliases?: string[] }> }): string[] =>
+      mod.commands.flatMap((c) => [c.name.toLowerCase(), ...(c.aliases ?? []).map((a) => a.toLowerCase())]);
+
+    it('intelligence modules claim no love/scrobble triggers (track owns them)', async () => {
+      const { IntelligenceCommands: IC } = await import('@bot/textCommands/lastfm/intelligenceCommands');
+      const { IntelligenceSlashCommands: ISC } = await import('@bot/slashCommands/intelligenceSlashCommands');
+      const textTriggers = triggersOf(new (IC as any)());
+      for (const t of ['love', 'heart', 'favorite', 'unlove', 'ul', 'unheart', 'loved', 'lovedtracks', 'lt', 'scrobble']) {
+        expect(textTriggers).not.toContain(t);
+      }
+      const slashNames: string[] = (new (ISC as any)()).commands.map((c: { data: { name: string } }) =>
+        c.data.name.toLowerCase(),
+      );
+      expect(slashNames).not.toContain('loved');
+      expect(slashNames).not.toContain('scrobble');
+    });
+
+    it('dead single-letter aliases stay removed', async () => {
+      const { FriendsCommands } = await import('@bot/textCommands/lastfm/friendsCommands');
+      const { StreamingCommands } = await import('@bot/textCommands/thirdParty/streamingCommands');
+      const { ChartCommands } = await import('@bot/textCommands/lastfm/chartCommands');
+      const { AlbumCommands } = await import('@bot/textCommands/lastfm/albumCommands');
+      const friendsTriggers = triggersOf(new (FriendsCommands as any)());
+      expect(friendsTriggers).not.toContain('f');
+      expect(friendsTriggers).not.toContain('remove');
+      const streamingTriggers = triggersOf(new (StreamingCommands as any)());
+      expect(streamingTriggers).not.toContain('s');
+      const chartTriggers = triggersOf(new (ChartCommands as any)());
+      expect(chartTriggers).not.toContain('c');
+      expect(chartTriggers).not.toContain('tc');
+      const albumTriggers = triggersOf(new (AlbumCommands as any)());
+      expect(albumTriggers).not.toContain('tracks');
+    });
+
+    it('searchdb reaches the library, search stays music', async () => {
+      const { LibrarySearchCommands } = await import('@bot/textCommands/lastfm/librarySearchCommands');
+      const { LibrarySearchSlashCommands } = await import('@bot/slashCommands/librarySearchSlashCommands');
+      const { MusicCommands } = await import('@bot/textCommands/music/musicCommands');
+      const libTriggers = triggersOf(new (LibrarySearchCommands as any)());
+      expect(libTriggers).toContain('searchdb');
+      const slashNames: string[] = (new (LibrarySearchSlashCommands as any)()).commands.map(
+        (c: { data: { name: string } }) => c.data.name.toLowerCase(),
+      );
+      expect(slashNames).toContain('searchdb');
+      const musicTriggers = triggersOf(new (MusicCommands as any)());
+      expect(musicTriggers).toContain('search');
+      expect(musicTriggers).not.toContain('searchdb');
     });
   });
 });

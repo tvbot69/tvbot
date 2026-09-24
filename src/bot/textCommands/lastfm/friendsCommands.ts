@@ -31,7 +31,7 @@ export class FriendsCommands implements ITextCommandModule {
     this.commands = [
       {
         name: 'friendsfm',
-        aliases: ['ffm', 'friends', 'f'],
+        aliases: ['ffm', 'friends'],
         executeAsync: (context) => this.friendsFmAsync(context),
       },
       {
@@ -41,7 +41,7 @@ export class FriendsCommands implements ITextCommandModule {
       },
       {
         name: 'removefriends',
-        aliases: ['removefriend', 'unfriend', 'remove'],
+        aliases: ['removefriend', 'unfriend'],
         executeAsync: (context, args) => this.removeFriendsAsync(context, args),
       },
       {

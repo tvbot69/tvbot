@@ -28,7 +28,7 @@ export class GuildAdminCommands implements ITextCommandModule {
     this.commands = [
       {
         name: 'serversettings',
-        aliases: ['ss', 'configuration', 'config', 'serverconfig'],
+        aliases: ['ss', 'configuration', 'serverconfig'],
         executeAsync: (ctx) => this.serverSettingsAsync(ctx),
       },
       {

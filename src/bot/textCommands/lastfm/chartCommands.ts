@@ -48,7 +48,7 @@ export class ChartCommands implements ITextCommandModule {
     this.commands = [
       {
         name: 'chart',
-        aliases: ['c', 'topster', 'topsters', 'aoty', 'albumsoftheyear', 'albumoftheyear'],
+        aliases: ['topster', 'topsters', 'aoty', 'albumsoftheyear', 'albumoftheyear'],
         executeAsync: (context, args) =>
           this.chartAsync(context, args, false),
       },
@@ -64,7 +64,6 @@ export class ChartCommands implements ITextCommandModule {
       },
       {
         name: 'trackchart',
-        aliases: ['tc'],
         executeAsync: (context, args) => this.chartAsync(context, args, false, true),
       },
     ];

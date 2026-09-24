@@ -26,7 +26,7 @@ export class StreamingCommands implements ITextCommandModule {
     this.commands = [
       {
         name: 'spotify',
-        aliases: ['sp', 's', 'spotifyfind', 'spotifysearch'],
+        aliases: ['sp', 'spotifyfind', 'spotifysearch'],
         executeAsync: (ctx, args) => this.spotifyTrackAsync(ctx, args),
       },
       {

@@ -64,7 +64,6 @@ export class LoginCommands implements ITextCommandModule {
       },
       {
         name: 'logout',
-        aliases: ['disconnect'],
         executeAsync: (context, _args) => this.logoutAsync(context),
       },
       {
