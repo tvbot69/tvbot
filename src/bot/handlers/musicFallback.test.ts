@@ -378,7 +378,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as never;
+    } as any;
 
     await onStuck(player, stuckTrack(), 10000);
 
@@ -421,7 +421,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as never;
+    } as any;
 
     await onStuck(player, stuckTrack(), 10000);
 
@@ -446,7 +446,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
       paused: false,
       get: () => undefined,
       set: () => undefined,
-    } as never;
+    } as any;
 
     await onException(player, stuckTrack(), { severity: 'common', message: 'blocked' });
 
