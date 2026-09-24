@@ -1298,6 +1298,14 @@ describe('REST-dead search failover (uplink-stall class)', () => {
     expect(noteRestFailure).toHaveBeenCalledWith('Home');
   });
 
+  it('never cools a node for a genuine miss (empty result is success)', async () => {
+    const { svc, search, noteRestFailure } = failoverManager(async () => ({ tracks: [] }));
+    const res = await svc.searchWithTimeout({ query: 'obscure typo track xyz', source: 'youtube' });
+    expect(res).toEqual({ tracks: [] });
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(noteRestFailure).not.toHaveBeenCalled();
+  });
+
   it('gives up bounded when every candidate fails', async () => {
     const { svc, search, noteRestFailure } = failoverManager(
       async () => {
