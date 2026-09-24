@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MusicHandler } from './musicHandler';
 import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
 import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
@@ -1135,5 +1135,79 @@ describe('resolve artwork backfill', () => {
     await svc.playSpotify(player, 'https://open.spotify.com/playlist/xyz', { id: 'u1' });
     expect(getTrackCoverUrl).toHaveBeenCalledWith('GONE 4 A MIN', 'Yeat');
     expect((queued[0] as { artworkUrl?: string }).artworkUrl).toBe('https://img.test/first.jpg');
+  });
+});
+
+describe('chapter art retry + prefetch', () => {
+  const SHOW = [
+    { title: 'Rottweiler', startMs: 0 },
+    { title: '4 Raws', startMs: 150000 },
+    { title: 'Century', startMs: 355000 },
+  ];
+
+  const makeHandler = (artImpl: (song: string) => Promise<string | null>) => {
+    const getTrackCoverUrl = vi.fn(artImpl);
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const handler = new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      {} as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { getTrackCoverUrl } as never,
+    ) as unknown as {
+      chapterCardFor: (player: unknown, pos: number) => { title: string; artworkUrl?: string | null } | null;
+    };
+    return { handler, getTrackCoverUrl };
+  };
+
+  const mockPlayer = (store: Record<string, unknown>) => ({
+    guildId: 'g-ch',
+    current: { title: 'EsDeeKid - Live at Silver Spring' },
+    get: (k: string) => store[k],
+    set: (k: string, v: unknown) => void (store[k] = v),
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('retries a missed cover after 30s, not before', async () => {
+    const { handler, getTrackCoverUrl } = makeHandler(async () => null);
+    const store: Record<string, unknown> = {
+      chapters: SHOW,
+      chapterIdx: 0,
+      chapterCard: { title: 'Rottweiler', artworkUrl: null },
+      chapterArtRetry: { idx: 0, at: Date.now() },
+    };
+    const player = mockPlayer(store);
+
+    handler.chapterCardFor(player, 60000);
+    expect(getTrackCoverUrl).not.toHaveBeenCalled();
+
+    vi.setSystemTime(Date.now() + 31000);
+    handler.chapterCardFor(player, 61000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('Rottweiler', 'EsDeeKid');
+  });
+
+  it('publishes the title at once and prefetches upcoming covers', async () => {
+    const { handler, getTrackCoverUrl } = makeHandler(async () => null);
+    const store: Record<string, unknown> = { chapters: SHOW, chapterIdx: -2 };
+    const player = mockPlayer(store);
+
+    const card = handler.chapterCardFor(player, 200000);
+    expect(card?.title).toBe('4 Raws');
+    await vi.advanceTimersByTimeAsync(0);
+    const songs = getTrackCoverUrl.mock.calls.map((c) => c[0]);
+    expect(songs).toContain('4 Raws');
+    expect(songs).toContain('Century');
   });
 });

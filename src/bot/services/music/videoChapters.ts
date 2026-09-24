@@ -40,7 +40,7 @@ export function isGenericChapterTitle(title: string | null | undefined): boolean
 export function splitChapterTitle(title: string): { artist?: string; song: string } {
   const cleaned = title
     .trim()
-    .replace(/^\d{1,3}[.)\s:-]+/, '')
+    .replace(/^\d{1,3}[.):-]+/, '')
     .trim();
   const dash = cleaned.indexOf(' - ');
   if (dash > 0) {
@@ -66,7 +66,7 @@ export function extractArtistFromTitle(title: string | null | undefined): string
   if (dash <= 0) return null;
   const candidate = t
     .slice(0, dash)
-    .replace(/^\d{1,3}[.)\s:-]+/, '')
+    .replace(/^\d{1,3}[.):-]+/, '')
     .trim();
   if (candidate.length < 2) return null;
   if (/^(live|full|official|video|audio|performance|set|show|concert|mix|playlist|visualizer|lyric|stream)$/i.test(candidate)) {

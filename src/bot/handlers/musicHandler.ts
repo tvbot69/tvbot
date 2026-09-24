@@ -107,7 +107,8 @@ export class MusicHandler {
    * Kicks off a chapter probe for a YouTube track (fire-and-forget: the card
    * goes out immediately and upgrades when chapters land). Only videos with
    * 2+ chapters qualify — a single chapter carries no segmentation info.
-   * Resolver-side caching makes repeat plays free.
+   * Resolver-side caching makes repeat plays free. Warms the first covers
+   * so chapter one rarely starts cold.
    */
   private resolveVideoChapters(player: Player, track: Track | null | undefined): void {
     player.set('chapters', null);
@@ -127,6 +128,7 @@ export class MusicHandler {
               { guildId: player.guildId, chapters: chapters.length },
               '[Music] Video chapters attached',
             );
+            this.prefetchChapterArts(player, chapters, [0, 1, 2]);
           }
         } catch {
           // Plain card — chapters are decoration, never load-bearing.
@@ -138,9 +140,36 @@ export class MusicHandler {
   }
 
   /**
+   * Warms the shared artwork cache for upcoming chapters so their covers
+   * are usually ready before the chapter starts. Results are discarded —
+   * the cache (not player state) carries them to resolveChapterArt.
+   * Bounded to a couple of chapters per call; misses stay cheap via the
+   * cascade's own negative caching.
+   */
+  private prefetchChapterArts(player: Player, chapters: VideoChapter[], indices: number[]): void {
+    try {
+      const svc = this.artworkService;
+      if (!svc) return;
+      const cur = player.current as unknown as { title?: string } | null;
+      const videoArtist = extractArtistFromTitle(cur?.title) ?? undefined;
+      for (const i of indices) {
+        const ch = chapters[i];
+        if (!ch || isGenericChapterTitle(ch.title)) continue;
+        const { artist, song } = splitChapterTitle(ch.title);
+        if (!song) continue;
+        void svc.getTrackCoverUrl(song, artist ?? videoArtist).catch(() => null);
+      }
+    } catch {
+      // Prefetch is best-effort by definition.
+    }
+  }
+
+  /**
    * Display-ready chapter card for a tick. Advances with playback; on a
    * chapter change it publishes the title immediately and resolves that
    * chapter's cover in the background (late-attach via the fingerprint).
+   * A missed cover is retried at most every 30s while the chapter plays
+   * (the first attempt often loses to a cold provider cascade).
    * Generic container titles (Intro/Outro/...) suppress the card.
    */
   private chapterCardFor(player: Player, positionMs: number): ChapterCard | null {
@@ -149,7 +178,17 @@ export class MusicHandler {
       if (!chapters || chapters.length < 2) return player.get<ChapterCard | null>('chapterCard') ?? null;
       const idx = chapterIndexAt(chapters, Math.max(0, positionMs), MusicHandler.CLOCK_STARTUP_OFFSET_MS);
       const lastIdx = player.get<number>('chapterIdx') ?? -2;
-      if (idx === lastIdx) return player.get<ChapterCard | null>('chapterCard') ?? null;
+      if (idx === lastIdx) {
+        const stored = player.get<ChapterCard | null>('chapterCard') ?? null;
+        if (!stored?.artworkUrl && idx >= 0) {
+          const retry = player.get<{ idx: number; at: number } | null>('chapterArtRetry');
+          if (!retry || retry.idx !== idx || Date.now() - retry.at > 30000) {
+            player.set('chapterArtRetry', { idx, at: Date.now() });
+            void this.resolveChapterArt(player, idx, chapters);
+          }
+        }
+        return stored;
+      }
       player.set('chapterIdx', idx);
       const ch = idx >= 0 ? chapters[idx] : undefined;
       if (!ch || isGenericChapterTitle(ch.title)) {
@@ -158,7 +197,9 @@ export class MusicHandler {
       }
       const card: ChapterCard = { title: ch.title, artworkUrl: null };
       player.set('chapterCard', card);
+      player.set('chapterArtRetry', { idx, at: Date.now() });
       void this.resolveChapterArt(player, idx, chapters);
+      this.prefetchChapterArts(player, chapters, [idx + 1, idx + 2]);
       return card;
     } catch {
       return null;
