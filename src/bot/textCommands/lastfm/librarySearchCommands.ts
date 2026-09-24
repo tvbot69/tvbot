@@ -22,7 +22,7 @@ export class LibrarySearchCommands implements ITextCommandModule {
     this.commands = [
       {
         name: 'librarysearch',
-        aliases: ['libsearch', 'ls'],
+        aliases: ['libsearch', 'ls', 'searchdb', 'dbsearch'],
         executeAsync: (context, args) => this.searchAsync(context, args?.join(' ') ?? ''),
       },
     ];

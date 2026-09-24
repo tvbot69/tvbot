@@ -33,6 +33,18 @@ export class LibrarySearchSlashCommands implements ISlashCommandModule {
           return this.searchSlashAsync(context, query);
         },
       },
+      {
+        data: new SlashCommandBuilder()
+          .setName('searchdb')
+          .setDescription('Shortcut: search through your stored Last.fm library.')
+          .addStringOption((opt) =>
+            opt.setName('query').setDescription('Query to search for').setRequired(true),
+          ),
+        executeAsync: (context) => {
+          const query = context.interaction?.options.getString('query') ?? '';
+          return this.searchSlashAsync(context, query);
+        },
+      },
     ];
   }
 

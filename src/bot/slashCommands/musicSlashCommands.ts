@@ -46,7 +46,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       {
         data: new SlashCommandBuilder()
           .setName('search')
-          .setDescription('Search for songs and pick one from an interactive menu')
+          .setDescription('Search YouTube for songs and pick one from an interactive menu')
           .addStringOption((opt) =>
             opt
               .setName('query')
@@ -331,7 +331,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildWrongInputResponse('Please provide a search term.');
     }
 
-    const tracks = await this.musicService.searchTracks(query);
+    const tracks = await this.musicService.searchTracks(query, 'youtube', false);
     if (tracks.length === 0) {
       return GenericEmbedService.buildNotFoundResponse(`No tracks found for: **${query}**.`);
     }

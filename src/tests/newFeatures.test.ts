@@ -317,7 +317,7 @@ describe('New Features Suite', () => {
       ctx.discordUserId = '111' as any;
       const res = await cmd.executeAsync(ctx, []);
       expect(res.commandResponse).toBe(CommandResponse.Ok);
-      expect(mockLastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('tester', 1);
+      expect(mockLastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('tester', 1, 1, undefined, undefined);
       expect(mockLyricsService.getLyrics).toHaveBeenCalledWith('Paranoid Android', 'Radiohead');
     });
   });

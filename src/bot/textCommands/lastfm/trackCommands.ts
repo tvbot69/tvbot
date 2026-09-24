@@ -471,7 +471,7 @@ export class TrackCommands implements ITextCommandModule {
         );
       }
 
-      const recentTracks = await this.lastfmRepository.getUserRecentTracks(user.userNameLastFm, 1);
+      const recentTracks = await this.lastfmRepository.getUserRecentTracks(user.userNameLastFm, 1, 1, undefined, user.sessionKey);
       if (!recentTracks || recentTracks.length === 0) {
         return GenericEmbedService.buildNotFoundResponse(`No recent tracks found on Last.fm for **${user.userNameLastFm}**.`);
       }

@@ -268,7 +268,7 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse(`Please provide a search term. Example: \`${context.prefix}search daft punk\``);
     }
 
-    const tracks = await this.musicService.searchTracks(query);
+    const tracks = await this.musicService.searchTracks(query, 'youtube', false);
     if (tracks.length === 0) {
       return GenericEmbedService.buildNotFoundResponse(`No tracks found for: **${query}**.`);
     }

@@ -1432,13 +1432,14 @@ export class MusicService {
     return nextMode;
   }
 
-  public async searchTracks(query: string, source: string = 'youtube'): Promise<MusicTrack[]> {
+  public async searchTracks(query: string, source: string = 'youtube', spotifyFirst: boolean = true): Promise<MusicTrack[]> {
     const trimmed = query.trim();
     if (!trimmed) return [];
 
-    // 1. Try Spotify search first for text queries so results have clean track names, artists, high-res artwork, and spotify URIs
+    // 1. Spotify search first (unless the caller wants pure YouTube, e.g. the
+    // +search command) so results have clean names, artists, hi-res artwork.
     const isUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|soundcloud\.com)\/.+/i.test(trimmed) || /^https?:\/\//i.test(trimmed);
-    if (!isUrl) {
+    if (spotifyFirst && !isUrl) {
       try {
         const spotifyResults = await Promise.race([
           this.spotifyResolver.searchTracks(trimmed, 10),
