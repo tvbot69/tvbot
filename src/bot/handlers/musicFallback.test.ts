@@ -1342,6 +1342,103 @@ describe('REST-dead search failover (uplink-stall class)', () => {
     }
   });
 
+  it('never probes chapters for short videos (standalone live gate)', async () => {
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        chapters: [
+          { title: 'A', startMs: 0 },
+          { title: 'B', startMs: 60000 },
+        ],
+      }),
+    } as Response);
+    try {
+      const manager = { on: vi.fn(), players: { get: () => undefined } };
+      const client = { on: vi.fn(), channels: { cache: new Map() } };
+      const handler = new MusicHandler(
+        client as never,
+        { getManager: () => manager } as never,
+        { getQueueInfo: () => null, is247: () => false } as never,
+      ) as unknown as {
+        resolveVideoChapters: (player: unknown, track: unknown) => void;
+      };
+      const store: Record<string, unknown> = {};
+      const player = {
+        guildId: 'g-gate',
+        get: (k: string) => store[k],
+        set: (k: string, v: unknown) => void (store[k] = v),
+      };
+      handler.resolveVideoChapters(player, {
+        sourceName: 'youtube',
+        identifier: 'dQw4w9WgXcQ',
+        title: 'Short Song',
+        duration: 180000,
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(store.chapters ?? null).toBeNull();
+    } finally {
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('probes chapters for long videos (live system fires)', async () => {
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        chapters: [
+          { title: 'A', startMs: 0 },
+          { title: 'B', startMs: 60000 },
+        ],
+      }),
+    } as Response);
+    try {
+      const manager = { on: vi.fn(), players: { get: () => undefined } };
+      const client = { on: vi.fn(), channels: { cache: new Map() } };
+      const handler = new MusicHandler(
+        client as never,
+        { getManager: () => manager } as never,
+        { getQueueInfo: () => null, is247: () => false } as never,
+      ) as unknown as {
+        resolveVideoChapters: (player: unknown, track: unknown) => void;
+      };
+      const store: Record<string, unknown> = {};
+      const player = {
+        guildId: 'g-gate',
+        get: (k: string) => store[k],
+        set: (k: string, v: unknown) => void (store[k] = v),
+      };
+      handler.resolveVideoChapters(player, {
+        sourceName: 'youtube',
+        identifier: 'dQw4w9WgXcQ',
+        title: 'Full Set',
+        duration: 3600000,
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/chapters');
+      expect((store.chapters as unknown[]).length).toBe(2);
+    } finally {
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+      vi.restoreAllMocks();
+    }
+  });
+
   it('getOrCreatePlayer skips the Home pin while Home cools', async () => {
     const savedUrl = process.env.HOME_RESOLVER_URL;
     const savedToken = process.env.HOME_RESOLVER_TOKEN;

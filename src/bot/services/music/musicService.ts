@@ -9,7 +9,7 @@ import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
 import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
-import { extractArtistFromTitle } from './videoChapters';
+import { extractArtistFromTitle, isLiveVideo } from './videoChapters';
 import type { ArtworkService } from '@bot/services/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
@@ -67,13 +67,6 @@ export class MusicService {
   private static readonly ARTWORK_TIMEOUT_MS = 6000;
   /** Background paths (JIT top-up, warmup) can afford to wait out slow cascades. */
   private static readonly BACKGROUND_ARTWORK_TIMEOUT_MS = 10000;
-  /**
-   * Long-form threshold: videos longer than this (DJ sets, full concerts)
-   * have no single correct studio cover, so the top-level card uses the
-   * video thumbnail immediately and skips the provider cascade. Per-chapter
-   * art still resolves per song inside the set.
-   */
-  private static readonly LONG_FORM_MS = 20 * 60 * 1000;
   /** Upcoming entries with a warmup cascade already in flight (dedupes overlap). */
   private readonly artWarmKeys = new Set<string>();
   private readonly artworkService?: ArtworkService;
@@ -919,7 +912,7 @@ export class MusicService {
       // the artwork stack is unwired. Falls through to the cascade only
       // when no thumbnail survived (nothing to show otherwise).
       const dur = track.duration || 0;
-      if (dur > MusicService.LONG_FORM_MS) {
+      if (isLiveVideo(dur)) {
         const thumb = trackRec._videoThumb;
         if (typeof thumb === 'string' && thumb) {
           track.artworkUrl = thumb;

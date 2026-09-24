@@ -16,6 +16,7 @@ import {
   extractArtistFromTitle,
   getSourceVideoId,
   getVideoTitle,
+  isLiveVideo,
   isGenericChapterTitle,
   resolveDisplayedChapter,
   splitChapterTitle,
@@ -120,6 +121,10 @@ export class MusicHandler {
     player.set('lastCoverUrl', null);
     player.set('chapterStartedAt', null);
     try {
+      // Standalone live gate: chapters probe ONLY for long videos. Short
+      // tracks and Spotify-link plays return here with zero probe cost and
+      // byte-identical behavior to before the live system existed.
+      if (!isLiveVideo(track?.duration)) return;
       const rec = track as unknown as { sourceName?: string; identifier?: string } | null;
       const id = getSourceVideoId(rec);
       if (!id) return;

@@ -37,6 +37,23 @@ export const sanitizeMusicName = (value?: string): string => {
     .trim();
 };
 
+/**
+ * Strips auto-generated YouTube channel suffixes ("Drake - Topic", "X
+ * VEVO") down to the real artist. Without this, strict artist matching
+ * rejects every provider hit for topic-channel uploads (candidate "Drake"
+ * vs target "Drake - Topic") and the cascade wrongly falls through to the
+ * artist picture. Real artist names never end this way, so this is safe
+ * to apply to every track-cover lookup.
+ */
+export const stripChannelSuffix = (value?: string | null): string => {
+  if (!value) return '';
+  return value
+    .trim()
+    .replace(/\s*-\s*Topic$/i, '')
+    .replace(/\s*VEVO$/i, '')
+    .trim();
+};
+
 const pickLargest = (
   images: Array<{ url: string; height: number | null }> | undefined,
 ): string | undefined => {
@@ -528,7 +545,8 @@ export class ArtworkService {
   public async getTrackCoverUrl(trackName?: string, artistName?: string): Promise<string | null> {
     if (!trackName || !artistName) return null;
     const cleanTrack = sanitizeMusicName(trackName);
-    const key = `art:track:${artistName.toLowerCase()}|${cleanTrack.toLowerCase()}`;
+    const cleanArtist = stripChannelSuffix(artistName) || artistName.trim();
+    const key = `art:track:${cleanArtist.toLowerCase()}|${cleanTrack.toLowerCase()}`;
 
     const cached = await this.cache.get<string>(key);
     if (cached) {
@@ -547,7 +565,7 @@ export class ArtworkService {
       candidateArtist: string | undefined,
       candidateTitle: string | undefined,
     ): boolean =>
-      matchesArtistName(candidateArtist ?? '', artistName) &&
+      matchesArtistName(candidateArtist ?? '', cleanArtist) &&
       matchesTrackTitle(candidateTitle ?? '', cleanTrack);
 
     if (SpotifySearchApi.isRateLimited()) {
@@ -556,20 +574,20 @@ export class ArtworkService {
     if (!SpotifySearchApi.isRateLimited()) {
       try {
         let tracks = await this.spotifyApi.searchTracks(
-          `track:${cleanTrack} artist:${artistName}`,
+          `track:${cleanTrack} artist:${cleanArtist}`,
           10,
         );
         if (tracks.length === 0) {
-          tracks = await this.spotifyApi.searchTracks(`${cleanTrack} ${artistName}`, 10);
+          tracks = await this.spotifyApi.searchTracks(`${cleanTrack} ${cleanArtist}`, 10);
         }
         const match = tracks.find((t) =>
-          (t.artists ?? []).some((a) => matchesArtistName(a.name, artistName)) &&
+          (t.artists ?? []).some((a) => matchesArtistName(a.name, cleanArtist)) &&
           matchesTrackTitle(t.name, cleanTrack),
         );
         const url = pickLargest(match?.album?.images);
         if (url) {
           result = url;
-          const artistRow = await this.artistRepository.getArtistByName(artistName);
+          const artistRow = await this.artistRepository.getArtistByName(cleanArtist);
           if (artistRow) {
             const trackRow = await this.trackRepository.getTrackByNameAndArtist(
               cleanTrack,
@@ -588,9 +606,9 @@ export class ArtworkService {
 
     if (!result) {
       try {
-        let tracks = await this.deezerApi.searchTracks(`${cleanTrack} ${artistName}`);
+        let tracks = await this.deezerApi.searchTracks(`${cleanTrack} ${cleanArtist}`);
         if (tracks.length === 0) {
-          tracks = await this.deezerApi.searchTracks(`${artistName} ${cleanTrack}`);
+          tracks = await this.deezerApi.searchTracks(`${cleanArtist} ${cleanTrack}`);
         }
         const match = tracks.find((t) => trackMatches(t.artist?.name, t.title));
         result = match?.album?.cover_xl ?? match?.album?.cover_big ?? null;
@@ -602,7 +620,7 @@ export class ArtworkService {
 
     if (!result) {
       try {
-        const songs = await this.appleMusicWebApi.searchSongs(cleanTrack, artistName);
+        const songs = await this.appleMusicWebApi.searchSongs(cleanTrack, cleanArtist);
         const match = songs.find((s) => trackMatches(s.artistName, s.name));
         result = match?.artwork?.url ?? null;
       } catch (err) {
@@ -629,9 +647,9 @@ export class ArtworkService {
 
     if (!result) {
       try {
-        const info = await this.lastfmRepository.getTrackInfo(trackName, artistName);
+        const info = await this.lastfmRepository.getTrackInfo(trackName, cleanArtist);
         if (info?.albumName) {
-          result = await this.getAlbumCoverUrl(info.albumName, artistName, attempts);
+          result = await this.getAlbumCoverUrl(info.albumName, cleanArtist, attempts);
         }
       } catch (err) {
         attempts.push({ source: 'lastfm' });

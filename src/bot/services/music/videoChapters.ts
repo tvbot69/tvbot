@@ -16,6 +16,18 @@ export interface ChapterCard {
 }
 
 /**
+ * Live-performance threshold: the chapter / long-form system is standalone
+ * and fires ONLY for videos longer than this (full sets, concerts, DJ
+ * mixes). Short tracks and Spotify-link plays never enter it — their
+ * artwork and metadata paths are untouched.
+ */
+export const LIVE_VIDEO_THRESHOLD_MS = 20 * 60 * 1000;
+
+export function isLiveVideo(durationMs: number | null | undefined): boolean {
+  return typeof durationMs === 'number' && durationMs > LIVE_VIDEO_THRESHOLD_MS;
+}
+
+/**
  * Applies the hold-last-cover rule: a chapter still waiting on its art
  * keeps the previously displayed cover instead of flashing generic track
  * art and swapping again when the real cover lands. Returns the card to

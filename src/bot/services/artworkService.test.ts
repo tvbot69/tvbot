@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ArtworkService, sanitizeMusicName } from './artworkService';
+import { ArtworkService, sanitizeMusicName, stripChannelSuffix } from './artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 interface ProviderOverrides {
@@ -69,6 +69,20 @@ describe('sanitizeMusicName', () => {
   });
   it('strips deluxe annotations', () => {
     expect(sanitizeMusicName('Discovery (Deluxe Edition)')).toBe('Discovery');
+  });
+});
+
+describe('stripChannelSuffix', () => {
+  it('strips auto-generated channel suffixes', () => {
+    expect(stripChannelSuffix('Drake - Topic')).toBe('Drake');
+    expect(stripChannelSuffix('Taylor Swift VEVO')).toBe('Taylor Swift');
+    expect(stripChannelSuffix('  Drake  -  Topic  ')).toBe('Drake');
+  });
+
+  it('leaves real artist names untouched', () => {
+    expect(stripChannelSuffix('Drake')).toBe('Drake');
+    expect(stripChannelSuffix('G.L.O.S.S.')).toBe('G.L.O.S.S.');
+    expect(stripChannelSuffix('')).toBe('');
   });
 });
 
@@ -301,5 +315,55 @@ describe('getTrackCoverBySpotifyId', () => {
     vi.spyOn(SpotifySearchApi, 'isRateLimited').mockReturnValue(true);
     await expect(service.getTrackCoverBySpotifyId('4mF0aVVHtmHQSIdem2Wh0g')).resolves.toBeNull();
     expect(getTrack).not.toHaveBeenCalled();
+  });
+});
+
+describe('topic-channel artists (Drake - Topic class)', () => {
+  const memCache = () => {
+    const store = new Map<string, unknown>();
+    return {
+      store,
+      get: async (k: string) => (store.has(k) ? store.get(k) : null),
+      set: async (k: string, v: unknown) => {
+        store.set(k, v);
+      },
+    };
+  };
+
+  it('resolves the track cover, not the artist picture, for topic uploads', async () => {
+    const queries: string[] = [];
+    const service = new ArtworkService(
+      {
+        searchTracks: async (q: string) => {
+          queries.push(q);
+          return [
+            {
+              name: 'In My Feelings',
+              artists: [{ name: 'Drake' }],
+              album: { images: [{ url: 'https://img.test/scorpion.jpg', height: 640 }] },
+            },
+          ];
+        },
+        searchAlbums: async () => [],
+        searchArtists: async () => [],
+      } as never,
+      { searchTracks: async () => [], searchAlbums: async () => [], searchArtists: async () => [] } as never,
+      { searchSongs: async () => [] } as never,
+      { searchSongs: async () => [] } as never,
+      { getArtistByName: async () => null } as never,
+      { getAlbumByNameAndArtist: async () => null } as never,
+      { getTrackByNameAndArtist: async () => null } as never,
+      { getTrackInfo: async () => null, getAlbumInfo: async () => null, getArtistInfo: async () => null } as never,
+      memCache() as never,
+    );
+    SpotifySearchApi.clearRateLimit();
+    try {
+      const url = await service.getTrackCoverUrl('In My Feelings', 'Drake - Topic');
+      expect(url).toBe('https://img.test/scorpion.jpg');
+      expect(queries[0]).toContain('Drake');
+      expect(queries[0]).not.toContain('Topic');
+    } finally {
+      SpotifySearchApi.clearRateLimit();
+    }
   });
 });
