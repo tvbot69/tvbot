@@ -323,9 +323,11 @@ export class MusicHandler {
 
         if (!msg) return;
 
-        const currentArtworkUrl = queue.current?.artworkUrl;
+        // Accent follows the DISPLAYED cover (chapter art when present),
+        // not just top-level track art — long-form tracks pin track art
+        // to the video thumbnail while the card image follows chapters.
         const accentColor = this.colorService
-          ? await this.colorService.getAccentColorAsync(player.guildId, currentArtworkUrl)
+          ? await this.colorService.getAccentColorAsync(player.guildId, shownCover ?? queue.current?.artworkUrl)
           : undefined;
         const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, displayChapter);
 
@@ -736,23 +738,28 @@ export class MusicHandler {
         }
 
         const queue = this.queueService.getQueueInfo(player);
-        const accentColor = this.colorService
-          ? await this.colorService.getAccentColorAsync(player.guildId, currentTrack.artworkUrl)
-          : undefined;
         await this.resolveKaraokeLines(player, currentTrack.title, currentTrack.author, currentTrack.duration);
         this.resolveVideoChapters(player, player.current ?? track);
+        const chapter = this.chapterCardFor(player, 0);
+        // Accent follows the displayed cover (chapter art when present),
+        // mirroring the progress updater below.
+        const accentColor = this.colorService
+          ? await this.colorService.getAccentColorAsync(
+              player.guildId,
+              chapter?.artworkUrl ?? currentTrack.artworkUrl,
+            )
+          : undefined;
         const response = MusicBuilders.buildNowPlayingResponse(
           queue,
           accentColor,
           this.lyricWindowFor(player, 0),
-          this.chapterCardFor(player, 0),
+          chapter,
         );
 
         // Timing triangulation (artwork flash diagnosis): lookup start is
         // stamped in maybeBackfillArt, resolve is stamped there with an
-        // outcome, and this marks first card render. The full log mirror
-        // ships this line to Discord, so correlate ~10-15 normal tracks
-        // there before optimizing further.
+        // outcome, and this marks first card render. Correlate ~10-15
+        // normal tracks from the Railway logs before optimizing further.
         try {
           const curRec = (player.current ?? track) as unknown as {
             _artLookupStartedAt?: unknown;
