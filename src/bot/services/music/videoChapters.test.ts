@@ -120,10 +120,21 @@ describe('extractArtistFromTitle', () => {
     expect(extractArtistFromTitle('Travis Scott Live Concert - Town Festival')).toBe('Travis Scott');
   });
 
+  it('reads dash-less titles up to the first set keyword', () => {
+    expect(extractArtistFromTitle('YEAT LIVE @ BEACH, PLEASE! [FULL SET]')).toBe('YEAT');
+    expect(extractArtistFromTitle('Set It Off live')).toBe('Set It Off');
+    expect(extractArtistFromTitle('01. Yeat @ Rolling Loud FULL SET')).toBe('Yeat');
+  });
+
+  it('drops venue tails from dash prefixes too', () => {
+    expect(extractArtistFromTitle('Vampire Weekend at Madison Square Garden - Full Set')).toBe('Vampire Weekend');
+  });
+
   it('rejects non-artists and missing patterns', () => {
     expect(extractArtistFromTitle('Rottweiler')).toBeNull();
     expect(extractArtistFromTitle('Live - Full Set')).toBeNull();
     expect(extractArtistFromTitle('LIVE FULL SET - Town Festival')).toBeNull();
+    expect(extractArtistFromTitle('this went crazy today')).toBeNull();
     expect(extractArtistFromTitle('')).toBeNull();
     expect(extractArtistFromTitle(null)).toBeNull();
   });

@@ -1,7 +1,22 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { ArtworkService, sanitizeMusicName, stripChannelSuffix } from './artworkService';
+import { ArtworkService, matchesArtistName, matchesTrackTitle, sanitizeMusicName, stripChannelSuffix } from './artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
+
+describe('matcher name normalization', () => {
+  it('folds diacritics in stylized artist and title names', () => {
+    expect(matchesTrackTitle('Monëy so big', 'Money so big')).toBe(true);
+    expect(matchesTrackTitle('GEEK TIMË', 'Geek time')).toBe(true);
+    expect(matchesArtistName('Beyoncé', 'Beyonce')).toBe(true);
+    expect(matchesArtistName('Yeat', 'YEAT')).toBe(true);
+  });
+
+  it('stays strict across different recordings', () => {
+    expect(matchesTrackTitle('Money so big', 'Money')).toBe(false);
+    expect(matchesTrackTitle('Song', 'Song 2')).toBe(false);
+    expect(matchesArtistName('Yeat', 'Drake')).toBe(false);
+  });
+});
 
 interface ProviderOverrides {
   spotify?: () => Promise<string | null>;

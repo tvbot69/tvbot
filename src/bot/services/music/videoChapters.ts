@@ -148,27 +148,48 @@ export function transitionLeadSong(title: string | null | undefined): string | n
 }
 
 /**
+ * Exact noise-word artist candidates ("LIVE", "FULL SET") — never a real
+ * artist. Shared by the dash and dash-less extraction paths.
+ */
+const ONLY_NOISE_ARTIST = /^(live|full|official|video|audio|performance|set|show|concert|mix|playlist|visualizer|lyric|stream)$/i;
+
+/**
+ * Set-type keywords that END an artist segment in video titles. Used for
+ * the dash-less path ("YEAT LIVE @ BEACH, PLEASE! [FULL SET]" -> "YEAT").
+ */
+const ARTIST_END_KEYWORD = /\s(?:live|full|official|set|show|concert|performance|stream|session|mix|tour|festival|episode|visualizer)\b/i;
+
+/**
  * Extracts the artist from a VIDEO title ("EsDeeKid - Live at Silver
  * Spring [FULL SET]" -> "EsDeeKid"). Uploader channels often differ from
  * the performer (a "gloss" channel uploading an EsDeeKid set), in which
  * case the author-based lookup misses while the title names the artist.
- * Returns null when no artist-like prefix exists. Callers validate via the
- * cascade's strict name matching, so a wrong guess just misses.
+ * Two shapes: an "Artist - ..." dash prefix, or — when the title has no
+ * dash — the run of words before the first set-type keyword ("YEAT LIVE
+ * @ ..."). Returns null when no artist-like prefix exists. Callers
+ * validate via the cascade's strict name matching, so a wrong guess just
+ * misses — which is why the dash-less path is safe to attempt at all.
  */
 export function extractArtistFromTitle(title: string | null | undefined): string | null {
   const t = (title ?? '').trim();
   if (!t) return null;
   const m = DASH_SEP.exec(t);
-  if (!m || m.index <= 0) return null;
-  const candidate = t
-    .slice(0, m.index)
-    .replace(/^\d{1,3}[.):-]+/, '')
-    .trim();
-  if (candidate.length < 2) return null;
-  if (/^(live|full|official|video|audio|performance|set|show|concert|mix|playlist|visualizer|lyric|stream)$/i.test(candidate)) {
-    return null;
+  if (m && m.index > 0) {
+    const candidate = t
+      .slice(0, m.index)
+      .replace(/^\d{1,3}[.):-]+/, '')
+      .trim();
+    return finalizeArtistGuess(candidate);
   }
-  return stripTrailingSetNoise(candidate);
+  const cleaned = t.replace(/^\d{1,3}[.):-]+/, '').trim();
+  const kw = ARTIST_END_KEYWORD.exec(cleaned);
+  if (!kw || kw.index <= 0) return null;
+  const candidate = cleaned
+    .slice(0, kw.index)
+    .replace(/[\s\-–—:|,;@.]+$/, '')
+    .trim();
+  if (candidate.length > 40) return null;
+  return finalizeArtistGuess(candidate);
 }
 
 /**
@@ -184,10 +205,25 @@ const TRAILING_SET_NOISE = /(?:\s+(?:live|full|official|set|show|concert|perform
 function stripTrailingSetNoise(candidate: string): string | null {
   const stripped = candidate.replace(TRAILING_SET_NOISE, '').trim();
   if (stripped.length < 2) return null;
-  if (/^(live|full|official|video|audio|performance|set|show|concert|mix|playlist|visualizer|lyric|stream)$/i.test(stripped)) {
+  if (ONLY_NOISE_ARTIST.test(stripped)) {
     return null;
   }
   return stripped;
+}
+
+/**
+ * Final validation for an extracted artist guess: drops a trailing venue/
+ * festival tail ("Yeat @ Rolling Loud", "Rihanna Live at Home" -> lead
+ * name) before the set-noise strip. No real artist name contains a
+ * standalone "@"/"at", and a wrong guess costs nothing but a miss.
+ */
+function finalizeArtistGuess(candidate: string): string | null {
+  const trimmed = candidate.trim();
+  if (trimmed.length < 2) return null;
+  if (ONLY_NOISE_ARTIST.test(trimmed)) return null;
+  const venue = /\s+(?:@|at)\s+/i.exec(trimmed);
+  const lead = venue && venue.index > 0 ? trimmed.slice(0, venue.index).trim() : trimmed;
+  return stripTrailingSetNoise(lead);
 }
 
 /**

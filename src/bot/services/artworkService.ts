@@ -64,15 +64,25 @@ const pickLargest = (
   return [...images].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url;
 };
 
+/**
+ * Folds diacritics so stylized names match their plain spellings — Yeat's
+ * "Monëy so big" vs "Money so big", Beyoncé vs Beyonce. Providers don't
+ * fold in their search indexes either, but their free-text fallbacks
+ * return the right recordings; folding in the match keys is what lets the
+ * strict gates accept them.
+ */
+const foldDiacritics = (s: string): string => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
 export const normalizeArtistKey = (s: string): string =>
-  s.toLowerCase()
+  foldDiacritics(s)
+    .toLowerCase()
     .replace(/\$/g, 's')
     .replace(/\+/g, 't')
     .replace(/&/g, 'and')
     .replace(/[^\p{L}\p{N}]/gu, '');
 
 const normalizeTitleKey = (s: string): string =>
-  s.toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]/gu, '');
+  foldDiacritics(s).toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]/gu, '');
 
 const stripBracketed = (s: string): string =>
   s.replace(/\s*[([{\u3010].*?[)\]}\u3011]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
