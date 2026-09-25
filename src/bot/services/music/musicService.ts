@@ -1007,17 +1007,21 @@ export class MusicService {
       // the artwork stack is unwired. Falls through to the cascade only
       // when no thumbnail survived (nothing to show otherwise).
       const dur = track.duration || 0;
+      // Long-form (DJ sets, full concerts): paint the stashed square video
+      // thumbnail immediately — the card never renders bare — but keep the
+      // cascade running below; a found cover overwrites the thumb.
+      let thumbPainted: string | null = null;
       if (isLiveVideo(dur)) {
         const thumb = trackRec._videoThumb;
         if (typeof thumb === 'string' && thumb) {
           track.artworkUrl = thumb;
+          thumbPainted = thumb;
           trackRec._artLookupResolvedAt = Date.now();
           trackRec._artLookupOutcome = 'longform-thumb';
           Logger.info(
             { title: t, artist: a, durationMs: dur },
-            '[Music] Long-form art: video thumbnail, cascade skipped',
+            '[Music] Long-form art: video thumbnail painted, cascade resolving',
           );
-          return;
         }
       }
       const svc = this.artworkService;
@@ -1088,7 +1092,7 @@ export class MusicService {
           // progress updater rebuilds the card every 15s, so it shows up.
           void lookup
             .then((late) => {
-              if (late && !track.artworkUrl) {
+              if (late && (!track.artworkUrl || track.artworkUrl === thumbPainted)) {
                 track.artworkUrl = late;
                 const lateMs = Date.now() - started;
                 trackRec._artLookupResolvedAt = Date.now();

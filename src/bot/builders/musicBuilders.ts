@@ -548,10 +548,12 @@ export class MusicBuilders {
           .setDescription(`Starts at ${formatDuration(ch.startMs)}`)
           .setDefault(idx === currentIdx);
       });
+      // Discord requires custom_id unique per MESSAGE, not per row — suffix
+      // the chunk index so 26+ chapters (two rows) don't collide.
       rows.push(
         new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId('music:chapters:seek')
+            .setCustomId(`music:chapters:seek:${start / 25}`)
             .setPlaceholder('Jump to a chapter...')
             .addOptions(options),
         ),

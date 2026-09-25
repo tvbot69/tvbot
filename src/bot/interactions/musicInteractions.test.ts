@@ -180,7 +180,7 @@ describe('MusicInteractions chapter jump', () => {
   it('seeks to the chosen chapter and re-renders the menu', async () => {
     const svc = makeSvc();
     const mi = makeInteractions(svc);
-    const select = makeSelect('music:chapters:seek', 'u1', ['1']);
+    const select = makeSelect('music:chapters:seek:0', 'u1', ['1']);
 
     await mi.handleSelectMenu(select);
 
@@ -192,7 +192,7 @@ describe('MusicInteractions chapter jump', () => {
   it('reports expired chapters instead of seeking blindly', async () => {
     const svc = makeSvc({ chapters: null });
     const mi = makeInteractions(svc);
-    const select = makeSelect('music:chapters:seek', 'u1', ['1']);
+    const select = makeSelect('music:chapters:seek:0', 'u1', ['1']);
 
     await mi.handleSelectMenu(select);
 
@@ -203,7 +203,7 @@ describe('MusicInteractions chapter jump', () => {
   it('blocks chapter jumps for non-requesters', async () => {
     const svc = makeSvc({ requesterId: 'owner' });
     const mi = makeInteractions(svc);
-    const select = makeSelect('music:chapters:seek', 'other', ['1']);
+    const select = makeSelect('music:chapters:seek:0', 'other', ['1']);
 
     await mi.handleSelectMenu(select);
 
@@ -214,11 +214,21 @@ describe('MusicInteractions chapter jump', () => {
   it('reports a failed seek', async () => {
     const svc = makeSvc({ seekResult: false });
     const mi = makeInteractions(svc);
-    const select = makeSelect('music:chapters:seek', 'u1', ['1']);
+    const select = makeSelect('music:chapters:seek:0', 'u1', ['1']);
 
     await mi.handleSelectMenu(select);
 
     expect(select.update).not.toHaveBeenCalled();
     expect((select.reply.mock.calls[0]![0] as { content: string }).content).toBe('No track is currently playing.');
+  });
+
+  it('accepts the second select row (26+ chapters)', async () => {
+    const svc = makeSvc();
+    const mi = makeInteractions(svc);
+    const select = makeSelect('music:chapters:seek:1', 'u1', ['2']);
+
+    await mi.handleSelectMenu(select);
+
+    expect(svc.seek).toHaveBeenCalledWith('g1', 465);
   });
 });

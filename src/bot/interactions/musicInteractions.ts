@@ -470,7 +470,7 @@ export class MusicInteractions {
       return;
     }
 
-    if (customId === 'music:filter:select' || customId === 'music:chapters:seek') {
+    if (customId === 'music:filter:select' || customId.startsWith('music:chapters:seek:')) {
       if (!this.isRequesterAllowed(guildId, interaction.user.id)) {
         await this.denyControl(interaction);
         return;
@@ -522,7 +522,7 @@ export class MusicInteractions {
     // Chapter jump: seek the player to the selected chapter's start. The
     // menu re-renders with the moved ▶ marker and stays reusable; the live
     // card + cover swap happens via the updater's seek path.
-    if (customId === 'music:chapters:seek') {
+    if (customId.startsWith('music:chapters:seek:')) {
       const idxStr = interaction.values[0];
       const idx = idxStr !== undefined ? Number(idxStr) : NaN;
       const chapters = (this.musicService.getPlayer(guildId)?.get('chapters') as VideoChapter[] | null) ?? null;

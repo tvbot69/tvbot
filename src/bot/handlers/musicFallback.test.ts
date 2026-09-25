@@ -1313,7 +1313,7 @@ describe('resolve artwork backfill', () => {
     expect(track.artworkUrl).toBe('https://img.test/first.jpg');
   });
 
-  it('uses the video thumbnail and skips the cascade for long-form content', async () => {
+  it('paints the video thumbnail instantly for long-form content and still cascades', async () => {
     const { svc, getTrackCoverUrl, getArtistImageUrl } = makeArtSvc();
     const track = {
       title: 'DJ Set - Live at Home [FULL SET]',
@@ -1322,9 +1322,22 @@ describe('resolve artwork backfill', () => {
       _videoThumb: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
     } as unknown as { title: string; author: string; duration: number; artworkUrl?: string };
     await svc.maybeBackfillArt(track, undefined, 'DJ Set', 'DJ', 6000);
-    expect(track.artworkUrl).toBe('https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg');
-    expect(getTrackCoverUrl).not.toHaveBeenCalled();
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('DJ Set', 'DJ');
+    expect(track.artworkUrl).toBe('https://img.test/backfilled.jpg');
     expect(getArtistImageUrl).not.toHaveBeenCalled();
+  });
+
+  it('keeps the video thumbnail for long-form content when the cascade misses', async () => {
+    const { svc, getTrackCoverUrl } = makeArtSvc(async () => null);
+    const track = {
+      title: 'DJ Set - Live at Home [FULL SET]',
+      author: 'some-channel',
+      duration: 3600000,
+      _videoThumb: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+    } as unknown as { title: string; author: string; duration: number; artworkUrl?: string };
+    await svc.maybeBackfillArt(track, undefined, 'DJ Set', 'DJ', 6000);
+    expect(getTrackCoverUrl).toHaveBeenCalled();
+    expect(track.artworkUrl).toBe('https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg');
   });
 
   it('falls through to the cascade for long-form content with no thumbnail', async () => {

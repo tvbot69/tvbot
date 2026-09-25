@@ -152,3 +152,29 @@ describe('MusicBuilders', () => {
     });
   });
 });
+
+describe('buildChaptersResponse', () => {
+  it('gives every select row a unique custom_id (26+ chapters = two rows)', () => {
+    const chapters = Array.from({ length: 30 }, (_, i) => ({
+      title: `Chapter ${i + 1}`,
+      startMs: i * 60_000,
+    }));
+    const response = MusicBuilders.buildChaptersResponse(
+      { title: 'Live Show', author: 'Artist', uri: 'https://www.youtube.com/watch?v=abcdefghijk' },
+      chapters,
+      0,
+    );
+    const container = (
+      response as unknown as {
+        componentsV2Container: { toJSON(): { components: Array<{ components?: Array<{ custom_id?: string }> }> } };
+      }
+    ).componentsV2Container;
+    const customIds = container
+      .toJSON()
+      .components.flatMap((c) => (c.components ?? []).map((child) => child.custom_id))
+      .filter((id): id is string => typeof id === 'string');
+    expect(customIds).toHaveLength(2);
+    expect(new Set(customIds).size).toBe(2);
+    expect(customIds.every((id) => id.startsWith('music:chapters:seek:'))).toBe(true);
+  });
+});
