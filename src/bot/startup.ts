@@ -959,6 +959,12 @@ export const configureContainer = (): void => {
   );
   container.registerInstance(MusicHandler, musicHandler);
 
+  // Playback ingestion notices (skipped tracks, queue cap) surface as a
+  // one-line system message in the guild's now-playing channel.
+  const musicSystemNotifier = (guildId: string, message: string) => musicHandler.sendSystemMusicNotice(guildId, message);
+  musicService.setUnavailableNotifier(musicSystemNotifier);
+  playlistChunkManager.setUnavailableNotifier(musicSystemNotifier);
+
   container.registerInstance(ClientLogHandler, new ClientLogHandler());
   container.registerInstance(InteractionHandler, new InteractionHandler());
   container.registerInstance(CommandHandler, new CommandHandler());

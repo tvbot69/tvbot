@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { VoiceChannel } from 'discord.js';
 import { MusicHandler } from './musicHandler';
-import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
+import { MusicService, playErrorMessage, MAX_QUEUE_TRACKS } from '@bot/services/music/musicService';
 import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
@@ -1868,6 +1868,102 @@ describe('audio-first art backfill (play path)', () => {
     await new Promise<void>((r) => setImmediate(r));
     const track = (enqueue.mock.calls[0]![1] as { artworkUrl?: string }[])[0]!;
     expect(track.artworkUrl).toBe('https://img.test/cold.jpg');
+  });
+});
+
+describe('enqueue guardrails (play-false rollback, queue cap)', () => {
+  const makeEnqueueSvc = () =>
+    new MusicService(
+      { getManager: () => ({ on: vi.fn(), players: { get: () => undefined } }) } as never,
+      {} as never,
+      {} as never,
+    ) as unknown as {
+      enqueueLavalinkTracks: (
+        player: unknown,
+        tracks: unknown[],
+        requester: unknown,
+        override: undefined,
+        source: string,
+        playlistName?: string,
+      ) => Promise<{ loadType: string; errorReason?: string; totalTracksAdded: number; partial?: boolean }>;
+    };
+
+  const makeEnqueuePlayer = () => {
+    const queued: Record<string, unknown>[] = [];
+    const player = {
+      guildId: 'g-enq',
+      playing: false,
+      paused: false,
+      play: vi.fn(async () => true),
+      queue: {
+        add: (t: unknown) => void queued.push(t as Record<string, unknown>),
+        remove: (i: number) => queued.splice(i, 1)[0],
+        get size() {
+          return queued.length;
+        },
+        get isEmpty() {
+          return queued.length === 0;
+        },
+      },
+    };
+    return { player, queued };
+  };
+
+  const mkTrack = (i: number) => ({
+    identifier: `id-${String(i).padStart(8, '0')}`,
+    title: `Track ${i}`,
+    author: 'Artist',
+    duration: 1000,
+  });
+
+  it('starts playback for a normal enqueue', async () => {
+    const { player, queued } = makeEnqueuePlayer();
+    const res = await makeEnqueueSvc().enqueueLavalinkTracks(
+      player,
+      [mkTrack(1)],
+      { id: 'u1' } as never,
+      undefined,
+      'youtube',
+    );
+    expect(res.loadType).toBe('track');
+    expect(res.totalTracksAdded).toBe(1);
+    expect(player.play).toHaveBeenCalledTimes(1);
+    expect(queued).toHaveLength(1);
+  });
+
+  it('rolls the enqueue back and reports a voice error when playback never starts', async () => {
+    const { player, queued } = makeEnqueuePlayer();
+    player.play = vi.fn(async () => false);
+    const res = await makeEnqueueSvc().enqueueLavalinkTracks(
+      player,
+      [mkTrack(1), mkTrack(2)],
+      { id: 'u1' } as never,
+      undefined,
+      'youtube',
+    );
+    expect(res.loadType).toBe('error');
+    expect(res.errorReason).toBe('voice');
+    expect(res.totalTracksAdded).toBe(0);
+    expect(queued).toHaveLength(0);
+  });
+
+  it('caps bulk enqueues at the sanity cap and marks the result partial', async () => {
+    const { player, queued } = makeEnqueuePlayer();
+    for (let i = 0; i < MAX_QUEUE_TRACKS - 2; i++) queued.push(mkTrack(i));
+    player.playing = true;
+    const res = await makeEnqueueSvc().enqueueLavalinkTracks(
+      player,
+      [mkTrack(101), mkTrack(102), mkTrack(103), mkTrack(104), mkTrack(105)],
+      { id: 'u1' } as never,
+      undefined,
+      'youtube',
+      'Big Playlist',
+    );
+    expect(res.loadType).toBe('playlist');
+    expect(res.totalTracksAdded).toBe(2);
+    expect(res.partial).toBe(true);
+    expect(queued).toHaveLength(MAX_QUEUE_TRACKS);
+    expect(player.play).not.toHaveBeenCalled();
   });
 });
 

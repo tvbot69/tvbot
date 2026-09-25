@@ -450,6 +450,24 @@ export class MusicHandler {
   }
 
   /**
+   * One-line system notice in the guild's now-playing channel (skipped
+   * tracks, queue cap). Best-effort: never throws, never awaits a caller.
+   */
+  public sendSystemMusicNotice(guildId: string, content: string): void {
+    try {
+      const player = this.moonlinkManager.getManager().players.get(guildId);
+      const channelId = player?.textChannelId;
+      if (!channelId) return;
+      const channel = this.client.channels.cache.get(channelId);
+      if (channel?.isTextBased() && 'send' in channel) {
+        void channel.send({ content }).catch(() => undefined);
+      }
+    } catch (err) {
+      Logger.debug({ err, guildId }, '[Music] System notice send failed');
+    }
+  }
+
+  /**
    * Runs the card publish shortly after a state change (chapters attached,
    * chapter art resolved) instead of waiting up to 5s for the next tick.
    * Debounced per guild so bursts collapse into one edit.

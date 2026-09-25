@@ -39,6 +39,9 @@ export const playErrorMessage = (reason?: PlayResult['errorReason']): string => 
   }
 };
 
+/** Hard sanity cap on the player queue — stops runaway playlist ingestion. */
+export const MAX_QUEUE_TRACKS = 5000;
+
 /** Unresolved Spotify entry waiting for just-in-time resolution. */
 interface PendingSpotifyEntry {
   spTrack: SpotifyResolvedTrack;
@@ -70,6 +73,20 @@ export class MusicService {
   /** Upcoming entries with a warmup cascade already in flight (dedupes overlap). */
   private readonly artWarmKeys = new Set<string>();
   private readonly artworkService?: ArtworkService;
+  /** Wired at startup — best-effort one-line notice in the now-playing channel. */
+  private unavailableNotifier: ((guildId: string, message: string) => void) | null = null;
+
+  public setUnavailableNotifier(notifier: (guildId: string, message: string) => void): void {
+    this.unavailableNotifier = notifier;
+  }
+
+  private notifyUnavailable(guildId: string, message: string): void {
+    try {
+      this.unavailableNotifier?.(guildId, message);
+    } catch {
+      // A notice must never break the flow that produced it.
+    }
+  }
 
   /**
    * Custom definitions for our FilterNames that Moonlink does NOT ship
@@ -680,6 +697,23 @@ export class MusicService {
   }
 
   /**
+   * moonlink's play() resolves false instead of throwing when voice isn't
+   * ready (it retries connect internally) or the head track is undecodable.
+   * Give the handshake one more short chance, then roll back everything this
+   * enqueue added — a full queue in silent limbo is worse than an honest
+   * failure the command can report.
+   */
+  private async startPlaybackOrRollback(player: Player, sizeBefore: number): Promise<boolean> {
+    if (player.playing || player.paused) return true;
+    if (await player.play()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (player.playing || player.paused) return true;
+    if (await player.play()) return true;
+    while (player.queue.size > sizeBefore) player.queue.remove(sizeBefore);
+    return false;
+  }
+
+  /**
    * Queues already-resolved Lavalink tracks (playlist arrays or single hits).
    * `source` is the ladder rung that produced them — resolver output stays
    * 'local' so failure handling never mistakes it for plugin output.
@@ -693,8 +727,12 @@ export class MusicService {
     playlistName?: string,
     enrichWithSpotify = false,
   ): Promise<PlayResult> {
+    const sizeBefore = player.queue.size;
+    const room = Math.max(0, MAX_QUEUE_TRACKS - sizeBefore);
+    const incoming = tracks.slice(0, room);
+    const capped = tracks.length > incoming.length;
     const addedTracks: MusicTrack[] = [];
-    for (const rawTrack of tracks) {
+    for (const rawTrack of incoming) {
       rawTrack.requester = requester;
       if (trackOverride?.title) rawTrack.title = trackOverride.title;
       if (trackOverride?.author) rawTrack.author = trackOverride.author;
@@ -737,8 +775,8 @@ export class MusicService {
       addedTracks.push(domain);
     }
 
-    if (!player.playing && !player.paused) {
-      await player.play();
+    if (incoming.length > 0 && !(await this.startPlaybackOrRollback(player, sizeBefore))) {
+      return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: sizeBefore };
     }
 
     if (tracks.length > 1 || playlistName) {
@@ -748,6 +786,7 @@ export class MusicService {
         tracks: addedTracks,
         totalTracksAdded: addedTracks.length,
         positionInQueue: player.queue.size - addedTracks.length + 1,
+        partial: capped || undefined,
       };
     }
     return {
@@ -818,6 +857,7 @@ export class MusicService {
         MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
         spotifyTrack.spotifyUri,
       );
+      const sizeBefore = player.queue.size;
       player.queue.add(chosenTrack);
 
       const domainTrack = mapMoonlinkTrack(chosenTrack, requester);
@@ -826,8 +866,8 @@ export class MusicService {
         domainTrack.artworkUrl = trackOverride.artworkUrl;
       }
 
-      if (!player.playing && !player.paused) {
-        await player.play();
+      if (!(await this.startPlaybackOrRollback(player, sizeBefore))) {
+        return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: sizeBefore };
       }
 
       return {
@@ -864,7 +904,6 @@ export class MusicService {
         MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
         firstTrack.spotifyUri,
       );
-      player.queue.add(firstLavalinkTrack);
       const firstDomainTrack = mapMoonlinkTrack(firstLavalinkTrack, requester);
       firstDomainTrack.source = 'spotify';
       if (trackOverride?.artworkUrl) {
@@ -872,8 +911,11 @@ export class MusicService {
       }
       addedTracks.push(firstDomainTrack);
 
-      if (!player.playing && !player.paused) {
-        await player.play();
+      const firstSizeBefore = player.queue.size;
+      player.queue.add(firstLavalinkTrack);
+
+      if (!(await this.startPlaybackOrRollback(player, firstSizeBefore))) {
+        return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: firstSizeBefore };
       }
     }
 
@@ -1206,6 +1248,7 @@ export class MusicService {
     this.pendingTopUpRunning.add(guildId);
     let added = 0;
     let skipped = 0;
+    let drained = false;
     try {
       for (;;) {
         const player = this.getPlayer(guildId);
@@ -1216,6 +1259,7 @@ export class MusicService {
         const list = this.pendingSpotify.get(guildId);
         if (!list || list.length === 0) {
           this.pendingSpotify.delete(guildId);
+          drained = true;
           break;
         }
         if (player.queue.size >= MusicService.JIT_AHEAD) break;
@@ -1250,6 +1294,10 @@ export class MusicService {
       if (skipped > 0) {
         Logger.warn({ guildId, skipped }, '[Music] JIT top-up skipped unresolvable tracks');
       }
+    }
+    if (drained && skipped > 0) {
+      const unit = skipped === 1 ? 'track' : 'tracks';
+      this.notifyUnavailable(guildId, `⚠️ ${skipped} queued ${unit} could not be resolved and were skipped.`);
     }
     this.warmUpcomingArt(guildId);
     if (added > 0) {
@@ -1488,6 +1536,9 @@ export class MusicService {
 
   public clear(guildId: string): boolean {
     const player = this.getPlayer(guildId);
+    // Chunk state must die with the session either way — a stale entry would
+    // otherwise append the old playlist to whatever the guild plays next.
+    this.playlistChunkManager?.clear(guildId);
     if (!player) {
       this.pendingSpotify.delete(guildId);
       return false;

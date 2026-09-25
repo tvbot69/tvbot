@@ -1,6 +1,7 @@
 import { Logger } from '@domain/logger';
 import { spotifyUriToUrl } from '@domain/models/music/musicTrack';
 import type { Manager, Player, Track } from 'moonlink.js';
+import { MAX_QUEUE_TRACKS } from './musicService';
 import type { SpotifyScraperService, ScrapedTrack } from './spotifyScraperService';
 import type { SpotifyResolvedTrack } from './spotifyResolver';
 import type { Rung } from './youtubeHealth';
@@ -23,6 +24,7 @@ interface ChunkState {
   nextOffset: number;
   total: number;
   isFetching: boolean;
+  skipped: number;
   guildId: string;
   requesterId: string;
   textChannelId: string;
@@ -41,6 +43,31 @@ export class PlaylistChunkManager {
   private readonly chunks = new Map<string, ChunkState>();
   private bound = false;
   private trackResolver: ChunkTrackResolver | null = null;
+  /** Wired at startup — best-effort one-line notice in the now-playing channel. */
+  private unavailableNotifier: ((guildId: string, message: string) => void) | null = null;
+
+  public setUnavailableNotifier(notifier: (guildId: string, message: string) => void): void {
+    this.unavailableNotifier = notifier;
+  }
+
+  private notifyUnavailable(guildId: string, message: string): void {
+    try {
+      this.unavailableNotifier?.(guildId, message);
+    } catch {
+      // A notice must never break the flow that produced it.
+    }
+  }
+
+  /** Warns the channel when a playlist finished with unresolvable tracks. */
+  private notifySkipped(state: ChunkState): void {
+    if (state.skipped <= 0) return;
+    const verb = state.skipped === 1 ? 'was' : 'were';
+    const unit = state.skipped === 1 ? '1 track' : `${state.skipped} tracks`;
+    this.notifyUnavailable(
+      state.guildId,
+      `⚠️ **${state.playlistName}**: ${unit} could not be resolved and ${verb} skipped.`,
+    );
+  }
 
   /** Wires ladder resolution (resolver-first, gated, backfilled). */
   public setTrackResolver(resolver: ChunkTrackResolver): void {
@@ -81,6 +108,68 @@ export class PlaylistChunkManager {
         await this.fetchNext(player.guildId);
       }
     });
+
+    // Queue drained while chunks remain (a whole chunk failed to resolve, or
+    // the last track ended before prefetch landed). Pull the next chunk now
+    // with a bounded retry — otherwise the guild sits in silence forever,
+    // because nothing else will ever trigger fetchNext again.
+    this.manager.on('queueEnd', async (player: Player) => {
+      if (!this.chunks.has(player.guildId)) return;
+      await this.drainOnQueueEnd(player.guildId);
+    });
+  }
+
+  /**
+   * Bounded drain loop after queueEnd: fetch the next chunk immediately and
+   * resume playback the moment anything lands. A fetch that lands nothing
+   * playable backs off 15s and retries (max 3 fetches, 60s overall) so one
+   * bad page can't spin or stall forever. `timing` is injectable for tests.
+   */
+  private async drainOnQueueEnd(
+    guildId: string,
+    timing = { maxFetchAttempts: 3, retryDelayMs: 15000, inFlightPollMs: 2000, overallDeadlineMs: 60000 },
+  ): Promise<void> {
+    const deadline = Date.now() + timing.overallDeadlineMs;
+    let fetchAttempts = 0;
+    for (;;) {
+      const state = this.chunks.get(guildId);
+      if (!state) return;
+      const player = this.manager.players.get(guildId);
+      if (!player) {
+        this.clear(guildId);
+        return;
+      }
+      if (player.queue.size > 0) {
+        if (!player.playing && !player.paused) {
+          await player.play().catch(() => undefined);
+        }
+        return;
+      }
+      if (Date.now() > deadline) {
+        Logger.warn({ guildId, playlistId: state.playlistId }, 'Playlist drain gave up — deadline exceeded');
+        return;
+      }
+      if (state.isFetching) {
+        // A trackEnd/trackStart-triggered fetch is already in flight;
+        // fetchNext no-ops while fetching, so wait for it to land.
+        await new Promise((resolve) => setTimeout(resolve, timing.inFlightPollMs));
+        continue;
+      }
+      if (fetchAttempts >= timing.maxFetchAttempts) {
+        Logger.warn({ guildId, playlistId: state.playlistId }, 'Playlist drain gave up — retries exhausted');
+        return;
+      }
+      if (fetchAttempts > 0) {
+        // Previous fetch landed nothing playable — back off before retrying.
+        await new Promise((resolve) => setTimeout(resolve, timing.retryDelayMs));
+      }
+      fetchAttempts++;
+      await this.fetchNext(guildId);
+      const landed = this.manager.players.get(guildId);
+      if (landed && landed.queue.size > 0 && !landed.playing && !landed.paused) {
+        await landed.play().catch(() => undefined);
+      }
+    }
   }
 
   public register(guildId: string, playlistId: string, playlistName: string, total: number, nextOffset: number, requesterId: string, textChannelId: string): void {
@@ -95,6 +184,7 @@ export class PlaylistChunkManager {
       nextOffset,
       total,
       isFetching: false,
+      skipped: 0,
       guildId,
       requesterId,
       textChannelId,
@@ -112,12 +202,18 @@ export class PlaylistChunkManager {
     return !!player && !(player as unknown as { destroyed?: boolean }).destroyed;
   }
 
+  /** True when `state` is still the registered entry — guards every long await. */
+  private isCurrentState(state: ChunkState): boolean {
+    return this.chunks.get(state.guildId) === state;
+  }
+
   private async fetchNext(guildId: string, chainDepth = 0): Promise<void> {
     const state = this.chunks.get(guildId);
     if (!state || state.isFetching) return;
     if (state.nextOffset >= state.total) {
       this.chunks.delete(guildId);
       Logger.info({ guildId, playlistId: state.playlistId }, 'Playlist fully loaded');
+      this.notifySkipped(state);
       return;
     }
 
@@ -130,10 +226,23 @@ export class PlaylistChunkManager {
         this.chunks.delete(guildId);
         return;
       }
+      if (player.queue.size >= MAX_QUEUE_TRACKS) {
+        this.chunks.delete(guildId);
+        Logger.info({ guildId, playlistId: state.playlistId }, 'Playlist chunk stopped — queue sanity cap reached');
+        this.notifyUnavailable(guildId, `⚠️ Queue cap reached — stopped loading **${state.playlistName}**.`);
+        return;
+      }
 
       Logger.info({ guildId, playlistId: state.playlistId, offset: state.nextOffset }, 'Fetching next playlist chunk');
 
       const page = await this.scraper.fetchPlaylistPage(state.playlistId, state.nextOffset, 100);
+      if (!this.isCurrentState(state)) {
+        // A new playlist was registered (or the session cleared) while this
+        // page was in flight — never delete a registration we don't own and
+        // never append old-playlist tracks to it.
+        Logger.info({ guildId }, 'Playlist chunk aborted — registration replaced mid-fetch');
+        return;
+      }
       if (!this.isPlayerAlive(guildId)) {
         this.chunks.delete(guildId);
         Logger.info({ guildId }, 'Playlist chunk aborted — player destroyed mid-fetch');
@@ -153,9 +262,20 @@ export class PlaylistChunkManager {
       let added = 0;
 
       for (let i = 0; i < page.tracks.length; i += BATCH_SIZE) {
+        if (!this.isCurrentState(state)) {
+          Logger.info({ guildId }, 'Playlist chunk aborted — registration replaced mid-fetch');
+          return;
+        }
         if (!this.isPlayerAlive(guildId)) {
           this.chunks.delete(guildId);
           Logger.info({ guildId }, 'Playlist chunk aborted — player destroyed mid-fetch');
+          return;
+        }
+        const batchPlayer = manager.players.get(guildId);
+        if (batchPlayer && batchPlayer.queue.size >= MAX_QUEUE_TRACKS) {
+          this.chunks.delete(guildId);
+          Logger.info({ guildId, playlistId: state.playlistId }, 'Playlist chunk stopped — queue sanity cap reached');
+          this.notifyUnavailable(guildId, `⚠️ Queue cap reached — stopped loading **${state.playlistName}**.`);
           return;
         }
         const batch = page.tracks.slice(i, i + BATCH_SIZE);
@@ -196,6 +316,10 @@ export class PlaylistChunkManager {
           ),
         );
 
+        if (!this.isCurrentState(state)) {
+          Logger.info({ guildId }, 'Playlist chunk aborted — registration replaced mid-fetch');
+          return;
+        }
         const livePlayer = manager.players.get(guildId);
         if (!livePlayer || (livePlayer as unknown as { destroyed?: boolean }).destroyed) {
           this.chunks.delete(guildId);
@@ -203,7 +327,10 @@ export class PlaylistChunkManager {
           return;
         }
         for (const item of results) {
-          if (!item) continue;
+          if (!item) {
+            state.skipped++;
+            continue;
+          }
           if (item.found) {
             const lavalinkTrack = item.found.lavalinkTrack;
             const trackRecord = lavalinkTrack as unknown as Record<string, unknown>;
@@ -232,7 +359,10 @@ export class PlaylistChunkManager {
             added++;
             continue;
           }
-          if (!item?.r?.tracks?.[0]) continue;
+          if (!item?.r?.tracks?.[0]) {
+            state.skipped++;
+            continue;
+          }
           const lavalinkTrack = item.r.tracks[0];
           const trackRecord = lavalinkTrack as unknown as Record<string, unknown>;
           if (typeof trackRecord._rawVideoTitle !== 'string' && lavalinkTrack.title) {
@@ -262,6 +392,7 @@ export class PlaylistChunkManager {
       if (page.nextOffset === null || page.nextOffset >= state.total) {
         this.chunks.delete(guildId);
         Logger.info({ guildId, playlistId: state.playlistId }, 'Playlist chunk streaming complete');
+        this.notifySkipped(state);
       } else {
         state.nextOffset = page.nextOffset;
         state.isFetching = false;
