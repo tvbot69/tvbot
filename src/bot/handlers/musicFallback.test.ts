@@ -1560,6 +1560,118 @@ describe('seek chapter swap (instant card on seek)', () => {
   });
 });
 
+describe('direct SoundCloud URL plays + transport reporting', () => {
+  const playManager = (
+    searchImpl: (args: { node?: string; source: string; query: string }) => Promise<unknown>,
+    pickImpl?: (exclude: string[]) => { identifier: string } | undefined,
+  ) => {
+    const search = vi.fn(searchImpl);
+    const noteRestFailure = vi.fn();
+    const player = {
+      guildId: 'g-sc',
+      connected: true,
+      voiceChannelId: 'vc',
+      textChannelId: 'tc',
+      transferNode: async () => undefined,
+    };
+    const mm = {
+      getManager: () => ({ search, on: vi.fn(), players: { get: () => player } }),
+      pickSearchNode: vi.fn(
+        pickImpl ??
+          ((exclude: string[]) =>
+            exclude.includes('Home') ? { identifier: 'Serenetia-SSL' } : { identifier: 'Home' }),
+      ),
+      noteRestFailure,
+      isNodeCoolingDown: () => false,
+      hasHealthyNode: () => true,
+    };
+    const svc = new MusicService(
+      mm as never,
+      { isSpotifyUrl: () => false } as never,
+      { getSettings: () => ({ autoplay: false, volume: 100, loopMode: 'off', filters: [] }) } as never,
+    ) as unknown as {
+      play: (
+        guildId: string,
+        vc: string,
+        tc: string,
+        query: string,
+        requester: unknown,
+      ) => Promise<{ loadType: string }>;
+      searchTrackWithLadder: (player: unknown, query: string) => Promise<unknown>;
+    };
+    const enqueue = vi.fn(async () => ({ loadType: 'track', totalTracksAdded: 1, positionInQueue: 0 }));
+    (svc as unknown as { enqueueLavalinkTracks: unknown }).enqueueLavalinkTracks = enqueue;
+    return { svc, search, noteRestFailure, player, enqueue };
+  };
+
+  const saveEnv = (keys: string[]): Record<string, string | undefined> => {
+    const saved: Record<string, string | undefined> = {};
+    for (const k of keys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    return saved;
+  };
+  const restoreEnv = (saved: Record<string, string | undefined>): void => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+
+  let env: Record<string, string | undefined>;
+  beforeEach(() => {
+    env = saveEnv(['HOME_RESOLVER_URL', 'HOME_RESOLVER_TOKEN']);
+  });
+  afterEach(() => {
+    restoreEnv(env);
+  });
+
+  it('retries direct SoundCloud URLs on the next node when one is REST-dead', async () => {
+    const { svc, search, noteRestFailure, player, enqueue } = playManager(async (args) => {
+      if (args.node === 'Home') throw new Error('Request error: ');
+      return { loadType: 'search', tracks: [{ identifier: 'sc-hit-abc' }] };
+    });
+    const res = await svc.play('g-sc', 'vc', 'tc', 'https://soundcloud.com/artist/track', { id: 'u1' } as never);
+    expect(res.loadType).toBe('track');
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[0]![0]).toMatchObject({ node: 'Home', source: 'soundcloud' });
+    expect(search.mock.calls[1]![0]).toMatchObject({ node: 'Serenetia-SSL', source: 'soundcloud' });
+    expect(noteRestFailure).toHaveBeenCalledTimes(1);
+    expect(noteRestFailure).toHaveBeenCalledWith('Home');
+    const enqueueArgs = enqueue.mock.calls[0]! as unknown as unknown[];
+    expect((enqueueArgs[1] as { identifier: string }[])[0]?.identifier).toBe('sc-hit-abc');
+    expect(enqueueArgs[4]).toBe('soundcloud');
+    void player;
+  });
+
+  it('reports all-nodes-dead SoundCloud URL plays as an error, not empty', async () => {
+    const { svc, search } = playManager(async () => {
+      throw new Error('Request error: ');
+    });
+    const res = await svc.play('g-sc', 'vc', 'tc', 'https://soundcloud.com/artist/track', { id: 'u1' } as never);
+    expect(res.loadType).toBe('error');
+    expect(search).toHaveBeenCalled();
+  });
+
+  it('keeps a genuine SoundCloud miss as empty (no node cooling)', async () => {
+    const { svc, noteRestFailure } = playManager(async () => ({ loadType: 'search', tracks: [] }));
+    const res = await svc.play('g-sc', 'vc', 'tc', 'https://soundcloud.com/artist/track', { id: 'u1' } as never);
+    expect(res.loadType).toBe('empty');
+    expect(noteRestFailure).not.toHaveBeenCalled();
+  });
+
+  it('ladder with every search dead (timeout-null) reports transportError, not a miss', async () => {
+    const { svc, player } = playManager(async () => null, (exclude) =>
+      exclude.includes('Home') ? undefined : { identifier: 'Home' },
+    );
+    const ladderPlayer = { node: { identifier: 'Serenetia-SSL' } };
+    void player;
+    const res = await svc.searchTrackWithLadder(ladderPlayer, 'some song name');
+    expect(res).toEqual({ transportError: true });
+  });
+});
+
 describe('REST-dead search failover (uplink-stall class)', () => {
   const failoverManager = (
     searchImpl: (args: { node?: string }) => Promise<unknown>,

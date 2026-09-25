@@ -342,9 +342,9 @@ export class MusicService {
    * One YouTube attempt shared by the plugin + resolver rungs, then per-rung
    * selection. Resolver hits are labeled 'local' so failure handling treats
    * them as resolver output, never as YouTube plugin output. Distinguishes
-   * transport failure (node unreachable mid-ladder — every search THREW)
-   * from a genuine miss so callers can report "try again" instead of the
-   * misleading "No tracks found".
+   * transport failure (node unreachable mid-ladder — every search THREW or
+   * returned null) from a genuine miss so callers can report "try again"
+   * instead of the misleading "No tracks found".
    */
   private async searchTrackWithLadder(
     player: Player,
@@ -367,10 +367,17 @@ export class MusicService {
     const rungs = ladderFor(player);
     let ytHit: Track | undefined;
     let transportFailed = false;
+    // Any search returning a response object (even an empty one) proves the
+    // network answered; all-null across every rung means the nodes are dead,
+    // which must report as transportError, not as "No tracks found".
+    let answered = false;
     if (rungs.includes('plugin') || rungs.includes('resolver')) {
       try {
         const yt = await this.searchWithTimeout({ query, source: 'youtube' });
-        ytHit = yt?.tracks?.[0];
+        if (yt) {
+          answered = true;
+          ytHit = yt.tracks?.[0];
+        }
       } catch {
         // Node unreachable, not a miss — remember it for the result below.
         transportFailed = true;
@@ -399,6 +406,7 @@ export class MusicService {
       if (rung === 'soundcloud') {
         try {
           const sc = await this.searchWithTimeout({ query, source: 'soundcloud' });
+          if (sc) answered = true;
           if (sc?.tracks?.[0]) return { track: sc.tracks[0], rung };
         } catch {
           transportFailed = true;
@@ -410,7 +418,7 @@ export class MusicService {
       const local = await this.tryResolverTrack(player, ytHit, meta);
       if (local) return { track: local, rung };
     }
-    if (transportFailed) return { transportError: true };
+    if (transportFailed || !answered) return { transportError: true };
     return null;
   }
 
@@ -555,8 +563,13 @@ export class MusicService {
     // while YouTube is declared down).
     if (isSoundcloud) {
       try {
-        const res = await manager.search({ query: trimmedQuery, source: 'soundcloud' });
-        if (!res?.tracks || res.tracks.length === 0) {
+        // Node-aware search: a REST-dead node must not absorb direct
+        // SoundCloud URL plays (same tower-uplink-stall class as text queries).
+        const res = await this.searchWithTimeout({ query: trimmedQuery, source: 'soundcloud' });
+        if (!res) {
+          return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
+        }
+        if (!res.tracks || res.tracks.length === 0) {
           return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
         }
         return await this.enqueueLavalinkTracks(player, res.tracks, requester, trackOverride, 'soundcloud');
@@ -613,8 +626,7 @@ export class MusicService {
             rec.sourceName = trackOverride?.source || rungSource;
             rec.source = trackOverride?.source || rungSource;
             return await this.enqueueLavalinkTracks(player, [hit], requester, trackOverride, rungSource);
-          return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
-        }
+          }
         // Direct plugin-rung URL plays skip the ladder: pre-clean + backfill
         // here so lives on third-party channels get artist/chapter art, not
         // raw thumbnails. Fire-and-forget (never stalls the fast path — the
