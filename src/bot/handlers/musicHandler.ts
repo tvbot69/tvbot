@@ -262,6 +262,43 @@ export class MusicHandler {
     }
   }
 
+  /**
+   * Seek = instant chapter swap. The 5s tick only detects NATURAL chapter
+   * transitions; a user seek that crosses a boundary used to wait for the
+   * tick and then pay a cold art cascade (~3-5s before the cover sat).
+   * Fires for every Player.seek() — user seeks, stall re-seeks, fallback
+   * resume — but only a chapter change does work; same-chapter seeks no-op.
+   */
+  private swapChapterOnSeek(player: Player, positionMs: number): void {
+    try {
+      const chapters = player.get<VideoChapter[] | null>('chapters');
+      if (!chapters || chapters.length < 2) return;
+      const idx = chapterIndexAt(chapters, Math.max(0, positionMs), MusicHandler.CLOCK_STARTUP_OFFSET_MS);
+      if (idx === (player.get<number>('chapterIdx') ?? -2)) return;
+      player.set('chapterIdx', idx);
+      player.set('chapterStartedAt', Date.now());
+      const ch = idx >= 0 ? chapters[idx] : undefined;
+      if (!ch || isGenericChapterTitle(ch.title)) {
+        player.set('chapterCard', null);
+      } else {
+        player.set('chapterCard', { title: ch.title, artworkUrl: null });
+        player.set('chapterArtRetry', { idx, at: Date.now() });
+        void this.resolveChapterArt(player, idx, chapters);
+      }
+      // Target ±1: backward seeks replay what a forward pass warmed;
+      // forward seeks need idx+1/idx+2. idx itself warms the accent color
+      // for the art swap about to resolve.
+      this.prefetchChapterArts(
+        player,
+        chapters,
+        [idx - 1, idx, idx + 1, idx + 2].filter((i) => i >= 0 && i < chapters.length),
+      );
+      this.scheduleImmediateProgress(player);
+    } catch {
+      // Chapter swap is decoration — never break the seek.
+    }
+  }
+
   private readonly progressFingerprints = new Map<string, string>();
   // Karaoke cadence: 5s ticks re-evaluate the lyric window, but an edit only
   // goes out when the fingerprint (track, state, 5s position bucket, lyric
@@ -922,6 +959,13 @@ export class MusicHandler {
       } catch (err) {
         Logger.warn({ err, guildId: player.guildId }, 'Failed to dispatch trackStart Now Playing card');
       }
+    });
+
+    // Emitted synchronously by Player#seek for every seek call site, before
+    // the REST round-trip — the earliest reliable seek signal (stock
+    // Lavalink v4 does not send a SeekEvent back over the websocket).
+    manager.on('playerTriggeredSeek', (player: Player, position: number) => {
+      this.swapChapterOnSeek(player, position);
     });
 
     manager.on('trackEnd', (player: Player, track: Track, reason: string) => {

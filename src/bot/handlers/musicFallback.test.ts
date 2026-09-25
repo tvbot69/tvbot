@@ -1472,6 +1472,94 @@ describe('chapter art retry + prefetch', () => {
   });
 });
 
+describe('seek chapter swap (instant card on seek)', () => {
+  const SHOW = [
+    { title: 'Rottweiler', startMs: 0 },
+    { title: '4 Raws', startMs: 150000 },
+    { title: 'Century', startMs: 355000 },
+  ];
+
+  const makeSeekHandler = (artImpl: (song: string) => Promise<string | null>) => {
+    const getTrackCoverUrl = vi.fn(artImpl);
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const handler = new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { getTrackCoverUrl } as never,
+    ) as unknown as {
+      publishProgress: (player: unknown) => Promise<void>;
+    };
+    const onSeek = manager.on.mock.calls.find((c) => c[0] === 'playerTriggeredSeek')?.[1] as
+      | ((player: unknown, position: number) => void)
+      | undefined;
+    return { handler, getTrackCoverUrl, onSeek };
+  };
+
+  const mockPlayer = (store: Record<string, unknown>) => ({
+    guildId: 'g-seek',
+    current: { title: 'EsDeeKid - Live at Silver Spring' },
+    get: (k: string) => store[k],
+    set: (k: string, v: unknown) => void (store[k] = v),
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('cross-chapter seek swaps the card, resolves art, and publishes without the 5s tick', async () => {
+    const { handler, getTrackCoverUrl, onSeek } = makeSeekHandler(async () => 'https://img.test/x.jpg');
+    expect(onSeek).toBeTypeOf('function');
+    const store: Record<string, unknown> = {
+      chapters: SHOW,
+      chapterIdx: 0,
+      chapterCard: { title: 'Rottweiler', artworkUrl: 'https://img.test/old.jpg' },
+    };
+    const player = mockPlayer(store);
+    const spy = vi.spyOn(handler, 'publishProgress').mockResolvedValue(undefined);
+
+    onSeek!(player, 200000);
+
+    expect(store.chapterIdx).toBe(1);
+    expect(store.chapterCard).toMatchObject({ title: '4 Raws', artworkUrl: null });
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('4 Raws', 'EsDeeKid');
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.chapterCard).toMatchObject({ title: '4 Raws', artworkUrl: 'https://img.test/x.jpg' });
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('same-chapter seeks do not fire art resolves or nudges', async () => {
+    const { handler, getTrackCoverUrl, onSeek } = makeSeekHandler(async () => 'https://img.test/x.jpg');
+    const store: Record<string, unknown> = {
+      chapters: SHOW,
+      chapterIdx: 1,
+      chapterCard: { title: '4 Raws', artworkUrl: 'https://img.test/have.jpg' },
+    };
+    const player = mockPlayer(store);
+    const spy = vi.spyOn(handler, 'publishProgress').mockResolvedValue(undefined);
+
+    onSeek!(player, 160000);
+
+    expect(store.chapterIdx).toBe(1);
+    expect(store.chapterCard).toEqual({ title: '4 Raws', artworkUrl: 'https://img.test/have.jpg' });
+    expect(getTrackCoverUrl).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
 describe('REST-dead search failover (uplink-stall class)', () => {
   const failoverManager = (
     searchImpl: (args: { node?: string }) => Promise<unknown>,
