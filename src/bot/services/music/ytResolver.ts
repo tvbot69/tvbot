@@ -88,25 +88,98 @@ export interface VideoChapterDto {
 }
 
 /**
- * Chapter list for lives/mixes (song titles + start times). Defaults to
- * parsing timestamp lines from the video's YouTube description via the
- * official Data API (fast, no bot checks); CHAPTERS_SOURCE=rug falls back
- * to the legacy home-resolver probe. Returns null when unusable (missing
- * key, API down, bad id) — distinct from `[]`, which means the video
- * simply has no chapters. Deliberately side-effect-free: a chapter miss
- * must never trip the audio resolver's pause/miss/alert machinery.
+ * Chapter list for lives/mixes (song titles + start times). Cascade: the
+ * official Data API description parse first (fast, no bot checks), then the
+ * home resolver's yt-dlp probe for videos whose description carries no
+ * timestamps (auto/UGC chapters). Returns null when unusable (API down,
+ * bad id) — distinct from `[]`, which means the video genuinely has no
+ * chapters. Deliberately side-effect-free: a chapter miss must never trip
+ * the audio resolver's pause/miss/alert machinery.
  */
 export async function getVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
   if (!/^[\w-]{11}$/.test(id)) return null;
-  if ((process.env.CHAPTERS_SOURCE ?? 'data').trim().toLowerCase() === 'rug') {
-    return getRugVideoChapters(id);
+  const now = Date.now();
+
+  const pos = cascadePosCache.get(id);
+  if (pos) {
+    if (now - pos.at <= POS_TTL_MS) return pos.chapters;
+    cascadePosCache.delete(id);
   }
-  return fetchDescriptionChapters(id);
+  const emptyAt = cascadeEmptyCache.get(id);
+  if (emptyAt !== undefined) {
+    if (now - emptyAt <= EMPTY_TTL_MS) return [];
+    cascadeEmptyCache.delete(id);
+  }
+  const negAt = cascadeNegCache.get(id);
+  if (negAt !== undefined) {
+    if (now - negAt <= NEG_TTL_MS) return null;
+    cascadeNegCache.delete(id);
+  }
+
+  const pending = cascadeInflight.get(id);
+  if (pending) return pending;
+
+  const run = probeVideoChapters(id).finally(() => cascadeInflight.delete(id));
+  cascadeInflight.set(id, run);
+  return run;
 }
 
+// Cascade-level cache so the rug probe (a slower yt-dlp call) never repeats
+// within the TTL windows, and "no chapters anywhere" doesn't re-probe home
+// on every play. Mirrors descriptionChapters' TTLs and cap.
+const POS_TTL_MS = 7 * 24 * 3_600_000;
+const EMPTY_TTL_MS = 24 * 3_600_000;
+const NEG_TTL_MS = 10 * 60_000;
+const CASCADE_CACHE_CAP = 2_000;
+interface CascadePosEntry {
+  at: number;
+  chapters: VideoChapterDto[];
+}
+const cascadePosCache = new Map<string, CascadePosEntry>();
+const cascadeEmptyCache = new Map<string, number>();
+const cascadeNegCache = new Map<string, number>();
+const cascadeInflight = new Map<string, Promise<VideoChapterDto[] | null>>();
+
+async function probeVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
+  const data = await fetchDescriptionChapters(id);
+  if (data && data.length > 0) {
+    cascadePosCache.set(id, { at: Date.now(), chapters: data });
+    evictOldest(cascadePosCache);
+    return data;
+  }
+
+  const rug = await getRugVideoChapters(id);
+  if (rug && rug.length > 0) {
+    cascadePosCache.set(id, { at: Date.now(), chapters: rug });
+    evictOldest(cascadePosCache);
+    return rug;
+  }
+
+  // [] = the API answered but carried no timestamps and the rug probe came
+  // up empty — a genuinely chapter-less video. null = the API was unusable
+  // (down / missing key), so retry sooner.
+  if (data !== null) {
+    cascadeEmptyCache.set(id, Date.now());
+    evictOldest(cascadeEmptyCache);
+    return [];
+  }
+  cascadeNegCache.set(id, Date.now());
+  evictOldest(cascadeNegCache);
+  return null;
+}
+
+const evictOldest = (m: Map<string, unknown>): void => {
+  while (m.size > CASCADE_CACHE_CAP) {
+    const oldest = m.keys().next().value;
+    if (oldest === undefined) break;
+    m.delete(oldest);
+  }
+};
+
 /**
- * Legacy chapter path: the home resolver's yt-dlp metadata probe
- * (GET /chapters). Disabled by default — set CHAPTERS_SOURCE=rug to restore.
+ * Home-resolver chapter rung: the yt-dlp metadata probe (GET /chapters)
+ * that catches videos whose chapters live outside the description (auto /
+ * UGC chapters). Skipped when the resolver is disabled or paused.
  */
 async function getRugVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
   if (!resolverEnabled()) return null;

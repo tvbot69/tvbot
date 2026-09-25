@@ -81,56 +81,104 @@ describe('ytResolver', () => {
   });
 });
 
-describe('chapter source routing', () => {
-  const SAVED_SOURCE = process.env.CHAPTERS_SOURCE;
+describe('chapter cascade (data first, rug fallback)', () => {
   const SAVED_KEY = process.env.YOUTUBE_API_KEY;
   let mod: typeof import('./ytResolver');
 
   beforeEach(async () => {
-    // Fresh module state: pausedUntil/misses from earlier tests must not
-    // disable the legacy rug path under test here.
+    // Fresh module state: pausedUntil/cascade caches from earlier tests
+    // must not leak into the routing under test here.
     vi.resetModules();
     vi.restoreAllMocks();
     process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
     process.env.HOME_RESOLVER_TOKEN = 'tok';
     process.env.YOUTUBE_API_KEY = 'test-key';
-    delete process.env.CHAPTERS_SOURCE;
     mod = await import('./ytResolver');
   });
 
   afterEach(() => {
-    if (SAVED_SOURCE === undefined) delete process.env.CHAPTERS_SOURCE;
-    else process.env.CHAPTERS_SOURCE = SAVED_SOURCE;
     if (SAVED_KEY === undefined) delete process.env.YOUTUBE_API_KEY;
     else process.env.YOUTUBE_API_KEY = SAVED_KEY;
   });
 
-  it('defaults to the YouTube Data API and never touches the home resolver', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
-    await expect(mod.getVideoChapters('dQw4w9WgXcQ')).resolves.toBeNull();
-    const urls = spy.mock.calls.map((c) => String(c[0]));
-    expect(urls.length).toBeGreaterThan(0);
-    expect(urls.every((u) => u.includes('googleapis.com'))).toBe(true);
-    expect(urls.some((u) => u.includes('/chapters'))).toBe(false);
-  });
-
-  it('routes to the legacy home resolver when CHAPTERS_SOURCE=rug', async () => {
-    process.env.CHAPTERS_SOURCE = 'rug';
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        chapters: [
-          { title: 'Intro', startMs: 0 },
-          { title: 'Song', startMs: 90_000 },
-        ],
-      }),
-    } as Response);
-    await expect(mod.getVideoChapters('rug0video00')).resolves.toEqual([
+  it('returns description chapters without probing the home resolver', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      expect(String(input)).toContain('googleapis.com');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ items: [{ snippet: { description: '0:00 - Intro\n1:30 - Song' } }] }),
+      } as Response;
+    });
+    await expect(mod.getVideoChapters('data0video1')).resolves.toEqual([
       { title: 'Intro', startMs: 0 },
       { title: 'Song', startMs: 90_000 },
     ]);
-    expect(String(spy.mock.calls[0]![0])).toContain('/chapters?id=rug0video00');
+    expect(spy.mock.calls.some((c) => String(c[0]).includes('/chapters'))).toBe(false);
+  });
+
+  it('falls back to the home resolver when the description has no timestamps', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url.includes('googleapis.com')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ items: [{ snippet: { description: 'Doors at 17:00. Stream starts soon.' } }] }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          chapters: [
+            { title: 'Auto Chapter', startMs: 5000 },
+            { title: '  Part 2 ', startMs: 0 },
+          ],
+        }),
+      } as Response;
+    });
+    await expect(mod.getVideoChapters('rug0video00')).resolves.toEqual([
+      { title: 'Part 2', startMs: 0 },
+      { title: 'Auto Chapter', startMs: 5000 },
+    ]);
+    expect(spy.mock.calls.map((c) => String(c[0])).some((u) => u.includes('/chapters?id=rug0video00'))).toBe(true);
+  });
+
+  it('caches the cascade result so the rug probe does not repeat', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = String(input);
+      if (url.includes('googleapis.com')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ items: [{ snippet: { description: 'No timestamps here.' } }] }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ chapters: [{ title: 'A', startMs: 0 }, { title: 'B', startMs: 1_000 }] }),
+      } as Response;
+    });
+    await expect(mod.getVideoChapters('cache0video')).resolves.toEqual([
+      { title: 'A', startMs: 0 },
+      { title: 'B', startMs: 1_000 },
+    ]);
+    const callsAfterFirst = spy.mock.calls.length;
+    await expect(mod.getVideoChapters('cache0video')).resolves.toEqual([
+      { title: 'A', startMs: 0 },
+      { title: 'B', startMs: 1_000 },
+    ]);
+    expect(spy.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it('resolves to null after both legs fail', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+    await expect(mod.getVideoChapters('both0down00')).resolves.toBeNull();
+    const urls = spy.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('googleapis.com'))).toBe(true);
+    expect(urls.some((u) => u.includes('/chapters'))).toBe(true);
   });
 });
 
