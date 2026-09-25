@@ -1459,6 +1459,24 @@ describe('chapter art retry + prefetch', () => {
     expect(getTrackCoverUrl).toHaveBeenCalledWith('Rottweiler', 'EsDeeKid');
   });
 
+  it('never retries art for a generic-suppressed chapter', async () => {
+    const { handler, getTrackCoverUrl } = makeHandler(async () => null);
+    const store: Record<string, unknown> = {
+      chapters: [{ title: '08 DJ Intro', startMs: 0 }, ...SHOW.slice(1)],
+      chapterIdx: 0,
+      chapterCard: null,
+    };
+    const player = mockPlayer(store);
+
+    handler.chapterCardFor(player, 60000);
+    vi.setSystemTime(Date.now() + 31000);
+    handler.chapterCardFor(player, 61000);
+    vi.setSystemTime(Date.now() + 62000);
+    handler.chapterCardFor(player, 62000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getTrackCoverUrl).not.toHaveBeenCalled();
+  });
+
   it('publishes the title at once and prefetches upcoming covers', async () => {
     const { handler, getTrackCoverUrl } = makeHandler(async () => null);
     const store: Record<string, unknown> = { chapters: SHOW, chapterIdx: -2 };

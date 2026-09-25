@@ -205,7 +205,10 @@ export class MusicHandler {
       const lastIdx = player.get<number>('chapterIdx') ?? -2;
       if (idx === lastIdx) {
         const stored = player.get<ChapterCard | null>('chapterCard') ?? null;
-        if (!stored?.artworkUrl && idx >= 0) {
+        // Generic chapters never display a card, so their art can never
+        // attach — measured on Railway: a suppressed "08 DJ Intro" burned a
+        // 2s cascade miss every 30s retry for nothing.
+        if (!stored?.artworkUrl && idx >= 0 && !isGenericChapterTitle(chapters[idx]?.title)) {
           const retry = player.get<{ idx: number; at: number } | null>('chapterArtRetry');
           if (!retry || retry.idx !== idx || Date.now() - retry.at > 30000) {
             player.set('chapterArtRetry', { idx, at: Date.now() });
