@@ -613,12 +613,14 @@ export class MusicService {
           hit.requester = requester;
             hit.title = trackOverride?.title || meta.title;
             hit.author = trackOverride?.author || meta.author;
-            await this.maybeBackfillArt(
+            // Audio-first: never gate playback on art — background cascade,
+            // late-attach, and the 5s ticker repaints the card.
+            void this.maybeBackfillArt(
               hit,
               trackOverride?.artworkUrl,
               hit.title,
               hit.author,
-              MusicService.ARTWORK_TIMEOUT_MS,
+              MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
               hit.uri,
             );
             const rungSource = swapped.rung === 'resolver' ? 'local' : 'soundcloud';
@@ -655,12 +657,14 @@ export class MusicService {
       if (MusicService.isTransportError(found)) {
         return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
       }
-      await this.maybeBackfillArt(
+      // Audio-first: never gate playback on art — background cascade,
+      // late-attach, and the 5s ticker repaints the card.
+      void this.maybeBackfillArt(
         found.track,
         trackOverride?.artworkUrl,
         trackOverride?.title || found.track.title,
         trackOverride?.author || found.track.author,
-        MusicService.ARTWORK_TIMEOUT_MS,
+        MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
         found.track.uri,
       );
       const ladderSource = found.rung === 'resolver' ? 'local' : found.rung === 'soundcloud' ? 'soundcloud' : 'youtube';
@@ -804,12 +808,14 @@ export class MusicService {
       // Backfill AFTER adoption: adoption clears the raw YouTube thumbnail
       // when Spotify has no cover, so the cascade can fill real artwork
       // instead of skipping on the wrong image.
-      await this.maybeBackfillArt(
+      // Audio-first: never gate playback on art — background cascade,
+      // late-attach, and the 5s ticker repaints the card.
+      void this.maybeBackfillArt(
         chosenTrack,
         trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
         trackOverride?.title || spotifyTrack.name,
         trackOverride?.author || spotifyTrack.artist,
-        MusicService.ARTWORK_TIMEOUT_MS,
+        MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
         spotifyTrack.spotifyUri,
       );
       player.queue.add(chosenTrack);
@@ -848,12 +854,14 @@ export class MusicService {
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
       this.adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, spotifyUrl, trackOverride);
-      await this.maybeBackfillArt(
+      // Audio-first: never gate playback on art — background cascade,
+      // late-attach, and the 5s ticker repaints the card.
+      void this.maybeBackfillArt(
         firstLavalinkTrack,
         firstTrack.artworkUrl,
         firstTrack.name,
         firstTrack.artist,
-        MusicService.ARTWORK_TIMEOUT_MS,
+        MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
         firstTrack.spotifyUri,
       );
       player.queue.add(firstLavalinkTrack);

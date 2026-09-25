@@ -1395,6 +1395,8 @@ describe('resolve artwork backfill', () => {
     };
     await svc.playSpotify(player, 'https://open.spotify.com/playlist/xyz', { id: 'u1' });
     expect(getTrackCoverUrl).toHaveBeenCalledWith('GONE 4 A MIN', 'Yeat');
+    // Audio-first: the cascade is fire-and-forget — art lands asynchronously.
+    await new Promise<void>((r) => setImmediate(r));
     expect((queued[0] as { artworkUrl?: string }).artworkUrl).toBe('https://img.test/first.jpg');
   });
 });
@@ -1774,6 +1776,98 @@ describe('direct SoundCloud URL plays + transport reporting', () => {
     expect(search.mock.calls[0]![0]).toMatchObject({ node: 'Home', source: 'youtube' });
     expect(search.mock.calls[1]![0]).toMatchObject({ node: 'Serenetia-SSL', source: 'youtube' });
     expect(noteRestFailure).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('audio-first art backfill (play path)', () => {
+  const saveEnv = (keys: string[]): Record<string, string | undefined> => {
+    const saved: Record<string, string | undefined> = {};
+    for (const k of keys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    return saved;
+  };
+  const restoreEnv = (saved: Record<string, string | undefined>): void => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+
+  let env: Record<string, string | undefined>;
+  beforeEach(() => {
+    env = saveEnv(['HOME_RESOLVER_URL', 'HOME_RESOLVER_TOKEN']);
+  });
+  afterEach(() => {
+    restoreEnv(env);
+  });
+
+  const makeArtPlay = () => {
+    const search = vi.fn(async () => ({
+      loadType: 'search',
+      tracks: [{ identifier: 'sc-cold-01', title: 'Cold Song', author: 'Cold Artist' }],
+    }));
+    const player = {
+      guildId: 'g-art',
+      connected: true,
+      voiceChannelId: 'vc',
+      textChannelId: 'tc',
+      transferNode: async () => undefined,
+    };
+    const mm = {
+      getManager: () => ({ search, on: vi.fn(), players: { get: () => player } }),
+      pickSearchNode: vi.fn(() => ({ identifier: 'Home' })),
+      noteRestFailure: vi.fn(),
+      isNodeCoolingDown: () => false,
+      hasHealthyNode: () => true,
+    };
+    let resolveArt!: (url: string) => void;
+    const artGate = new Promise<string>((resolve) => {
+      resolveArt = resolve;
+    });
+    const art = {
+      getTrackCoverUrl: vi.fn(() => artGate),
+      getTrackCoverBySpotifyId: vi.fn(async () => null),
+      getArtistImageUrl: vi.fn(async () => null),
+    };
+    const svc = new MusicService(
+      mm as never,
+      { isSpotifyUrl: () => false } as never,
+      { getSettings: () => ({ autoplay: false, volume: 100, loopMode: 'off', filters: [] }) } as never,
+      undefined,
+      art as never,
+    ) as unknown as {
+      play: (
+        guildId: string,
+        vc: string,
+        tc: string,
+        query: string,
+        requester: unknown,
+      ) => Promise<{ loadType: string }>;
+    };
+    const enqueue = vi.fn(
+      async (_player: unknown, tracks: unknown[]) => ({ loadType: 'track', totalTracksAdded: 1, positionInQueue: 0 }),
+    );
+    (svc as unknown as { enqueueLavalinkTracks: unknown }).enqueueLavalinkTracks = enqueue;
+    return { svc, enqueue, getTrackCoverUrl: art.getTrackCoverUrl, resolveArt: () => resolveArt };
+  };
+
+  it('plays without waiting for a cold artwork cascade', async () => {
+    const { svc, enqueue, getTrackCoverUrl } = makeArtPlay();
+    const res = await svc.play('g-art', 'vc', 'tc', 'some cold song', { id: 'u1' } as never);
+    expect(res.loadType).toBe('track');
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(getTrackCoverUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('late-attaches the resolved cover to the queued track', async () => {
+    const { svc, enqueue, resolveArt } = makeArtPlay();
+    await svc.play('g-art', 'vc', 'tc', 'some cold song', { id: 'u1' } as never);
+    resolveArt()('https://img.test/cold.jpg');
+    await new Promise<void>((r) => setImmediate(r));
+    const track = (enqueue.mock.calls[0]![1] as { artworkUrl?: string }[])[0]!;
+    expect(track.artworkUrl).toBe('https://img.test/cold.jpg');
   });
 });
 

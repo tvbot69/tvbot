@@ -6,6 +6,7 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 import { Logger } from '@domain/logger';
 
 const COLOR_CACHE_TTL_SECONDS = 86400; // 24 hours
+const ACCENT_FAILURE_TTL_SECONDS = 600; // 10-minute cooldown so dead images don't re-download every publish tick
 const MAX_SAMPLE_SIZE = 64;
 const QUANTIZE_SHIFT = 5;
 
@@ -131,7 +132,9 @@ export class ColorService {
     const cacheKey = `accent-color:image:${hash}`;
 
     const cached = await this.cache.get<number>(cacheKey);
-    if (cached !== null && cached !== undefined && typeof cached === 'number' && cached !== DiscordConstants.LastFmColorRed) {
+    if (cached !== null && cached !== undefined && typeof cached === 'number') {
+      // Red in the cache means a previously failed lookup — serve the cooldown
+      // instead of re-downloading a broken image on every call.
       return cached;
     }
 
@@ -161,6 +164,7 @@ export class ColorService {
       clearTimeout(timeout);
 
       if (!resp.ok) {
+        await this.cacheFailure(cacheKey);
         return DiscordConstants.LastFmColorRed;
       }
 
@@ -174,7 +178,16 @@ export class ColorService {
       return color;
     } catch (err) {
       Logger.warn({ err, url: cleanUrl }, 'Error fetching image for accent color extraction');
+      await this.cacheFailure(cacheKey);
       return DiscordConstants.LastFmColorRed;
+    }
+  }
+
+  private async cacheFailure(cacheKey: string): Promise<void> {
+    try {
+      await this.cache.set(cacheKey, DiscordConstants.LastFmColorRed, ACCENT_FAILURE_TTL_SECONDS);
+    } catch {
+      // A cache write failure must not mask the red fallback.
     }
   }
 

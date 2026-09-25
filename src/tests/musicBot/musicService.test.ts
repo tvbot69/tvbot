@@ -374,6 +374,8 @@ describe('MusicService', () => {
 
     expect(res.loadType).toBe('spotify_playlist');
     const queued = addMock.mock.calls[addMock.mock.calls.length - 1]?.[0] as { artworkUrl?: string };
+    // Audio-first: the cascade is fire-and-forget — art lands asynchronously.
+    await new Promise<void>((r) => setImmediate(r));
     expect(queued?.artworkUrl).toBe('https://cdn.example.com/art.jpg');
   });
 
