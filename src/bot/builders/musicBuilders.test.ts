@@ -92,6 +92,23 @@ describe('buildNowPlayingResponse chapters', () => {
     expect(json).toContain('video.jpg');
   });
 
+  it('renders chapter and lyrics together, chapter line before the lyric section', () => {
+    const res = MusicBuilders.buildNowPlayingResponse(
+      npQueue,
+      0xff0000,
+      { current: 'Hello', next: 'Is it me' },
+      { title: 'Rottweiler', artworkUrl: 'https://cdn.example.com/rottweiler.jpg' },
+    );
+    const texts = textsOf(res);
+    const chapterIdx = texts.findIndex((t) => t.includes('▶ **Rottweiler**'));
+    const lyricIdx = texts.findIndex((t) => t.includes('🎤'));
+    expect(chapterIdx).toBeGreaterThan(-1);
+    expect(lyricIdx).toBeGreaterThan(chapterIdx);
+    const embed = (res as unknown as { embed: { data: { description?: string } } }).embed;
+    expect(String(embed.data.description)).toContain('▶ **Rottweiler**');
+    expect(String(embed.data.description)).toContain('🎤');
+  });
+
   it('trims bracket junk from the displayed title', () => {
     const longQueue = JSON.parse(JSON.stringify(npQueue)) as { current: { title: string } };
     longQueue.current.title = 'EsDeeKid - Live at Silver Spring, MD [FULL SET | 9/13/26]';

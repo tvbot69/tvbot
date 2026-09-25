@@ -1599,6 +1599,25 @@ describe('seek chapter swap (instant card on seek)', () => {
     expect(songs).toContain('Rottweiler');
     expect(songs).toContain('4 Raws');
   });
+
+  it('paused seeks still swap the chapter card and nudge a publish', async () => {
+    const { handler, onSeek } = makeSeekHandler(async () => 'https://img.test/x.jpg');
+    const store: Record<string, unknown> = {
+      chapters: SHOW,
+      chapterIdx: 0,
+      chapterCard: { title: 'Rottweiler', artworkUrl: 'https://img.test/old.jpg' },
+    };
+    const player = mockPlayer(store);
+    (player as unknown as { paused: boolean }).paused = true;
+    const spy = vi.spyOn(handler, 'publishProgress').mockResolvedValue(undefined);
+
+    onSeek!(player, 200000);
+
+    expect(store.chapterIdx).toBe(1);
+    expect(store.chapterCard).toMatchObject({ title: '4 Raws' });
+    await vi.advanceTimersByTimeAsync(300);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('direct SoundCloud URL plays + transport reporting', () => {
