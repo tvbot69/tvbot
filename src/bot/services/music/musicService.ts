@@ -458,17 +458,23 @@ export class MusicService {
   /**
    * Artwork pre-clean (single choke point, also used by the direct URL
    * path): stamp a known-good cover, or drop a raw YouTube thumbnail so a
-   * later backfill cascade fills real art instead of skipping on it. The
-   * raw video thumbnail is stashed first — long-form content (>20min)
-   * skips the cascade and uses it directly, since no studio cover exists
-   * for a DJ set / full concert.
+   * later backfill cascade fills real art instead of skipping on it. Only
+   * long-form content (>20min) additionally stashes the video thumbnail —
+   * that stash is the sole entry into the long-form video-art system
+   * (square rug crop → card paint). Short tracks never enter it: no video
+   * thumb, no crop downloads — cascade art only.
    */
-  public static preCleanArtwork(track: { artworkUrl?: string | null }, artworkUrl?: string | null): void {
+  public static preCleanArtwork(
+    track: { artworkUrl?: string | null; duration?: number | null },
+    artworkUrl?: string | null,
+  ): void {
     const rec = track as unknown as Record<string, unknown>;
-    if (typeof rec._videoThumb !== 'string' && typeof track.artworkUrl === 'string' && track.artworkUrl) {
-      // Square rug crop when the resolver is up — long-form paints this
-      // stash directly (isLiveVideo fast path), so the card gets 640x640
-      // instead of hqdefault's baked black bars / maxres's wide shape.
+    if (
+      typeof rec._videoThumb !== 'string' &&
+      isLiveVideo(track.duration) &&
+      typeof track.artworkUrl === 'string' &&
+      track.artworkUrl
+    ) {
       rec._videoThumb = squareVideoThumbUrl(track.artworkUrl) ?? track.artworkUrl;
     }
     if (artworkUrl) track.artworkUrl = artworkUrl;

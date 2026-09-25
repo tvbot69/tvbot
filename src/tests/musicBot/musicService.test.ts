@@ -545,17 +545,39 @@ describe('MusicService', () => {
     expect(queued?.artworkUrl).toBe('https://i.ytimg.com/vi/livevid12345/maxresdefault.jpg');
   });
 
-  it('stashes the square resolver thumb for video thumbnails', () => {
+  it('stashes the square resolver thumb for long-form video thumbnails', () => {
     const savedUrl = process.env.HOME_RESOLVER_URL;
     const savedToken = process.env.HOME_RESOLVER_TOKEN;
     process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
     process.env.HOME_RESOLVER_TOKEN = 'tok';
     try {
-      const track: { artworkUrl?: string | null; _videoThumb?: unknown } = {
+      const track: { artworkUrl?: string | null; duration?: number; _videoThumb?: unknown } = {
         artworkUrl: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+        duration: 25 * 60 * 1000,
       };
       MusicService.preCleanArtwork(track, undefined);
       expect(track._videoThumb).toBe('http://127.0.0.1:2335/thumb?id=abcdefghijk');
+      expect(track.artworkUrl).toBeNull();
+    } finally {
+      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
+      else process.env.HOME_RESOLVER_URL = savedUrl;
+      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
+      else process.env.HOME_RESOLVER_TOKEN = savedToken;
+    }
+  });
+
+  it('never stashes the video thumb for short tracks — cascade-only', () => {
+    const savedUrl = process.env.HOME_RESOLVER_URL;
+    const savedToken = process.env.HOME_RESOLVER_TOKEN;
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    try {
+      const track: { artworkUrl?: string | null; duration?: number; _videoThumb?: unknown } = {
+        artworkUrl: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+        duration: 3 * 60 * 1000,
+      };
+      MusicService.preCleanArtwork(track, undefined);
+      expect(track._videoThumb).toBeUndefined();
       expect(track.artworkUrl).toBeNull();
     } finally {
       if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
@@ -571,8 +593,9 @@ describe('MusicService', () => {
     delete process.env.HOME_RESOLVER_URL;
     delete process.env.HOME_RESOLVER_TOKEN;
     try {
-      const track: { artworkUrl?: string | null; _videoThumb?: unknown } = {
+      const track: { artworkUrl?: string | null; duration?: number; _videoThumb?: unknown } = {
         artworkUrl: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
+        duration: 30 * 60 * 1000,
       };
       MusicService.preCleanArtwork(track, undefined);
       expect(track._videoThumb).toBe('https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg');
