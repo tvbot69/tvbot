@@ -975,6 +975,8 @@ export const configureContainer = (): void => {
   // one-line system message in the guild's now-playing channel.
   const musicSystemNotifier = (guildId: string, message: string) => musicHandler.sendSystemMusicNotice(guildId, message);
   musicService.setUnavailableNotifier(musicSystemNotifier);
+  musicService.setKaraokeToggleNotifier((guildId: string) => musicHandler.refreshGuildCard(guildId));
+  musicService.setCardRefreshNotifier((guildId: string) => musicHandler.refreshGuildCard(guildId));
   playlistChunkManager.setUnavailableNotifier(musicSystemNotifier);
 
   container.registerInstance(ClientLogHandler, new ClientLogHandler());

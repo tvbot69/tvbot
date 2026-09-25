@@ -38,31 +38,23 @@ export const getSourceBadge = (source?: string): string => {
 
 export class MusicBuilders {
   /**
-   * Generates a sleek Unicode progress bar.
-   * e.g. "01:23 🔘▬▬▬▬▬▬▬▬▬▬▬▬▬▬ 03:45"
+   * Static meta line for the Now Playing card (duration, queue depth,
+   * requester). Deliberately position-free: the card no longer polls, so it
+   * must never display live data that goes stale. Streams show LIVE.
    */
-  public static buildProgressBar(
-    currentMs: number,
-    totalMs: number,
-    barLength: number = 14,
-  ): string {
-    if (totalMs <= 0 || !Number.isFinite(totalMs)) {
-      return '🔴 `LIVE`';
-    }
-
-    const progress = Math.min(1, Math.max(0, currentMs / totalMs));
-    const dotIndex = Math.floor(progress * (barLength - 1));
-
-    let bar = '';
-    for (let i = 0; i < barLength; i++) {
-      if (i === dotIndex) {
-        bar += '🔘';
-      } else {
-        bar += '▬';
-      }
-    }
-
-    return `\`${formatDuration(currentMs)}\` ${bar} \`${formatDuration(totalMs)}\``;
+  public static buildNowPlayingMetaLine(
+    durationMs: number,
+    isStream: boolean,
+    upcomingCount: number,
+    requesterTag?: string,
+  ): string | null {
+    const bits: string[] = [];
+    if (isStream) bits.push('🔴 LIVE');
+    else if (durationMs > 0) bits.push(`⏱ ${formatDuration(durationMs)}`);
+    if (upcomingCount > 0) bits.push(`📑 ${upcomingCount} up next`);
+    const tag = requesterTag?.trim();
+    if (tag) bits.push(`🙋 ${tag.slice(0, 32)}`);
+    return bits.length > 0 ? `-# ${bits.join(' • ')}` : null;
   }
 
   public static buildTrackAddedResponse(
@@ -244,17 +236,22 @@ export class MusicBuilders {
     }
 
     const current = queue.current;
-    const progressBar = MusicBuilders.buildProgressBar(queue.position, current.duration, 14);
-
     const sourceIcon = getSourceBadge(current.source);
 
-    // Card order: header (title/artist) -> live chapter -> lyrics ->
-    // progress bar pinned at the bottom -> controls.
+    // Card order: header (title/artist) -> live-show chapter -> lyrics ->
+    // static meta line -> controls. No live position anywhere: the card is
+    // event-driven, never polled, so every line must stay true without ticks.
     const header = `### [${MusicBuilders.trimDisplayTitle(current.title)}](${current.uri})\n**${current.author}** • ${sourceIcon}`;
-    const chapterLine = chapter ? `▶ **${chapter.title}**` : null;
+    const chapterLine = chapter ? `🔴 LIVE SHOW • ▶ **${chapter.title}**` : null;
     const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
     const legacyLyricSection = MusicBuilders.buildLyricSection(lyricWindow, false);
     const galleryUrl = chapter?.artworkUrl || current.artworkUrl;
+    const metaLine = MusicBuilders.buildNowPlayingMetaLine(
+      current.duration,
+      current.isStream,
+      queue.tracks.length,
+      current.requester?.tag,
+    );
 
     // Single Row of 5 Square Icon Playback Controls (Mobile-perfect, zero text squishing)
     const row0 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -306,7 +303,9 @@ export class MusicBuilders {
     container.addSeparatorComponents(
       new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(false),
     );
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(progressBar));
+    if (metaLine) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(metaLine));
+    }
     container.addActionRowComponents(row0);
 
     response.setComponentsV2Container(container);
@@ -314,8 +313,9 @@ export class MusicBuilders {
     // Backward-compatible fallback embed & button row
     response.addButtonRow(0, row0 as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
     const legacyBody = chapterLine ? `${header}\n${chapterLine}` : header;
-    response.embed
-      .setDescription(legacyLyricSection ? `${legacyBody}\n\n${legacyLyricSection}\n\n${progressBar}` : `${legacyBody}\n\n${progressBar}`);
+    const legacyDesc = legacyLyricSection ? `${legacyBody}\n\n${legacyLyricSection}` : legacyBody;
+    const legacyMeta = metaLine ? metaLine.replace(/^-# /, '') : null;
+    response.embed.setDescription(legacyMeta ? `${legacyDesc}\n\n${legacyMeta}` : legacyDesc);
     if (galleryUrl) {
       response.embed.setImage(galleryUrl);
     }

@@ -333,7 +333,7 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
   });
 });
 
-describe('stuck/exception updater survival + resume carryover', () => {
+describe('stuck/exception card-timer survival + resume carryover', () => {
   const captureAll = (queueService: unknown) => {
     const handlers = new Map<string, (...args: any[]) => Promise<void>>();
     const manager = {
@@ -349,11 +349,11 @@ describe('stuck/exception updater survival + resume carryover', () => {
       { getManager: () => manager } as never,
       (queueService ?? { getQueueInfo: () => null, is247: () => false }) as never,
     ) as unknown as {
-      stopProgressUpdater: (guildId: string) => void;
+      clearCardTimers: (guildId: string) => void;
     };
-    const stopSpy = vi.fn();
-    handler.stopProgressUpdater = stopSpy;
-    return { handlers, manager, stopSpy };
+    const clearSpy = vi.fn();
+    handler.clearCardTimers = clearSpy;
+    return { handlers, manager, clearSpy };
   };
 
   const stuckTrack = () => ({
@@ -366,7 +366,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
   });
 
   it('keeps the updater alive across a seek-stall re-issue', async () => {
-    const { handlers, stopSpy } = captureAll(null);
+    const { handlers, clearSpy } = captureAll(null);
     const onStuck = handlers.get('trackStuck')!;
     const data = new Map<string, unknown>([
       ['lastUserSeekAt', Date.now() - 5000],
@@ -387,7 +387,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
 
     await onStuck(player, stuckTrack(), 10000);
 
-    expect(stopSpy).not.toHaveBeenCalled();
+    expect(clearSpy).not.toHaveBeenCalled();
     expect(player.seek).toHaveBeenCalledWith(1500000);
     // Nudge alignment: Moonlink's own +1000 recovery reads this state.
     expect(player.current.position).toBe(1500000);
@@ -402,7 +402,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
       author: 'DJ',
       duration: 3600000,
     };
-    const { handlers, manager, stopSpy } = captureAll({
+    const { handlers, manager, clearSpy } = captureAll({
       getQueueInfo: () => null,
       is247: () => false,
       calculatePosition: () => 1800000,
@@ -430,14 +430,14 @@ describe('stuck/exception updater survival + resume carryover', () => {
 
     await onStuck(player, stuckTrack(), 10000);
 
-    expect(stopSpy).not.toHaveBeenCalled();
+    expect(clearSpy).not.toHaveBeenCalled();
     expect(player.skip).toHaveBeenCalled();
     expect(player.seek).toHaveBeenCalledWith(1800000);
     expect(player.current.position).toBe(1800000);
   });
 
   it('holds post-seek stalls inside grace instead of falling back', async () => {
-    const { handlers, manager, stopSpy } = captureAll(null);
+    const { handlers, manager, clearSpy } = captureAll(null);
     (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
     const onStuck = handlers.get('trackStuck')!;
     const data = new Map<string, unknown>([
@@ -460,7 +460,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
 
     await onStuck(player, stuckTrack(), 10000);
 
-    expect(stopSpy).not.toHaveBeenCalled();
+    expect(clearSpy).not.toHaveBeenCalled();
     expect(manager.search).not.toHaveBeenCalled();
     expect(player.skip).not.toHaveBeenCalled();
     expect(player.seek).not.toHaveBeenCalled();
@@ -528,7 +528,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
   });
 
   it('keeps the updater alive when an exception has no fallback', async () => {
-    const { handlers, manager, stopSpy } = captureAll(null);
+    const { handlers, manager, clearSpy } = captureAll(null);
     (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
     const onException = handlers.get('trackException')!;
     const player = {
@@ -546,7 +546,7 @@ describe('stuck/exception updater survival + resume carryover', () => {
 
     await onException(player, stuckTrack(), { severity: 'common', message: 'blocked' });
 
-    expect(stopSpy).not.toHaveBeenCalled();
+    expect(clearSpy).not.toHaveBeenCalled();
     expect(player.skip).toHaveBeenCalled();
   });
 });

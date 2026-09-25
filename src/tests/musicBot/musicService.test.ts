@@ -244,6 +244,82 @@ describe('MusicService', () => {
     expect(pos).toBe(10000);
   });
 
+  it('falls back to wall-clock from track start when the node clock stalls while playing', () => {
+    const now = Date.now();
+    const stalledPlayer = {
+      ...mockPlayer,
+      playing: true,
+      paused: false,
+      current: {
+        ...mockPlayer.current,
+        position: 4000, // last real update, 90s ago
+        time: now - 90000,
+        duration: 354000,
+      },
+      get: vi.fn((key: string) => (key === 'trackStartedAt' ? now - 90000 : undefined)),
+    } as unknown as Player;
+
+    // The card + lyrics keep moving (~90s) instead of freezing at 0:04.
+    const pos = queueService.calculatePosition(stalledPlayer);
+    expect(pos).toBeGreaterThanOrEqual(89000);
+    expect(pos).toBeLessThanOrEqual(91000);
+  });
+
+  it('returns the last base when every clock is missing while playing', () => {
+    const noClockPlayer = {
+      ...mockPlayer,
+      playing: true,
+      paused: false,
+      current: {
+        ...mockPlayer.current,
+        position: 4000,
+        time: undefined,
+        duration: 354000,
+      },
+      get: vi.fn().mockReturnValue(undefined),
+    } as unknown as Player;
+
+    expect(queueService.calculatePosition(noClockPlayer)).toBe(4000);
+  });
+
+  it('clamps the stall fallback to the track duration', () => {
+    const now = Date.now();
+    const overrunPlayer = {
+      ...mockPlayer,
+      playing: true,
+      paused: false,
+      current: {
+        ...mockPlayer.current,
+        position: 4000,
+        time: now - 90000,
+        duration: 60000,
+      },
+      get: vi.fn((key: string) => (key === 'trackStartedAt' ? now - 90000 : undefined)),
+    } as unknown as Player;
+
+    expect(queueService.calculatePosition(overrunPlayer)).toBe(60000);
+  });
+
+  it('ignores a future-dated node clock instead of freezing', () => {
+    const now = Date.now();
+    const futurePlayer = {
+      ...mockPlayer,
+      playing: true,
+      paused: false,
+      current: {
+        ...mockPlayer.current,
+        position: 4000,
+        time: now + 60000,
+        duration: 354000,
+      },
+      get: vi.fn((key: string) => (key === 'trackStartedAt' ? now - 30000 : undefined)),
+    } as unknown as Player;
+
+    const pos = queueService.calculatePosition(futurePlayer);
+    expect(pos).toBeGreaterThanOrEqual(29000);
+    expect(pos).toBeLessThanOrEqual(31000);
+  });
+
   it('enriches YouTube playback with Spotify track name and artist when found', async () => {
     (mockSpotifyResolver.searchTrack as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       name: 'Bohemian Rhapsody',

@@ -83,6 +83,16 @@ export class QueueService {
     }
   }
 
+  /**
+   * Live position for the card, lyrics and queue. First live leg wins:
+   * 1. Fresh node clock — extrapolate from the last reported update (<60s).
+   * 2. Stalled node clock while audibly playing — wall-clock from track
+   *    start. Update stalls used to freeze the card + lyrics at the last
+   *    base forever (the classic "stuck at 0:04"); a moving approximation
+   *    beats a dead card, and the node clock retakes over the moment
+   *    updates resume. Clamped to duration so it never overruns.
+   * 3. No clock at all (paused, missing) — the last reported base.
+   */
   public calculatePosition(player: Player): number {
     if (!player.current) return 0;
 
@@ -96,15 +106,26 @@ export class QueueService {
       return basePos;
     }
 
+    const totalDuration = player.current.duration || 0;
+    const clamp = (pos: number): number => {
+      if (!Number.isFinite(pos) || pos < 0) return basePos;
+      return totalDuration > 0 ? Math.min(totalDuration, pos) : pos;
+    };
+
     const trackStartedAt = typeof player.get === 'function' ? player.get<number>('trackStartedAt') : undefined;
     const updateTime = rawTrack.time || trackStartedAt;
-    if (updateTime && typeof updateTime === 'number' && updateTime > 0) {
+    if (typeof updateTime === 'number' && updateTime > 0) {
       const elapsed = Date.now() - updateTime;
-      if (elapsed > 0 && elapsed < 60000) {
-        const totalDuration = player.current.duration || 0;
-        const livePos = basePos + elapsed;
-        return totalDuration > 0 ? Math.min(totalDuration, livePos) : livePos;
+      if (elapsed >= 0 && elapsed < 60000) {
+        return clamp(basePos + elapsed);
       }
+    }
+
+    // Node clock stale (or future-dated) — fall back to wall-clock from
+    // track start instead of freezing at the last base.
+    if (typeof trackStartedAt === 'number' && trackStartedAt > 0) {
+      const elapsed = Date.now() - trackStartedAt;
+      if (elapsed >= 0) return clamp(elapsed);
     }
 
     return basePos;

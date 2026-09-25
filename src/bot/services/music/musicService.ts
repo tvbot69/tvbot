@@ -82,6 +82,10 @@ export class MusicService {
   private appleMusicResolver?: AppleMusicResolver;
   /** Wired at startup — best-effort one-line notice in the now-playing channel. */
   private unavailableNotifier: ((guildId: string, message: string) => void) | null = null;
+  /** Wired at startup — refreshes the event-driven card on karaoke toggle. */
+  private karaokeToggleNotifier: ((guildId: string) => void) | null = null;
+  /** Wired at startup — repaints the event-driven card when backfill lands art. */
+  private cardRefreshNotifier: ((guildId: string) => void) | null = null;
 
   public setUnavailableNotifier(notifier: (guildId: string, message: string) => void): void {
     this.unavailableNotifier = notifier;
@@ -767,7 +771,7 @@ export class MusicService {
             hit.title = trackOverride?.title || meta.title;
             hit.author = trackOverride?.author || meta.author;
             // Audio-first: never gate playback on art — background cascade,
-            // late-attach, and the 5s ticker repaints the card.
+            // late-attach, and the card refreshes when art lands.
             void this.maybeBackfillArt(
               hit,
               trackOverride?.artworkUrl,
@@ -775,6 +779,7 @@ export class MusicService {
               hit.author,
               MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
               hit.uri,
+              player.guildId,
             );
             const rungSource = swapped.rung === 'resolver' ? 'local' : 'soundcloud';
             const rec = hit as unknown as Record<string, unknown>;
@@ -785,7 +790,7 @@ export class MusicService {
         // Direct plugin-rung URL plays skip the ladder: pre-clean + backfill
         // here so lives on third-party channels get artist/chapter art, not
         // raw thumbnails. Fire-and-forget (never stalls the fast path — the
-        // progress ticker picks up late-arriving art within seconds).
+        // card refreshes when late-arriving art lands).
         // Enrichment adopts the Spotify-side clean title + cover for pasted
         // URLs (no trusted override); picks already carry upgraded metadata.
         MusicService.preCleanArtwork(meta, trackOverride?.artworkUrl);
@@ -796,6 +801,7 @@ export class MusicService {
           trackOverride?.author || meta.author,
           MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
           meta.uri,
+          player.guildId,
         );
         return await this.enqueueLavalinkTracks(player, [meta], requester, trackOverride, 'youtube', undefined, !trackOverride?.title);
       }
@@ -813,7 +819,7 @@ export class MusicService {
         return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
       }
       // Audio-first: never gate playback on art — background cascade,
-      // late-attach, and the 5s ticker repaints the card.
+      // late-attach, and the card refreshes when art lands.
       void this.maybeBackfillArt(
         found.track,
         trackOverride?.artworkUrl,
@@ -821,6 +827,7 @@ export class MusicService {
         trackOverride?.author || found.track.author,
         MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
         found.track.uri,
+        player.guildId,
       );
       const ladderSource = found.rung === 'resolver' ? 'local' : found.rung === 'soundcloud' ? 'soundcloud' : 'youtube';
       return await this.enqueueLavalinkTracks(player, [found.track], requester, trackOverride, ladderSource, undefined, true);
@@ -1015,7 +1022,7 @@ export class MusicService {
       // when the provider has no cover, so the cascade can fill real artwork
       // instead of skipping on the wrong image.
       // Audio-first: never gate playback on art — background cascade,
-      // late-attach, and the 5s ticker repaints the card.
+      // late-attach, and the card refreshes when art lands.
       void this.maybeBackfillArt(
         chosenTrack,
         trackOverride?.artworkUrl || mirrorTrack.artworkUrl,
@@ -1023,6 +1030,7 @@ export class MusicService {
         trackOverride?.author || mirrorTrack.artist,
         MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
         mirrorTrack.spotifyUri,
+        player.guildId,
       );
       const sizeBefore = player.queue.size;
       player.queue.add(chosenTrack);
@@ -1058,7 +1066,7 @@ export class MusicService {
       const firstLavalinkTrack = firstFound.track;
       this.adoptMirrorTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, sourceUrl, trackOverride);
       // Audio-first: never gate playback on art — background cascade,
-      // late-attach, and the 5s ticker repaints the card.
+      // late-attach, and the card refreshes when art lands.
       void this.maybeBackfillArt(
         firstLavalinkTrack,
         firstTrack.artworkUrl,
@@ -1066,6 +1074,7 @@ export class MusicService {
         firstTrack.artist,
         MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
         firstTrack.spotifyUri,
+        player.guildId,
       );
       const firstDomainTrack = mapMoonlinkTrack(firstLavalinkTrack, requester);
       firstDomainTrack.source = provider;
@@ -1159,6 +1168,7 @@ export class MusicService {
     artist?: string,
     timeoutMs: number = MusicService.ARTWORK_TIMEOUT_MS,
     spotifyUri?: string | null,
+    notifyGuildId?: string,
   ): Promise<void> {
     try {
       if (!track || track.artworkUrl || knownArtworkUrl) return;
@@ -1248,6 +1258,7 @@ export class MusicService {
             { title: t, artist: a, resolveMs: Date.now() - started },
             '[Music] Artwork backfilled',
           );
+          this.notifyCardArt(notifyGuildId);
         } else {
           trackRec._artLookupOutcome = 'miss';
           Logger.debug(
@@ -1256,8 +1267,8 @@ export class MusicService {
           );
           // Late attach: the race abandons slow lookups but doesn't cancel
           // them — the cascade still finishes and caches. If art arrives
-          // after the timeout and the track is still bare, take it; the
-          // progress updater rebuilds the card every 15s, so it shows up.
+          // after the timeout and the track is still bare, take it and
+          // refresh the event-driven card so it shows up.
           void lookup
             .then((late) => {
               if (late && (!track.artworkUrl || track.artworkUrl === thumbPainted)) {
@@ -1266,6 +1277,7 @@ export class MusicService {
                 trackRec._artLookupResolvedAt = Date.now();
                 trackRec._artLookupOutcome = 'late-hit';
                 Logger.info({ title: t, artist: a, resolveMs: lateMs }, '[Music] Artwork late-attached');
+                this.notifyCardArt(notifyGuildId);
               }
             })
             .catch(() => undefined);
@@ -1509,6 +1521,7 @@ export class MusicService {
       spTrack.artist,
       MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
       spTrack.spotifyUri,
+      player.guildId,
     );
     return { lavalinkTrack: found.track, spTrack, rung: found.rung };
   }
@@ -1677,7 +1690,35 @@ export class MusicService {
   }
 
   public toggleKaraoke(guildId: string, enabled?: boolean): boolean {
-    return this.queueService.toggleKaraoke(guildId, enabled);
+    const next = this.queueService.toggleKaraoke(guildId, enabled);
+    // The card is event-driven: a toggle must refresh it (show/hide lyrics)
+    // instead of waiting for the next lyric/chapter boundary.
+    try {
+      this.karaokeToggleNotifier?.(guildId);
+    } catch {
+      // A notice must never break the toggle.
+    }
+    return next;
+  }
+
+  /** Wired at startup — refreshes the card when karaoke is toggled. */
+  public setKaraokeToggleNotifier(notifier: (guildId: string) => void): void {
+    this.karaokeToggleNotifier = notifier;
+  }
+
+  /** Wired at startup — repaints the event-driven card when backfill lands art. */
+  public setCardRefreshNotifier(notifier: (guildId: string) => void): void {
+    this.cardRefreshNotifier = notifier;
+  }
+
+  /** Best-effort card repaint after art attaches (fingerprint dedupes no-ops). */
+  private notifyCardArt(guildId?: string): void {
+    if (!guildId) return;
+    try {
+      this.cardRefreshNotifier?.(guildId);
+    } catch {
+      // A notice must never break resolution.
+    }
   }
 
   public setLoop(guildId: string, mode: LoopMode): LoopMode | null {

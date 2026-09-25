@@ -51,18 +51,23 @@ describe('MusicBuilders', () => {
     ping: 25,
   };
 
-  describe('buildProgressBar', () => {
-    it('renders live indicator for livestreams', () => {
-      const liveBar = MusicBuilders.buildProgressBar(0, 0);
-      expect(liveBar).toContain('LIVE');
+  describe('buildNowPlayingMetaLine', () => {
+    it('renders duration, queue depth and requester without any live position', () => {
+      const line = MusicBuilders.buildNowPlayingMetaLine(230000, false, 1, 'TestUser#0001');
+      expect(line).toContain('⏱ 3:50');
+      expect(line).toContain('📑 1 up next');
+      expect(line).toContain('🙋 TestUser#0001');
+      expect(line).not.toContain('🔘');
     });
 
-    it('renders progress bar with correct dot placement', () => {
-      const bar = MusicBuilders.buildProgressBar(50000, 100000, 10);
-      expect(bar).toContain('🔘');
-      expect(bar).toContain('▬');
-      expect(bar).toContain('0:50');
-      expect(bar).toContain('1:40');
+    it('renders live indicator for streams instead of a duration', () => {
+      const line = MusicBuilders.buildNowPlayingMetaLine(0, true, 0, undefined);
+      expect(line).toContain('🔴 LIVE');
+      expect(line).not.toContain('⏱');
+    });
+
+    it('returns null when there is nothing static to show', () => {
+      expect(MusicBuilders.buildNowPlayingMetaLine(0, false, 0, undefined)).toBeNull();
     });
   });
 
@@ -71,7 +76,9 @@ describe('MusicBuilders', () => {
       const response = MusicBuilders.buildNowPlayingResponse(sampleQueue, 0xff0000);
       expect(response.embed.data.description).toContain('Starboy');
       expect(response.embed.data.description).toContain('The Weeknd');
-      expect(response.embed.data.description).toContain('🔘');
+      expect(response.embed.data.description).not.toContain('🔘');
+      expect(response.embed.data.description).toContain('⏱ 3:50');
+      expect(response.embed.data.description).toContain('📑 1 up next');
       expect(response.embed.data.description).toContain('<:sp:1496297132381048995>');
 
       // Modern Discord Components V2 container

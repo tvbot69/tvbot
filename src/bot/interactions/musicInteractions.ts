@@ -168,7 +168,7 @@ export class MusicInteractions {
       }
     }
 
-    // Accent is warm-fast (the 5s tick pre-warms; failed lookups are
+    // Accent is warm-fast (chapter prefetch pre-warms; failed lookups are
     // negative-cached), so this stays well inside the 2.5s global ack guard.
     const currentTrackArtwork = this.musicService.getQueueInfo(guildId)?.current?.artworkUrl;
     const accentColor = await this.colorService.getAccentColorAsync(guildId, currentTrackArtwork);
