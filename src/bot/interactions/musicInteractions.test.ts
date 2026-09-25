@@ -232,3 +232,39 @@ describe('MusicInteractions chapter jump', () => {
     expect(svc.seek).toHaveBeenCalledWith('g1', 465);
   });
 });
+
+describe('MusicInteractions lyric rebuilds', () => {
+  const LINES = [
+    { ms: 2000, text: 'Line one' },
+    { ms: 8000, text: 'Line two' },
+  ];
+
+  const lyricSvc = (opts?: { karaoke?: boolean; lines?: typeof LINES | null; position?: number }) => {
+    const lines = opts && 'lines' in opts ? opts.lines : LINES;
+    return {
+      isKaraokeEnabled: vi.fn().mockReturnValue(opts?.karaoke ?? true),
+      getQueueInfo: vi.fn().mockReturnValue({ position: opts?.position ?? 4000 }),
+      getPlayer: vi.fn().mockReturnValue({
+        get: (key: string) => (key === 'karaokeLines' ? lines : undefined),
+      }),
+    };
+  };
+
+  const lyricWindowFor = (svc: unknown): { current: string | null; next: string | null } | null =>
+    (
+      new MusicInteractions(svc as never, {} as never) as unknown as {
+        lyricWindowFor: (guildId: string) => { current: string | null; next: string | null } | null;
+      }
+    ).lyricWindowFor('g1');
+
+  it('preserves the lyric window on control rebuilds (no pause flicker)', () => {
+    // Frozen at 4s with lines at 2s/8s — the pause rebuild must keep
+    // singing instead of blanking until the next boundary.
+    expect(lyricWindowFor(lyricSvc())).toEqual({ current: 'Line one', next: 'Line two' });
+  });
+
+  it('returns null when karaoke is disabled or lines are missing', () => {
+    expect(lyricWindowFor(lyricSvc({ karaoke: false }))).toBeNull();
+    expect(lyricWindowFor(lyricSvc({ lines: null }))).toBeNull();
+  });
+});

@@ -1201,6 +1201,26 @@ export class MusicHandler {
       this.clearCardTimers(player.guildId);
       this.clearOkTimer(player.guildId);
 
+      // The card dies with the song — no lingering until disconnect. The
+      // next trackStart posts a fresh card (its delete-prev no-ops).
+      const endMsgId = player.get<string>('nowPlayingMessageId');
+      const endChannelId = player.textChannelId;
+      this.forgetNowPlaying(player);
+      if (endMsgId && endChannelId) {
+        void (async () => {
+          try {
+            const channel = await this.client.channels.fetch(endChannelId).catch(() => null);
+            if (channel && 'messages' in channel) {
+              await (channel as unknown as { messages: { delete: (id: string) => Promise<unknown> } })
+                .messages.delete(endMsgId)
+                .catch(() => undefined);
+            }
+          } catch {
+            // Card already gone — state is clean regardless.
+          }
+        })();
+      }
+
       // Preview-cut detection: some SoundCloud uploads (major-label artists)
       // only expose 30s preview streams while reporting full metadata
       // durations. A track "finishing" in under a minute of a multi-minute

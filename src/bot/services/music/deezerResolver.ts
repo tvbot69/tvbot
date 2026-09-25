@@ -116,6 +116,7 @@ export class DeezerResolver {
       durationMs: (json.duration || 0) * 1000,
       searchQuery: `${artist} - ${title}`,
       artworkUrl: DeezerResolver.coverOf(json, fallbackArt),
+      album: json.album?.title?.trim() || undefined,
       sourceUrl: json.link,
       isrc: json.isrc?.trim() || undefined,
       provider: PROVIDER,

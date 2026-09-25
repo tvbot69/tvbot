@@ -121,6 +121,7 @@ export class AppleMusicResolver {
       durationMs: attrs?.durationInMillis ?? 0,
       searchQuery: `${artist} - ${title}`,
       artworkUrl: AppleMusicResolver.catalogArt(attrs) ?? fallbackArt,
+      album: attrs?.albumName?.trim() || undefined,
       sourceUrl: attrs?.url ? decodeURIComponent(attrs.url) : undefined,
       isrc: attrs?.isrc?.trim() || undefined,
       provider: PROVIDER,
@@ -145,12 +146,14 @@ export class AppleMusicResolver {
     if (!title?.trim() || !artist?.trim()) return null;
     const rawArt = item.artworkUrl100 as string | undefined;
     const art = rawArt?.replace('100x100bb', '600x600bb') ?? fallbackArt;
+    const collection = item.collectionName as string | undefined;
     return {
       name: title.trim(),
       artist: artist.trim(),
       durationMs: (item.trackTimeMillis as number | undefined) ?? 0,
       searchQuery: `${artist.trim()} - ${title.trim()}`,
       artworkUrl: art,
+      album: collection?.trim() || undefined,
       sourceUrl: item.trackViewUrl as string | undefined,
       provider: PROVIDER,
     };

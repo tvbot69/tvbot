@@ -21,6 +21,8 @@ export interface MirrorTrack {
   durationMs: number;
   searchQuery: string;
   artworkUrl?: string;
+  /** Album title for the one-line card header (when the provider reports it). */
+  album?: string;
   spotifyUri?: string;
   /** Canonical provider page (Deezer/Apple links; Spotify uses spotifyUri). */
   sourceUrl?: string;
@@ -48,6 +50,8 @@ export interface MusicTrack {
   isSeekable: boolean;
   isStream: boolean;
   artworkUrl?: string;
+  /** Album title when the provider reported one (header display only). */
+  album?: string;
   source: string;
   requester?: MusicTrackRequester;
 }
@@ -133,6 +137,7 @@ export interface SpotifyMatchCandidate {
   durationMs?: number;
   artworkUrl?: string;
   spotifyUri?: string;
+  album?: string;
 }
 
 export const isSpotifyMatchValid = (
@@ -219,6 +224,11 @@ export const mapMoonlinkTrack = (
   let artworkUrl: string | undefined =
     (rawTrack.artworkUrl as string) || track.artworkUrl || track.thumbnail || undefined;
 
+  // Album rides as an expando (moonlink Track has no album field): stamped
+  // by provider adoption, read here for the card header.
+  const albumRaw = rawTrack._album;
+  const album = typeof albumRaw === 'string' && albumRaw.trim() ? albumRaw.trim() : undefined;
+
   // Enhance YouTube thumbnail resolution if applicable
   if (source === 'youtube') {
     const ytIdMatch = track.identifier?.match(/^[a-zA-Z0-9_-]{11}$/)
@@ -241,6 +251,7 @@ export const mapMoonlinkTrack = (
     isSeekable: track.isSeekable ?? true,
     isStream: track.isStream ?? false,
     artworkUrl,
+    album,
     source,
     requester: (track.requester as MusicTrackRequester) || requester,
   };

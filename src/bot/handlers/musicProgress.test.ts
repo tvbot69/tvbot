@@ -118,4 +118,51 @@ describe('MusicHandler progress card', () => {
     expect(handler.karaokeTimers.size).toBe(0);
     expect(handler.chapterTimers.size).toBe(0);
   });
+
+  it('deletes the now-playing card when the song ends', async () => {
+    const deleted: string[] = [];
+    const store = new Map<string, unknown>([['nowPlayingMessageId', 'msg-1']]);
+    const client = {
+      on: vi.fn(),
+      channels: {
+        cache: new Map(),
+        fetch: vi.fn(async () => ({
+          messages: {
+            delete: async (id: string) => {
+              deleted.push(id);
+            },
+          },
+        })),
+      },
+    };
+    const seen: Array<{ event: string; cb: (...args: never[]) => unknown }> = [];
+    const manager = {
+      on: vi.fn((event: string, cb: (...args: never[]) => unknown) => {
+        seen.push({ event, cb });
+      }),
+      players: { get: () => undefined },
+    };
+    const { MusicHandler: Handler } = await import('./musicHandler');
+    const handler = new Handler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false, isKaraokeEnabled: () => true } as never,
+    );
+    const onEnd = seen.find((s) => s.event === 'trackEnd')?.cb as (
+      player: unknown,
+      track: unknown,
+      reason: string,
+    ) => void;
+    const player = {
+      guildId: 'g-end-1',
+      textChannelId: 'tc-1',
+      current: { title: 'Done', duration: 200000 },
+      get: (key: string) => store.get(key),
+      set: (key: string, value: unknown) => void store.set(key, value),
+    };
+    onEnd(player, { title: 'Done', duration: 200000 }, 'finished');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(deleted).toEqual(['msg-1']);
+    expect(store.get('nowPlayingMessageId')).toBeNull();
+  });
 });

@@ -5,16 +5,16 @@ import { MusicBuilders } from './musicBuilders';
 describe('buildLyricSection', () => {
   it('renders current plus next line', () => {
     expect(MusicBuilders.buildLyricSection({ current: 'Hello', next: 'Is it me' })).toBe(
-      '🎤 **Hello**\nIs it me',
+      '**Hello**\nIs it me',
     );
   });
 
   it('omits the next line when the song ends', () => {
-    expect(MusicBuilders.buildLyricSection({ current: 'Goodbye', next: null })).toBe('🎤 **Goodbye**');
+    expect(MusicBuilders.buildLyricSection({ current: 'Goodbye', next: null })).toBe('**Goodbye**');
   });
 
   it('shows the upcoming line before the first timestamp', () => {
-    expect(MusicBuilders.buildLyricSection({ current: null, next: 'Hello' })).toBe('🎤 ♪\nHello');
+    expect(MusicBuilders.buildLyricSection({ current: null, next: 'Hello' })).toBe('*Hello*');
   });
 
   it('returns null when nothing is singable', () => {
@@ -24,9 +24,9 @@ describe('buildLyricSection', () => {
 
   it('renders embed-safe markdown for the legacy fallback', () => {
     expect(MusicBuilders.buildLyricSection({ current: 'Hello', next: 'Is it me' }, false)).toBe(
-      '🎤 **Hello**\n*Is it me*',
+      '**Hello**\n*Is it me*',
     );
-    expect(MusicBuilders.buildLyricSection({ current: 'Hello', next: null }, false)).toBe('🎤 **Hello**');
+    expect(MusicBuilders.buildLyricSection({ current: 'Hello', next: null }, false)).toBe('**Hello**');
     expect(MusicBuilders.buildLyricSection(null, false)).toBeNull();
   });
 });
@@ -79,7 +79,7 @@ describe('buildNowPlayingResponse chapters', () => {
       { title: 'Rottweiler', artworkUrl: 'https://cdn.example.com/rottweiler.jpg' },
     );
     const texts = textsOf(res);
-    expect(texts.some((t) => t.includes('▶ **Rottweiler**'))).toBe(true);
+    expect(texts.some((t) => t.includes('Live — **Rottweiler**'))).toBe(true);
     const json = JSON.stringify(res.toMessagePayload());
     expect(json).toContain('rottweiler.jpg');
   });
@@ -87,7 +87,7 @@ describe('buildNowPlayingResponse chapters', () => {
   it('keeps the video card untouched without a chapter', () => {
     const res = MusicBuilders.buildNowPlayingResponse(npQueue, 0xff0000, null, null);
     const texts = textsOf(res);
-    expect(texts.some((t) => t.includes('▶'))).toBe(false);
+    expect(texts.some((t) => t.includes('Live —'))).toBe(false);
     const json = JSON.stringify(res.toMessagePayload());
     expect(json).toContain('video.jpg');
   });
@@ -100,13 +100,13 @@ describe('buildNowPlayingResponse chapters', () => {
       { title: 'Rottweiler', artworkUrl: 'https://cdn.example.com/rottweiler.jpg' },
     );
     const texts = textsOf(res);
-    const chapterIdx = texts.findIndex((t) => t.includes('▶ **Rottweiler**'));
-    const lyricIdx = texts.findIndex((t) => t.includes('🎤'));
+    const chapterIdx = texts.findIndex((t) => t.includes('Live — **Rottweiler**'));
+    const lyricIdx = texts.findIndex((t) => t.includes('**Hello**'));
     expect(chapterIdx).toBeGreaterThan(-1);
     expect(lyricIdx).toBeGreaterThan(chapterIdx);
     const embed = (res as unknown as { embed: { data: { description?: string } } }).embed;
-    expect(String(embed.data.description)).toContain('▶ **Rottweiler**');
-    expect(String(embed.data.description)).toContain('🎤');
+    expect(String(embed.data.description)).toContain('Live — **Rottweiler**');
+    expect(String(embed.data.description)).toContain('**Hello**');
   });
 
   it('trims bracket junk from the displayed title', () => {

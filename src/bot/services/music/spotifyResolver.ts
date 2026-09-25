@@ -93,7 +93,7 @@ export class SpotifyResolver {
             name: string;
             artists: Array<{ name: string }>;
             duration_ms: number;
-            album?: { images?: Array<{ url: string }> };
+            album?: { images?: Array<{ url: string }>; name?: string };
             external_urls?: { spotify?: string };
           }>;
         };
@@ -109,6 +109,7 @@ export class SpotifyResolver {
         durationMs: first.duration_ms,
         searchQuery: `${artist} - ${first.name}`,
         artworkUrl: first.album?.images?.[0]?.url,
+        album: first.album?.name,
         spotifyUri: first.external_urls?.spotify,
         provider: 'spotify',
       };
@@ -132,7 +133,7 @@ export class SpotifyResolver {
             name: string;
             artists: Array<{ name: string }>;
             duration_ms: number;
-            album?: { images?: Array<{ url: string }> };
+            album?: { images?: Array<{ url: string }>; name?: string };
             external_urls?: { spotify?: string };
           }>;
         };
@@ -149,6 +150,7 @@ export class SpotifyResolver {
           durationMs: item.duration_ms,
           searchQuery: `${artist} - ${item.name}`,
           artworkUrl: item.album?.images?.[0]?.url,
+          album: item.album?.name,
           spotifyUri: item.external_urls?.spotify,
           provider: 'spotify',
         };
@@ -203,7 +205,7 @@ export class SpotifyResolver {
       name: string;
       artists: Array<{ name: string }>;
       duration_ms: number;
-      album?: { images?: Array<{ url: string }> };
+      album?: { images?: Array<{ url: string }>; name?: string };
       external_urls?: { spotify?: string };
       external_ids?: { isrc?: string };
     }
@@ -222,6 +224,7 @@ export class SpotifyResolver {
       durationMs: data.duration_ms,
       searchQuery: `${artist} - ${data.name}`,
       artworkUrl,
+      album: data.album?.name,
       spotifyUri: data.external_urls?.spotify,
       isrc: SpotifyResolver.readIsrc(data),
       provider: 'spotify',
@@ -275,6 +278,7 @@ export class SpotifyResolver {
         durationMs: item.duration_ms,
         searchQuery: `${artist} - ${item.name}`,
         artworkUrl,
+        album: data.name,
         spotifyUri: item.external_urls?.spotify,
         isrc: SpotifyResolver.readIsrc(item),
         provider: 'spotify',
@@ -354,7 +358,7 @@ export class SpotifyResolver {
         name: string;
         artists: Array<{ name: string }>;
         duration_ms: number;
-        album?: { images?: Array<{ url: string }> };
+        album?: { images?: Array<{ url: string }>; name?: string };
         external_urls?: { spotify?: string };
         external_ids?: { isrc?: string };
       } | null;
@@ -392,6 +396,7 @@ export class SpotifyResolver {
         durationMs: item.track.duration_ms,
         searchQuery: `${artist} - ${item.track.name}`,
         artworkUrl: item.track.album?.images?.[0]?.url || artworkUrl,
+        album: item.track.album?.name,
         spotifyUri: item.track.external_urls?.spotify,
         isrc: SpotifyResolver.readIsrc(item.track),
         provider: 'spotify',
@@ -444,7 +449,7 @@ export class SpotifyResolver {
         name: string;
         artists: Array<{ name: string }>;
         duration_ms: number;
-        album?: { images?: Array<{ url: string }> };
+        album?: { images?: Array<{ url: string }>; name?: string };
         external_urls?: { spotify?: string };
         external_ids?: { isrc?: string };
       }>;
@@ -469,6 +474,7 @@ export class SpotifyResolver {
         durationMs: t.duration_ms,
         searchQuery: `${artist} - ${t.name}`,
         artworkUrl: t.album?.images?.[0]?.url || artworkUrl,
+        album: t.album?.name,
         spotifyUri: t.external_urls?.spotify,
         isrc: SpotifyResolver.readIsrc(t),
         provider: 'spotify',

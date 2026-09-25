@@ -52,22 +52,25 @@ describe('MusicBuilders', () => {
   };
 
   describe('buildNowPlayingMetaLine', () => {
-    it('renders duration, queue depth and requester without any live position', () => {
-      const line = MusicBuilders.buildNowPlayingMetaLine(230000, false, 1, 'TestUser#0001');
-      expect(line).toContain('⏱ 3:50');
-      expect(line).toContain('📑 1 up next');
-      expect(line).toContain('🙋 TestUser#0001');
-      expect(line).not.toContain('🔘');
+    it('renders requester and remaining time with no emojis', () => {
+      const line = MusicBuilders.buildNowPlayingMetaLine(248000, 15000, false, 'TestUser#0001');
+      expect(line).toContain('Ordered by TestUser#0001');
+      expect(line).toContain('3:53 mins left');
+      expect(line).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
     });
 
-    it('renders live indicator for streams instead of a duration', () => {
-      const line = MusicBuilders.buildNowPlayingMetaLine(0, true, 0, undefined);
-      expect(line).toContain('🔴 LIVE');
-      expect(line).not.toContain('⏱');
+    it('renders seconds under a minute with singular handling', () => {
+      expect(MusicBuilders.buildNowPlayingMetaLine(200000, 158000, false, undefined)).toContain('42 secs left');
+      expect(MusicBuilders.buildNowPlayingMetaLine(200000, 199500, false, undefined)).toContain('1 sec left');
     });
 
-    it('returns null when there is nothing static to show', () => {
-      expect(MusicBuilders.buildNowPlayingMetaLine(0, false, 0, undefined)).toBeNull();
+    it('renders Live for streams', () => {
+      const line = MusicBuilders.buildNowPlayingMetaLine(0, 0, true, undefined);
+      expect(line).toContain('Live');
+    });
+
+    it('returns Live text when there is no duration', () => {
+      expect(MusicBuilders.buildNowPlayingMetaLine(0, 0, false, undefined)).toBe('-# Live');
     });
   });
 
@@ -77,8 +80,12 @@ describe('MusicBuilders', () => {
       expect(response.embed.data.description).toContain('Starboy');
       expect(response.embed.data.description).toContain('The Weeknd');
       expect(response.embed.data.description).not.toContain('🔘');
-      expect(response.embed.data.description).toContain('⏱ 3:50');
-      expect(response.embed.data.description).toContain('📑 1 up next');
+      // One-line header: title • artist • badge (no album on this track).
+      expect(response.embed.data.description).toContain(
+        '[Starboy](https://open.spotify.com/track/abc12345) • The Weeknd •',
+      );
+      // Text-only remaining-time footer (position 100000 of 230000).
+      expect(response.embed.data.description).toContain('Ordered by TestUser#0001 • 2:10 mins left');
       expect(response.embed.data.description).toContain('<:sp:1496297132381048995>');
 
       // Modern Discord Components V2 container
@@ -106,6 +113,17 @@ describe('MusicBuilders', () => {
       const emptyQueue: MusicQueueInfo = { ...sampleQueue, current: null, tracks: [] };
       const response = MusicBuilders.buildNowPlayingResponse(emptyQueue);
       expect(response.embed.data.description).toContain('Nothing is currently playing');
+    });
+
+    it('inserts the album into the one-line header when known', () => {
+      const withAlbum: MusicQueueInfo = {
+        ...sampleQueue,
+        current: { ...sampleTrack, album: 'After Hours' },
+      };
+      const response = MusicBuilders.buildNowPlayingResponse(withAlbum, 0xff0000);
+      expect(response.embed.data.description).toContain(
+        '[Starboy](https://open.spotify.com/track/abc12345) • After Hours • The Weeknd •',
+      );
     });
   });
 

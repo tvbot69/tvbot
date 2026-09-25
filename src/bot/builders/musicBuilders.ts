@@ -38,23 +38,33 @@ export const getSourceBadge = (source?: string): string => {
 
 export class MusicBuilders {
   /**
-   * Static meta line for the Now Playing card (duration, queue depth,
-   * requester). Deliberately position-free: the card no longer polls, so it
-   * must never display live data that goes stale. Streams show LIVE.
+   * Static meta line for the Now Playing card: requester plus remaining
+   * time ("4:08 mins left", "42 secs left" under a minute, "Live" for
+   * streams). Deliberately position-derived-once: the card is event-driven,
+   * never polled, so remaining is a snapshot that refreshes on pause,
+   * resume, seeks and boundaries. Text-only, no emojis.
    */
   public static buildNowPlayingMetaLine(
     durationMs: number,
+    positionMs: number,
     isStream: boolean,
-    upcomingCount: number,
     requesterTag?: string,
-  ): string | null {
+  ): string {
     const bits: string[] = [];
-    if (isStream) bits.push('🔴 LIVE');
-    else if (durationMs > 0) bits.push(`⏱ ${formatDuration(durationMs)}`);
-    if (upcomingCount > 0) bits.push(`📑 ${upcomingCount} up next`);
     const tag = requesterTag?.trim();
-    if (tag) bits.push(`🙋 ${tag.slice(0, 32)}`);
-    return bits.length > 0 ? `-# ${bits.join(' • ')}` : null;
+    if (tag) bits.push(`Ordered by ${tag.slice(0, 32)}`);
+    if (isStream || durationMs <= 0) {
+      bits.push('Live');
+    } else {
+      const remainingMs = Math.max(0, durationMs - Math.max(0, positionMs));
+      if (remainingMs >= 60000) {
+        bits.push(`${formatDuration(remainingMs)} mins left`);
+      } else {
+        const secs = Math.max(1, Math.ceil(remainingMs / 1000));
+        bits.push(`${secs} ${secs === 1 ? 'sec' : 'secs'} left`);
+      }
+    }
+    return `-# ${bits.join(' • ')}`;
   }
 
   public static buildTrackAddedResponse(
@@ -179,19 +189,17 @@ export class MusicBuilders {
    */
   /**
    * Karaoke section for the Now Playing card: the line being sung plus the
-   * next line, compact. The legacy variant uses embed-safe italic for the
-   * next line. Returns null when there is nothing singable.
+   * next line, compact and text-only. Returns null when nothing singable.
    */
   public static buildLyricSection(
     lyricWindow?: { current: string | null; next: string | null } | null,
     v2: boolean = true,
   ): string | null {
     if (!lyricWindow || (lyricWindow.current === null && lyricWindow.next === null)) return null;
-    const head = lyricWindow.current ? `**${lyricWindow.current}**` : '♪';
-    if (!v2) {
-      return lyricWindow.next ? `🎤 ${head}\n*${lyricWindow.next}*` : `🎤 ${head}`;
-    }
-    return lyricWindow.next ? `🎤 ${head}\n${lyricWindow.next}` : `🎤 ${head}`;
+    const head = lyricWindow.current ? `**${lyricWindow.current}**` : null;
+    const tail = lyricWindow.next ? (v2 ? lyricWindow.next : `*${lyricWindow.next}*`) : null;
+    if (head && tail) return `${head}\n${tail}`;
+    return head ?? (tail ? `*${lyricWindow.next}*` : null);
   }
 
   /**
@@ -238,20 +246,25 @@ export class MusicBuilders {
     const current = queue.current;
     const sourceIcon = getSourceBadge(current.source);
 
-    // Card order: header (title/artist) -> live-show chapter -> lyrics ->
-    // static meta line -> controls. No live position anywhere: the card is
-    // event-driven, never polled, so every line must stay true without ticks.
-    const header = `### [${MusicBuilders.trimDisplayTitle(current.title)}](${current.uri})\n**${current.author}** • ${sourceIcon}`;
-    const chapterLine = chapter ? `🔴 LIVE SHOW • ▶ **${chapter.title}**` : null;
+    // One-line header: title • album (when known) • artist • source badge.
+    // Then live-show chapter, lyrics, and a static remaining-time meta line.
+    // No live position anywhere: the card is event-driven, never polled, so
+    // every line must stay true without ticks. Text-only, no emojis.
+    const headerParts = [`[${MusicBuilders.trimDisplayTitle(current.title)}](${current.uri})`];
+    if (current.album?.trim()) headerParts.push(current.album.trim());
+    headerParts.push(current.author, sourceIcon);
+    const header = `### ${headerParts.join(' • ')}`;
+    const chapterLine = chapter ? `Live — **${chapter.title}**` : null;
     const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
     const legacyLyricSection = MusicBuilders.buildLyricSection(lyricWindow, false);
     const galleryUrl = chapter?.artworkUrl || current.artworkUrl;
     const metaLine = MusicBuilders.buildNowPlayingMetaLine(
       current.duration,
+      queue.position,
       current.isStream,
-      queue.tracks.length,
       current.requester?.tag,
     );
+    const legacyMeta = metaLine.replace(/^-# /, '');
 
     // Single Row of 5 Square Icon Playback Controls (Mobile-perfect, zero text squishing)
     const row0 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -303,9 +316,7 @@ export class MusicBuilders {
     container.addSeparatorComponents(
       new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(false),
     );
-    if (metaLine) {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(metaLine));
-    }
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(metaLine));
     container.addActionRowComponents(row0);
 
     response.setComponentsV2Container(container);
@@ -314,8 +325,7 @@ export class MusicBuilders {
     response.addButtonRow(0, row0 as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
     const legacyBody = chapterLine ? `${header}\n${chapterLine}` : header;
     const legacyDesc = legacyLyricSection ? `${legacyBody}\n\n${legacyLyricSection}` : legacyBody;
-    const legacyMeta = metaLine ? metaLine.replace(/^-# /, '') : null;
-    response.embed.setDescription(legacyMeta ? `${legacyDesc}\n\n${legacyMeta}` : legacyDesc);
+    response.embed.setDescription(`${legacyDesc}\n\n${legacyMeta}`);
     if (galleryUrl) {
       response.embed.setImage(galleryUrl);
     }

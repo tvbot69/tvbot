@@ -908,6 +908,9 @@ export class MusicService {
             rawTrack.author = spotifyMatch.artist;
             if (spotifyMatch.artworkUrl) rawTrack.artworkUrl = spotifyMatch.artworkUrl;
             if (spotifyMatch.spotifyUri) rawTrack.uri = spotifyMatch.spotifyUri;
+            if (spotifyMatch.album?.trim()) {
+              (rawTrack as unknown as Record<string, unknown>)._album = spotifyMatch.album.trim();
+            }
           }
         } catch {
           // Fallback safely to Lavalink track info
@@ -1349,6 +1352,9 @@ export class MusicService {
     if (mirrorTrack.artworkUrl) {
       lavalinkTrack.artworkUrl = mirrorTrack.artworkUrl;
     }
+    if (mirrorTrack.album?.trim()) {
+      record._album = mirrorTrack.album.trim();
+    }
     lavalinkTrack.uri = spotifyUriToUrl(mirrorTrack.spotifyUri) || mirrorTrack.sourceUrl || sourceUrl;
     const backend = rung === 'resolver' ? 'local' : (mirrorTrack.provider ?? 'spotify');
     record.sourceName = trackOverride?.source || backend;
@@ -1416,6 +1422,7 @@ export class MusicService {
       isSeekable: true,
       isStream: false,
       artworkUrl: e.override?.artworkUrl || e.spTrack.artworkUrl,
+      album: e.spTrack.album,
       source: e.spTrack.provider ?? 'spotify',
       requester: e.requester,
     };
@@ -1689,6 +1696,10 @@ export class MusicService {
     return nextState;
   }
 
+  public isKaraokeEnabled(guildId: string): boolean {
+    return this.queueService.isKaraokeEnabled(guildId);
+  }
+
   public toggleKaraoke(guildId: string, enabled?: boolean): boolean {
     const next = this.queueService.toggleKaraoke(guildId, enabled);
     // The card is event-driven: a toggle must refresh it (show/hide lyrics)
@@ -1851,6 +1862,7 @@ export class MusicService {
         artworkUrl: mapped.artworkUrl,
         spotifyUri: mapped.uri.startsWith('https://open.spotify.com/') ? mapped.uri : undefined,
         sourceUrl: mapped.uri,
+        album: mapped.album,
         provider: src === 'spotify' || src === 'deezer' || src === 'apple' ? src : undefined,
       },
       requester: mapped.requester ?? { id: 'unknown' },
