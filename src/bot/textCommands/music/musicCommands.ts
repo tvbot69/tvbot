@@ -12,6 +12,7 @@ import type { FilterName, LoopMode } from '@domain/models/music/musicQueue';
 import { ALL_FILTERS } from '@domain/models/music/musicQueue';
 import type { LyricsService } from '@bot/services/music/lyricsService';
 import type { MusicInteractions } from '@bot/interactions/musicInteractions';
+import { chapterIndexAt, type VideoChapter } from '@bot/services/music/videoChapters';
 
 export class MusicCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -94,6 +95,11 @@ export class MusicCommands implements ITextCommandModule {
       {
         name: 'seek',
         executeAsync: (ctx, args) => this.seekAsync(ctx, args),
+      },
+      {
+        name: 'chapters',
+        aliases: ['chapter'],
+        executeAsync: (ctx) => this.chaptersAsync(ctx),
       },
       {
         name: 'volume',
@@ -474,6 +480,26 @@ export class MusicCommands implements ITextCommandModule {
     }
 
     return MusicBuilders.buildSimpleResponse('⏩ Seeked', `Jumped to \`${raw}\` in the current track.`).setAutoDelete(4);
+  }
+
+  private async chaptersAsync(context: ContextModel): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+
+    const queue = this.musicService.getQueueInfo(context.guildId);
+    if (!queue || !queue.current) {
+      return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
+    }
+
+    const chapters = (this.musicService.getPlayer(context.guildId)?.get('chapters') as VideoChapter[] | null) ?? null;
+    if (!chapters || chapters.length < 2) {
+      return GenericEmbedService.buildNotFoundResponse('No chapters available for this track.');
+    }
+
+    const currentIdx = chapterIndexAt(chapters, queue.position);
+    const accentColor = await this.colorService.getAccentColorAsync(context.guildId);
+    return MusicBuilders.buildChaptersResponse(queue.current, chapters, currentIdx, accentColor);
   }
 
   private async volumeAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {

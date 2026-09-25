@@ -20,6 +20,7 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 import { formatDuration, type MusicTrack } from '@domain/models/music/musicTrack';
 import { ALL_FILTERS, type FilterName, type MusicQueueInfo } from '@domain/models/music/musicQueue';
 import type { LavalinkNodeStats } from '@bot/services/music/moonlinkManager';
+import type { VideoChapter } from '@bot/services/music/videoChapters';
 
 export const MUSIC_SOURCE_BADGES = {
   spotify: '<:sp:1496297132381048995>',
@@ -502,6 +503,83 @@ export class MusicBuilders {
         .setStyle(ButtonStyle.Danger),
     );
     response.addButtonRow(1, cancelRow as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+
+    return response;
+  }
+
+  /**
+   * Builds the interactive chapter list for live videos: full timestamped
+   * list plus a dropdown that seeks the player to the chosen chapter.
+   * Discord caps select menus at 25 options, so >25 chapters split across
+   * two rows (50 selectable — descriptions never produce more).
+   */
+  private static readonly MAX_SELECTABLE_CHAPTERS = 50;
+
+  public static buildChaptersResponse(
+    track: Pick<MusicTrack, 'title' | 'author' | 'uri'>,
+    chapters: VideoChapter[],
+    currentIdx: number,
+    accentColor?: number,
+  ): ResponseModel {
+    const color = accentColor ?? DiscordConstants.LastFmColorRed;
+    const response = new ResponseModel(color);
+
+    const shown = chapters.slice(0, MusicBuilders.MAX_SELECTABLE_CHAPTERS);
+    const hidden = chapters.length - shown.length;
+    const listLines = shown.map((ch, idx) => {
+      const stamp = formatDuration(ch.startMs);
+      const title = (ch.title || 'Untitled').slice(0, 64);
+      return idx === currentIdx
+        ? `▶ **${title}** \`${stamp}\``
+        : `\`${String(idx + 1).padStart(2, '0')}.\` \`${stamp}\` ${title}`;
+    });
+    const list = listLines.join('\n') + (hidden > 0 ? `\n-# …and ${hidden} more` : '');
+
+    const header = `## ⏱️ Chapters\n### [${track.title}](${track.uri})\n-# ${track.author} • ${chapters.length} chapters`;
+
+    const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+    for (let start = 0; start < shown.length; start += 25) {
+      const options = shown.slice(start, start + 25).map((ch, offset) => {
+        const idx = start + offset;
+        const title = (ch.title || 'Untitled').slice(0, 90);
+        return new StringSelectMenuOptionBuilder()
+          .setLabel(`${idx + 1}. ${title}`)
+          .setValue(String(idx))
+          .setDescription(`Starts at ${formatDuration(ch.startMs)}`)
+          .setDefault(idx === currentIdx);
+      });
+      rows.push(
+        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId('music:chapters:seek')
+            .setPlaceholder('Jump to a chapter...')
+            .addOptions(options),
+        ),
+      );
+    }
+
+    const container = new ContainerBuilder();
+    if (color !== undefined && color !== null) {
+      container.setAccentColor(color);
+    }
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(header));
+    container.addSeparatorComponents(
+      new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small).setDivider(true),
+    );
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(list));
+    for (const row of rows) {
+      container.addActionRowComponents(row);
+    }
+    response.setComponentsV2Container(container);
+
+    // Backward-compatible fallback embed
+    response.embed
+      .setTitle('⏱️ Chapters')
+      .setDescription(`${header}\n\n${list}`.slice(0, 4000))
+      .setFooter({ text: 'Pick a chapter from the menu to jump to it' });
+    for (const row of rows) {
+      response.addButtonRow(0, row as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    }
 
     return response;
   }

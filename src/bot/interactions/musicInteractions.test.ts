@@ -124,3 +124,101 @@ describe('MusicInteractions control-row hardening', () => {
     expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('Only');
   });
 });
+
+describe('MusicInteractions chapter jump', () => {
+  const makeMember = () => {
+    const member = Object.create(GuildMember.prototype);
+    Object.defineProperty(member, 'voice', { value: { channel: { id: 'vc' } } });
+    return member;
+  };
+
+  const makeSelect = (customId: string, userId: string, values: string[]) =>
+    ({
+      customId,
+      guildId: 'g1',
+      user: { id: userId },
+      member: makeMember(),
+      values,
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      message: { embeds: [], flags: { has: () => true } },
+    }) as unknown as StringSelectMenuInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    };
+
+  const chapters = [
+    { title: 'CHAMPAIN & VACAY', startMs: 0 },
+    { title: 'BACKR00MS TO KICK OUT', startMs: 214000 },
+    { title: 'KICK OUT', startMs: 465000 },
+  ];
+
+  const makeSvc = (opts: { chapters?: unknown; requesterId?: string; seekResult?: boolean } = {}) => ({
+    getQueueInfo: vi.fn(() => ({
+      current: {
+        title: 'Travis Scott - Live',
+        author: 'gloss',
+        uri: 'https://youtube.com/watch?v=abc',
+        requester: opts.requesterId ? { id: opts.requesterId } : undefined,
+      },
+      position: 0,
+    })),
+    getPlayer: vi.fn(() => ({
+      get: (key: string) => (key === 'chapters' ? (opts.chapters !== undefined ? opts.chapters : chapters) : undefined),
+    })),
+    seek: vi.fn(async () => opts.seekResult ?? true),
+  });
+
+  const makeInteractions = (svc: unknown) =>
+    new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+    );
+
+  it('seeks to the chosen chapter and re-renders the menu', async () => {
+    const svc = makeSvc();
+    const mi = makeInteractions(svc);
+    const select = makeSelect('music:chapters:seek', 'u1', ['1']);
+
+    await mi.handleSelectMenu(select);
+
+    expect(svc.seek).toHaveBeenCalledWith('g1', 214);
+    expect(select.update).toHaveBeenCalledTimes(1);
+    expect(select.reply).not.toHaveBeenCalled();
+  });
+
+  it('reports expired chapters instead of seeking blindly', async () => {
+    const svc = makeSvc({ chapters: null });
+    const mi = makeInteractions(svc);
+    const select = makeSelect('music:chapters:seek', 'u1', ['1']);
+
+    await mi.handleSelectMenu(select);
+
+    expect(svc.seek).not.toHaveBeenCalled();
+    expect((select.reply.mock.calls[0]![0] as { content: string }).content).toContain('no longer available');
+  });
+
+  it('blocks chapter jumps for non-requesters', async () => {
+    const svc = makeSvc({ requesterId: 'owner' });
+    const mi = makeInteractions(svc);
+    const select = makeSelect('music:chapters:seek', 'other', ['1']);
+
+    await mi.handleSelectMenu(select);
+
+    expect(svc.seek).not.toHaveBeenCalled();
+    expect((select.reply.mock.calls[0]![0] as { content: string }).content).toContain('requester');
+  });
+
+  it('reports a failed seek', async () => {
+    const svc = makeSvc({ seekResult: false });
+    const mi = makeInteractions(svc);
+    const select = makeSelect('music:chapters:seek', 'u1', ['1']);
+
+    await mi.handleSelectMenu(select);
+
+    expect(select.update).not.toHaveBeenCalled();
+    expect((select.reply.mock.calls[0]![0] as { content: string }).content).toBe('No track is currently playing.');
+  });
+});

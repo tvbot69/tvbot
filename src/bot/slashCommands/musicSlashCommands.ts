@@ -6,6 +6,7 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { chapterIndexAt, type VideoChapter } from '@bot/services/music/videoChapters';
 import { ColorService } from '@bot/services/colorService';
 import { ALL_FILTERS, type FilterName, type LoopMode } from '@domain/models/music/musicQueue';
 import type { LyricsService } from '@bot/services/music/lyricsService';
@@ -128,6 +129,11 @@ export class MusicSlashCommands implements ISlashCommandModule {
           )
           .addSubcommand((sub) =>
             sub
+              .setName('chapters')
+              .setDescription('List chapters of the current video and jump to one'),
+          )
+          .addSubcommand((sub) =>
+            sub
               .setName('volume')
               .setDescription('View or change player volume (0 - 150%)')
               .addIntegerOption((opt) =>
@@ -225,6 +231,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
       case 'pause': return this.executePause(ctx);
       case 'resume': return this.executeResume(ctx);
       case 'seek': return this.executeSeek(ctx);
+      case 'chapters': return this.executeChapters(ctx);
       case 'volume': return this.executeVolume(ctx);
       case 'filter': return this.executeFilter(ctx);
       case 'lyrics': return this.executeLyrics(ctx);
@@ -485,6 +492,26 @@ export class MusicSlashCommands implements ISlashCommandModule {
     }
 
     return MusicBuilders.buildSimpleResponse('⏩ Seeked', `Jumped to **${seconds}** seconds in the current track.`).setAutoDelete(4);
+  }
+
+  private async executeChapters(ctx: ContextModel): Promise<ResponseModel> {
+    if (!ctx.guildId) {
+      return GenericEmbedService.buildWrongInputResponse('Must be in a server.');
+    }
+
+    const queue = this.musicService.getQueueInfo(ctx.guildId);
+    if (!queue || !queue.current) {
+      return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
+    }
+
+    const chapters = (this.musicService.getPlayer(ctx.guildId)?.get('chapters') as VideoChapter[] | null) ?? null;
+    if (!chapters || chapters.length < 2) {
+      return GenericEmbedService.buildNotFoundResponse('No chapters available for this track.');
+    }
+
+    const currentIdx = chapterIndexAt(chapters, queue.position);
+    const accentColor = await this.colorService.getAccentColorAsync(ctx.guildId, queue.current.artworkUrl);
+    return MusicBuilders.buildChaptersResponse(queue.current, chapters, currentIdx, accentColor);
   }
 
   private async executeVolume(ctx: ContextModel): Promise<ResponseModel> {

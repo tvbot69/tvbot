@@ -12,7 +12,7 @@ import { ColorService } from '@bot/services/colorService';
 import type { FilterName } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 import { TtlStore } from '@bot/services/ttlStore';
-import { resolveDisplayedChapter } from '@bot/services/music/videoChapters';
+import { resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
 
 export const MUSIC_INTERACTION_PREFIXES = [
   'music:queue:',
@@ -470,7 +470,7 @@ export class MusicInteractions {
       return;
     }
 
-    if (customId === 'music:filter:select') {
+    if (customId === 'music:filter:select' || customId === 'music:chapters:seek') {
       if (!this.isRequesterAllowed(guildId, interaction.user.id)) {
         await this.denyControl(interaction);
         return;
@@ -515,6 +515,38 @@ export class MusicInteractions {
       const activeFilters = updatedQueue?.activeFilters ?? [];
       const response = MusicBuilders.buildFiltersResponse(activeFilters, accentColor);
 
+      await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+      return;
+    }
+
+    // Chapter jump: seek the player to the selected chapter's start. The
+    // menu re-renders with the moved ▶ marker and stays reusable; the live
+    // card + cover swap happens via the updater's seek path.
+    if (customId === 'music:chapters:seek') {
+      const idxStr = interaction.values[0];
+      const idx = idxStr !== undefined ? Number(idxStr) : NaN;
+      const chapters = (this.musicService.getPlayer(guildId)?.get('chapters') as VideoChapter[] | null) ?? null;
+      if (!chapters || Number.isNaN(idx) || idx < 0 || !chapters[idx]) {
+        await interaction.reply({
+          content: 'Chapters are no longer available for this track. Run the chapters command again.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const chapter = chapters[idx]!;
+      const success = await this.musicService.seek(guildId, Math.floor(chapter.startMs / 1000));
+      if (!success) {
+        await interaction.reply({ content: 'No track is currently playing.', ephemeral: true });
+        return;
+      }
+
+      const queue = this.musicService.getQueueInfo(guildId);
+      if (!queue?.current) {
+        await interaction.deferUpdate().catch(() => undefined);
+        return;
+      }
+      const response = MusicBuilders.buildChaptersResponse(queue.current, chapters, idx, accentColor);
       await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       return;
     }
