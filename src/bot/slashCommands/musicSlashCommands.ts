@@ -117,8 +117,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
           .addSubcommand((sub) =>
             sub.setName('stop').setDescription('Stop music playback and disconnect the bot'),
           )
-          .addSubcommand((sub) => sub.setName('pause').setDescription('Pause music playback'))
-          .addSubcommand((sub) => sub.setName('resume').setDescription('Resume music playback'))
+          .addSubcommand((sub) => sub.setName('pause').setDescription('Pause or resume playback (toggle)'))
           .addSubcommand((sub) =>
             sub
               .setName('seek')
@@ -200,11 +199,14 @@ export class MusicSlashCommands implements ISlashCommandModule {
           )
           .addSubcommand((sub) =>
             sub.setName('history').setDescription('View recently played tracks in this server'),
-          )
-          .addSubcommand((sub) =>
-            sub.setName('nodes').setDescription('View connected Lavalink node metrics and health'),
           ),
         executeAsync: (ctx) => this.executeMusic(ctx),
+      },
+      {
+        data: new SlashCommandBuilder()
+          .setName('nodes')
+          .setDescription('View connected Lavalink node metrics and health'),
+        executeAsync: (ctx) => this.executeNodes(ctx),
       },
     ];
   }
@@ -229,7 +231,6 @@ export class MusicSlashCommands implements ISlashCommandModule {
       case 'replay': return this.executeReplay(ctx);
       case 'stop': return this.executeStop(ctx);
       case 'pause': return this.executePause(ctx);
-      case 'resume': return this.executeResume(ctx);
       case 'seek': return this.executeSeek(ctx);
       case 'chapters': return this.executeChapters(ctx);
       case 'volume': return this.executeVolume(ctx);
@@ -244,7 +245,6 @@ export class MusicSlashCommands implements ISlashCommandModule {
       case 'clear': return this.executeClear(ctx);
       case 'remove': return this.executeRemove(ctx);
       case 'history': return this.executeHistory(ctx);
-      case 'nodes': return this.executeNodes(ctx);
       default:
         return GenericEmbedService.buildWrongInputResponse('Unknown music command. Try `/music play`, `/music skip`, …');
     }
@@ -458,25 +458,21 @@ export class MusicSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildWrongInputResponse('Must be in a server.');
     }
 
-    const success = await this.musicService.pause(ctx.guildId);
+    const queue = this.musicService.getQueueInfo(ctx.guildId);
+    if (!queue || !queue.current) {
+      return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
+    }
+
+    const success = queue.isPaused
+      ? await this.musicService.resume(ctx.guildId)
+      : await this.musicService.pause(ctx.guildId);
     if (!success) {
       return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏸️ Paused', 'Playback paused. Use `/resume` to continue.').setAutoDelete(4);
-  }
-
-  private async executeResume(ctx: ContextModel): Promise<ResponseModel> {
-    if (!ctx.guildId) {
-      return GenericEmbedService.buildWrongInputResponse('Must be in a server.');
-    }
-
-    const success = await this.musicService.resume(ctx.guildId);
-    if (!success) {
-      return GenericEmbedService.buildNotFoundResponse('No music is currently paused.');
-    }
-
-    return MusicBuilders.buildSimpleResponse('▶️ Resumed', 'Playback resumed.').setAutoDelete(4);
+    return queue.isPaused
+      ? MusicBuilders.buildSimpleResponse('▶️ Resumed', 'Playback resumed.').setAutoDelete(4)
+      : MusicBuilders.buildSimpleResponse('⏸️ Paused', 'Playback paused. Use `/music pause` to continue.').setAutoDelete(4);
   }
 
   private async executeSeek(ctx: ContextModel): Promise<ResponseModel> {
