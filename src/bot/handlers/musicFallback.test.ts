@@ -1654,6 +1654,75 @@ describe('REST-dead search failover (uplink-stall class)', () => {
     }
   });
 
+  it('publishes the card immediately when chapters attach (no 5s tick wait)', async () => {
+    const savedKey = process.env.YOUTUBE_API_KEY;
+    process.env.YOUTUBE_API_KEY = 'test-key';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{ snippet: { description: 'Full Set\n\n0:00 - A\n1:00 - B' } }] }),
+    } as Response);
+    try {
+      const manager = { on: vi.fn(), players: { get: () => undefined } };
+      const client = { on: vi.fn(), channels: { cache: new Map() } };
+      const handler = new MusicHandler(
+        client as never,
+        { getManager: () => manager } as never,
+        { getQueueInfo: () => null, is247: () => false } as never,
+      ) as unknown as {
+        resolveVideoChapters: (player: unknown, track: unknown) => void;
+        publishProgress: (player: unknown) => Promise<void>;
+      };
+      const spy = vi.spyOn(handler, 'publishProgress').mockResolvedValue(undefined);
+      const store: Record<string, unknown> = {};
+      const player = {
+        guildId: 'g-nudge',
+        get: (k: string) => store[k],
+        set: (k: string, v: unknown) => void (store[k] = v),
+      };
+      handler.resolveVideoChapters(player, {
+        sourceName: 'youtube',
+        identifier: 'dQw4w9WgXcQ',
+        title: 'Full Set',
+        duration: 3600000,
+      });
+      await new Promise((r) => setTimeout(r, 450));
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      if (savedKey === undefined) delete process.env.YOUTUBE_API_KEY;
+      else process.env.YOUTUBE_API_KEY = savedKey;
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('warms the accent color while prefetching chapter covers', async () => {
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const handler = new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false } as never,
+    ) as unknown as {
+      prefetchChapterArts: (player: unknown, chapters: unknown[], indices: number[]) => void;
+      artworkService: unknown;
+      colorService: unknown;
+    };
+    const getTrackCoverUrl = vi.fn(async () => 'https://img.test/cover.jpg');
+    const getAccentColorAsync = vi.fn(async () => 0x123456);
+    (handler as unknown as { artworkService: unknown }).artworkService = { getTrackCoverUrl };
+    (handler as unknown as { colorService: unknown }).colorService = { getAccentColorAsync };
+    const store: Record<string, unknown> = {};
+    const player = {
+      guildId: 'g-warm',
+      current: { title: 'EsDeeKid - Live at Silver Spring, MD' },
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+    };
+    handler.prefetchChapterArts(player, [{ title: 'Rottweiler', startMs: 0 }], [0]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(getTrackCoverUrl).toHaveBeenCalledWith('Rottweiler', 'EsDeeKid');
+    expect(getAccentColorAsync).toHaveBeenCalledWith('g-warm', 'https://img.test/cover.jpg');
+  });
+
   it('getOrCreatePlayer skips the Home pin while Home cools', async () => {
     const savedUrl = process.env.HOME_RESOLVER_URL;
     const savedToken = process.env.HOME_RESOLVER_TOKEN;

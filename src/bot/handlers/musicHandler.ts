@@ -41,6 +41,10 @@ export class MusicHandler {
   private readonly inactivityTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly updateIntervals = new Map<string, NodeJS.Timeout>();
   private readonly kickGraceTimeouts = new Map<string, NodeJS.Timeout>();
+  // Immediate card-publish nudges (chapter attach / art resolve) so state
+  // changes don't wait for the next 5s tick to reach Discord.
+  private readonly progressNudgeTimers = new Map<string, NodeJS.Timeout>();
+  private readonly progressPublishing = new Set<string>();
   private static readonly KICK_GRACE_MS = 180000;
 
   constructor(
@@ -138,6 +142,9 @@ export class MusicHandler {
               '[Music] Video chapters attached',
             );
             this.prefetchChapterArts(player, chapters, [0, 1, 2]);
+            // Publish the chapter card now instead of waiting for the next
+            // 5s updater tick — the card is ready the moment chapters land.
+            this.scheduleImmediateProgress(player);
           }
         } catch {
           // Plain card — chapters are decoration, never load-bearing.
@@ -166,7 +173,15 @@ export class MusicHandler {
         if (!ch || isGenericChapterTitle(ch.title)) continue;
         const { artist, song } = splitChapterTitle(ch.title);
         if (!song) continue;
-        void svc.getTrackCoverUrl(song, artist ?? videoArtist).catch(() => null);
+        // Warm the accent color alongside the cover: the art edit extracts
+        // color from this exact URL, and downloading+quantizing serially
+        // inside the publish path used to add seconds to every swap.
+        void (async () => {
+          const art = await svc.getTrackCoverUrl(song, artist ?? videoArtist).catch(() => null);
+          if (art && this.colorService) {
+            await this.colorService.getAccentColorAsync(player.guildId, art).catch(() => undefined);
+          }
+        })();
       }
     } catch {
       // Prefetch is best-effort by definition.
@@ -240,6 +255,8 @@ export class MusicHandler {
       // Only publish if the listener hasn't moved on meanwhile.
       if ((player.get<number>('chapterIdx') ?? -2) !== idx) return;
       player.set('chapterCard', { title: ch.title, artworkUrl: art });
+      // Art landed outside the updater tick — push the swap immediately.
+      this.scheduleImmediateProgress(player);
     } catch {
       // Card keeps the track art.
     }
@@ -263,89 +280,119 @@ export class MusicHandler {
   private startProgressUpdater(player: Player): void {
     this.stopProgressUpdater(player.guildId);
 
-    const interval = setInterval(async () => {
-      try {
-        if (!player.playing || !player.textChannelId) return;
-
-        const msgId = player.get<string>('nowPlayingMessageId');
-        if (!msgId) return;
-
-        const queue = this.queueService.getQueueInfo(player);
-        // Dirty check: skip the edit when nothing visible changed (same track,
-        // pause state, queue size, loop, volume, 5s position bucket, karaoke
-        // window, and chapter card — lyrics/chapters advance the card between
-        // position buckets).
-        const lyricWindow = this.lyricWindowFor(player, queue.position);
-        const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
-        const chapter = this.chapterCardFor(player, queue.position);
-        // Borrowed-cover expiry: holding the previous chapter's art avoids a
-        // flash, but after ~90s without a resolve it looks like a confirmed
-        // (wrong) answer. Fall through to track art instead.
-        let holdCover = player.get<string | null>('lastCoverUrl') ?? null;
-        if (chapter && !chapter.artworkUrl) {
-          const startedAt = player.get<number | null>('chapterStartedAt') ?? null;
-          if (typeof startedAt === 'number' && Date.now() - startedAt > 90000) {
-            holdCover = null;
-          }
-        }
-        const { card: displayChapter, shownCover } = resolveDisplayedChapter(
-          chapter,
-          holdCover,
-          queue.current?.artworkUrl,
-        );
-        if (shownCover) player.set('lastCoverUrl', shownCover);
-        const chapterKey = displayChapter ? `${displayChapter.title}~${displayChapter.artworkUrl ? 'a' : ''}` : 'none';
-        const fingerprint = [
-          queue.current?.identifier ?? queue.current?.uri ?? 'none',
-          queue.isPaused ? 'p' : 'r',
-          queue.tracks.length,
-          queue.loopMode,
-          queue.volume,
-          Math.floor(queue.position / MusicHandler.PROGRESS_UPDATE_MS),
-          lyricKey,
-          chapterKey,
-        ].join('|');
-        if (this.progressFingerprints.get(player.guildId) === fingerprint) return;
-
-        const channel =
-          this.client.channels.cache.get(player.textChannelId) ??
-          (await this.client.channels.fetch(player.textChannelId).catch(() => null));
-        if (!channel || !channel.isTextBased() || !('messages' in channel)) return;
-
-        const msgManager = (
-          channel as unknown as {
-            messages: {
-              cache: { get: (id: string) => unknown };
-              fetch: (id: string) => Promise<unknown>;
-            };
-          }
-        ).messages;
-
-        const msg = (msgManager.cache.get(msgId) ??
-          (await msgManager.fetch(msgId).catch(() => null))) as {
-          edit: (data: unknown) => Promise<unknown>;
-        } | null;
-
-        if (!msg) return;
-
-        // Accent follows the DISPLAYED cover (chapter art when present),
-        // not just top-level track art — long-form tracks pin track art
-        // to the video thumbnail while the card image follows chapters.
-        const accentColor = this.colorService
-          ? await this.colorService.getAccentColorAsync(player.guildId, shownCover ?? queue.current?.artworkUrl)
-          : undefined;
-        const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, displayChapter);
-
-        await msg
-          .edit(response.toMessagePayload() as unknown as Record<string, unknown>)
-          .then(() => this.progressFingerprints.set(player.guildId, fingerprint))
-          .catch(() => undefined);
-      } catch {
-        // Silently skip if rate limited or network hiccup
-      }
+    const interval = setInterval(() => {
+      void this.publishProgress(player);
     }, MusicHandler.PROGRESS_UPDATE_MS);
 
     this.updateIntervals.set(player.guildId, interval);
+  }
+
+  /**
+   * Publishes the now-playing card when its visible fingerprint changed.
+   * Runs on the 5s updater tick and on demand (scheduleImmediateProgress)
+   * so chapter attach / art swaps aren't quantized to the tick.
+   */
+  private async publishProgress(player: Player): Promise<void> {
+    const guildId = player.guildId;
+    if (this.progressPublishing.has(guildId)) return;
+    this.progressPublishing.add(guildId);
+    try {
+      if (!player.playing || !player.textChannelId) return;
+
+      const msgId = player.get<string>('nowPlayingMessageId');
+      if (!msgId) return;
+
+      const queue = this.queueService.getQueueInfo(player);
+      // Dirty check: skip the edit when nothing visible changed (same track,
+      // pause state, queue size, loop, volume, 5s position bucket, karaoke
+      // window, and chapter card — lyrics/chapters advance the card between
+      // position buckets).
+      const lyricWindow = this.lyricWindowFor(player, queue.position);
+      const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
+      const chapter = this.chapterCardFor(player, queue.position);
+      // Borrowed-cover expiry: holding the previous chapter's art avoids a
+      // flash, but after ~90s without a resolve it looks like a confirmed
+      // (wrong) answer. Fall through to track art instead.
+      let holdCover = player.get<string | null>('lastCoverUrl') ?? null;
+      if (chapter && !chapter.artworkUrl) {
+        const startedAt = player.get<number | null>('chapterStartedAt') ?? null;
+        if (typeof startedAt === 'number' && Date.now() - startedAt > 90000) {
+          holdCover = null;
+        }
+      }
+      const { card: displayChapter, shownCover } = resolveDisplayedChapter(
+        chapter,
+        holdCover,
+        queue.current?.artworkUrl,
+      );
+      if (shownCover) player.set('lastCoverUrl', shownCover);
+      const chapterKey = displayChapter ? `${displayChapter.title}~${displayChapter.artworkUrl ? 'a' : ''}` : 'none';
+      const fingerprint = [
+        queue.current?.identifier ?? queue.current?.uri ?? 'none',
+        queue.isPaused ? 'p' : 'r',
+        queue.tracks.length,
+        queue.loopMode,
+        queue.volume,
+        Math.floor(queue.position / MusicHandler.PROGRESS_UPDATE_MS),
+        lyricKey,
+        chapterKey,
+      ].join('|');
+      if (this.progressFingerprints.get(guildId) === fingerprint) return;
+
+      const channel =
+        this.client.channels.cache.get(player.textChannelId) ??
+        (await this.client.channels.fetch(player.textChannelId).catch(() => null));
+      if (!channel || !channel.isTextBased() || !('messages' in channel)) return;
+
+      const msgManager = (
+        channel as unknown as {
+          messages: {
+            cache: { get: (id: string) => unknown };
+            fetch: (id: string) => Promise<unknown>;
+          };
+        }
+      ).messages;
+
+      const msg = (msgManager.cache.get(msgId) ??
+        (await msgManager.fetch(msgId).catch(() => null))) as {
+        edit: (data: unknown) => Promise<unknown>;
+      } | null;
+
+      if (!msg) return;
+
+      // Accent follows the DISPLAYED cover (chapter art when present),
+      // not just top-level track art — long-form tracks pin track art
+      // to the video thumbnail while the card image follows chapters.
+      const accentColor = this.colorService
+        ? await this.colorService.getAccentColorAsync(player.guildId, shownCover ?? queue.current?.artworkUrl)
+        : undefined;
+      const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, displayChapter);
+
+      await msg
+        .edit(response.toMessagePayload() as unknown as Record<string, unknown>)
+        .then(() => this.progressFingerprints.set(guildId, fingerprint))
+        .catch(() => undefined);
+    } catch {
+      // Silently skip if rate limited or network hiccup
+    } finally {
+      this.progressPublishing.delete(guildId);
+    }
+  }
+
+  /**
+   * Runs the card publish shortly after a state change (chapters attached,
+   * chapter art resolved) instead of waiting up to 5s for the next tick.
+   * Debounced per guild so bursts collapse into one edit.
+   */
+  private scheduleImmediateProgress(player: Player, delayMs = 300): void {
+    const guildId = player.guildId;
+    const existing = this.progressNudgeTimers.get(guildId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.progressNudgeTimers.delete(guildId);
+      void this.publishProgress(player);
+    }, delayMs);
+    this.progressNudgeTimers.set(guildId, timer);
   }
 
   private stopProgressUpdater(guildId: string): void {
@@ -353,6 +400,11 @@ export class MusicHandler {
     if (existing) {
       clearInterval(existing);
       this.updateIntervals.delete(guildId);
+    }
+    const nudge = this.progressNudgeTimers.get(guildId);
+    if (nudge) {
+      clearTimeout(nudge);
+      this.progressNudgeTimers.delete(guildId);
     }
   }
 
