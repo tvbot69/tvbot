@@ -13,7 +13,6 @@ import type { FilterName } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 import { TtlStore } from '@bot/services/ttlStore';
 import { resolveDisplayedChapter } from '@bot/services/music/videoChapters';
-import type { BotListeningPresenceService } from '@bot/services/music/botListeningPresenceService';
 
 export const MUSIC_INTERACTION_PREFIXES = [
   'music:queue:',
@@ -27,7 +26,6 @@ export class MusicInteractions {
   private readonly musicService: MusicService;
   private readonly colorService: ColorService;
   private readonly lyricsService?: LyricsService;
-  private readonly listeningPresence?: BotListeningPresenceService;
 
   /**
    * True when the source message is already Components V2 (safe to update
@@ -81,12 +79,10 @@ export class MusicInteractions {
     musicService: MusicService,
     colorService: ColorService,
     lyricsService?: LyricsService,
-    listeningPresence?: BotListeningPresenceService,
   ) {
     this.musicService = musicService;
     this.colorService = colorService;
     this.lyricsService = lyricsService;
-    this.listeningPresence = listeningPresence;
   }
 
   public storeSearchResults(key: string, tracks: MusicTrack[]): void {
@@ -264,22 +260,6 @@ export class MusicInteractions {
         const response = isQueueView
           ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
           : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, undefined, this.chapterCardFor(guildId));
-        // Freeze / resume the profile bar in sync with the pause state.
-        try {
-          if (updatedQueue.current && !isQueueView) {
-            this.listeningPresence?.showTrack({
-              guildId,
-              title: updatedQueue.current.title,
-              artist: updatedQueue.current.author,
-              artworkUrl: updatedQueue.current.artworkUrl,
-              durationMs: updatedQueue.current.duration,
-              positionMs: updatedQueue.position,
-              paused: updatedQueue.isPaused,
-            });
-          }
-        } catch {
-          // Presence is decoration.
-        }
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
         await interaction.deferUpdate();
@@ -403,7 +383,6 @@ export class MusicInteractions {
     // Playback control: Stop
     if (customId === 'music:control:stop') {
       await this.musicService.stop(guildId);
-      this.listeningPresence?.clearIfGuild(guildId);
       await interaction.deferUpdate().catch(() => undefined);
       await interaction.message.delete().catch(() => undefined);
       return;

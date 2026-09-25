@@ -10,7 +10,6 @@ import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannel
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import type { LyricsService } from '@bot/services/music/lyricsService';
 import type { ArtworkService } from '@bot/services/artworkService';
-import type { BotListeningPresenceService } from '@bot/services/music/botListeningPresenceService';
 import { lyricWindowAt, type LyricWindow, type SyncedLine } from '@bot/services/music/syncedLyrics';
 import {
   chapterIndexAt,
@@ -38,7 +37,6 @@ export class MusicHandler {
   private readonly botScrobblingService?: BotScrobblingService;
   private readonly lyricsService?: LyricsService;
   private readonly artworkService?: ArtworkService;
-  private readonly listeningPresence?: BotListeningPresenceService;
   private readonly emptyChannelTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly inactivityTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly updateIntervals = new Map<string, NodeJS.Timeout>();
@@ -54,7 +52,6 @@ export class MusicHandler {
     botScrobblingService?: BotScrobblingService,
     lyricsService?: LyricsService,
     artworkService?: ArtworkService,
-    listeningPresence?: BotListeningPresenceService,
   ) {
     this.client = client;
     this.moonlinkManager = moonlinkManager;
@@ -64,7 +61,6 @@ export class MusicHandler {
     this.botScrobblingService = botScrobblingService;
     this.lyricsService = lyricsService;
     this.artworkService = artworkService;
-    this.listeningPresence = listeningPresence;
 
     this.registerMoonlinkEvents();
     this.registerDiscordEvents();
@@ -752,21 +748,6 @@ export class MusicHandler {
 
       this.queueService.recordTrackStart(player.guildId, player.current ?? track);
 
-      // Spotify-style profile card: title/artist/art + live bar via
-      // timestamps. One gateway packet per track — no REST, no ratelimit.
-      try {
-        this.listeningPresence?.showTrack({
-          guildId: player.guildId,
-          title: currentTrack.title,
-          artist: currentTrack.author,
-          artworkUrl: currentTrack.artworkUrl,
-          durationMs: currentTrack.duration,
-          positionMs: 0,
-        });
-      } catch {
-        // Presence is decoration — never break the card.
-      }
-
       player.set('trackStartedAt', Date.now());
       player.set('seekStallRetried', false);
       if (player.current) {
@@ -1181,7 +1162,6 @@ export class MusicHandler {
       Logger.info(`[Music] Queue ended in guild ${player.guildId}`);
       this.stopProgressUpdater(player.guildId);
       this.clearFallbackState(player.guildId);
-      this.listeningPresence?.clearIfGuild(player.guildId);
 
       if (player.voiceChannelId && this.voiceChannelStatusService) {
         void this.voiceChannelStatusService.clearStatus(player.voiceChannelId);
@@ -1207,7 +1187,6 @@ export class MusicHandler {
       this.stopProgressUpdater(player.guildId);
       this.clearOkTimer(player.guildId);
       this.clearFallbackState(player.guildId);
-      this.listeningPresence?.clearIfGuild(player.guildId);
       this.clearKickGrace(player.guildId);
       this.clearInactivityTimeout(player.guildId);
       this.progressFingerprints.delete(player.guildId);
