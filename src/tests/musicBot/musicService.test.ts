@@ -379,8 +379,16 @@ describe('MusicService', () => {
     expect(queued?.artworkUrl).toBe('https://cdn.example.com/art.jpg');
   });
 
-  it('does NOT query Spotify or overwrite track metadata when a direct YouTube URL is played', async () => {
+  it('enriches direct YouTube URL plays with the Spotify-side clean title and cover', async () => {
     vi.clearAllMocks();
+    (mockSpotifyResolver.searchTrack as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      name: 'Bohemian Rhapsody',
+      artist: 'Queen',
+      durationMs: 354000,
+      searchQuery: 'Queen - Bohemian Rhapsody',
+      artworkUrl: 'https://spotify.com/bohemian.jpg',
+      spotifyUri: 'https://open.spotify.com/track/bohemian',
+    });
     const res = await musicService.play(
       '123456789',
       'vc-1',
@@ -389,7 +397,29 @@ describe('MusicService', () => {
       { id: 'user-1', tag: 'TestUser' },
     );
 
-    expect(mockSpotifyResolver.searchTrack).not.toHaveBeenCalled();
+    // Pasted URLs adopt the canonical Spotify metadata — never raw upload
+    // titles or video-frame thumbs on the card.
+    expect(mockSpotifyResolver.searchTrack).toHaveBeenCalledWith('Bohemian Rhapsody');
+    expect(res.loadType).toBe('track');
+    expect(res.track?.title).toBe('Bohemian Rhapsody');
+    expect(res.track?.author).toBe('Queen');
+    expect(res.track?.artworkUrl).toBe('https://spotify.com/bohemian.jpg');
+    expect(res.track?.uri).toBe('https://open.spotify.com/track/bohemian');
+    expect(res.track?.source).toBe('youtube');
+  });
+
+  it('keeps raw YouTube metadata for direct URLs when Spotify has no valid match', async () => {
+    vi.clearAllMocks();
+    // Default searchTrack mock resolves null — no adoption, raw kept.
+    const res = await musicService.play(
+      '123456789',
+      'vc-1',
+      'tc-1',
+      'https://www.youtube.com/watch?v=cxk-1zsy_W8&t=212s',
+      { id: 'user-1', tag: 'TestUser' },
+    );
+
+    expect(mockSpotifyResolver.searchTrack).toHaveBeenCalledWith('Bohemian Rhapsody');
     expect(res.loadType).toBe('track');
     expect(res.track?.title).toBe('Bohemian Rhapsody');
     expect(res.track?.author).toBe('Queen');

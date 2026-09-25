@@ -2,9 +2,11 @@ import type { Player, Track } from 'moonlink.js';
 import { Track as MoonlinkTrack } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import type { FilterName, LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
-import { cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, spotifyUriToUrl, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
+import { cleanArtistName, cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, spotifyUriToUrl, type MirrorResolution, type MirrorTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
 import { MoonlinkManager, type LavalinkNodeStats } from './moonlinkManager';
 import { SpotifyResolver, type SpotifyResolvedTrack } from './spotifyResolver';
+import type { DeezerResolver } from './deezerResolver';
+import type { AppleMusicResolver } from './appleMusicResolver';
 import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
@@ -14,7 +16,7 @@ import type { ArtworkService } from '@bot/services/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 export interface PlayResult {
-  loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'empty' | 'error';
+  loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'mirror_album' | 'mirror_playlist' | 'mirror_artist' | 'empty' | 'error';
   track?: MusicTrack;
   tracks?: MusicTrack[];
   playlistName?: string;
@@ -42,9 +44,11 @@ export const playErrorMessage = (reason?: PlayResult['errorReason']): string => 
 /** Hard sanity cap on the player queue — stops runaway playlist ingestion. */
 export const MAX_QUEUE_TRACKS = 5000;
 
-/** Unresolved Spotify entry waiting for just-in-time resolution. */
+/** Unresolved entry waiting for just-in-time resolution. The slot names are
+ * historical — `spTrack`/`spotifyUrl` now carry any provider's mirror track
+ * (Spotify/Deezer/Apple) and its canonical page URL. */
 interface PendingSpotifyEntry {
-  spTrack: SpotifyResolvedTrack;
+  spTrack: MirrorTrack;
   requester: MusicTrackRequester;
   spotifyUrl: string;
   override?: { title?: string; author?: string; artworkUrl?: string; source?: string };
@@ -73,11 +77,25 @@ export class MusicService {
   /** Upcoming entries with a warmup cascade already in flight (dedupes overlap). */
   private readonly artWarmKeys = new Set<string>();
   private readonly artworkService?: ArtworkService;
+  /** Optional provider resolvers (wired at startup; absent = links unsupported). */
+  private deezerResolver?: DeezerResolver;
+  private appleMusicResolver?: AppleMusicResolver;
   /** Wired at startup — best-effort one-line notice in the now-playing channel. */
   private unavailableNotifier: ((guildId: string, message: string) => void) | null = null;
 
   public setUnavailableNotifier(notifier: (guildId: string, message: string) => void): void {
     this.unavailableNotifier = notifier;
+  }
+
+  /** Wired at startup — Deezer link support. Never a constructor param
+   * (tests build MusicService positionally). */
+  public setDeezerResolver(resolver: DeezerResolver): void {
+    this.deezerResolver = resolver;
+  }
+
+  /** Wired at startup — Apple Music link support. Same positional rule. */
+  public setAppleMusicResolver(resolver: AppleMusicResolver): void {
+    this.appleMusicResolver = resolver;
   }
 
   private notifyUnavailable(guildId: string, message: string): void {
@@ -389,15 +407,24 @@ export class MusicService {
     // which must report as transportError, not as "No tracks found".
     let answered = false;
     if (rungs.includes('plugin') || rungs.includes('resolver')) {
-      try {
-        const yt = await this.searchWithTimeout({ query, source: 'youtube' });
-        if (yt) {
-          answered = true;
-          ytHit = yt.tracks?.[0];
+      // ISRC-first: an exact-recording hit replaces the fuzzy title search
+      // entirely (faster AND more accurate). Only on miss/skip does the
+      // title search run, so behavior without metadata is unchanged.
+      const isrcHit = await this.searchIsrcFirst(player, rungs, meta);
+      if (isrcHit) {
+        answered = true;
+        ytHit = isrcHit;
+      } else {
+        try {
+          const yt = await this.searchWithTimeout({ query, source: 'youtube' });
+          if (yt) {
+            answered = true;
+            ytHit = yt.tracks?.[0];
+          }
+        } catch {
+          // Node unreachable, not a miss — remember it for the result below.
+          transportFailed = true;
         }
-      } catch {
-        // Node unreachable, not a miss — remember it for the result below.
-        transportFailed = true;
       }
     }
     if (ytHit) {
@@ -446,6 +473,56 @@ export class MusicService {
     return !!found && 'transportError' in found;
   }
 
+  /**
+   * Normalizes an ISRC for search (dashes stripped, uppercased). ISRCs are
+   * 12 alphanumerics (CC-XXX-YY-NNNNN); anything else is not searched —
+   * a malformed code would only return junk.
+   */
+  public static normalizeIsrc(isrc?: string): string | null {
+    if (!isrc) return null;
+    const stripped = isrc.replace(/-/g, '').toUpperCase();
+    return /^[A-Z0-9]{12}$/.test(stripped) ? stripped : null;
+  }
+
+  /**
+   * ISRC-first YouTube hit (LavaSrc DefaultMirroringAudioTrackResolver):
+   * `ytsearch:"ISRC"` matches the exact recording where a title search can
+   * land on a cover, remix, or live upload. Runs BEFORE the fuzzy title
+   * search and replaces it on success — same cost on hit, one extra probe
+   * on miss. Gross-mismatch guard: the exact recording must be close in
+   * length (±60s); a wild duration means the code matched wrong metadata,
+   * so fall through to the title search instead of playing a wrong song.
+   */
+  private async searchIsrcFirst(
+    player: Player,
+    rungs: Rung[],
+    meta?: ResolverMeta,
+  ): Promise<Track | null> {
+    const isrc = MusicService.normalizeIsrc(meta?.isrc);
+    if (!isrc) return null;
+    if (!rungs.includes('plugin') && !rungs.includes('resolver')) return null;
+    let res: { tracks?: Track[] } | null = null;
+    try {
+      // Shorter budget than the fuzzy search: this is a precise lookup,
+      // and a dead node must not cost double latency before the fallback.
+      res = await this.searchWithTimeout({ query: `"${isrc}"`, source: 'youtube' }, 5000);
+    } catch {
+      return null;
+    }
+    const hit = res?.tracks?.[0];
+    if (!hit) return null;
+    const expected = meta?.durationMs || 0;
+    if (expected > 0 && hit.duration > 0 && Math.abs(hit.duration - expected) > 60_000) {
+      Logger.info(
+        { isrc, hitMs: hit.duration, expectedMs: expected },
+        '[Music] ISRC hit duration-mismatched — falling back to title search',
+      );
+      return null;
+    }
+    Logger.info({ isrc, title: hit.title }, '[Music] ISRC-first search hit');
+    return hit;
+  }
+
   /** True for raw YouTube-family thumbnails (never correct on adopted tracks). */
   public static isYoutubeThumb(url: string | null | undefined): boolean {
     if (!url) return false;
@@ -463,6 +540,11 @@ export class MusicService {
    * that stash is the sole entry into the long-form video-art system
    * (square rug crop → card paint). Short tracks never enter it: no video
    * thumb, no crop downloads — cascade art only.
+   *
+   * A YouTube thumbnail passed AS the trusted cover (search picks carry the
+   * Lavalink hit's ytimg art as their override) is treated as absent: it is
+   * never stamped, so backfill/enrichment still run. Stamping it would
+   * permanently paint the card with a video frame instead of the song cover.
    */
   public static preCleanArtwork(
     track: { artworkUrl?: string | null; duration?: number | null },
@@ -477,8 +559,25 @@ export class MusicService {
     ) {
       rec._videoThumb = squareVideoThumbUrl(track.artworkUrl) ?? track.artworkUrl;
     }
-    if (artworkUrl) track.artworkUrl = artworkUrl;
+    if (artworkUrl && !MusicService.isYoutubeThumb(artworkUrl)) track.artworkUrl = artworkUrl;
     else if (MusicService.isYoutubeThumb(track.artworkUrl)) track.artworkUrl = null;
+  }
+
+  /**
+   * Drops a YouTube-thumbnail artworkUrl from a play override. Overrides are
+   * trusted downstream (they skip backfill AND Spotify enrichment), so a
+   * ytimg URL smuggled in as "known art" — the +search select path — would
+   * paint video frames on the card forever. Applied once at play() entry so
+   * every downstream path (ladder, adopt, backfill, domain) treats the art
+   * as unknown and resolves the real cover.
+   */
+  public static sanitizeOverride<T extends { artworkUrl?: string } | undefined>(override: T): T {
+    if (override?.artworkUrl && MusicService.isYoutubeThumb(override.artworkUrl)) {
+      Logger.debug('[Music] Dropping YouTube-thumbnail override art — resolving the real cover instead');
+      const { artworkUrl: _dropped, ...rest } = override;
+      return rest as T;
+    }
+    return override;
   }
 
   private async tryResolverTrack(player: Player, ytTrack: Track, meta?: ResolverMeta): Promise<Track | null> {
@@ -573,10 +672,38 @@ export class MusicService {
     }
 
     const trimmedQuery = query.trim();
+    // Overrides are trusted downstream (they skip backfill AND Spotify
+    // enrichment), so a YouTube thumbnail smuggled in as "known art" — the
+    // +search pick path — is dropped here, once. Every path below then
+    // resolves the real cover instead of painting video frames on the card.
+    trackOverride = MusicService.sanitizeOverride(trackOverride);
 
     // 1. Spotify link resolution
     if (this.spotifyResolver.isSpotifyUrl(trimmedQuery)) {
       return await this.playSpotify(player, trimmedQuery, requester, trackOverride);
+    }
+
+    // 1b. Deezer / Apple Music links mirror onto Lavalink audio exactly like
+    // Spotify links: provider metadata → ISRC-first ladder → JIT for
+    // collections. Unwired resolvers (or unresolvable links) fall through to
+    // the normal search path instead of failing.
+    if (this.deezerResolver?.isDeezerUrl(trimmedQuery)) {
+      const resolution = await this.deezerResolver.resolve(trimmedQuery).catch((err) => {
+        Logger.warn({ err, query: trimmedQuery }, '[Music] Deezer link resolve failed');
+        return null;
+      });
+      if (resolution && resolution.tracks.length > 0) {
+        return await this.playMirror(player, resolution, trimmedQuery, requester, trackOverride);
+      }
+    }
+    if (this.appleMusicResolver?.isAppleMusicUrl(trimmedQuery)) {
+      const resolution = await this.appleMusicResolver.resolve(trimmedQuery).catch((err) => {
+        Logger.warn({ err, query: trimmedQuery }, '[Music] Apple Music link resolve failed');
+        return null;
+      });
+      if (resolution && resolution.tracks.length > 0) {
+        return await this.playMirror(player, resolution, trimmedQuery, requester, trackOverride);
+      }
     }
 
     // 2. Lavalink search (query or URL - YouTube / SoundCloud)
@@ -659,6 +786,8 @@ export class MusicService {
         // here so lives on third-party channels get artist/chapter art, not
         // raw thumbnails. Fire-and-forget (never stalls the fast path — the
         // progress ticker picks up late-arriving art within seconds).
+        // Enrichment adopts the Spotify-side clean title + cover for pasted
+        // URLs (no trusted override); picks already carry upgraded metadata.
         MusicService.preCleanArtwork(meta, trackOverride?.artworkUrl);
         void this.maybeBackfillArt(
           meta,
@@ -668,7 +797,7 @@ export class MusicService {
           MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
           meta.uri,
         );
-        return await this.enqueueLavalinkTracks(player, [meta], requester, trackOverride, 'youtube');
+        return await this.enqueueLavalinkTracks(player, [meta], requester, trackOverride, 'youtube', undefined, !trackOverride?.title);
       }
 
       // Text query (or anything else): full ladder.
@@ -817,7 +946,6 @@ export class MusicService {
       source?: string;
     },
   ): Promise<PlayResult> {
-    const manager = this.moonlinkManager.getManager();
     const resolution = await this.spotifyResolver.resolve(spotifyUrl);
 
     if (!resolution || resolution.tracks.length === 0) {
@@ -827,14 +955,44 @@ export class MusicService {
         positionInQueue: 0,
       };
     }
+    return await this.playMirror(player, resolution, spotifyUrl, requester, trackOverride);
+  }
+
+  /**
+   * Plays a mirrored provider resolution (Spotify / Deezer / Apple Music):
+   * provider metadata drives an ISRC-first ladder search for the audio,
+   * single tracks resolve immediately, collections resolve first-now and
+   * queue the rest just-in-time. One path for every provider — no
+   * per-provider playback forks to rot.
+   */
+  private async playMirror(
+    player: Player,
+    resolution: MirrorResolution,
+    sourceUrl: string,
+    requester: MusicTrackRequester,
+    trackOverride?: {
+      title?: string;
+      author?: string;
+      artworkUrl?: string;
+      source?: string;
+    },
+  ): Promise<PlayResult> {
+    // Real resolvers always stamp provider; default to Spotify so older
+    // callers/mocks without the field keep the legacy badges + load types.
+    const provider = resolution.provider ?? 'spotify';
+    // Ladder metadata: ISRC + expected duration enable the exact-recording
+    // first search; title/artist/artwork keep the fuzzy fallback identical.
+    const mirrorMeta = (t: MirrorTrack): ResolverMeta => ({
+      title: trackOverride?.title || t.name,
+      artist: trackOverride?.author || t.artist,
+      artworkUrl: trackOverride?.artworkUrl || t.artworkUrl,
+      isrc: t.isrc,
+      durationMs: t.durationMs,
+    });
 
     if (resolution.type === 'track') {
-      const spotifyTrack = resolution.tracks[0]!;
-      const found = await this.searchTrackWithLadder(player, spotifyTrack.searchQuery, {
-        title: trackOverride?.title || spotifyTrack.name,
-        artist: trackOverride?.author || spotifyTrack.artist,
-        artworkUrl: trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
-      });
+      const mirrorTrack = resolution.tracks[0]!;
+      const found = await this.searchTrackWithLadder(player, mirrorTrack.searchQuery, mirrorMeta(mirrorTrack));
 
       if (!found) {
         return {
@@ -852,25 +1010,25 @@ export class MusicService {
       }
 
       const chosenTrack = found.track;
-      this.adoptSpotifyTrack(chosenTrack, spotifyTrack, found.rung, requester, spotifyUrl, trackOverride);
+      this.adoptMirrorTrack(chosenTrack, mirrorTrack, found.rung, requester, sourceUrl, trackOverride);
       // Backfill AFTER adoption: adoption clears the raw YouTube thumbnail
-      // when Spotify has no cover, so the cascade can fill real artwork
+      // when the provider has no cover, so the cascade can fill real artwork
       // instead of skipping on the wrong image.
       // Audio-first: never gate playback on art — background cascade,
       // late-attach, and the 5s ticker repaints the card.
       void this.maybeBackfillArt(
         chosenTrack,
-        trackOverride?.artworkUrl || spotifyTrack.artworkUrl,
-        trackOverride?.title || spotifyTrack.name,
-        trackOverride?.author || spotifyTrack.artist,
+        trackOverride?.artworkUrl || mirrorTrack.artworkUrl,
+        trackOverride?.title || mirrorTrack.name,
+        trackOverride?.author || mirrorTrack.artist,
         MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
-        spotifyTrack.spotifyUri,
+        mirrorTrack.spotifyUri,
       );
       const sizeBefore = player.queue.size;
       player.queue.add(chosenTrack);
 
       const domainTrack = mapMoonlinkTrack(chosenTrack, requester);
-      domainTrack.source = 'spotify';
+      domainTrack.source = provider;
       if (trackOverride?.artworkUrl) {
         domainTrack.artworkUrl = trackOverride.artworkUrl;
       }
@@ -887,22 +1045,18 @@ export class MusicService {
       };
     }
 
-    // Spotify Album / Playlist / Artist top tracks
+    // Provider Album / Playlist / Artist top tracks
     const addedTracks: MusicTrack[] = [];
     const firstTrack = resolution.tracks[0]!;
 
     // Resolve first track immediately so playback begins with minimum delay.
-    const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery, {
-      title: firstTrack.name,
-      artist: firstTrack.artist,
-      artworkUrl: firstTrack.artworkUrl,
-    });
+    const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery, mirrorMeta(firstTrack));
     if (firstFound && MusicService.isTransportError(firstFound)) {
       return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
     }
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
-      this.adoptSpotifyTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, spotifyUrl, trackOverride);
+      this.adoptMirrorTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, sourceUrl, trackOverride);
       // Audio-first: never gate playback on art — background cascade,
       // late-attach, and the 5s ticker repaints the card.
       void this.maybeBackfillArt(
@@ -914,7 +1068,7 @@ export class MusicService {
         firstTrack.spotifyUri,
       );
       const firstDomainTrack = mapMoonlinkTrack(firstLavalinkTrack, requester);
-      firstDomainTrack.source = 'spotify';
+      firstDomainTrack.source = provider;
       if (trackOverride?.artworkUrl) {
         firstDomainTrack.artworkUrl = trackOverride.artworkUrl;
       }
@@ -928,30 +1082,38 @@ export class MusicService {
       }
     }
 
-    // Just-in-time: the rest wait as pending Spotify entries and resolve
-    // 2-ahead as playback advances (see topUpPending). Cold-cache songs
-    // resolve at play time — warm cache, resolver rung — instead of locking
-    // in SoundCloud versions upfront, and the command replies in seconds.
+    // Just-in-time: the rest wait as pending entries and resolve 2-ahead as
+    // playback advances (see topUpPending). Cold-cache songs resolve at play
+    // time — warm cache, resolver rung — instead of locking in SoundCloud
+    // versions upfront, and the command replies in seconds.
     const remainingTracks = resolution.tracks.slice(1);
     if (remainingTracks.length > 0) {
       const existing = this.pendingSpotify.get(player.guildId) ?? [];
       for (const spTrack of remainingTracks) {
-        existing.push({ spTrack, requester, spotifyUrl, override: trackOverride });
+        existing.push({ spTrack, requester, spotifyUrl: sourceUrl, override: trackOverride });
       }
       this.pendingSpotify.set(player.guildId, existing);
       void this.topUpPending(player.guildId);
     }
 
+    // Spotify keeps its legacy load types (builders/tests key off them);
+    // other providers report provider-agnostic mirror_* collections.
     const loadType =
       resolution.type === 'album'
-        ? 'spotify_album'
+        ? provider === 'spotify'
+          ? 'spotify_album'
+          : 'mirror_album'
         : resolution.type === 'playlist'
-          ? 'spotify_playlist'
-          : 'spotify_artist';
+          ? provider === 'spotify'
+            ? 'spotify_playlist'
+            : 'mirror_playlist'
+          : provider === 'spotify'
+            ? 'spotify_artist'
+            : 'mirror_artist';
 
     // Perfect: if playlist was chunked (scraper 100/312), register lazy loader for next 100
-    if (resolution.type === 'playlist' && this.playlistChunkManager && resolution.totalTracks > resolution.tracks.length) {
-      const parsed = this.spotifyResolver.parseSpotifyUrl(spotifyUrl);
+    if (provider === 'spotify' && resolution.type === 'playlist' && this.playlistChunkManager && resolution.totalTracks > resolution.tracks.length) {
+      const parsed = this.spotifyResolver.parseSpotifyUrl(sourceUrl);
       if (parsed) {
         this.playlistChunkManager.register(
           player.guildId,
@@ -1142,19 +1304,20 @@ export class MusicService {
       .trim();
   }
   /**
-   * Stamps Spotify display metadata onto a resolved Lavalink track. The
+   * Stamps provider display metadata onto a resolved Lavalink track. The
    * moonlink track keeps its true backend label ('local' for resolver
-   * output) so failure handling routes correctly; the display model keeps
-   * the familiar 'spotify' badge. Artwork correctness is handled upstream
-   * (searchTrackWithLadder pre-cleans YouTube thumbnails), so a plain
-   * conditional stamp here can never resurrect a wrong image.
+   * output, otherwise the provider) so failure handling routes correctly;
+   * the display model keeps the familiar provider badge. Artwork correctness
+   * is handled upstream (ladder pre-clean + override sanitizing), so a plain
+   * conditional stamp here can never resurrect a wrong image. A trusted
+   * override cover wins over provider art; YouTube thumbnails never qualify.
    */
-  private adoptSpotifyTrack(
+  private adoptMirrorTrack(
     lavalinkTrack: Track,
-    spTrack: SpotifyResolvedTrack,
+    mirrorTrack: MirrorTrack,
     rung: Rung,
     requester: MusicTrackRequester,
-    spotifyUrl: string,
+    sourceUrl: string,
     trackOverride?: { title?: string; author?: string; artworkUrl?: string; source?: string },
   ): void {
     const record = lavalinkTrack as unknown as Record<string, unknown>;
@@ -1169,17 +1332,17 @@ export class MusicService {
       if (src === 'youtube' || src === '') record._sourceVideoId = lavalinkTrack.identifier;
     }
     lavalinkTrack.requester = requester;
-    lavalinkTrack.title = spTrack.name;
-    lavalinkTrack.author = spTrack.artist;
-    if (spTrack.artworkUrl) {
-      lavalinkTrack.artworkUrl = spTrack.artworkUrl;
+    lavalinkTrack.title = mirrorTrack.name;
+    lavalinkTrack.author = mirrorTrack.artist;
+    if (mirrorTrack.artworkUrl) {
+      lavalinkTrack.artworkUrl = mirrorTrack.artworkUrl;
     }
-    lavalinkTrack.uri = spotifyUriToUrl(spTrack.spotifyUri) || spotifyUrl;
-    const backend = rung === 'resolver' ? 'local' : 'spotify';
+    lavalinkTrack.uri = spotifyUriToUrl(mirrorTrack.spotifyUri) || mirrorTrack.sourceUrl || sourceUrl;
+    const backend = rung === 'resolver' ? 'local' : (mirrorTrack.provider ?? 'spotify');
     record.sourceName = trackOverride?.source || backend;
     record.source = trackOverride?.source || backend;
-    if (trackOverride?.artworkUrl) {
-      record.artworkUrl = trackOverride.artworkUrl;
+    if (trackOverride?.artworkUrl && !MusicService.isYoutubeThumb(trackOverride.artworkUrl)) {
+      lavalinkTrack.artworkUrl = trackOverride.artworkUrl;
     }
   }
 
@@ -1233,15 +1396,15 @@ export class MusicService {
 
   private mapPendingEntry(e: PendingSpotifyEntry): MusicTrack {
     return {
-      identifier: e.spTrack.spotifyUri || '',
+      identifier: e.spTrack.spotifyUri || e.spTrack.sourceUrl || '',
       title: e.override?.title || e.spTrack.name,
       author: e.override?.author || e.spTrack.artist,
-      uri: spotifyUriToUrl(e.spTrack.spotifyUri) || '',
+      uri: spotifyUriToUrl(e.spTrack.spotifyUri) || e.spTrack.sourceUrl || '',
       duration: e.spTrack.durationMs || 0,
       isSeekable: true,
       isStream: false,
       artworkUrl: e.override?.artworkUrl || e.spTrack.artworkUrl,
-      source: 'spotify',
+      source: e.spTrack.provider ?? 'spotify',
       requester: e.requester,
     };
   }
@@ -1286,7 +1449,7 @@ export class MusicService {
           skipped++;
           continue;
         }
-        this.adoptSpotifyTrack(
+        this.adoptMirrorTrack(
           found.lavalinkTrack,
           found.spTrack,
           found.rung,
@@ -1324,15 +1487,18 @@ export class MusicService {
   /**
    * Resolves one playlist track through the health ladder
    * (resolver → plugin → soundcloud, SoundCloud-first while down).
+   * ISRC + expected duration ride along for the exact-recording search.
    */
   private async resolvePlaylistTrack(
     player: Player,
-    spTrack: SpotifyResolvedTrack,
-  ): Promise<{ lavalinkTrack: Track; spTrack: SpotifyResolvedTrack; rung: Rung } | null> {
+    spTrack: MirrorTrack,
+  ): Promise<{ lavalinkTrack: Track; spTrack: MirrorTrack; rung: Rung } | null> {
     const found = await this.searchTrackWithLadder(player, spTrack.searchQuery, {
       title: spTrack.name,
       artist: spTrack.artist,
       artworkUrl: spTrack.artworkUrl,
+      isrc: spTrack.isrc,
+      durationMs: spTrack.durationMs,
     });
     if (!found || MusicService.isTransportError(found)) return null;
     // Background-only path (topUpPending): generous art timeout, nobody waits.
@@ -1619,7 +1785,7 @@ export class MusicService {
     live.queue.clear();
     liveList.splice(0, at + 1);
     if (liveList.length === 0) this.pendingSpotify.delete(guildId);
-    this.adoptSpotifyTrack(
+    this.adoptMirrorTrack(
       found.lavalinkTrack,
       entry.spTrack,
       found.rung,
@@ -1634,6 +1800,7 @@ export class MusicService {
   /** Rebuilds a pending entry from a resolved track (resolved → pending moves). */
   private pendingFromTrack(track: Track): PendingSpotifyEntry {
     const mapped = mapMoonlinkTrack(track);
+    const src = mapped.source;
     return {
       spTrack: {
         searchQuery: `${mapped.author} - ${mapped.title}`,
@@ -1642,6 +1809,8 @@ export class MusicService {
         durationMs: mapped.duration,
         artworkUrl: mapped.artworkUrl,
         spotifyUri: mapped.uri.startsWith('https://open.spotify.com/') ? mapped.uri : undefined,
+        sourceUrl: mapped.uri,
+        provider: src === 'spotify' || src === 'deezer' || src === 'apple' ? src : undefined,
       },
       requester: mapped.requester ?? { id: 'unknown' },
       spotifyUrl: mapped.uri,
@@ -1693,7 +1862,7 @@ export class MusicService {
     if (at === -1) return false;
     liveList.splice(at, 1);
     if (liveList.length === 0) this.pendingSpotify.delete(guildId);
-    this.adoptSpotifyTrack(
+    this.adoptMirrorTrack(
       found.lavalinkTrack,
       entry.spTrack,
       found.rung,
@@ -1745,7 +1914,7 @@ export class MusicService {
 
     // 1. Spotify search first (unless the caller wants pure YouTube, e.g. the
     // +search command) so results have clean names, artists, hi-res artwork.
-    const isUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|soundcloud\.com)\/.+/i.test(trimmed) || /^https?:\/\//i.test(trimmed);
+    const isUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|soundcloud\.com|open\.spotify\.com|deezer\.com|link\.deezer\.com|deezer\.page\.link|music\.apple\.com|itunes\.apple\.com)\/.+/i.test(trimmed) || /^https?:\/\//i.test(trimmed);
     if (spotifyFirst && !isUrl) {
       try {
         const spotifyResults = await Promise.race([
@@ -1775,7 +1944,44 @@ export class MusicService {
     // REST-dead node can't swallow the search picker's results.
     const res = await this.searchWithTimeout({ query: trimmed, source });
     if (!res || !res.tracks || res.tracks.length === 0) return [];
-    return (res.tracks as Array<import('moonlink.js').Track>).slice(0, 10).map((t) => mapMoonlinkTrack(t));
+    const mapped = (res.tracks as Array<import('moonlink.js').Track>).slice(0, 10).map((t) => mapMoonlinkTrack(t));
+    // Pure-YouTube mode (+search) would otherwise return raw upload titles
+    // with video-frame thumbs — and the pick would carry that thumb into
+    // play() as trusted art. One batched Spotify lookup upgrades each hit to
+    // the clean studio name + real cover (per-track validated; misses keep
+    // raw data). The upgraded metadata rides the select-override into play(),
+    // so the card shows the song cover from frame one.
+    if (!spotifyFirst && source === 'youtube' && mapped.length > 0) {
+      await this.upgradePickerResults(trimmed, mapped);
+    }
+    return mapped;
+  }
+
+  /**
+   * Upgrades +search picker results with Spotify-side clean names + covers.
+   * Bounded (single batched call, 2.5s race) and silent — a wrong match is
+   * worse than a raw upload title, so only isSpotifyMatchValid stamps touch
+   * a result. Failures leave the picker exactly as raw as today.
+   */
+  private async upgradePickerResults(query: string, tracks: MusicTrack[]): Promise<void> {
+    try {
+      const candidates = await Promise.race([
+        this.spotifyResolver.searchTracks(query, 10),
+        new Promise<SpotifyResolvedTrack[]>((resolve) => setTimeout(() => resolve([]), 2500)),
+      ]);
+      if (candidates.length === 0) return;
+      for (const t of tracks) {
+        const match = candidates.find((c) =>
+          isSpotifyMatchValid({ title: t.title, author: t.author, duration: t.duration }, c),
+        );
+        if (!match) continue;
+        t.title = match.name;
+        t.author = cleanArtistName(match.artist);
+        if (match.artworkUrl) t.artworkUrl = match.artworkUrl;
+      }
+    } catch {
+      // Picker stays raw — today's behavior.
+    }
   }
 
   public getHistory(guildId: string, limit: number = 10) {

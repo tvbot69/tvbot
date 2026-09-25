@@ -1,14 +1,11 @@
 import { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
 import { Logger } from '@domain/logger';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import type { MirrorProvider, MirrorTrack } from '@domain/models/music/musicTrack';
 import { SpotifyScraperService } from './spotifyScraperService';
 
-export interface SpotifyResolvedTrack {
-  name: string;
-  artist: string;
-  durationMs: number;
-  searchQuery: string;
-  artworkUrl?: string;
+export interface SpotifyResolvedTrack extends MirrorTrack {
+  /** Canonical open.spotify.com page for this entry. */
   spotifyUri?: string;
 }
 
@@ -19,6 +16,7 @@ export interface SpotifyResolutionResult {
   artworkUrl?: string;
   tracks: SpotifyResolvedTrack[];
   totalTracks: number;
+  provider: MirrorProvider;
 }
 
 const SPOTIFY_URL_REGEX =
@@ -112,6 +110,7 @@ export class SpotifyResolver {
         searchQuery: `${artist} - ${first.name}`,
         artworkUrl: first.album?.images?.[0]?.url,
         spotifyUri: first.external_urls?.spotify,
+        provider: 'spotify',
       };
     } catch {
       return null;
@@ -151,6 +150,7 @@ export class SpotifyResolver {
           searchQuery: `${artist} - ${item.name}`,
           artworkUrl: item.album?.images?.[0]?.url,
           spotifyUri: item.external_urls?.spotify,
+          provider: 'spotify',
         };
       });
     } catch {
@@ -192,6 +192,12 @@ export class SpotifyResolver {
     }
   }
 
+  /** ISRC from Spotify external_ids — the exact-recording key for ISRC-first search. */
+  private static readIsrc(data: { external_ids?: { isrc?: string } }): string | undefined {
+    const isrc = data.external_ids?.isrc?.trim();
+    return isrc || undefined;
+  }
+
   private async resolveTrack(id: string, token: string): Promise<SpotifyResolutionResult | null> {
     interface TrackData {
       name: string;
@@ -199,6 +205,7 @@ export class SpotifyResolver {
       duration_ms: number;
       album?: { images?: Array<{ url: string }> };
       external_urls?: { spotify?: string };
+      external_ids?: { isrc?: string };
     }
 
     const data = await this.fetchSpotify<TrackData>(
@@ -216,6 +223,8 @@ export class SpotifyResolver {
       searchQuery: `${artist} - ${data.name}`,
       artworkUrl,
       spotifyUri: data.external_urls?.spotify,
+      isrc: SpotifyResolver.readIsrc(data),
+      provider: 'spotify',
     };
 
     return {
@@ -225,28 +234,31 @@ export class SpotifyResolver {
       artworkUrl,
       tracks: [track],
       totalTracks: 1,
+      provider: 'spotify',
     };
   }
 
   private async resolveAlbum(id: string, token: string): Promise<SpotifyResolutionResult | null> {
+    interface AlbumTrackItem {
+      name: string;
+      artists: Array<{ name: string }>;
+      duration_ms: number;
+      external_urls?: { spotify?: string };
+      external_ids?: { isrc?: string };
+    }
     interface AlbumData {
       name: string;
       artists: Array<{ name: string }>;
       images?: Array<{ url: string }>;
       tracks: {
-        items: Array<{
-          name: string;
-          artists: Array<{ name: string }>;
-          duration_ms: number;
-          external_urls?: { spotify?: string };
-        }>;
+        items: AlbumTrackItem[];
         next?: string | null;
         total: number;
       };
     }
 
     const data = await this.fetchSpotify<AlbumData>(
-      `https://api.spotify.com/v1/albums/${id}`,
+      `https://api.spotify.com/v1/albums/${id}?market=US`,
       token,
     );
     if (!data) return null;
@@ -264,6 +276,8 @@ export class SpotifyResolver {
         searchQuery: `${artist} - ${item.name}`,
         artworkUrl,
         spotifyUri: item.external_urls?.spotify,
+        isrc: SpotifyResolver.readIsrc(item),
+        provider: 'spotify',
       });
     }
 
@@ -271,12 +285,7 @@ export class SpotifyResolver {
     let nextUrl = data.tracks.next;
     while (nextUrl && tracks.length < 500) {
       const page = await this.fetchSpotify<{
-        items: Array<{
-          name: string;
-          artists: Array<{ name: string }>;
-          duration_ms: number;
-          external_urls?: { spotify?: string };
-        }>;
+        items: AlbumTrackItem[];
         next?: string | null;
       }>(nextUrl, token);
 
@@ -290,6 +299,8 @@ export class SpotifyResolver {
           searchQuery: `${artist} - ${item.name}`,
           artworkUrl,
           spotifyUri: item.external_urls?.spotify,
+          isrc: SpotifyResolver.readIsrc(item),
+          provider: 'spotify',
         });
       }
       nextUrl = page.next;
@@ -302,6 +313,7 @@ export class SpotifyResolver {
       artworkUrl,
       tracks,
       totalTracks: data.tracks.total || tracks.length,
+      provider: 'spotify',
     };
   }
 
@@ -321,6 +333,7 @@ export class SpotifyResolver {
           searchQuery: `${t.artist} - ${t.name}`,
           artworkUrl: t.artworkUrl,
           spotifyUri: t.spotifyUri,
+          provider: 'spotify',
         }));
         return {
           type: 'playlist',
@@ -329,33 +342,36 @@ export class SpotifyResolver {
           artworkUrl: page.artworkUrl,
           tracks,
           totalTracks: page.total,
+          provider: 'spotify',
         };
       }
       Logger.warn({ playlistId: id }, 'Scraper returned no tracks, falling back to API');
     }
 
     // Fallback to API only if scraper unavailable or empty (kept for private playlists where scraper 403)
+    interface PlaylistTrackItem {
+      track?: {
+        name: string;
+        artists: Array<{ name: string }>;
+        duration_ms: number;
+        album?: { images?: Array<{ url: string }> };
+        external_urls?: { spotify?: string };
+        external_ids?: { isrc?: string };
+      } | null;
+    }
     interface PlaylistData {
       name: string;
       owner?: { display_name?: string };
       images?: Array<{ url: string }>;
       tracks: {
-        items: Array<{
-          track?: {
-            name: string;
-            artists: Array<{ name: string }>;
-            duration_ms: number;
-            album?: { images?: Array<{ url: string }> };
-            external_urls?: { spotify?: string };
-          } | null;
-        }>;
+        items: PlaylistTrackItem[];
         next?: string | null;
         total: number;
       };
     }
 
     const data = await this.fetchSpotify<PlaylistData>(
-      `https://api.spotify.com/v1/playlists/${id}`,
+      `https://api.spotify.com/v1/playlists/${id}?market=US`,
       token,
     );
     if (!data?.tracks?.items) {
@@ -377,21 +393,15 @@ export class SpotifyResolver {
         searchQuery: `${artist} - ${item.track.name}`,
         artworkUrl: item.track.album?.images?.[0]?.url || artworkUrl,
         spotifyUri: item.track.external_urls?.spotify,
+        isrc: SpotifyResolver.readIsrc(item.track),
+        provider: 'spotify',
       });
     }
 
     let nextUrl = data.tracks.next;
     while (nextUrl && tracks.length < 500) {
       const page = await this.fetchSpotify<{
-        items: Array<{
-          track?: {
-            name: string;
-            artists: Array<{ name: string }>;
-            duration_ms: number;
-            album?: { images?: Array<{ url: string }> };
-            external_urls?: { spotify?: string };
-          } | null;
-        }>;
+        items: PlaylistTrackItem[];
         next?: string | null;
       }>(nextUrl, token);
 
@@ -406,6 +416,8 @@ export class SpotifyResolver {
           searchQuery: `${artist} - ${item.track.name}`,
           artworkUrl: item.track.album?.images?.[0]?.url || artworkUrl,
           spotifyUri: item.track.external_urls?.spotify,
+          isrc: SpotifyResolver.readIsrc(item.track),
+          provider: 'spotify',
         });
       }
       nextUrl = page.next;
@@ -418,6 +430,7 @@ export class SpotifyResolver {
       artworkUrl,
       tracks,
       totalTracks: data.tracks.total || tracks.length,
+      provider: 'spotify',
     };
   }
 
@@ -433,6 +446,7 @@ export class SpotifyResolver {
         duration_ms: number;
         album?: { images?: Array<{ url: string }> };
         external_urls?: { spotify?: string };
+        external_ids?: { isrc?: string };
       }>;
     }
 
@@ -456,6 +470,8 @@ export class SpotifyResolver {
         searchQuery: `${artist} - ${t.name}`,
         artworkUrl: t.album?.images?.[0]?.url || artworkUrl,
         spotifyUri: t.external_urls?.spotify,
+        isrc: SpotifyResolver.readIsrc(t),
+        provider: 'spotify',
       };
     });
 
@@ -466,6 +482,7 @@ export class SpotifyResolver {
       artworkUrl,
       tracks,
       totalTracks: tracks.length,
+      provider: 'spotify',
     };
   }
 }

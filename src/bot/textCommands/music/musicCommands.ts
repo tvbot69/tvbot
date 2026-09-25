@@ -244,7 +244,10 @@ export class MusicCommands implements ITextCommandModule {
       result.loadType === 'playlist' ||
       result.loadType === 'spotify_album' ||
       result.loadType === 'spotify_playlist' ||
-      result.loadType === 'spotify_artist'
+      result.loadType === 'spotify_artist' ||
+      result.loadType === 'mirror_album' ||
+      result.loadType === 'mirror_playlist' ||
+      result.loadType === 'mirror_artist'
     ) {
       const isSpotify = result.loadType.startsWith('spotify');
       const totalDuration = result.tracks?.reduce((acc, t) => acc + t.duration, 0) ?? 0;

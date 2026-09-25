@@ -23,11 +23,26 @@ export interface DeezerAlbum {
   artist?: { id: number; name: string };
 }
 
+export interface DeezerPlaylist {
+  id: number;
+  title: string;
+  link?: string;
+  picture?: string;
+  picture_small?: string;
+  picture_medium?: string;
+  picture_big?: string;
+  picture_xl?: string;
+  creator?: { id: number; name: string };
+}
+
 export interface DeezerTrack {
   id: number;
   title: string;
   duration?: number;
   link?: string;
+  preview?: string;
+  isrc?: string;
+  md5_image?: string;
   album?: DeezerAlbum;
   artist?: { id: number; name: string; picture_xl?: string };
 }

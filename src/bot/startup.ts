@@ -103,6 +103,8 @@ import { FriendSlashCommands } from './slashCommands/friendSlashCommands';
 import { MoonlinkManager } from './services/music/moonlinkManager';
 import { SpotifyResolver } from './services/music/spotifyResolver';
 import { SpotifyScraperService } from './services/music/spotifyScraperService';
+import { DeezerResolver } from './services/music/deezerResolver';
+import { AppleMusicResolver } from './services/music/appleMusicResolver';
 import { PlaylistChunkManager } from './services/music/playlistChunkManager';
 import { QueueService } from './services/music/queueService';
 import { MusicService } from './services/music/musicService';
@@ -599,6 +601,13 @@ export const configureContainer = (): void => {
   const queueService = new QueueService(musicHistoryRepository, guildMusicSettingsRepository);
   const playlistChunkManager = new PlaylistChunkManager(moonlinkManager, spotifyScraperService);
   const musicService = new MusicService(moonlinkManager, spotifyResolver, queueService, playlistChunkManager, artworkService);
+  // Provider link resolvers share the container's API singletons (one token
+  // scrape cache, one Deezer client) and slot into MusicService via setters
+  // — never constructor params (tests build it positionally).
+  const deezerResolver = new DeezerResolver(deezerApi);
+  const appleMusicResolver = new AppleMusicResolver(appleMusicTokenScraper);
+  musicService.setDeezerResolver(deezerResolver);
+  musicService.setAppleMusicResolver(appleMusicResolver);
   const voiceChannelStatusService = new VoiceChannelStatusService(client);
   const musicInteractions = new MusicInteractions(musicService, colorService);
   const musicCommands = new MusicCommands(musicService, colorService, lyricsService, musicInteractions);
@@ -607,6 +616,8 @@ export const configureContainer = (): void => {
   container.registerInstance(MusicHistoryRepository, musicHistoryRepository);
   container.registerInstance(MoonlinkManager, moonlinkManager);
   container.registerInstance(SpotifyResolver, spotifyResolver);
+  container.registerInstance(DeezerResolver, deezerResolver);
+  container.registerInstance(AppleMusicResolver, appleMusicResolver);
   container.registerInstance(QueueService, queueService);
   container.registerInstance(MusicService, musicService);
 

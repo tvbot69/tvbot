@@ -6,6 +6,39 @@ export interface MusicTrackRequester {
   avatarUrl?: string;
 }
 
+/** Metadata providers whose catalogs mirror onto Lavalink audio. */
+export type MirrorProvider = 'spotify' | 'deezer' | 'apple';
+
+/**
+ * Provider track metadata mirrored onto Lavalink audio (LavaSrc-style):
+ * the provider supplies names, artwork and ISRC; YouTube / SoundCloud /
+ * the local resolver supply the actual audio. `spotifyUri` identifies the
+ * canonical Spotify page; other providers use `sourceUrl`.
+ */
+export interface MirrorTrack {
+  name: string;
+  artist: string;
+  durationMs: number;
+  searchQuery: string;
+  artworkUrl?: string;
+  spotifyUri?: string;
+  /** Canonical provider page (Deezer/Apple links; Spotify uses spotifyUri). */
+  sourceUrl?: string;
+  /** Exact-recording match key for ISRC-first YouTube search. */
+  isrc?: string;
+  provider?: MirrorProvider;
+}
+
+export interface MirrorResolution {
+  type: 'track' | 'album' | 'playlist' | 'artist';
+  title: string;
+  author?: string;
+  artworkUrl?: string;
+  tracks: MirrorTrack[];
+  totalTracks: number;
+  provider: MirrorProvider;
+}
+
 export interface MusicTrack {
   identifier: string;
   title: string;

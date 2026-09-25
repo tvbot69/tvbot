@@ -240,6 +240,10 @@ export interface ResolverMeta {
   artist?: string;
   /** Known-good cover (e.g. Spotify album art) for artwork pre-cleaning. */
   artworkUrl?: string;
+  /** ISRC for exact-recording-first YouTube search (LavaSrc mirroring). */
+  isrc?: string;
+  /** Expected audio length in ms — gross-mismatch guard for ISRC hits. */
+  durationMs?: number;
 }
 
 export async function resolveViaHome(id: string, meta?: ResolverMeta): Promise<string | null> {
