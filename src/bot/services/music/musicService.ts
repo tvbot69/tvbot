@@ -1699,9 +1699,9 @@ export class MusicService {
       }
     }
 
-    // 2. Fallback to Lavalink (YouTube / SoundCloud)
-    const manager = this.moonlinkManager.getManager();
-    const res = await manager.search({ query: trimmed, source });
+    // 2. Fallback to Lavalink (YouTube / SoundCloud) — node-aware, so a
+    // REST-dead node can't swallow the search picker's results.
+    const res = await this.searchWithTimeout({ query: trimmed, source });
     if (!res || !res.tracks || res.tracks.length === 0) return [];
     return (res.tracks as Array<import('moonlink.js').Track>).slice(0, 10).map((t) => mapMoonlinkTrack(t));
   }

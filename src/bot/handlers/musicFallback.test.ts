@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { VoiceChannel } from 'discord.js';
 import { MusicHandler } from './musicHandler';
 import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
 import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
@@ -1598,6 +1599,7 @@ describe('direct SoundCloud URL plays + transport reporting', () => {
         requester: unknown,
       ) => Promise<{ loadType: string }>;
       searchTrackWithLadder: (player: unknown, query: string) => Promise<unknown>;
+      searchTracks: (query: string, source?: string, spotifyFirst?: boolean) => Promise<unknown[]>;
     };
     const enqueue = vi.fn(async () => ({ loadType: 'track', totalTracksAdded: 1, positionInQueue: 0 }));
     (svc as unknown as { enqueueLavalinkTracks: unknown }).enqueueLavalinkTracks = enqueue;
@@ -1669,6 +1671,146 @@ describe('direct SoundCloud URL plays + transport reporting', () => {
     void player;
     const res = await svc.searchTrackWithLadder(ladderPlayer, 'some song name');
     expect(res).toEqual({ transportError: true });
+  });
+
+  it('searchTracks picker retries on the next node when one is REST-dead', async () => {
+    const { svc, search, noteRestFailure } = playManager(async (args) => {
+      if (args.node === 'Home') throw new Error('Request error: ');
+      return {
+        loadType: 'search',
+        tracks: [
+          {
+            identifier: 'yt-search-hit',
+            title: 'Some Song',
+            author: 'Some Artist',
+            uri: 'https://www.youtube.com/watch?v=yt-search-hit',
+            duration: 200000,
+            isStream: false,
+            isSeekable: true,
+          },
+        ],
+      };
+    });
+    const tracks = await svc.searchTracks('some song', 'youtube', false);
+    expect(tracks).toHaveLength(1);
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[0]![0]).toMatchObject({ node: 'Home', source: 'youtube' });
+    expect(search.mock.calls[1]![0]).toMatchObject({ node: 'Serenetia-SSL', source: 'youtube' });
+    expect(noteRestFailure).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('voice lifecycle (empty channel, 24/7, kick grace, channel delete)', () => {
+  const makeVoice = () => {
+    const store: Record<string, unknown> = {};
+    const player = {
+      guildId: 'g-voice',
+      voiceChannelId: 'vc-1',
+      textChannelId: 'tc-1',
+      playing: true,
+      paused: false,
+      current: { title: 'T', duration: 200000, isStream: false },
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+      pause: vi.fn(async () => undefined),
+      resume: vi.fn(async () => undefined),
+      disconnect: vi.fn(async () => undefined),
+      destroy: vi.fn(async () => undefined),
+      connect: vi.fn(async () => undefined),
+      seek: vi.fn(async () => undefined),
+      setVoiceChannelId: vi.fn(),
+      setTextChannelId: vi.fn(),
+    };
+    const humans = { size: 1 };
+    const voiceChannel = Object.create(VoiceChannel.prototype) as unknown as {
+      id: string;
+      members: { filter: (fn: (m: { user: { bot: boolean } }) => boolean) => { size: number } };
+    };
+    voiceChannel.id = 'vc-1';
+    Object.defineProperty(voiceChannel, 'members', { value: { filter: () => humans } });
+    const guild = { id: 'g-voice', channels: { cache: new Map([['vc-1', voiceChannel]]) } };
+    const client = { on: vi.fn(), user: { id: 'bot-1' }, channels: { cache: new Map() } };
+    const is247 = vi.fn(() => false);
+    const queueService = { getQueueInfo: () => null, is247, calculatePosition: () => 42000 };
+    const manager = { on: vi.fn(), players: { get: () => player } };
+    new MusicHandler(client as never, { getManager: () => manager } as never, queueService as never);
+    const voiceHandler = client.on.mock.calls.find((c) => c[0] === 'voiceStateUpdate')?.[1] as
+      | ((o: unknown, n: unknown) => void)
+      | undefined;
+    const channelDeleteHandler = client.on.mock.calls.find((c) => c[0] === 'channelDelete')?.[1] as
+      | ((c: unknown) => void)
+      | undefined;
+    return { store, player, humans, guild, is247, voiceHandler, channelDeleteHandler };
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('auto-pauses and arms the 2-min leave timer when the channel empties', async () => {
+    const { store, player, humans, guild, voiceHandler } = makeVoice();
+    humans.size = 0;
+    voiceHandler!({ channelId: 'vc-1' }, { id: 'user-1', channelId: null, guild });
+    expect(player.pause).toHaveBeenCalledTimes(1);
+    expect(store.pausedByEmptyChannel).toBe(true);
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(player.destroy).toHaveBeenCalledWith('Voice channel empty');
+  });
+
+  it('resumes and clears the leave timer when a human returns', async () => {
+    const { store, player, humans, guild, voiceHandler } = makeVoice();
+    humans.size = 0;
+    voiceHandler!({ channelId: 'vc-1' }, { id: 'user-1', channelId: null, guild });
+    humans.size = 1;
+    player.paused = true;
+    voiceHandler!({ channelId: null }, { id: 'user-2', channelId: 'vc-1', guild });
+    expect(player.resume).toHaveBeenCalledTimes(1);
+    expect(store.pausedByEmptyChannel).toBe(false);
+    await vi.advanceTimersByTimeAsync(130000);
+    expect(player.destroy).not.toHaveBeenCalled();
+  });
+
+  it('24/7 mode never pauses and never arms the leave timer', async () => {
+    const { player, humans, guild, is247, voiceHandler } = makeVoice();
+    is247.mockReturnValue(true);
+    humans.size = 0;
+    voiceHandler!({ channelId: 'vc-1' }, { id: 'user-1', channelId: null, guild });
+    expect(player.pause).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(130000);
+    expect(player.destroy).not.toHaveBeenCalled();
+  });
+
+  it('bot kick arms a 3-min grace; rejoin within grace resumes at the saved position', async () => {
+    const { player, guild, voiceHandler } = makeVoice();
+    voiceHandler!({ channelId: 'vc-1' }, { id: 'bot-1', channelId: null, guild });
+    expect(player.disconnect).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(0);
+    voiceHandler!({ channelId: null }, { id: 'bot-1', channelId: 'vc-1', guild });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(player.connect).toHaveBeenCalledTimes(1);
+    expect(player.resume).toHaveBeenCalledTimes(1);
+    expect(player.seek).toHaveBeenCalledWith(42000);
+    await vi.advanceTimersByTimeAsync(200000);
+    expect(player.destroy).not.toHaveBeenCalled();
+  });
+
+  it('kick grace expiry destroys the player', async () => {
+    const { player, guild, voiceHandler } = makeVoice();
+    voiceHandler!({ channelId: 'vc-1' }, { id: 'bot-1', channelId: null, guild });
+    await vi.advanceTimersByTimeAsync(180000);
+    expect(player.destroy).toHaveBeenCalledWith('Rejoin grace expired after disconnect');
+  });
+
+  it('deleting the voice channel destroys the player; deleting the text channel detaches the updater', () => {
+    const { player, guild, channelDeleteHandler } = makeVoice();
+    channelDeleteHandler!({ id: 'vc-1', guild });
+    expect(player.destroy).toHaveBeenCalledWith('Voice channel deleted');
+    channelDeleteHandler!({ id: 'tc-1', guild });
+    expect(player.setTextChannelId).toHaveBeenCalledWith('');
   });
 });
 
