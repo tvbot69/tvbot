@@ -132,13 +132,14 @@ export class MusicHandler {
       const rec = track as unknown as { sourceName?: string; identifier?: string } | null;
       const id = getSourceVideoId(rec);
       if (!id) return;
+      const probeStartedAt = Date.now();
       void (async () => {
         try {
           const chapters = await getVideoChapters(id);
           if (chapters && chapters.length >= 2) {
             player.set('chapters', chapters);
             Logger.info(
-              { guildId: player.guildId, chapters: chapters.length },
+              { guildId: player.guildId, chapters: chapters.length, probeMs: Date.now() - probeStartedAt },
               '[Music] Video chapters attached',
             );
             this.prefetchChapterArts(player, chapters, [0, 1, 2]);
@@ -247,10 +248,15 @@ export class MusicHandler {
       }
       const svc = this.artworkService;
       if (!svc) return;
+      const artStartedAt = Date.now();
       const art = await Promise.race([
         svc.getTrackCoverUrl(song, useArtist).catch(() => null),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
       ]);
+      Logger.info(
+        { guildId: player.guildId, idx, song, artMs: Date.now() - artStartedAt, ok: Boolean(art) },
+        '[Music] Chapter art',
+      );
       if (!art) return;
       // Only publish if the listener hasn't moved on meanwhile.
       if ((player.get<number>('chapterIdx') ?? -2) !== idx) return;
@@ -376,6 +382,7 @@ export class MusicHandler {
       ].join('|');
       if (this.progressFingerprints.get(guildId) === fingerprint) return;
 
+      const publishStartedAt = Date.now();
       const channel =
         this.client.channels.cache.get(player.textChannelId) ??
         (await this.client.channels.fetch(player.textChannelId).catch(() => null));
@@ -403,11 +410,18 @@ export class MusicHandler {
       const accentColor = this.colorService
         ? await this.colorService.getAccentColorAsync(player.guildId, shownCover ?? queue.current?.artworkUrl)
         : undefined;
+      const accentMs = Date.now() - publishStartedAt;
       const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, displayChapter);
 
       await msg
         .edit(response.toMessagePayload() as unknown as Record<string, unknown>)
-        .then(() => this.progressFingerprints.set(guildId, fingerprint))
+        .then(() => {
+          this.progressFingerprints.set(guildId, fingerprint);
+          Logger.info(
+            { guildId, publishMs: Date.now() - publishStartedAt, accentMs, chapter: Boolean(displayChapter) },
+            '[Music] Card published',
+          );
+        })
         .catch(() => undefined);
     } catch {
       // Silently skip if rate limited or network hiccup
