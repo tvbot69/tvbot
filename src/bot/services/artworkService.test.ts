@@ -367,3 +367,142 @@ describe('topic-channel artists (Drake - Topic class)', () => {
     }
   });
 });
+
+describe('cascade resilience (single-flight, DB containment, outage gate)', () => {
+  const memCache = () => {
+    const store = new Map<string, unknown>();
+    return {
+      store,
+      get: async (k: string) => (store.has(k) ? store.get(k) : null),
+      set: async (k: string, v: unknown) => {
+        store.set(k, v);
+      },
+    };
+  };
+
+  interface HarnessOpts {
+    spotifyTracks?: () => Promise<any[]>;
+    spotifyAlbums?: () => Promise<any[]>;
+    spotifyArtists?: () => Promise<any[]>;
+    lastFmTrackInfo?: () => Promise<any>;
+    lastFmAlbumInfo?: () => Promise<any>;
+    getArtistByName?: () => Promise<any>;
+    tracker?: { isElevated: () => boolean };
+  }
+
+  const makeResilient = (opts: HarnessOpts = {}) => {
+    const cache = memCache();
+    const calls = { spotifyTracks: 0 };
+    const service = new ArtworkService(
+      {
+        searchTracks: async (..._a: unknown[]) => {
+          calls.spotifyTracks++;
+          return opts.spotifyTracks ? opts.spotifyTracks() : [];
+        },
+        searchAlbums: async () => (opts.spotifyAlbums ? opts.spotifyAlbums() : []),
+        searchArtists: async () => (opts.spotifyArtists ? opts.spotifyArtists() : []),
+      } as never,
+      { searchTracks: async () => [], searchAlbums: async () => [], searchArtists: async () => [] } as never,
+      { searchSongs: async () => [], searchAlbums: async () => [], searchArtists: async () => [] } as never,
+      { searchSongs: async () => [], searchAlbums: async () => [], searchArtists: async () => [] } as never,
+      {
+        getArtistByName: opts.getArtistByName ?? (async () => null),
+        getOrCreateArtist: async () => ({ artistId: 1 }),
+        setSpotifyImage: async () => undefined,
+        setDeezerImage: async () => undefined,
+        setAppleMusicUrl: async () => undefined,
+      } as never,
+      { getAlbumByNameAndArtist: async () => null, setSpotifyImage: async () => undefined, setDeezerImage: async () => undefined, setImageUrl: async () => undefined } as never,
+      { getTrackByNameAndArtist: async () => null, setSpotifyImage: async () => undefined, setImageUrl: async () => undefined } as never,
+      {
+        getTrackInfo: opts.lastFmTrackInfo ?? (async () => null),
+        getAlbumInfo: opts.lastFmAlbumInfo ?? (async () => null),
+        getArtistInfo: async () => null,
+      } as never,
+      cache as never,
+      opts.tracker as never,
+    );
+    return { service, cache, calls };
+  };
+
+  beforeEach(() => {
+    SpotifySearchApi.clearRateLimit();
+  });
+
+  it('shares one cascade between concurrent lookups of the same track', async () => {
+    let resolveSpotify!: (v: any[]) => void;
+    const gate = new Promise<any[]>((resolve) => {
+      resolveSpotify = resolve;
+    });
+    const { service, calls } = makeResilient({ spotifyTracks: () => gate });
+    const p1 = service.getTrackCoverUrl('Esme', 'Mond');
+    const p2 = service.getTrackCoverUrl('Esme', 'Mond');
+    resolveSpotify([
+      { artists: [{ name: 'Mond' }], name: 'Esme', album: { images: [{ url: 'https://img.test/hit.jpg' }] } },
+    ]);
+    await expect(p1).resolves.toBe('https://img.test/hit.jpg');
+    await expect(p2).resolves.toBe('https://img.test/hit.jpg');
+    expect(calls.spotifyTracks).toBe(1);
+  });
+
+  it('a lookup joining a shared album cascade never caches a definitive none', async () => {
+    let resolveAlbums!: (v: any[]) => void;
+    const gate = new Promise<any[]>((resolve) => {
+      resolveAlbums = resolve;
+    });
+    const { service, cache } = makeResilient({
+      lastFmTrackInfo: async () => ({ albumName: 'Homework' }),
+      spotifyAlbums: () => gate,
+    });
+    const p1 = service.getTrackCoverUrl('Esme', 'Mond');
+    const p2 = service.getTrackCoverUrl('Around The World', 'Mond');
+    resolveAlbums([]);
+    await expect(p1).resolves.toBeNull();
+    await expect(p2).resolves.toBeNull();
+    // First run concluded definitively (the album sweep answered no)…
+    expect(cache.store.get('art:album:mond|homework')).toBe('none');
+    expect(cache.store.get('art:track:mond|esme')).toBe('none');
+    // …but the second track joined the in-flight album cascade — inconclusive.
+    expect(cache.store.get('art:track:mond|around the world')).toBeUndefined();
+  });
+
+  it('contains DB probe failures instead of rejecting the cascade', async () => {
+    const { service } = makeResilient({
+      getArtistByName: async () => {
+        throw new Error('db down');
+      },
+      spotifyAlbums: async () => [
+        { artists: [{ name: 'Daft Punk' }], images: [{ url: 'https://img.test/album.jpg', height: 640 }] },
+      ],
+    });
+    await expect(service.getAlbumCoverUrl('Homework', 'Daft Punk')).resolves.toBe('https://img.test/album.jpg');
+
+    const { service: artistSvc } = makeResilient({
+      getArtistByName: async () => {
+        throw new Error('db down');
+      },
+      spotifyArtists: async () => [
+        { name: 'Kanye West', images: [{ url: 'https://img.test/kanye.jpg', height: 640 }] },
+      ],
+    });
+    await expect(artistSvc.getArtistImageUrl('Kanye West')).resolves.toBe('https://img.test/kanye.jpg');
+  });
+
+  it('does not negative-cache ambiguous Last.fm nulls during an outage', async () => {
+    const { service, cache, calls } = makeResilient({ tracker: { isElevated: () => true } });
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    expect(cache.store.get('art:track:mond|esme')).toBeUndefined();
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    // 2 spotify calls per cascade — the second lookup retried instead of
+    // being served a poisoned 'none'.
+    expect(calls.spotifyTracks).toBe(4);
+  });
+
+  it('still caches definitive misses when Last.fm is healthy', async () => {
+    const { service, cache, calls } = makeResilient({ tracker: { isElevated: () => false } });
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    expect(cache.store.get('art:track:mond|esme')).toBe('none');
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    expect(calls.spotifyTracks).toBe(2);
+  });
+});

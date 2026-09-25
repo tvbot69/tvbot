@@ -348,6 +348,7 @@ export const configureContainer = (): void => {
     trackRepository,
     lastFmRepository,
     cache,
+    errorRateTracker,
   );
   const albumEnrichmentService = new AlbumEnrichmentService(
     spotifySearchApi,

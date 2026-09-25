@@ -13,6 +13,7 @@ import {
 } from '@applemusic/apis/appleMusicSearchApi';
 import { AppleMusicWebApi } from '@applemusic/apis/appleMusicWebApi';
 import { Logger } from '@domain/logger';
+import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 
 const MEMORY_CACHE_TTL_SECONDS = 3600;
 /** Negative cache for DEFINITIVE misses (every provider answered no).
@@ -132,6 +133,14 @@ export class ArtworkService {
   private readonly trackRepository: ITrackRepository;
   private readonly lastfmRepository: ILastfmRepository;
   private readonly cache: CacheService;
+  /** Shared outage signal — gates negative caching of ambiguous Last.fm nulls. */
+  private readonly lastFmErrorTracker?: LastfmErrorRateTracker;
+  /**
+   * In-flight cascade dedupe: the now-playing card, chapter art, JIT top-ups
+   * and commands can ask for the same cover within milliseconds — they share
+   * one provider sweep instead of stampeding the APIs N times.
+   */
+  private readonly inFlight = new Map<string, Promise<string | null>>();
 
   constructor(
     spotifyApi: SpotifySearchApi,
@@ -143,6 +152,7 @@ export class ArtworkService {
     trackRepository: ITrackRepository,
     lastfmRepository: ILastfmRepository,
     cache: CacheService,
+    lastFmErrorTracker?: LastfmErrorRateTracker,
   ) {
     this.spotifyApi = spotifyApi;
     this.deezerApi = deezerApi;
@@ -153,6 +163,31 @@ export class ArtworkService {
     this.trackRepository = trackRepository;
     this.lastfmRepository = lastfmRepository;
     this.cache = cache;
+    this.lastFmErrorTracker = lastFmErrorTracker;
+  }
+
+  /**
+   * The Last.fm repo swallows transport failures into null — indistinguishable
+   * from "provider has no such entity". While Last.fm is erroring hard (shared
+   * rate tracker), that null is an outage symptom and must not count as a
+   * definitive miss; otherwise one blip poisons the 10-min negative cache.
+   */
+  private isLastFmUnhealthy(): boolean {
+    try {
+      return this.lastFmErrorTracker?.isElevated() ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  private joinFlight(flightKey: string, run: () => Promise<string | null>): Promise<string | null> {
+    const existing = this.inFlight.get(flightKey);
+    if (existing) return existing;
+    const flight = run().finally(() => {
+      this.inFlight.delete(flightKey);
+    });
+    this.inFlight.set(flightKey, flight);
+    return flight;
   }
 
   public async getAlbumCoverUrl(
@@ -162,6 +197,22 @@ export class ArtworkService {
   ): Promise<string | null> {
     if (!albumName || !artistName) return null;
     const cleanAlbum = sanitizeMusicName(albumName);
+    const flightKey = `flight:album:${artistName.toLowerCase()}|${cleanAlbum.toLowerCase()}`;
+    const existingFlight = this.inFlight.get(flightKey);
+    if (existingFlight) {
+      // Joining another caller's cascade — its outcome is opaque here, so the
+      // outer gate must treat a null as inconclusive, never a definitive miss.
+      outerAttempts?.push({ source: 'album-inner:shared' });
+      return existingFlight;
+    }
+    return this.joinFlight(flightKey, () => this.resolveAlbumCover(cleanAlbum, artistName, outerAttempts));
+  }
+
+  private async resolveAlbumCover(
+    cleanAlbum: string,
+    artistName: string,
+    outerAttempts?: ProviderAttempt[],
+  ): Promise<string | null> {
     const key = `art:album:${artistName.toLowerCase()}|${cleanAlbum.toLowerCase()}`;
 
     const cached = await this.cache.get<string>(key);
@@ -312,12 +363,21 @@ export class ArtworkService {
     }
 
     if (!result) {
+      let answered = false;
       try {
         const info = await this.lastfmRepository.getAlbumInfo(artistName, cleanAlbum);
         const lfmUrl = info?.imageUrl ?? null;
-        if (isValidImageUrl(lfmUrl)) result = lfmUrl;
+        if (isValidImageUrl(lfmUrl)) {
+          result = lfmUrl;
+          answered = true;
+        }
       } catch {
         attempts.push({ source: 'lastfm' });
+        answered = true;
+      }
+      if (!answered && this.isLastFmUnhealthy()) {
+        // Ambiguous null during a hard outage — inconclusive, not definitive.
+        attempts.push({ source: 'lastfm:outage' });
       }
     }
 
@@ -343,7 +403,11 @@ export class ArtworkService {
 
   public async getArtistImageUrl(artistName?: string, sampleTrack?: string): Promise<string | null> {
     if (!artistName) return null;
+    const flightKey = `flight:artist:${artistName.toLowerCase()}:${sampleTrack?.toLowerCase().trim() ?? ''}`;
+    return this.joinFlight(flightKey, () => this.resolveArtistImage(artistName, sampleTrack));
+  }
 
+  private async resolveArtistImage(artistName: string, sampleTrack?: string): Promise<string | null> {
     // Track-anchored resolution: when the caller's own scrobble (Artist + Track) is
     // known, pin the exact Spotify artist entity instead of trusting a bare
     // name search (which returns the globally-most-popular same-name artist).
@@ -383,9 +447,13 @@ export class ArtworkService {
     // Hotfix for Jordana — Deezer/Spotify search conflates with Jordana Bryant; force correct Spotify image
     if (artistName.toLowerCase().trim() === 'jordana') {
       const correct = 'https://i.scdn.co/image/ab6761610000e5eb856b7f7308eff9c24c17cb88';
-      const existing = await this.artistRepository.getArtistByName(artistName);
-      if (existing && existing.spotifyImageUrl !== correct) {
-        await this.artistRepository.setSpotifyImage(existing.artistId, correct, new Date()).catch(() => undefined);
+      try {
+        const existing = await this.artistRepository.getArtistByName(artistName);
+        if (existing && existing.spotifyImageUrl !== correct) {
+          await this.artistRepository.setSpotifyImage(existing.artistId, correct, new Date()).catch(() => undefined);
+        }
+      } catch (err) {
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: DB probe failed (jordana hotfix)');
       }
       await this.cache.set(key, correct, MEMORY_CACHE_TTL_SECONDS);
       return correct;
@@ -401,7 +469,12 @@ export class ArtworkService {
     let result: string | null = null;
     const attempts: ProviderAttempt[] = [];
 
-    const existing = await this.artistRepository.getArtistByName(artistName);
+    let existing: Awaited<ReturnType<IArtistRepository['getArtistByName']>> | null = null;
+    try {
+      existing = await this.artistRepository.getArtistByName(artistName);
+    } catch (err) {
+      Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: DB probe failed — treating as cache miss');
+    }
     if (existing?.spotifyImageUrl && this.isFresh(existing.spotifyImageDate) && isValidImageUrl(existing.spotifyImageUrl)) {
       await this.cache.set(key, existing.spotifyImageUrl, MEMORY_CACHE_TTL_SECONDS);
       return existing.spotifyImageUrl;
@@ -511,8 +584,10 @@ export class ArtworkService {
     }
 
     if (!result) {
+      let answered = false;
       try {
         const info = await this.lastfmRepository.getArtistInfo(artistName);
+        answered = info !== null;
         if (info?.name && info.name.toLowerCase() !== artistName.toLowerCase()) {
           // Last.fm redirected to canonical name (e.g. "Travi$ Scott" -> "Travis Scott")
           const resolvedCanonical = await this.getArtistImageUrl(info.name);
@@ -530,6 +605,11 @@ export class ArtworkService {
         }
       } catch {
         attempts.push({ source: 'lastfm' });
+        answered = true;
+      }
+      if (!answered && this.isLastFmUnhealthy()) {
+        // Ambiguous null during a hard outage — inconclusive, not definitive.
+        attempts.push({ source: 'lastfm:outage' });
       }
     }
 
@@ -546,6 +626,16 @@ export class ArtworkService {
     if (!trackName || !artistName) return null;
     const cleanTrack = sanitizeMusicName(trackName);
     const cleanArtist = stripChannelSuffix(artistName) || artistName.trim();
+    const flightKey = `flight:track:${cleanArtist.toLowerCase()}|${cleanTrack.toLowerCase()}`;
+    return this.joinFlight(flightKey, () => this.resolveTrackCover(cleanTrack, cleanArtist, trackName, artistName));
+  }
+
+  private async resolveTrackCover(
+    cleanTrack: string,
+    cleanArtist: string,
+    trackName: string,
+    artistName: string,
+  ): Promise<string | null> {
     const key = `art:track:${cleanArtist.toLowerCase()}|${cleanTrack.toLowerCase()}`;
 
     const cached = await this.cache.get<string>(key);
@@ -646,14 +736,21 @@ export class ArtworkService {
     }
 
     if (!result) {
+      let answered = false;
       try {
         const info = await this.lastfmRepository.getTrackInfo(trackName, cleanArtist);
         if (info?.albumName) {
+          answered = true;
           result = await this.getAlbumCoverUrl(info.albumName, cleanArtist, attempts);
         }
       } catch (err) {
         attempts.push({ source: 'lastfm' });
+        answered = true;
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: lastfm miss');
+      }
+      if (!answered && this.isLastFmUnhealthy()) {
+        // Ambiguous null during a hard outage — inconclusive, not definitive.
+        attempts.push({ source: 'lastfm:outage' });
       }
     }
 
@@ -674,6 +771,10 @@ export class ArtworkService {
    */
   async getTrackCoverBySpotifyId(id: string): Promise<string | null> {
     if (!/^[\w-]{22}$/.test(id)) return null;
+    return this.joinFlight(`flight:spid:${id}`, () => this.resolveTrackCoverBySpotifyId(id));
+  }
+
+  private async resolveTrackCoverBySpotifyId(id: string): Promise<string | null> {
     const key = `art:spid:${id}`;
     const hit = await this.cache.get<string>(key);
     if (hit) return hit === 'none' ? null : hit;
@@ -700,10 +801,16 @@ export class ArtworkService {
   }
 
   private async findExistingAlbumRow(albumName: string, artistName: string) {
-    const artist = await this.artistRepository.getArtistByName(artistName);
-    if (!artist) {
+    // A DB hiccup must degrade to a cache miss, never reject the cascade.
+    try {
+      const artist = await this.artistRepository.getArtistByName(artistName);
+      if (!artist) {
+        return null;
+      }
+      return await this.albumRepository.getAlbumByNameAndArtist(albumName, artist.artistId);
+    } catch (err) {
+      Logger.debug({ err: String(err).slice(0, 80) }, 'Artwork DB probe failed (album row) — treating as cache miss');
       return null;
     }
-    return this.albumRepository.getAlbumByNameAndArtist(albumName, artist.artistId);
   }
 }
