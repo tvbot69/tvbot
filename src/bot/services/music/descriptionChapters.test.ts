@@ -50,6 +50,50 @@ describe('parseTimestampLines', () => {
   it('ignores prose that merely mentions a time', () => {
     expect(parseTimestampLines('doors open at 17:00 sharp\nout now everywhere')).toEqual([]);
   });
+
+  it('parses title-first lines ("INTRO - 00:00") used by live/DJ descriptions', () => {
+    expect(
+      parseTimestampLines(
+        [
+          'TRAVIS SCOTT LIVE - THE TOWN FESTIVAL 2025 (FULL SET)',
+          '',
+          'TIMESTAMPS:',
+          '',
+          'INTRO - 00:00',
+          'CHAMPAIN & VACAY - 00:20',
+          'UPPER ECHELON - 21:52 ',
+          'FE!N (X2) - 43:00',
+          'TELEKINESIS - 51:34',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      { title: 'INTRO', startMs: 0 },
+      { title: 'CHAMPAIN & VACAY', startMs: 20_000 },
+      { title: 'UPPER ECHELON', startMs: 1_312_000 },
+      { title: 'FE!N (X2)', startMs: 2_580_000 },
+      { title: 'TELEKINESIS', startMs: 3_094_000 },
+    ]);
+  });
+
+  it('keeps full titles containing dashes and accepts dash variants and pipes', () => {
+    expect(parseTimestampLines('A - B - 1:00\nC | 2:30\nD – 3:00')).toEqual([
+      { title: 'A - B', startMs: 60_000 },
+      { title: 'C', startMs: 150_000 },
+      { title: 'D', startMs: 180_000 },
+    ]);
+  });
+
+  it('parses mixed leading and trailing formats in one description', () => {
+    expect(parseTimestampLines('0:00 - Opener\nMid - 5:00\n1:02:03 - Closer')).toEqual([
+      { title: 'Opener', startMs: 0 },
+      { title: 'Mid', startMs: 300_000 },
+      { title: 'Closer', startMs: 3_723_000 },
+    ]);
+  });
+
+  it('does not treat colon-prose or trailing-text lines as chapters', () => {
+    expect(parseTimestampLines('Premiere: 21:00\nupdated - see pinned comment\nSet: 1:30 (live)')).toEqual([]);
+  });
 });
 
 describe('fetchDescriptionChapters', () => {

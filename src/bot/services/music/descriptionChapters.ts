@@ -23,18 +23,27 @@ const inflight = new Map<string, Promise<VideoChapterDto[] | null>>();
 // bullets/brackets) so prose like "doors at 17:00" never matches.
 const TIMESTAMP_LINE = /^[\s>•·\-–—*(\[]*(\d{1,2}:\d{2}(?::\d{2})?)[.)\]]*\s*[-–—:|]?\s*(\S.*)?$/;
 
+// Title-first variant ("INTRO - 00:00"), the dominant style in live/DJ set
+// descriptions. Timestamp must END the line behind a dash/pipe separator, so
+// prose like "doors open at 17:00" or "Premiere: 21:00" (colon) never matches.
+// Greedy title keeps full names on "A - B - 1:00".
+const TRAILING_TIMESTAMP_LINE = /^(\S.{0,199})\s*[-–—|]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*[.)\]]*\s*$/;
+
 export const parseTimestampLines = (description: string): VideoChapterDto[] => {
   const out: VideoChapterDto[] = [];
   for (const line of description.split('\n')) {
-    const m = TIMESTAMP_LINE.exec(line);
+    const leading = TIMESTAMP_LINE.exec(line);
+    const trailing = leading ? null : TRAILING_TIMESTAMP_LINE.exec(line);
+    const m = leading ?? trailing;
     if (!m) continue;
-    const parts = (m[1] as string).split(':').map(Number);
+    const raw = String(leading ? m[1] : m[2]);
+    const parts = raw.split(':').map(Number);
     const seconds =
       parts.length === 3
         ? (parts[0] as number) * 3600 + (parts[1] as number) * 60 + (parts[2] as number)
         : (parts[0] as number) * 60 + (parts[1] as number);
     if (!Number.isFinite(seconds) || seconds < 0) continue;
-    const title = m[2]?.trim().slice(0, 200) || `Chapter ${out.length + 1}`;
+    const title = String((leading ? m[2] : m[1]) ?? '').trim().slice(0, 200) || `Chapter ${out.length + 1}`;
     out.push({ title, startMs: seconds * 1000 });
   }
   return out.sort((a, b) => a.startMs - b.startMs);
