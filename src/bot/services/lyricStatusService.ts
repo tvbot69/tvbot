@@ -153,6 +153,19 @@ export class LyricStatusService {
       return false;
     }
 
+    // Never stomp the Spotify-style music presence while a track is showing.
+    try {
+      const activities = this.client.user?.presence?.activities as
+        | { name?: string; type?: number }[]
+        | undefined;
+      if (activities?.some((a) => a?.name === 'Spotify' && a?.type === ActivityType.Listening)) {
+        Logger.debug('[LyricStatus] Skipping rotation, music presence is active');
+        return false;
+      }
+    } catch {
+      // Presence unreadable — proceed as before.
+    }
+
     try {
       const candidates = await this.getCandidateTracks();
       if (candidates.length === 0) {

@@ -106,6 +106,7 @@ import { SpotifyScraperService } from './services/music/spotifyScraperService';
 import { PlaylistChunkManager } from './services/music/playlistChunkManager';
 import { QueueService } from './services/music/queueService';
 import { MusicService } from './services/music/musicService';
+import { BotListeningPresenceService } from './services/music/botListeningPresenceService';
 import { LyricsService } from './services/music/lyricsService';
 import { VoiceChannelStatusService } from './services/music/voiceChannelStatusService';
 import { MusicHandler } from './handlers/musicHandler';
@@ -599,7 +600,8 @@ export const configureContainer = (): void => {
   const playlistChunkManager = new PlaylistChunkManager(moonlinkManager, spotifyScraperService);
   const musicService = new MusicService(moonlinkManager, spotifyResolver, queueService, playlistChunkManager, artworkService);
   const voiceChannelStatusService = new VoiceChannelStatusService(client);
-  const musicInteractions = new MusicInteractions(musicService, colorService);
+  const listeningPresenceService = new BotListeningPresenceService(client);
+  const musicInteractions = new MusicInteractions(musicService, colorService, undefined, listeningPresenceService);
   const musicCommands = new MusicCommands(musicService, colorService, lyricsService, musicInteractions);
   const musicSlashCommands = new MusicSlashCommands(musicService, colorService, lyricsService, musicInteractions);
 
@@ -608,6 +610,7 @@ export const configureContainer = (): void => {
   container.registerInstance(SpotifyResolver, spotifyResolver);
   container.registerInstance(QueueService, queueService);
   container.registerInstance(MusicService, musicService);
+  container.registerInstance(BotListeningPresenceService, listeningPresenceService);
   container.registerInstance(LyricsService, lyricsService);
   container.registerInstance(VoiceChannelStatusService, voiceChannelStatusService);
   container.registerInstance(MusicInteractions, musicInteractions);
@@ -955,6 +958,7 @@ export const configureContainer = (): void => {
     botScrobblingService,
     lyricsService,
     artworkService,
+    listeningPresenceService,
   );
   container.registerInstance(MusicHandler, musicHandler);
 
