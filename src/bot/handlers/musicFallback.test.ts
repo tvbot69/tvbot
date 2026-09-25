@@ -1559,6 +1559,46 @@ describe('seek chapter swap (instant card on seek)', () => {
     await vi.advanceTimersByTimeAsync(400);
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('seek into a generic-titled chapter clears the card and skips art work', async () => {
+    const { handler, getTrackCoverUrl, onSeek } = makeSeekHandler(async () => 'https://img.test/x.jpg');
+    const store: Record<string, unknown> = {
+      chapters: [{ title: 'Intro', startMs: 0 }, ...SHOW.slice(1)],
+      chapterIdx: 1,
+      chapterCard: { title: '4 Raws', artworkUrl: 'https://img.test/have.jpg' },
+    };
+    const player = mockPlayer(store);
+    const spy = vi.spyOn(handler, 'publishProgress').mockResolvedValue(undefined);
+
+    onSeek!(player, 50000);
+
+    expect(store.chapterIdx).toBe(0);
+    expect(store.chapterCard).toBeNull();
+    const songs = getTrackCoverUrl.mock.calls.map((c) => c[0]);
+    expect(songs).not.toContain('Intro');
+    expect(songs).toContain('Century');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('backward seek swaps back to the earlier chapter and warms its neighbors', async () => {
+    const { handler, getTrackCoverUrl, onSeek } = makeSeekHandler(async () => 'https://img.test/x.jpg');
+    const store: Record<string, unknown> = {
+      chapters: SHOW,
+      chapterIdx: 2,
+      chapterCard: { title: 'Century', artworkUrl: 'https://img.test/have.jpg' },
+    };
+    const player = mockPlayer(store);
+
+    onSeek!(player, 60000);
+
+    expect(store.chapterIdx).toBe(0);
+    expect(store.chapterCard).toMatchObject({ title: 'Rottweiler', artworkUrl: null });
+    await vi.advanceTimersByTimeAsync(0);
+    const songs = getTrackCoverUrl.mock.calls.map((c) => c[0]);
+    expect(songs).toContain('Rottweiler');
+    expect(songs).toContain('4 Raws');
+  });
 });
 
 describe('direct SoundCloud URL plays + transport reporting', () => {
