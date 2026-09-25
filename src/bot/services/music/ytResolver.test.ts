@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { resolveViaHome, resolverEnabled, resolverMissed } from './ytResolver';
+import { resolveViaHome, resolverEnabled, resolverMissed, squareVideoThumbUrl } from './ytResolver';
 
 const SAVED_URL = process.env.HOME_RESOLVER_URL;
 const SAVED_TOKEN = process.env.HOME_RESOLVER_TOKEN;
@@ -270,5 +270,35 @@ describe('resolver breakage alerts', () => {
     await mod.resolveViaHome('pauseC0');
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatch(/unreachable 3\+ times/);
+  });
+});
+
+describe('squareVideoThumbUrl', () => {
+  afterEach(() => {
+    setEnv(SAVED_URL, SAVED_TOKEN);
+  });
+
+  it('maps any ytimg variant to the resolver thumb crop', async () => {
+    setEnv('http://127.0.0.1:2335/', 'tok');
+    // Fresh module: earlier unreachable-pause tests leave the shared
+    // instance inside a 2-minute pause (resolverEnabled() false).
+    vi.resetModules();
+    const { squareVideoThumbUrl: fresh } = await import('./ytResolver');
+    expect(fresh('https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg')).toBe(
+      'http://127.0.0.1:2335/thumb?id=abcdefghijk',
+    );
+    expect(fresh('https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg')).toBe(
+      'http://127.0.0.1:2335/thumb?id=abcdefghijk',
+    );
+    expect(fresh('https://i.ytimg.com/vi_webp/abcdefghijk/mqdefault.webp')).toBe(
+      'http://127.0.0.1:2335/thumb?id=abcdefghijk',
+    );
+  });
+
+  it('passes non-video art and unconfigured resolvers through as null', () => {
+    expect(squareVideoThumbUrl('https://i.scdn.co/image/ab67616d0000b273')).toBeNull();
+    expect(squareVideoThumbUrl(null)).toBeNull();
+    setEnv(undefined, undefined);
+    expect(squareVideoThumbUrl('https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg')).toBeNull();
   });
 });

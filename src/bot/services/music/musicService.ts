@@ -8,7 +8,7 @@ import { SpotifyResolver, type SpotifyResolvedTrack } from './spotifyResolver';
 import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
-import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
+import { resolveViaHome, resolverEnabled, squareVideoThumbUrl, type ResolverMeta } from './ytResolver';
 import { extractArtistFromTitle, isLiveVideo } from './videoChapters';
 import type { ArtworkService } from '@bot/services/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
@@ -466,7 +466,10 @@ export class MusicService {
   public static preCleanArtwork(track: { artworkUrl?: string | null }, artworkUrl?: string | null): void {
     const rec = track as unknown as Record<string, unknown>;
     if (typeof rec._videoThumb !== 'string' && typeof track.artworkUrl === 'string' && track.artworkUrl) {
-      rec._videoThumb = track.artworkUrl;
+      // Square rug crop when the resolver is up — long-form paints this
+      // stash directly (isLiveVideo fast path), so the card gets 640x640
+      // instead of hqdefault's baked black bars / maxres's wide shape.
+      rec._videoThumb = squareVideoThumbUrl(track.artworkUrl) ?? track.artworkUrl;
     }
     if (artworkUrl) track.artworkUrl = artworkUrl;
     else if (MusicService.isYoutubeThumb(track.artworkUrl)) track.artworkUrl = null;
