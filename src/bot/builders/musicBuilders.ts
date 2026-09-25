@@ -507,15 +507,13 @@ export class MusicBuilders {
   }
 
   /**
-   * Builds the formatted lyrics embed with pagination support.
+   * Builds the formatted lyrics embed.
    */
   public static buildLyricsResponse(
     title: string,
     artist: string,
     lyrics: string,
     accentColor?: number,
-    page: number = 1,
-    totalPages: number = 1,
   ): ResponseModel {
     const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
@@ -523,28 +521,7 @@ export class MusicBuilders {
     response.embed
       .setTitle(`📜 Lyrics: ${title}`)
       .setDescription(`**Artist:** ${artist}\n\n${lyrics}`)
-      .setFooter({ text: `Page ${page}/${totalPages} • Powered by LRCLIB` });
-
-    if (totalPages > 1) {
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`music:lyrics:page:${page - 1}`)
-          .setLabel('◀️ Prev')
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(page <= 1),
-        new ButtonBuilder()
-          .setCustomId(`music:lyrics:curr:${page}`)
-          .setLabel(`${page}/${totalPages}`)
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(true),
-        new ButtonBuilder()
-          .setCustomId(`music:lyrics:page:${page + 1}`)
-          .setLabel('Next ▶️')
-          .setStyle(ButtonStyle.Primary)
-          .setDisabled(page >= totalPages),
-      );
-      response.addButtonRow(0, row as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
-    }
+      .setFooter({ text: 'Powered by LRCLIB' });
 
     return response;
   }

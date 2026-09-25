@@ -400,12 +400,19 @@ export class MusicHandler {
         }
       ).messages;
 
+      let unknownMessage = false;
       const msg = (msgManager.cache.get(msgId) ??
-        (await msgManager.fetch(msgId).catch(() => null))) as {
+        (await msgManager.fetch(msgId).catch((err: { code?: number }) => {
+          if (err?.code === 10008) unknownMessage = true;
+          return null;
+        }))) as {
         edit: (data: unknown) => Promise<unknown>;
       } | null;
 
-      if (!msg) return;
+      if (!msg) {
+        if (unknownMessage) this.forgetNowPlaying(player);
+        return;
+      }
 
       // Accent follows the DISPLAYED cover (chapter art when present),
       // not just top-level track art — long-form tracks pin track art
@@ -425,12 +432,21 @@ export class MusicHandler {
             '[Music] Card published',
           );
         })
-        .catch(() => undefined);
+        .catch((err: { code?: number }) => {
+          if (err?.code === 10008) this.forgetNowPlaying(player);
+        });
     } catch {
       // Silently skip if rate limited or network hiccup
     } finally {
       this.progressPublishing.delete(guildId);
     }
+  }
+
+  /** The card was deleted out-of-band (user or channel cleanup) — stop ticking on a dead message id. */
+  private forgetNowPlaying(player: Player): void {
+    player.set('nowPlayingMessageId', null);
+    this.progressFingerprints.delete(player.guildId);
+    Logger.debug({ guildId: player.guildId }, '[Music] Now-playing card gone — cleared card state');
   }
 
   /**
@@ -852,8 +868,6 @@ export class MusicHandler {
         );
       }
 
-      this.queueService.recordTrackStart(player.guildId, player.current ?? track);
-
       player.set('trackStartedAt', Date.now());
       player.set('seekStallRetried', false);
       if (player.current) {
@@ -861,25 +875,32 @@ export class MusicHandler {
         player.current.time = Date.now();
       }
 
-      // Update voice channel status to the song name
-      if (player.voiceChannelId && this.voiceChannelStatusService) {
-        void this.voiceChannelStatusService.setStatus(
-          player.voiceChannelId,
-          currentTrack.title,
-          currentTrack.author,
-        );
-      }
+      // Bookkeeping must never reject the listener (unhandled) or skip the card.
+      try {
+        this.queueService.recordTrackStart(player.guildId, player.current ?? track);
 
-      // Record voice track for bot scrobbling
-      if (player.voiceChannelId && this.botScrobblingService) {
-        this.botScrobblingService.recordTrackStart({
-          guildId: player.guildId,
-          voiceChannelId: player.voiceChannelId,
-          title: currentTrack.title,
-          artist: currentTrack.author,
-          durationMs: currentTrack.duration,
-          startedAt: Date.now(),
-        });
+        // Update voice channel status to the song name
+        if (player.voiceChannelId && this.voiceChannelStatusService) {
+          void this.voiceChannelStatusService.setStatus(
+            player.voiceChannelId,
+            currentTrack.title,
+            currentTrack.author,
+          );
+        }
+
+        // Record voice track for bot scrobbling
+        if (player.voiceChannelId && this.botScrobblingService) {
+          this.botScrobblingService.recordTrackStart({
+            guildId: player.guildId,
+            voiceChannelId: player.voiceChannelId,
+            title: currentTrack.title,
+            artist: currentTrack.author,
+            durationMs: currentTrack.duration,
+            startedAt: Date.now(),
+          });
+        }
+      } catch (err) {
+        Logger.warn({ err, guildId: player.guildId }, '[Music] trackStart bookkeeping failed');
       }
 
       // Auto-post interactive Now Playing controller card

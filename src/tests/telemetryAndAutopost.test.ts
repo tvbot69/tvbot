@@ -113,6 +113,8 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const mockInteraction = {
       customId: 'scrobble-ref:valid-ref:user-123',
       user: { id: 'user-123' },
+      deferReply: vi.fn().mockResolvedValue(undefined),
+      editReply: vi.fn().mockResolvedValue(undefined),
       reply: vi.fn().mockResolvedValue(undefined),
     } as unknown as ButtonInteraction;
 
@@ -125,8 +127,9 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
       expect.any(Number),
       'valid-session-key',
     );
-    expect(mockInteraction.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ ephemeral: true }),
+    expect(mockInteraction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(mockInteraction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ components: expect.any(Array) }),
     );
   });
 
@@ -134,6 +137,8 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const mockInteraction = {
       customId: `scrobble-now:${encodeURIComponent('Coldplay')}:${encodeURIComponent('Yellow')}:user-123`,
       user: { id: 'user-123' },
+      deferReply: vi.fn().mockResolvedValue(undefined),
+      editReply: vi.fn().mockResolvedValue(undefined),
       reply: vi.fn().mockResolvedValue(undefined),
     } as unknown as ButtonInteraction;
 
@@ -145,8 +150,9 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
       expect.any(Number),
       'valid-session-key',
     );
-    expect(mockInteraction.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ ephemeral: true }),
+    expect(mockInteraction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(mockInteraction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ components: expect.any(Array) }),
     );
   });
 
@@ -154,24 +160,29 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const loveInteraction = {
       customId: `love-track:${encodeURIComponent('Daft Punk')}:${encodeURIComponent('Get Lucky')}`,
       user: { id: 'user-123' },
+      deferReply: vi.fn().mockResolvedValue(undefined),
+      editReply: vi.fn().mockResolvedValue(undefined),
       reply: vi.fn().mockResolvedValue(undefined),
     } as unknown as ButtonInteraction;
 
     await interactions.handleLove(loveInteraction);
     expect(mockLastfmRepo.loveTrack).toHaveBeenCalledWith('Daft Punk', 'Get Lucky', 'valid-session-key');
-    expect(loveInteraction.reply).toHaveBeenCalledWith(
+    expect(loveInteraction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(loveInteraction.editReply).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining('❤️ Loved') }),
     );
 
     const unloveInteraction = {
       customId: `unlove-track:${encodeURIComponent('Daft Punk')}:${encodeURIComponent('Get Lucky')}`,
       user: { id: 'user-123' },
+      deferReply: vi.fn().mockResolvedValue(undefined),
+      editReply: vi.fn().mockResolvedValue(undefined),
       reply: vi.fn().mockResolvedValue(undefined),
     } as unknown as ButtonInteraction;
 
     await interactions.handleLove(unloveInteraction);
     expect(mockLastfmRepo.unloveTrack).toHaveBeenCalledWith('Daft Punk', 'Get Lucky', 'valid-session-key');
-    expect(unloveInteraction.reply).toHaveBeenCalledWith(
+    expect(unloveInteraction.editReply).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining('💔 Unloved') }),
     );
   });

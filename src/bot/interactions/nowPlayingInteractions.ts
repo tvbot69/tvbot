@@ -21,20 +21,21 @@ export class NowPlayingInteractions {
    */
   public async handleScrobble(interaction: ButtonInteraction): Promise<void> {
     const customId = interaction.customId;
+    // Ack before any DB work — past 2.5s the global ack guard defers and a
+    // late reply() throws, leaving the press answerless.
+    await interaction.deferReply({ ephemeral: true });
     const user = await this.userRepository.getUserByDiscordUserId(interaction.user.id);
 
     if (!user || !user.userNameLastFm) {
-      await interaction.reply({
+      await interaction.editReply({
         content: '❌ You must link your Last.fm account before you can scrobble. Use `/login` or `.register <username>`.',
-        ephemeral: true,
       });
       return;
     }
 
     if (!user.sessionKey) {
-      await interaction.reply({
+      await interaction.editReply({
         content: '❌ Your Last.fm session key is missing. Please log in using `/login` to authorize scrobbling.',
-        ephemeral: true,
       });
       return;
     }
@@ -46,9 +47,8 @@ export class NowPlayingInteractions {
       const refToken = customId.replace('scrobble-ref:', '').split(':')[0]!;
       const ref = this.trackService.getScrobbleReference(refToken);
       if (!ref) {
-        await interaction.reply({
+        await interaction.editReply({
           content: '⚠️ This scrobble button reference has expired. Please use `.fm` to load the current track.',
-          ephemeral: true,
         });
         return;
       }
@@ -61,9 +61,8 @@ export class NowPlayingInteractions {
     }
 
     if (!artist || !track) {
-      await interaction.reply({
+      await interaction.editReply({
         content: '❌ Invalid track scrobble reference.',
-        ephemeral: true,
       });
       return;
     }
@@ -77,16 +76,14 @@ export class NowPlayingInteractions {
       );
 
       const res = TrackBuilders.buildScrobbleResponse(track, artist, user.userNameLastFm);
-      await interaction.reply({
+      await interaction.editReply({
         content: res.componentsV2Container ? undefined : `✅ Scrobbled **${track}** by **${artist}** to your Last.fm!`,
         components: res.componentsV2Container ? [res.componentsV2Container as any] : [],
-        ephemeral: true,
       });
     } catch (err: any) {
       Logger.warn({ err: err?.message }, `[NowPlayingInteractions] Scrobble failed for ${user.userNameLastFm}`);
-      await interaction.reply({
+      await interaction.editReply({
         content: `❌ Could not scrobble to Last.fm: ${err?.message || 'Last.fm service unavailable'}`,
-        ephemeral: true,
       });
     }
   }
@@ -101,20 +98,19 @@ export class NowPlayingInteractions {
     const artist = decodeURIComponent(parts[0] || '');
     const track = decodeURIComponent(parts[1] || '');
 
+    await interaction.deferReply({ ephemeral: true });
     const user = await this.userRepository.getUserByDiscordUserId(interaction.user.id);
 
     if (!user || !user.userNameLastFm) {
-      await interaction.reply({
+      await interaction.editReply({
         content: '❌ Please link your Last.fm account with `/login` or `.register <username>` to love tracks.',
-        ephemeral: true,
       });
       return;
     }
 
     if (!user.sessionKey) {
-      await interaction.reply({
+      await interaction.editReply({
         content: '❌ Session key required to update loved tracks. Please authorize with `/login`.',
-        ephemeral: true,
       });
       return;
     }
@@ -122,22 +118,19 @@ export class NowPlayingInteractions {
     try {
       if (isUnlove) {
         await this.lastfmRepository.unloveTrack(artist, track, user.sessionKey);
-        await interaction.reply({
+        await interaction.editReply({
           content: `💔 Unloved **${track}** by **${artist}** on Last.fm.`,
-          ephemeral: true,
         });
       } else {
         await this.lastfmRepository.loveTrack(artist, track, user.sessionKey);
-        await interaction.reply({
+        await interaction.editReply({
           content: `❤️ Loved **${track}** by **${artist}** on Last.fm.`,
-          ephemeral: true,
         });
       }
     } catch (err: any) {
       Logger.warn({ err: err?.message }, `[NowPlayingInteractions] Love/Unlove failed for ${user.userNameLastFm}`);
-      await interaction.reply({
+      await interaction.editReply({
         content: `❌ Could not update love status on Last.fm: ${err?.message || 'API error'}`,
-        ephemeral: true,
       });
     }
   }

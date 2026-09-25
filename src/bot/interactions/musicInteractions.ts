@@ -19,7 +19,6 @@ export const MUSIC_INTERACTION_PREFIXES = [
   'music:control:',
   'music:filter:',
   'music:search:',
-  'music:lyrics:',
 ];
 
 export class MusicInteractions {
@@ -75,6 +74,55 @@ export class MusicInteractions {
   // picks survive restarts; 2-minute life like before).
   private readonly activeSearches = new TtlStore<MusicTrack[]>('session:music-search:', 120);
 
+  /** Buttons that mutate shared playback — requester-only + double-press locked. */
+  private static readonly CONTROL_ACTIONS = new Set([
+    'music:control:pause_resume',
+    'music:control:skip',
+    'music:control:previous',
+    'music:control:shuffle',
+    'music:control:clear',
+    'music:control:loop',
+    'music:control:vol_down',
+    'music:control:vol_up',
+    'music:control:stop',
+    'music:filter:reset',
+  ]);
+  private static readonly DOUBLE_PRESS_MS = 700;
+  private readonly lastControlPress = new Map<string, number>();
+
+  /** Tracks without a requester (autoplay/24/7) stay controllable by anyone present. */
+  private isRequesterAllowed(guildId: string, userId: string): boolean {
+    try {
+      const requesterId = this.musicService.getQueueInfo(guildId)?.current?.requester?.id;
+      return !requesterId || requesterId === userId;
+    } catch {
+      return true;
+    }
+  }
+
+  /** Claims the per-guild+button control slot; false = a press already landed inside the lock window. */
+  private claimControlPress(guildId: string, customId: string): boolean {
+    const key = `${guildId}:${customId}`;
+    const now = Date.now();
+    if (now - (this.lastControlPress.get(key) ?? 0) < MusicInteractions.DOUBLE_PRESS_MS) {
+      return false;
+    }
+    this.lastControlPress.set(key, now);
+    if (this.lastControlPress.size > 500) {
+      for (const [k, at] of this.lastControlPress) {
+        if (now - at > 60000) this.lastControlPress.delete(k);
+      }
+    }
+    return true;
+  }
+
+  private async denyControl(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<void> {
+    await interaction.reply({
+      content: 'Only the requester of the current track can control playback.',
+      ephemeral: true,
+    });
+  }
+
   constructor(
     musicService: MusicService,
     colorService: ColorService,
@@ -107,6 +155,21 @@ export class MusicInteractions {
       return;
     }
 
+    // Playback controls are requester-only and double-press locked: two
+    // near-simultaneous presses must never double-skip or toggle pause twice.
+    if (MusicInteractions.CONTROL_ACTIONS.has(customId)) {
+      if (!this.isRequesterAllowed(guildId, interaction.user.id)) {
+        await this.denyControl(interaction);
+        return;
+      }
+      if (!this.claimControlPress(guildId, customId)) {
+        await interaction.deferUpdate().catch(() => undefined);
+        return;
+      }
+    }
+
+    // Accent is warm-fast (the 5s tick pre-warms; failed lookups are
+    // negative-cached), so this stays well inside the 2.5s global ack guard.
     const currentTrackArtwork = this.musicService.getQueueInfo(guildId)?.current?.artworkUrl;
     const accentColor = await this.colorService.getAccentColorAsync(guildId, currentTrackArtwork);
 
@@ -405,6 +468,17 @@ export class MusicInteractions {
         ephemeral: true,
       });
       return;
+    }
+
+    if (customId === 'music:filter:select') {
+      if (!this.isRequesterAllowed(guildId, interaction.user.id)) {
+        await this.denyControl(interaction);
+        return;
+      }
+      if (!this.claimControlPress(guildId, customId)) {
+        await interaction.deferUpdate().catch(() => undefined);
+        return;
+      }
     }
 
     const accentColor = await this.colorService.getAccentColorAsync(guildId);
