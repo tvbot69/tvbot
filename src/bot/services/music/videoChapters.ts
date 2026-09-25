@@ -85,6 +85,32 @@ export function isGenericChapterTitle(title: string | null | undefined): boolean
 /** Matches " - " plus en/em-dash variants ("Rihanna – Diamonds"). */
 const DASH_SEP = /\s[-–—]\s/;
 
+/**
+ * Right-hand side that describes the performance rather than naming a song
+ * ("SICKO MODE - Live", "BUTTERFLY EFFECT - Live Version", "FE!N - Live at
+ * Glastonbury"). Splitting those as artist="SICKO MODE" / song="Live"
+ * guarantees an artwork miss; the song is the left side.
+ */
+const isPerformanceSuffix = (value: string): boolean => {
+  const t = value
+    .trim()
+    .toLowerCase()
+    .replace(/[!.?]+$/, '');
+  if (
+    t === 'live' ||
+    t === 'acoustic' ||
+    t === 'live version' ||
+    t === 'live session' ||
+    t === 'live performance' ||
+    t === 'live recording' ||
+    t === 'live set' ||
+    t === 'acoustic version'
+  ) {
+    return true;
+  }
+  return t.startsWith('live at ') || t.startsWith('live in ') || t.startsWith('live from ');
+};
+
 export function splitChapterTitle(title: string): { artist?: string; song: string } {
   const cleaned = title
     .trim()
@@ -94,7 +120,10 @@ export function splitChapterTitle(title: string): { artist?: string; song: strin
   if (m && m.index > 0) {
     const artist = cleaned.slice(0, m.index).trim();
     const song = cleaned.slice(m.index + m[0].length).trim();
-    if (artist && song) return { artist, song };
+    if (artist && song) {
+      if (isPerformanceSuffix(song)) return { song: artist };
+      return { artist, song };
+    }
   }
   return { song: cleaned };
 }
@@ -120,7 +149,26 @@ export function extractArtistFromTitle(title: string | null | undefined): string
   if (/^(live|full|official|video|audio|performance|set|show|concert|mix|playlist|visualizer|lyric|stream)$/i.test(candidate)) {
     return null;
   }
-  return candidate;
+  return stripTrailingSetNoise(candidate);
+}
+
+/**
+ * Artist segments in video titles commonly end with set-type noise
+ * ("TRAVIS SCOTT LIVE - ...", "Drake FULL SET - ..."). Artwork providers
+ * gate on strict artist equality, so a trailing "LIVE" makes every chapter
+ * lookup miss (measured on Spotify: artist:"TRAVIS SCOTT LIVE" = 0 hits,
+ * artist:"TRAVIS SCOTT" = the song). Strips the noise run; null when
+ * nothing but noise remains.
+ */
+const TRAILING_SET_NOISE = /(?:\s+(?:live|full|official|set|show|concert|performance|mix|stream|session|tour|episode))+$/i;
+
+function stripTrailingSetNoise(candidate: string): string | null {
+  const stripped = candidate.replace(TRAILING_SET_NOISE, '').trim();
+  if (stripped.length < 2) return null;
+  if (/^(live|full|official|video|audio|performance|set|show|concert|mix|playlist|visualizer|lyric|stream)$/i.test(stripped)) {
+    return null;
+  }
+  return stripped;
 }
 
 /**

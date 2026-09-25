@@ -74,6 +74,18 @@ describe('splitChapterTitle', () => {
     expect(splitChapterTitle('01. Rottweiler')).toEqual({ song: 'Rottweiler' });
     expect(splitChapterTitle('Rottweiler')).toEqual({ song: 'Rottweiler' });
   });
+
+  it('treats performance suffixes as the song, not a split', () => {
+    expect(splitChapterTitle('SICKO MODE - Live')).toEqual({ song: 'SICKO MODE' });
+    expect(splitChapterTitle('BUTTERFLY EFFECT - Live Version')).toEqual({ song: 'BUTTERFLY EFFECT' });
+    expect(splitChapterTitle('FE!N - Live at Glastonbury')).toEqual({ song: 'FE!N' });
+    expect(splitChapterTitle('FE!N – Acoustic')).toEqual({ song: 'FE!N' });
+  });
+
+  it('still splits real artist/song pairs', () => {
+    expect(splitChapterTitle('Travis Scott - SICKO MODE')).toEqual({ artist: 'Travis Scott', song: 'SICKO MODE' });
+    expect(splitChapterTitle('Live and Let Die - Remaster')).toEqual({ artist: 'Live and Let Die', song: 'Remaster' });
+  });
 });
 
 describe('extractArtistFromTitle', () => {
@@ -85,9 +97,16 @@ describe('extractArtistFromTitle', () => {
     expect(extractArtistFromTitle('Rihanna – Live at Home')).toBe('Rihanna');
   });
 
+  it('strips trailing set noise from the artist segment', () => {
+    expect(extractArtistFromTitle('TRAVIS SCOTT LIVE - THE TOWN FESTIVAL 2025 (FULL SET)')).toBe('TRAVIS SCOTT');
+    expect(extractArtistFromTitle('Drake FULL SET - Assassin Tour')).toBe('Drake');
+    expect(extractArtistFromTitle('Travis Scott Live Concert - Town Festival')).toBe('Travis Scott');
+  });
+
   it('rejects non-artists and missing patterns', () => {
     expect(extractArtistFromTitle('Rottweiler')).toBeNull();
     expect(extractArtistFromTitle('Live - Full Set')).toBeNull();
+    expect(extractArtistFromTitle('LIVE FULL SET - Town Festival')).toBeNull();
     expect(extractArtistFromTitle('')).toBeNull();
     expect(extractArtistFromTitle(null)).toBeNull();
   });
