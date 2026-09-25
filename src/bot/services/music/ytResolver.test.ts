@@ -83,6 +83,7 @@ describe('ytResolver', () => {
 
 describe('chapter source routing', () => {
   const SAVED_SOURCE = process.env.CHAPTERS_SOURCE;
+  const SAVED_KEY = process.env.YOUTUBE_API_KEY;
   let mod: typeof import('./ytResolver');
 
   beforeEach(async () => {
@@ -92,6 +93,7 @@ describe('chapter source routing', () => {
     vi.restoreAllMocks();
     process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
     process.env.HOME_RESOLVER_TOKEN = 'tok';
+    process.env.YOUTUBE_API_KEY = 'test-key';
     delete process.env.CHAPTERS_SOURCE;
     mod = await import('./ytResolver');
   });
@@ -99,14 +101,16 @@ describe('chapter source routing', () => {
   afterEach(() => {
     if (SAVED_SOURCE === undefined) delete process.env.CHAPTERS_SOURCE;
     else process.env.CHAPTERS_SOURCE = SAVED_SOURCE;
+    if (SAVED_KEY === undefined) delete process.env.YOUTUBE_API_KEY;
+    else process.env.YOUTUBE_API_KEY = SAVED_KEY;
   });
 
-  it('defaults to Piped and never touches the home resolver', async () => {
+  it('defaults to the YouTube Data API and never touches the home resolver', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
-    await expect(mod.getVideoChapters('pip0pedId00')).resolves.toBeNull();
+    await expect(mod.getVideoChapters('dQw4w9WgXcQ')).resolves.toBeNull();
     const urls = spy.mock.calls.map((c) => String(c[0]));
     expect(urls.length).toBeGreaterThan(0);
-    expect(urls.every((u) => u.includes('/streams/'))).toBe(true);
+    expect(urls.every((u) => u.includes('googleapis.com'))).toBe(true);
     expect(urls.some((u) => u.includes('/chapters'))).toBe(false);
   });
 

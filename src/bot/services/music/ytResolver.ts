@@ -1,5 +1,5 @@
 import { Logger } from '@domain/logger';
-import { fetchPipedChapters } from './pipedChapters';
+import { fetchDescriptionChapters } from './descriptionChapters';
 
 let pausedUntil = 0;
 
@@ -88,20 +88,20 @@ export interface VideoChapterDto {
 }
 
 /**
- * Chapter list for lives/mixes (song titles + start times). Defaults to the
- * Piped API probed bot-side (instance rotation + cooldowns, in-memory
- * cache); CHAPTERS_SOURCE=rug falls back to the legacy home-resolver probe.
- * Returns null when unusable (all sources down, bad id) — distinct from
- * `[]`, which means the video simply has no chapters. Deliberately
- * side-effect-free: a chapter miss must never trip the audio resolver's
- * pause/miss/alert machinery.
+ * Chapter list for lives/mixes (song titles + start times). Defaults to
+ * parsing timestamp lines from the video's YouTube description via the
+ * official Data API (fast, no bot checks); CHAPTERS_SOURCE=rug falls back
+ * to the legacy home-resolver probe. Returns null when unusable (missing
+ * key, API down, bad id) — distinct from `[]`, which means the video
+ * simply has no chapters. Deliberately side-effect-free: a chapter miss
+ * must never trip the audio resolver's pause/miss/alert machinery.
  */
 export async function getVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
   if (!/^[\w-]{11}$/.test(id)) return null;
-  if ((process.env.CHAPTERS_SOURCE ?? 'piped').trim().toLowerCase() === 'rug') {
+  if ((process.env.CHAPTERS_SOURCE ?? 'data').trim().toLowerCase() === 'rug') {
     return getRugVideoChapters(id);
   }
-  return fetchPipedChapters(id);
+  return fetchDescriptionChapters(id);
 }
 
 /**

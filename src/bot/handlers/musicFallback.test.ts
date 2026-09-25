@@ -1613,13 +1613,12 @@ describe('REST-dead search failover (uplink-stall class)', () => {
   });
 
   it('probes chapters for long videos (live system fires)', async () => {
+    const savedKey = process.env.YOUTUBE_API_KEY;
+    process.env.YOUTUBE_API_KEY = 'test-key';
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
-        chapters: [
-          { title: 'A', start: 0 },
-          { title: 'B', start: 60 },
-        ],
+        items: [{ snippet: { description: 'Full Set\n\n0:00 - A\n1:00 - B' } }],
       }),
     } as Response);
     try {
@@ -1646,9 +1645,11 @@ describe('REST-dead search failover (uplink-stall class)', () => {
       });
       await new Promise((r) => setTimeout(r, 20));
       expect(fetchSpy).toHaveBeenCalledTimes(1);
-      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/streams/dQw4w9WgXcQ');
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/youtube/v3/videos');
       expect((store.chapters as unknown[]).length).toBe(2);
     } finally {
+      if (savedKey === undefined) delete process.env.YOUTUBE_API_KEY;
+      else process.env.YOUTUBE_API_KEY = savedKey;
       vi.restoreAllMocks();
     }
   });
