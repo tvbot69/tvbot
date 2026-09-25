@@ -81,6 +81,55 @@ describe('ytResolver', () => {
   });
 });
 
+describe('chapter source routing', () => {
+  const SAVED_SOURCE = process.env.CHAPTERS_SOURCE;
+  let mod: typeof import('./ytResolver');
+
+  beforeEach(async () => {
+    // Fresh module state: pausedUntil/misses from earlier tests must not
+    // disable the legacy rug path under test here.
+    vi.resetModules();
+    vi.restoreAllMocks();
+    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
+    process.env.HOME_RESOLVER_TOKEN = 'tok';
+    delete process.env.CHAPTERS_SOURCE;
+    mod = await import('./ytResolver');
+  });
+
+  afterEach(() => {
+    if (SAVED_SOURCE === undefined) delete process.env.CHAPTERS_SOURCE;
+    else process.env.CHAPTERS_SOURCE = SAVED_SOURCE;
+  });
+
+  it('defaults to Piped and never touches the home resolver', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+    await expect(mod.getVideoChapters('pip0pedId00')).resolves.toBeNull();
+    const urls = spy.mock.calls.map((c) => String(c[0]));
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.every((u) => u.includes('/streams/'))).toBe(true);
+    expect(urls.some((u) => u.includes('/chapters'))).toBe(false);
+  });
+
+  it('routes to the legacy home resolver when CHAPTERS_SOURCE=rug', async () => {
+    process.env.CHAPTERS_SOURCE = 'rug';
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        chapters: [
+          { title: 'Intro', startMs: 0 },
+          { title: 'Song', startMs: 90_000 },
+        ],
+      }),
+    } as Response);
+    await expect(mod.getVideoChapters('rug0video00')).resolves.toEqual([
+      { title: 'Intro', startMs: 0 },
+      { title: 'Song', startMs: 90_000 },
+    ]);
+    expect(String(spy.mock.calls[0]![0])).toContain('/chapters?id=rug0video00');
+  });
+});
+
 describe('resolver breakage alerts', () => {
   const WEBHOOK = 'https://discord.test/api/webhooks/alerts';
   let mod: typeof import('./ytResolver');

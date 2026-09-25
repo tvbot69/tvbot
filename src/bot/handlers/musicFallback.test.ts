@@ -1613,16 +1613,12 @@ describe('REST-dead search failover (uplink-stall class)', () => {
   });
 
   it('probes chapters for long videos (live system fires)', async () => {
-    const savedUrl = process.env.HOME_RESOLVER_URL;
-    const savedToken = process.env.HOME_RESOLVER_TOKEN;
-    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
-    process.env.HOME_RESOLVER_TOKEN = 'tok';
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
         chapters: [
-          { title: 'A', startMs: 0 },
-          { title: 'B', startMs: 60000 },
+          { title: 'A', start: 0 },
+          { title: 'B', start: 60 },
         ],
       }),
     } as Response);
@@ -1650,13 +1646,9 @@ describe('REST-dead search failover (uplink-stall class)', () => {
       });
       await new Promise((r) => setTimeout(r, 20));
       expect(fetchSpy).toHaveBeenCalledTimes(1);
-      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/chapters');
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/streams/dQw4w9WgXcQ');
       expect((store.chapters as unknown[]).length).toBe(2);
     } finally {
-      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
-      else process.env.HOME_RESOLVER_URL = savedUrl;
-      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
-      else process.env.HOME_RESOLVER_TOKEN = savedToken;
       vi.restoreAllMocks();
     }
   });

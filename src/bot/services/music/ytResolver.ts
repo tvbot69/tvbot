@@ -1,4 +1,5 @@
 import { Logger } from '@domain/logger';
+import { fetchPipedChapters } from './pipedChapters';
 
 let pausedUntil = 0;
 
@@ -87,15 +88,28 @@ export interface VideoChapterDto {
 }
 
 /**
- * Chapter list for lives/mixes (song titles + start times) from the home
- * resolver's metadata probe. Returns null when unusable (resolver down,
- * bad id) — distinct from `[]`, which means the video simply has no
- * chapters. Deliberately side-effect-free: a chapter miss must never trip
- * the audio resolver's pause/miss/alert machinery.
+ * Chapter list for lives/mixes (song titles + start times). Defaults to the
+ * Piped API probed bot-side (instance rotation + cooldowns, in-memory
+ * cache); CHAPTERS_SOURCE=rug falls back to the legacy home-resolver probe.
+ * Returns null when unusable (all sources down, bad id) — distinct from
+ * `[]`, which means the video simply has no chapters. Deliberately
+ * side-effect-free: a chapter miss must never trip the audio resolver's
+ * pause/miss/alert machinery.
  */
 export async function getVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
-  if (!resolverEnabled()) return null;
   if (!/^[\w-]{11}$/.test(id)) return null;
+  if ((process.env.CHAPTERS_SOURCE ?? 'piped').trim().toLowerCase() === 'rug') {
+    return getRugVideoChapters(id);
+  }
+  return fetchPipedChapters(id);
+}
+
+/**
+ * Legacy chapter path: the home resolver's yt-dlp metadata probe
+ * (GET /chapters). Disabled by default — set CHAPTERS_SOURCE=rug to restore.
+ */
+async function getRugVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
+  if (!resolverEnabled()) return null;
   const base = process.env.HOME_RESOLVER_URL as string;
   const token = process.env.HOME_RESOLVER_TOKEN as string;
   try {
