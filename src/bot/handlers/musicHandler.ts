@@ -20,6 +20,7 @@ import {
   isGenericChapterTitle,
   resolveDisplayedChapter,
   splitChapterTitle,
+  transitionLeadSong,
   type ChapterCard,
   type VideoChapter,
 } from '@bot/services/music/videoChapters';
@@ -157,6 +158,25 @@ export class MusicHandler {
   }
 
   /**
+   * Cover lookup for a chapter with the transition fallback: medley
+   * chapters ("BACKR00MS TO KICK OUT" — A fading into B) have no Spotify
+   * track under the full title, so when it misses, retry with the
+   * transition's lead song — its cover matches the chapter start. Real
+   * songs ("Back To December", "NO BYSTANDERS") hit on the first attempt
+   * and never reach the fallback.
+   */
+  private async getChapterCover(chapterTitle: string, song: string, artist: string | undefined): Promise<string | null> {
+    const svc = this.artworkService;
+    if (!svc) return null;
+    const art = await svc.getTrackCoverUrl(song, artist).catch(() => null);
+    if (art) return art;
+    const lead = transitionLeadSong(chapterTitle);
+    if (!lead || lead.toLowerCase() === song.trim().toLowerCase()) return null;
+    Logger.debug({ chapter: chapterTitle, lead }, '[Music] Transition chapter — retrying art with lead song');
+    return svc.getTrackCoverUrl(lead, artist).catch(() => null);
+  }
+
+  /**
    * Warms the shared artwork cache for upcoming chapters so their covers
    * are usually ready before the chapter starts. Results are discarded —
    * the cache (not player state) carries them to resolveChapterArt.
@@ -178,7 +198,7 @@ export class MusicHandler {
         // color from this exact URL, and downloading+quantizing serially
         // inside the publish path used to add seconds to every swap.
         void (async () => {
-          const art = await svc.getTrackCoverUrl(song, artist ?? videoArtist).catch(() => null);
+          const art = await this.getChapterCover(ch.title, song, artist ?? videoArtist);
           if (art && this.colorService) {
             await this.colorService.getAccentColorAsync(player.guildId, art).catch(() => undefined);
           }
@@ -253,7 +273,7 @@ export class MusicHandler {
       if (!svc) return;
       const artStartedAt = Date.now();
       const art = await Promise.race([
-        svc.getTrackCoverUrl(song, useArtist).catch(() => null),
+        this.getChapterCover(ch.title, song, useArtist),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
       ]);
       Logger.info(

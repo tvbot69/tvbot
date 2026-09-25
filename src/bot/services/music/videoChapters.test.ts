@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, extractArtistFromTitle, resolveDisplayedChapter, getVideoTitle, getSourceVideoId } from './videoChapters';
+import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, transitionLeadSong, extractArtistFromTitle, resolveDisplayedChapter, getVideoTitle, getSourceVideoId } from './videoChapters';
 
 const SHOW = [
   { title: 'Rottweiler', startMs: 0 },
@@ -85,6 +85,23 @@ describe('splitChapterTitle', () => {
   it('still splits real artist/song pairs', () => {
     expect(splitChapterTitle('Travis Scott - SICKO MODE')).toEqual({ artist: 'Travis Scott', song: 'SICKO MODE' });
     expect(splitChapterTitle('Live and Let Die - Remaster')).toEqual({ artist: 'Live and Let Die', song: 'Remaster' });
+  });
+});
+
+describe('transitionLeadSong', () => {
+  it('returns the lead song of a transition chapter', () => {
+    expect(transitionLeadSong('BACKR00MS TO KICK OUT')).toBe('BACKR00MS');
+    expect(transitionLeadSong('NO BYSTANDERS TO FE!N')).toBe('NO BYSTANDERS');
+    expect(transitionLeadSong('01. BACKR00MS TO KICK OUT')).toBe('BACKR00MS');
+    expect(transitionLeadSong('travis scott to kick out')).toBe('travis scott');
+  });
+
+  it('returns null for non-transition titles', () => {
+    expect(transitionLeadSong('CHAMPAIN & VACAY')).toBeNull();
+    expect(transitionLeadSong('SICKO MODE')).toBeNull();
+    expect(transitionLeadSong('TO')).toBeNull();
+    expect(transitionLeadSong('')).toBeNull();
+    expect(transitionLeadSong(null)).toBeNull();
   });
 });
 

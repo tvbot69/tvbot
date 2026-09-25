@@ -129,6 +129,25 @@ export function splitChapterTitle(title: string): { artist?: string; song: strin
 }
 
 /**
+ * Lead song of a transition/medley chapter title ("BACKR00MS TO KICK OUT"
+ * — A fading into B; the cover matching the chapter START is A's). Null
+ * when the title isn't a transition. Callers must treat this as a FALLBACK
+ * after the full title misses, so real songs containing "to" ("Back To
+ * December") are never affected — they hit on the first attempt.
+ */
+const TRANSITION_SPLIT = /^(.{2,80}?)\s+to\s+(.{2,})$/i;
+
+export function transitionLeadSong(title: string | null | undefined): string | null {
+  const t = (title ?? '')
+    .trim()
+    .replace(/^\d{1,3}[.):-]+/, '')
+    .trim();
+  const m = TRANSITION_SPLIT.exec(t);
+  const lead = m?.[1]?.trim() ?? '';
+  return lead.length >= 2 ? lead : null;
+}
+
+/**
  * Extracts the artist from a VIDEO title ("EsDeeKid - Live at Silver
  * Spring [FULL SET]" -> "EsDeeKid"). Uploader channels often differ from
  * the performer (a "gloss" channel uploading an EsDeeKid set), in which
