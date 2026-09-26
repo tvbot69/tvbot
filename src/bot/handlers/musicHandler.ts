@@ -368,9 +368,24 @@ export class MusicHandler {
    * sat). Fires for every Player.seek() — user seeks, stall re-seeks,
    * fallback resume — but only a chapter change does work; same-chapter
    * seeks no-op.
+   *
+   * Pins the optimistic clock FIRST: moonlink emits playerTriggeredSeek
+   * synchronously and only updates current.position AFTER the seek REST
+   * round-trip (~1s+ on slow nodes), never touching current.time. Without
+   * the pin, the trailing nudge publish re-derives the PREVIOUS chapter
+   * from the stale clock and flaps the card back (plus mistimed timers).
+   * A failed seek self-corrects on the next node update within seconds.
    */
   private swapChapterOnSeek(player: Player, positionMs: number): void {
     try {
+      // Pin the optimistic clock before anything reads it: this event fires
+      // synchronously while current.position/time still hold the pre-seek
+      // values (moonlink updates them only after the REST round-trip).
+      const cur = player.current as unknown as { position?: unknown; time?: unknown } | null;
+      if (cur) {
+        cur.position = Math.max(0, positionMs);
+        cur.time = Date.now();
+      }
       const chapters = player.get<VideoChapter[] | null>('chapters');
       if (!chapters || chapters.length < 2) return;
       // Exact boundaries (see chapterCardFor): a seek to a chapter start

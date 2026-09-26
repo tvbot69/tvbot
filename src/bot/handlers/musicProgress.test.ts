@@ -423,6 +423,7 @@ describe('MusicHandler progress card', () => {
   it('lands exactly on the chosen chapter when seeking to its start', () => {
     const handler = buildHandler() as unknown as {
       swapChapterOnSeek: (player: unknown, positionMs: number) => void;
+      chapterCardFor: (player: unknown, positionMs: number) => { title: string; artworkUrl?: string | null } | null;
       clearCardTimers: (guildId: string) => void;
     };
     const store: Record<string, unknown> = {
@@ -432,11 +433,13 @@ describe('MusicHandler progress card', () => {
         { title: 'Bleed Out', startMs: 276000 },
       ],
     };
+    const staleAt = Date.now() - 30000;
+    const current = { title: 'd4vd - Live at Washington D.C', position: 360000, time: staleAt };
     const player = {
       guildId: 'g-swap-1',
       playing: false,
       textChannelId: 'tc-1',
-      current: { title: 'd4vd - Live at Washington D.C' },
+      current,
       get: (k: string) => store[k],
       set: (k: string, v: unknown) => void (store[k] = v),
     };
@@ -445,6 +448,11 @@ describe('MusicHandler progress card', () => {
     handler.swapChapterOnSeek(player, 276000);
     expect((store.chapterCard as { title: string }).title).toBe('Bleed Out');
     expect(store.chapterIdx).toBe(1);
+    // The swap pins the optimistic clock (moonlink updates it only after
+    // the seek REST round-trip): the trailing publish re-derives the SAME
+    // chapter instead of flapping back to the stale one.
+    expect(current.position).toBe(276000);
+    expect(handler.chapterCardFor(player, current.position)?.title).toBe('Bleed Out');
     handler.clearCardTimers('g-swap-1');
   });
 });
