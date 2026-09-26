@@ -609,7 +609,7 @@ export const configureContainer = (): void => {
   musicService.setDeezerResolver(deezerResolver);
   musicService.setAppleMusicResolver(appleMusicResolver);
   const voiceChannelStatusService = new VoiceChannelStatusService(client);
-  const musicInteractions = new MusicInteractions(musicService, colorService);
+  const musicInteractions = new MusicInteractions(musicService, colorService, lyricsService);
   const musicCommands = new MusicCommands(musicService, colorService, lyricsService, musicInteractions);
   const musicSlashCommands = new MusicSlashCommands(musicService, colorService, lyricsService, musicInteractions);
 

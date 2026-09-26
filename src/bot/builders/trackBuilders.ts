@@ -154,33 +154,30 @@ export class TrackBuilders {
     // ActionRow with Streaming link + Preview
     const row = new ActionRowBuilder<ButtonBuilder>();
 
-    if (mediaDetails) {
-      const source = mediaDetails.source;
-      const storeUrl = mediaDetails.storeUrl;
-      const spotifyUrl = mediaDetails.spotifyUrl;
+      if (mediaDetails) {
+        const source = mediaDetails.source;
+        const storeUrl = mediaDetails.storeUrl;
+        const spotifyUrl = mediaDetails.spotifyUrl;
+        // Link buttons assert a valid URL, and the Apple resolver can return
+        // a null storeUrl — the `!` silenced the compiler and threw at runtime
+        // ("Sorry, something went wrong") for Apple-resolved tracks.
+        const link = (url: string | null | undefined, emoji: unknown): void => {
+          if (!url) return;
+          row.addComponents(
+            new ButtonBuilder()
+              .setStyle(ButtonStyle.Link)
+              .setURL(url)
+              .setEmoji(emoji as never),
+          );
+        };
 
-      if (source === 'apple' || storeUrl?.includes('apple.com') || storeUrl?.includes('itunes')) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setStyle(ButtonStyle.Link)
-            .setURL(storeUrl!)
-            .setEmoji({ id: '1218182727149420544', name: 'services_apple_music' } as any),
-        );
-      } else if (source === 'spotify' || spotifyUrl || storeUrl?.includes('spotify.com')) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setStyle(ButtonStyle.Link)
-            .setURL(spotifyUrl ?? storeUrl!)
-            .setEmoji({ id: '1496297132381048995', name: 'sp' } as any),
-        );
-      } else if (source === 'deezer' || storeUrl?.includes('deezer.com')) {
-        row.addComponents(
-          new ButtonBuilder()
-            .setStyle(ButtonStyle.Link)
-            .setURL(storeUrl!)
-            .setEmoji({ id: '1496297153717473311', name: 'dez' } as any),
-        );
-      }
+        if (source === 'apple' || storeUrl?.includes('apple.com') || storeUrl?.includes('itunes')) {
+          link(storeUrl, { id: '1218182727149420544', name: 'services_apple_music' });
+        } else if (source === 'spotify' || spotifyUrl || storeUrl?.includes('spotify.com')) {
+          link(spotifyUrl ?? storeUrl, { id: '1496297132381048995', name: 'sp' });
+        } else if (source === 'deezer' || storeUrl?.includes('deezer.com')) {
+          link(storeUrl, { id: '1496297153717473311', name: 'dez' });
+        }
 
       if (mediaDetails.uniqueId) {
         row.addComponents(

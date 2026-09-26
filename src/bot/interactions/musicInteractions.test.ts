@@ -58,6 +58,7 @@ describe('MusicInteractions control-row hardening', () => {
     new MusicInteractions(
       svc as never,
       { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
     );
 
   it('ignores a second control press inside the double-press window', async () => {
@@ -179,6 +180,7 @@ describe('MusicInteractions chapter jump', () => {
     new MusicInteractions(
       svc as never,
       { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
     );
 
   it('seeks to the chosen chapter and re-renders the menu', async () => {
@@ -260,7 +262,7 @@ describe('MusicInteractions lyric rebuilds', () => {
 
   const lyricWindowFor = (svc: unknown): { current: string | null; next: string | null } | null =>
     (
-      new MusicInteractions(svc as never, {} as never) as unknown as {
+      new MusicInteractions(svc as never, {} as never, { getLyrics: vi.fn(async () => null) } as never) as unknown as {
         lyricWindowFor: (guildId: string) => { current: string | null; next: string | null } | null;
       }
     ).lyricWindowFor('g1');

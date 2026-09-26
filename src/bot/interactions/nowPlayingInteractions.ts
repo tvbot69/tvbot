@@ -68,12 +68,18 @@ export class NowPlayingInteractions {
     }
 
     try {
-      await this.lastfmRepository.scrobbleTrack(
+      const scrobbled = await this.lastfmRepository.scrobbleTrack(
         artist,
         track,
         Math.floor(Date.now() / 1000),
         user.sessionKey,
       );
+      if (!scrobbled) {
+        await interaction.editReply({
+          content: '❌ Last.fm rejected the scrobble. Your session may have expired — try `/login` again.',
+        });
+        return;
+      }
 
       const res = TrackBuilders.buildScrobbleResponse(track, artist, user.userNameLastFm);
       await interaction.editReply({
@@ -83,7 +89,7 @@ export class NowPlayingInteractions {
     } catch (err: any) {
       Logger.warn({ err: err?.message }, `[NowPlayingInteractions] Scrobble failed for ${user.userNameLastFm}`);
       await interaction.editReply({
-        content: `❌ Could not scrobble to Last.fm: ${err?.message || 'Last.fm service unavailable'}`,
+        content: '❌ Could not reach Last.fm. Please try again in a moment.',
       });
     }
   }
@@ -116,21 +122,29 @@ export class NowPlayingInteractions {
     }
 
     try {
-      if (isUnlove) {
-        await this.lastfmRepository.unloveTrack(artist, track, user.sessionKey);
+      // The repository swallows provider errors and returns false, so the
+      // result MUST be checked: reporting "Loved" for a rejected write (an
+      // expired session key is the common case) is worse than no button.
+      const loved = isUnlove
+        ? await this.lastfmRepository.unloveTrack(artist, track, user.sessionKey)
+        : await this.lastfmRepository.loveTrack(artist, track, user.sessionKey);
+      if (!loved) {
         await interaction.editReply({
-          content: `💔 Unloved **${track}** by **${artist}** on Last.fm.`,
+          content: `❌ Last.fm rejected the ${isUnlove ? 'unlove' : 'love'}. Your session may have expired — try \`/login\` again.`,
         });
-      } else {
-        await this.lastfmRepository.loveTrack(artist, track, user.sessionKey);
-        await interaction.editReply({
-          content: `❤️ Loved **${track}** by **${artist}** on Last.fm.`,
-        });
+        return;
       }
+      await interaction.editReply({
+        content: isUnlove
+          ? `💔 Unloved **${track}** by **${artist}** on Last.fm.`
+          : `❤️ Loved **${track}** by **${artist}** on Last.fm.`,
+      });
     } catch (err: any) {
       Logger.warn({ err: err?.message }, `[NowPlayingInteractions] Love/Unlove failed for ${user.userNameLastFm}`);
+      // Fixed copy: raw provider messages ("Last.fm returned HTTP 403") read
+      // as internal plumbing leaking at the user.
       await interaction.editReply({
-        content: `❌ Could not update love status on Last.fm: ${err?.message || 'API error'}`,
+        content: '❌ Could not reach Last.fm. Please try again in a moment.',
       });
     }
   }

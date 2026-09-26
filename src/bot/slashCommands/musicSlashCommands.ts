@@ -55,7 +55,10 @@ export class MusicSlashCommands implements ISlashCommandModule {
                 opt
                   .setName('query')
                   .setDescription('Song title or artist to search')
-                  .setRequired(true),
+                  .setRequired(true)
+                  // Bounded at the edge: a free-form 6000-char option is
+                  // guaranteed to overflow the results embed's title.
+                  .setMaxLength(200),
               ),
           )
           .addSubcommand((sub) =>
@@ -472,7 +475,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
 
     return queue.isPaused
       ? MusicBuilders.buildSimpleResponse('▶️ Resumed', 'Playback resumed.').setAutoDelete(4)
-      : MusicBuilders.buildSimpleResponse('⏸️ Paused', 'Playback paused. Use `/music pause` to continue.').setAutoDelete(4);
+      : MusicBuilders.buildSimpleResponse('⏸️ Paused', 'Playback paused. Use `/music pause` again (or the card button) to continue.').setAutoDelete(4);
   }
 
   private async executeSeek(ctx: ContextModel): Promise<ResponseModel> {
@@ -523,6 +526,11 @@ export class MusicSlashCommands implements ISlashCommandModule {
     }
 
     const applied = this.musicService.setVolume(ctx.guildId, level);
+    // setVolume returns null when there is no player — interpolating that
+    // produced the legendary "Volume set to null%".
+    if (applied === null) {
+      return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
+    }
     return MusicBuilders.buildSimpleResponse('🔊 Volume Changed', `Volume set to **${applied}%**.`).setAutoDelete(4);
   }
 

@@ -318,7 +318,10 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
     }
 
-    const page = args[0] ? Number(args[0]) : 1;
+    // "abc" used to become NaN, which the builder's clamp passed straight
+    // through: an empty "Up Next" list with a "Page NaN/3" footer.
+    const parsed = Number.parseInt(args[0] ?? '1', 10);
+    const page = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
     const accentColor = await this.colorService.getAccentColorAsync(context.guildId);
     return MusicBuilders.buildQueueResponse(queue, page, 10, accentColor);
   }
@@ -523,6 +526,11 @@ export class MusicCommands implements ITextCommandModule {
     }
 
     const applied = this.musicService.setVolume(info.guildId, vol);
+    // setVolume returns null when there is no player — interpolating that
+    // produced the legendary "Volume set to null%".
+    if (applied === null) {
+      return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
+    }
     return MusicBuilders.buildSimpleResponse('🔊 Volume Changed', `Volume set to **${applied}%**.`).setAutoDelete(4);
   }
 

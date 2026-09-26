@@ -347,7 +347,11 @@ export class MusicBuilders {
 
     const totalTracks = queue.tracks.length;
     const totalPages = Math.max(1, Math.ceil(totalTracks / pageSize));
-    const currentPage = Math.max(1, Math.min(page, totalPages));
+    // Math.max(1, NaN) is NaN, which produced an empty "Up Next" list, a
+    // "Page NaN/3" footer and NaN inside every button customId. Sanitize at
+    // the choke point so no caller can poison the card.
+    const requested = Number.isFinite(page) ? Math.floor(page) : 1;
+    const currentPage = Math.max(1, Math.min(requested > 0 ? requested : 1, totalPages));
 
     const startIndex = (currentPage - 1) * pageSize;
     const currentTracks = queue.tracks.slice(startIndex, startIndex + pageSize);
@@ -468,6 +472,16 @@ export class MusicBuilders {
   /**
    * Builds the interactive Search Result menu with clickable dropdown.
    */
+  /**
+   * Clamp for user-supplied text embedded in a card. Discord's builders
+   * package runs with validation ON, so `setTitle`/`setDescription` THROW
+   * (they do not warn) when the limit is exceeded — a long search query or
+   * track title turned into "Sorry, something went wrong".
+   */
+  private static clamp(text: string, max: number): string {
+    return text.length > max ? `${text.slice(0, max - 3)}...` : text;
+  }
+
   public static buildSearchResponse(
     query: string,
     tracks: MusicTrack[],
@@ -476,7 +490,7 @@ export class MusicBuilders {
     const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
 
-    let desc = `Found **${tracks.length}** results for \`${query}\`:\n\n`;
+    let desc = `Found **${tracks.length}** results for \`${MusicBuilders.clamp(query, 300)}\`:\n\n`;
     tracks.slice(0, 10).forEach((t, idx) => {
       desc += `\`${idx + 1}.\` **[${t.title}](${t.uri})**\n`;
       desc += `   └ Artist: \`${t.author}\` • Duration: \`${formatDuration(t.duration)}\`\n`;
@@ -485,8 +499,8 @@ export class MusicBuilders {
     desc += '\n*Select a track from the dropdown below to play it:*';
 
     response.embed
-      .setTitle(`🔍 Search Results: ${query}`)
-      .setDescription(desc)
+      .setTitle(`🔍 Search Results: ${MusicBuilders.clamp(query, 200)}`)
+      .setDescription(MusicBuilders.clamp(desc, 4000))
       .setFooter({ text: 'Select an option or click Cancel' });
 
     const options = tracks.slice(0, 10).map((t, idx) => {

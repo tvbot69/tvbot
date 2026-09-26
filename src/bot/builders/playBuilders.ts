@@ -94,9 +94,12 @@ export function buildNowPlayingButtons(
   if (has(FmButton.TrackUnlove)) {
     buttons.push(new ButtonBuilder().setCustomId(`unlove-track:${encodeURIComponent(track.artistName)}:${encodeURIComponent(track.name)}`).setEmoji('💔').setStyle(ButtonStyle.Secondary));
   }
-  if (has(FmButton.TrackPreview)) {
-    const pId = extra?.previewId ?? encodeURIComponent(track.name);
-    buttons.push(new ButtonBuilder().setCustomId(`track-preview:${pId}:fm`).setLabel('Preview').setEmoji({ id: '1305607890941378672', name: 'fmbot_playpreview' } as any).setStyle(ButtonStyle.Secondary));
+  if (has(FmButton.TrackPreview) && extra?.previewId) {
+    // The button resolves a previewMap entry by id. Falling back to the track
+    // name produced `track-preview:<name>:fm`, which is never a map key, so
+    // every click answered "Preview expired" — a button that can only fail.
+    // Render it only when a real id exists (the /track path supplies one).
+    buttons.push(new ButtonBuilder().setCustomId(`track-preview:${extra.previewId}:`).setLabel('Preview').setEmoji({ id: '1305607890941378672', name: 'fmbot_playpreview' } as any).setStyle(ButtonStyle.Secondary));
   }
   if (has(FmButton.TrackLyrics)) {
     buttons.push(new ButtonBuilder().setCustomId(`track-lyrics:${encodeURIComponent(track.artistName)}:${encodeURIComponent(track.name)}:fm`).setLabel('Lyrics').setEmoji('📜').setStyle(ButtonStyle.Secondary));

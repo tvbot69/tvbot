@@ -18,7 +18,10 @@ export class TrackPreviewInteractions {
     const customId = interaction.customId;
     if (!customId.startsWith(TRACK_PREVIEW_PREFIX)) return;
 
-    const uniqueId = customId.slice(TRACK_PREVIEW_PREFIX.length).replace(/:$/, '');
+    // Builders append an optional context suffix after the id ("<id>:fm").
+    // Stripping only a TRAILING colon left "name:fm" as the key, so the
+    // lookup always missed; take the first segment instead.
+    const uniqueId = customId.slice(TRACK_PREVIEW_PREFIX.length).split(':')[0] ?? '';
     const previewUrl = previewMap.get(uniqueId);
     if (!previewUrl) {
       await interaction.reply({ content: '❌ Preview expired.', flags: MessageFlags.Ephemeral }).catch(() => undefined);

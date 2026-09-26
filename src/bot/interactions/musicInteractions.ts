@@ -31,7 +31,7 @@ export const MUSIC_INTERACTION_PREFIXES = [
 export class MusicInteractions {
   private readonly musicService: MusicService;
   private readonly colorService: ColorService;
-  private readonly lyricsService?: LyricsService;
+  private readonly lyricsService: LyricsService;
 
   /**
    * True when the source message is already Components V2 (safe to update
@@ -154,7 +154,13 @@ export class MusicInteractions {
   constructor(
     musicService: MusicService,
     colorService: ColorService,
-    lyricsService?: LyricsService,
+    // Required on purpose. It used to be optional, and the production
+    // construction site silently omitted it: the lyrics button answered
+    // "service unavailable" forever and every button-driven card rebuild
+    // rendered without lyrics while the event-driven card had them — two
+    // screens disagreeing, with a green test suite. A required parameter
+    // turns that silent no-op into a compile error at the call site.
+    lyricsService: LyricsService,
   ) {
     this.musicService = musicService;
     this.colorService = colorService;
