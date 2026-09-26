@@ -233,6 +233,146 @@ describe('MusicHandler progress card', () => {
     expect(handler.progressNudgeTimers.has('g-retry-1')).toBe(false);
   });
 
+  it('opens hype chapters on the first real song cover without naming it', async () => {
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const handler = new (await import('./musicHandler')).MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false, isKaraokeEnabled: () => true } as never,
+    ) as unknown as {
+      chapterCardFor: (player: unknown, positionMs: number) => { title: string; artworkUrl?: string | null } | null;
+      clearCardTimers: (guildId: string) => void;
+      artworkService: unknown;
+    };
+    handler.artworkService = { getTrackCoverUrl: async () => 'https://img.test/real.jpg' };
+    const store: Record<string, unknown> = {};
+    const player = {
+      guildId: 'g-hype-1',
+      playing: true,
+      paused: false,
+      textChannelId: 'tc-1',
+      current: { title: 'd4vd - Live at Washington D.C' },
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+    };
+    store.chapters = [
+      { title: 'Intro', startMs: 0 },
+      { title: 'Take Me To The Sun', startMs: 5000 },
+    ];
+    // Inside the hype chapter: no card line, but the hold carries song art.
+    expect(handler.chapterCardFor(player, 2000)).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(store.chapterCard ?? null).toBeNull();
+    expect(store.lastCoverUrl).toBe('https://img.test/real.jpg');
+    handler.clearCardTimers('g-hype-1');
+  });
+
+  it('keeps chapters across a same-video track restart (no wipe + re-probe gap)', () => {
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const handler = buildHandler() as unknown as {
+      resolveVideoChapters: (player: unknown, track: unknown) => void;
+    };
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('must not probe'));
+    const chapters = [
+      { title: 'Take Me To The Sun', startMs: 0 },
+      { title: 'Bleed Out', startMs: 276000 },
+    ];
+    const card = { title: 'Take Me To The Sun', artworkUrl: 'https://img.test/sun.jpg' };
+    const store: Record<string, unknown> = {
+      chapterSourceId: 'KxkrKdefKqw',
+      chapters,
+      chapterCard: card,
+      chapterIdx: 0,
+    };
+    const player = {
+      guildId: 'g-samevid-1',
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+    };
+    const track = { sourceName: 'youtube', identifier: 'KxkrKdefKqw', title: 'Show', duration: 3821000 };
+    handler.resolveVideoChapters(player, track);
+    // Untouched: same chapters, same card, and crucially no probe fired.
+    expect(store.chapters).toBe(chapters);
+    expect(store.chapterCard).toBe(card);
+    expect(store.chapterIdx).toBe(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('syncs the posted fingerprint on track start', async () => {
+    const send = vi.fn(async () => ({ id: 'card-9' }));
+    const channel = { isTextBased: () => true, send };
+    const client = { on: vi.fn(), channels: { cache: new Map([['tc-9', channel]]) } };
+    const seen: Array<{ event: string; cb: (...args: never[]) => unknown }> = [];
+    const manager = {
+      on: vi.fn((event: string, cb: (...args: never[]) => unknown) => {
+        seen.push({ event, cb });
+      }),
+      players: { get: () => undefined },
+    };
+    const queue = {
+      current: {
+        identifier: 't-fp-1',
+        title: 'Song',
+        author: 'Band',
+        uri: 'https://youtube.com/watch?v=t-fp-1',
+        duration: 200000,
+        isSeekable: true,
+        isStream: false,
+        source: 'youtube',
+      },
+      tracks: [],
+      totalTracks: 1,
+      totalDuration: 200000,
+      remainingDuration: 200000,
+      loopMode: 'off',
+      volume: 100,
+      isPaused: false,
+      isPlaying: true,
+      is247: false,
+      autoplay: false,
+      position: 0,
+    };
+    const { MusicHandler: Handler } = await import('./musicHandler');
+    const handler = new Handler(
+      client as never,
+      { getManager: () => manager } as never,
+      {
+        getQueueInfo: () => queue,
+        is247: () => false,
+        isKaraokeEnabled: () => true,
+        recordTrackStart: vi.fn(),
+      } as never,
+    ) as unknown as {
+      progressFingerprints: Map<string, string>;
+      clearCardTimers: (guildId: string) => void;
+    };
+    const onStart = seen.find((s) => s.event === 'trackStart')?.cb as (
+      player: unknown,
+      track: unknown,
+    ) => Promise<void>;
+    const store: Record<string, unknown> = {};
+    const player = {
+      guildId: 'g-fp-1',
+      voiceChannelId: 'vc-1',
+      textChannelId: 'tc-9',
+      node: { identifier: 'test-node' },
+      playing: true,
+      paused: false,
+      current: { ...queue.current, position: 0, time: Date.now() },
+      queue: { size: 0 },
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+    };
+    await onStart(player, { ...queue.current });
+    expect(send).toHaveBeenCalledTimes(1);
+    // Posted plain (no chapters/lyrics): the fingerprint records exactly that.
+    expect(handler.progressFingerprints.get('g-fp-1')).toBe('t-fp-1|r|0|off|100|none|none');
+    expect(store.nowPlayingMessageId).toBe('card-9');
+    handler.clearCardTimers('g-fp-1');
+  });
+
   it('deletes the now-playing card when the song ends', async () => {
     const deleted: string[] = [];
     const store = new Map<string, unknown>([['nowPlayingMessageId', 'msg-1']]);
@@ -278,40 +418,5 @@ describe('MusicHandler progress card', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(deleted).toEqual(['msg-1']);
     expect(store.get('nowPlayingMessageId')).toBeNull();
-  });
-
-  it('opens hype chapters on the first real song cover without naming it', async () => {
-    const manager = { on: vi.fn(), players: { get: () => undefined } };
-    const client = { on: vi.fn(), channels: { cache: new Map() } };
-    const handler = new (await import('./musicHandler')).MusicHandler(
-      client as never,
-      { getManager: () => manager } as never,
-      { getQueueInfo: () => null, is247: () => false, isKaraokeEnabled: () => true } as never,
-    ) as unknown as {
-      chapterCardFor: (player: unknown, positionMs: number) => { title: string; artworkUrl?: string | null } | null;
-      clearCardTimers: (guildId: string) => void;
-      artworkService: unknown;
-    };
-    handler.artworkService = { getTrackCoverUrl: async () => 'https://img.test/real.jpg' };
-    const store: Record<string, unknown> = {};
-    const player = {
-      guildId: 'g-hype-1',
-      playing: true,
-      paused: false,
-      textChannelId: 'tc-1',
-      current: { title: 'd4vd - Live at Washington D.C' },
-      get: (k: string) => store[k],
-      set: (k: string, v: unknown) => void (store[k] = v),
-    };
-    store.chapters = [
-      { title: 'Intro', startMs: 0 },
-      { title: 'Take Me To The Sun', startMs: 5000 },
-    ];
-    // Inside the hype chapter: no card line, but the hold carries song art.
-    expect(handler.chapterCardFor(player, 2000)).toBeNull();
-    await new Promise((r) => setTimeout(r, 50));
-    expect(store.chapterCard ?? null).toBeNull();
-    expect(store.lastCoverUrl).toBe('https://img.test/real.jpg');
-    handler.clearCardTimers('g-hype-1');
   });
 });

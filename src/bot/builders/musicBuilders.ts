@@ -546,7 +546,7 @@ export class MusicBuilders {
     });
     const list = listLines.join('\n') + (hidden > 0 ? `\n-# …and ${hidden} more` : '');
 
-    const header = `## ⏱️ Chapters\n### [${track.title}](${track.uri})\n-# ${track.author} • ${chapters.length} chapters`;
+    const header = `### [${track.title}](${track.uri})\n-# ${track.author} • ${chapters.length} chapters`;
 
     const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
     for (let start = 0; start < shown.length; start += 25) {
@@ -587,7 +587,7 @@ export class MusicBuilders {
 
     // Backward-compatible fallback embed
     response.embed
-      .setTitle('⏱️ Chapters')
+      .setTitle(track.title.slice(0, 200))
       .setDescription(`${header}\n\n${list}`.slice(0, 4000))
       .setFooter({ text: 'Pick a chapter from the menu to jump to it' });
     for (const row of rows) {

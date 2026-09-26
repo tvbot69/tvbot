@@ -26,6 +26,7 @@ import {
 } from '@bot/services/music/videoChapters';
 import { getVideoChapters } from '@bot/services/music/ytResolver';
 import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTrack';
+import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { healthFor, ladderFor, YoutubeHealth, HOME_NODE } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome } from '@bot/services/music/ytResolver';
 
@@ -134,11 +135,18 @@ export class MusicHandler {
    * so chapter one rarely starts cold.
    */
   private resolveVideoChapters(player: Player, track: Track | null | undefined): void {
+    const rec = track as unknown as { sourceName?: string; identifier?: string } | null;
+    const id = getSourceVideoId(rec);
+    // Same video restarting (double trackStart, replay, loop): keep the
+    // attached chapters, card and index — the trackStart post renders them
+    // immediately instead of gaping through a wipe + re-probe.
+    if (id && id === player.get<string>('chapterSourceId')) return;
     // Generation token: a slow probe from a skipped track must never attach
     // its chapters (or covers) to the next track. Bumped synchronously on
     // every track so orphans always fail the check below.
     const chapterToken = (player.get<number>('chapterToken') ?? 0) + 1;
     player.set('chapterToken', chapterToken);
+    player.set('chapterSourceId', null);
     player.set('chapters', null);
     player.set('chapterIdx', -2);
     player.set('chapterCard', null);
@@ -149,15 +157,17 @@ export class MusicHandler {
       // tracks and Spotify-link plays return here with zero probe cost and
       // byte-identical behavior to before the live system existed.
       if (!isLiveVideo(track?.duration)) return;
-      const rec = track as unknown as { sourceName?: string; identifier?: string } | null;
-      const id = getSourceVideoId(rec);
-      if (!id) return;
+      if (!id) {
+        Logger.debug({ guildId: player.guildId, title: track?.title }, '[Music] Chapter probe skipped — no video id');
+        return;
+      }
       const probeStartedAt = Date.now();
       void (async () => {
         try {
           const chapters = await getVideoChapters(id);
           if (player.get<number>('chapterToken') !== chapterToken) return;
           if (chapters && chapters.length >= 2) {
+            player.set('chapterSourceId', id);
             player.set('chapters', chapters);
             Logger.info(
               { guildId: player.guildId, chapters: chapters.length, probeMs: Date.now() - probeStartedAt },
@@ -391,6 +401,27 @@ export class MusicHandler {
   }
 
   private readonly progressFingerprints = new Map<string, string>();
+  /**
+   * Visible card fingerprint: track, pause state, queue shape, karaoke
+   * window and chapter. On-demand publishes edit only on change; trackStart
+   * syncs it to the posted card so a same-track re-post neither double-
+   * publishes identical state nor suppresses the next real change.
+   */
+  private static fingerprintFor(
+    queue: MusicQueueInfo,
+    lyricKey: string,
+    chapterKey: string,
+  ): string {
+    return [
+      queue.current?.identifier ?? queue.current?.uri ?? 'none',
+      queue.isPaused ? 'p' : 'r',
+      queue.tracks.length,
+      queue.loopMode,
+      queue.volume,
+      lyricKey,
+      chapterKey,
+    ].join('|');
+  }
   // Event-driven card: no polling. Boundary one-shots (karaoke/chapter)
   // re-evaluate their section at the exact moment it changes, and an edit
   // only goes out when the fingerprint (track, state, lyric window, chapter)
@@ -581,15 +612,7 @@ export class MusicHandler {
       );
       if (shownCover) player.set('lastCoverUrl', shownCover);
       const chapterKey = displayChapter ? `${displayChapter.title}~${displayChapter.artworkUrl ? 'a' : ''}` : 'none';
-      const fingerprint = [
-        queue.current?.identifier ?? queue.current?.uri ?? 'none',
-        queue.isPaused ? 'p' : 'r',
-        queue.tracks.length,
-        queue.loopMode,
-        queue.volume,
-        lyricKey,
-        chapterKey,
-      ].join('|');
+      const fingerprint = MusicHandler.fingerprintFor(queue, lyricKey, chapterKey);
       if (this.progressFingerprints.get(guildId) === fingerprint) return;
 
       const channel =
@@ -1159,17 +1182,18 @@ export class MusicHandler {
         this.resolveVideoChapters(player, player.current ?? track);
         const chapter = this.chapterCardFor(player, 0);
         // Accent follows the displayed cover (chapter art when present),
-        // mirroring the progress updater below.
+        // mirroring the on-demand publisher below.
         const accentColor = this.colorService
           ? await this.colorService.getAccentColorAsync(
               player.guildId,
               chapter?.artworkUrl ?? currentTrack.artworkUrl,
             )
           : undefined;
+        const postedLyric = this.lyricWindowFor(player, 0);
         const response = MusicBuilders.buildNowPlayingResponse(
           queue,
           accentColor,
-          this.lyricWindowFor(player, 0),
+          postedLyric,
           chapter,
         );
 
@@ -1227,6 +1251,16 @@ export class MusicHandler {
 
         if (sent && sent.id) {
           player.set('nowPlayingMessageId', sent.id);
+          // Sync the fingerprint to what was just posted: a same-track
+          // re-post must neither double-publish identical state nor
+          // suppress the next real change (which a stale fingerprint from
+          // a previous card would do, freezing the new card).
+          const postedLyricKey = postedLyric ? `${postedLyric.current ?? ''}~${postedLyric.next ?? ''}` : 'none';
+          const postedChapterKey = chapter ? `${chapter.title}~${chapter.artworkUrl ? 'a' : ''}` : 'none';
+          this.progressFingerprints.set(
+            player.guildId,
+            MusicHandler.fingerprintFor(queue, postedLyricKey, postedChapterKey),
+          );
           // Event-driven card: arm boundary timers instead of polling.
           this.updateChapterStatus(player);
           this.armKaraokeTimer(player);

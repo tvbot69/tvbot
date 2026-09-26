@@ -203,4 +203,15 @@ describe('buildChaptersResponse', () => {
     expect(new Set(customIds).size).toBe(2);
     expect(customIds.every((id) => id.startsWith('music:chapters:seek:'))).toBe(true);
   });
+
+  it('drops the Chapters title line but keeps the track header', () => {
+    const response = MusicBuilders.buildChaptersResponse(
+      { title: 'Live Show', author: 'Artist', uri: 'https://www.youtube.com/watch?v=abcdefghijk' },
+      [{ title: 'Opener', startMs: 0 }],
+      0,
+    );
+    expect(response.embed.data.description).not.toContain('⏱️ Chapters');
+    expect(response.embed.data.description).toContain('[Live Show](https://www.youtube.com/watch?v=abcdefghijk)');
+    expect(response.embed.data.title).toBe('Live Show');
+  });
 });
