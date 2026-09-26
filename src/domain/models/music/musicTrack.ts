@@ -189,6 +189,33 @@ export const isSpotifyMatchValid = (
   return nameOverlap || artistOverlap || substringMatch;
 };
 
+/**
+ * True for raw YouTube-family thumbnails. These are video frames, never
+ * artwork: the card must show the resolved cover (Spotify/Deezer/Apple/
+ * Last.fm cascade, or the live-show chapter art), so every read path treats
+ * one as "art unknown" instead of rendering it.
+ */
+export const isYoutubeThumbUrl = (url: string | null | undefined): boolean => {
+  if (!url) return false;
+  let host = '';
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    host = (url.split('/')[2] ?? '').toLowerCase();
+  }
+  return (
+    host === 'ytimg.com' ||
+    host.endsWith('.ytimg.com') ||
+    // Legacy thumbnail host still served by YouTube's scraper path.
+    host === 'img.youtube.com' ||
+    host.endsWith('.img.youtube.com') ||
+    host === 'ggpht.net' ||
+    host.endsWith('.ggpht.net') ||
+    host === 'googleusercontent.com' ||
+    host.endsWith('.googleusercontent.com')
+  );
+};
+
 export const mapMoonlinkTrack = (
   track: MoonlinkTrack,
   requester?: MusicTrackRequester,
@@ -224,23 +251,17 @@ export const mapMoonlinkTrack = (
   let artworkUrl: string | undefined =
     (rawTrack.artworkUrl as string) || track.artworkUrl || track.thumbnail || undefined;
 
+  // A YouTube thumbnail is a video frame, not artwork — and this mapper runs
+  // on EVERY card read (queue info, nowplaying, progress publishes), so a
+  // ytimg URL left here re-stamps itself the instant the cascade drops a
+  // track's art: the card would sit on a video frame forever. Drop it at the
+  // read instead; the artwork cascade and the chapter system both fill in.
+  if (isYoutubeThumbUrl(artworkUrl)) artworkUrl = undefined;
+
   // Album rides as an expando (moonlink Track has no album field): stamped
   // by provider adoption, read here for the card header.
   const albumRaw = rawTrack._album;
   const album = typeof albumRaw === 'string' && albumRaw.trim() ? albumRaw.trim() : undefined;
-
-  // Enhance YouTube thumbnail resolution if applicable
-  if (source === 'youtube') {
-    const ytIdMatch = track.identifier?.match(/^[a-zA-Z0-9_-]{11}$/)
-      ? track.identifier
-      : (track.uri?.match(/(?:v=|\/)([a-zA-Z0-9_-]{11})(?:[&?]|$)/)?.[1] || track.identifier);
-
-    if (ytIdMatch) {
-      if (!artworkUrl || artworkUrl.includes('mqdefault.jpg')) {
-        artworkUrl = `https://i.ytimg.com/vi/${ytIdMatch}/hqdefault.jpg`;
-      }
-    }
-  }
 
   return {
     identifier: track.identifier || '',

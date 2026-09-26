@@ -2,7 +2,7 @@ import type { Player, Track } from 'moonlink.js';
 import { Track as MoonlinkTrack } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import type { FilterName, LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
-import { cleanArtistName, cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, spotifyUriToUrl, type MirrorResolution, type MirrorTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
+import { cleanArtistName, cleanTrackTitle, isSpotifyMatchValid, isYoutubeThumbUrl, mapMoonlinkTrack, spotifyUriToUrl, type MirrorResolution, type MirrorTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
 import { MoonlinkManager, type LavalinkNodeStats } from './moonlinkManager';
 import { SpotifyResolver, type SpotifyResolvedTrack } from './spotifyResolver';
 import type { DeezerResolver } from './deezerResolver';
@@ -529,11 +529,7 @@ export class MusicService {
 
   /** True for raw YouTube-family thumbnails (never correct on adopted tracks). */
   public static isYoutubeThumb(url: string | null | undefined): boolean {
-    if (!url) return false;
-    const host = url.split('/')[2] ?? '';
-    return (
-      host === 'i.ytimg.com' || host.endsWith('.ytimg.com') || host === 'yt3.ggpht.net' || host === 'lh3.googleusercontent.com'
-    );
+    return isYoutubeThumbUrl(url);
   }
 
   /**
@@ -592,6 +588,12 @@ export class MusicService {
     if (typed?.loadType !== 'track' || !typed.data?.encoded) return null;
     try {
       const track = new MoonlinkTrack(typed.data, ytTrack.requester);
+      // The resolver's own response carries the SOURCE VIDEO's thumbnail.
+      // Left stamped, it looks like resolved art: the backfill cascade skips
+      // any track that already has artwork, so the card would show a video
+      // frame for the whole set instead of the real cover. Drop it here (no
+      // known art to stamp) so the ladder's backfill fills real art.
+      MusicService.preCleanArtwork(track as unknown as { artworkUrl?: string | null });
       // Wrong-song guard (same ±30s rule as fallbacks): the ytsearch top hit
       // can be a compilation or wrong upload; the probed file duration is
       // ground truth. Missing durations pass through.

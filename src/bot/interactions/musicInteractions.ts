@@ -13,6 +13,12 @@ import type { FilterName } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 import { TtlStore } from '@bot/services/ttlStore';
 import { resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
+
+/**
+ * Borrowed-cover window, shared with the handler's publisher: how long a
+ * chapter may keep the previous chapter's cover while its own art resolves.
+ */
+const BORROWED_COVER_MS = 15000;
 import { lyricWindowAt, type SyncedLine } from '@bot/services/music/syncedLyrics';
 
 export const MUSIC_INTERACTION_PREFIXES = [
@@ -57,7 +63,9 @@ export class MusicInteractions {
       let holdCover = (player?.get('lastCoverUrl') as string | null) ?? null;
       if (!card.artworkUrl) {
         const startedAt = player?.get('chapterStartedAt') as number | null;
-        if (typeof startedAt === 'number' && Date.now() - startedAt > 90000) {
+        // Mirrors the publisher's borrowed-cover window: a chapter that never
+        // resolves must stop showing the previous song's cover.
+        if (typeof startedAt === 'number' && Date.now() - startedAt > BORROWED_COVER_MS) {
           holdCover = null;
         }
       }

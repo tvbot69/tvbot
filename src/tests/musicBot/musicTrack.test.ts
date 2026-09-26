@@ -104,7 +104,7 @@ describe('mapMoonlinkTrack', () => {
     const mapped = mapMoonlinkTrack(rawTrack);
     expect(mapped.title).toBe('ALL MY GIRLS');
     expect(mapped.author).toBe('Lancey Foux');
-    expect(mapped.artworkUrl).toBe('https://img.youtube.com/vi/xyz123/default.jpg');
+    expect(mapped.artworkUrl).toBeUndefined();
     expect(mapped.source).toBe('youtube');
   });
 
@@ -145,7 +145,7 @@ describe('mapMoonlinkTrack', () => {
     expect(mapMoonlinkTrack(soundcloudTrack).source).toBe('soundcloud');
   });
 
-  it('upgrades YouTube mqdefault thumbnail to hqdefault', () => {
+  it('drops YouTube thumbnails instead of upgrading them (frames are not artwork)', () => {
     const ytTrack = {
       identifier: 'cxk-1zsy_W8',
       title: 'PLAYBOI CARTI LIVE @ Rolling Loud Cali 2023 [FULL SET]',
@@ -156,8 +156,23 @@ describe('mapMoonlinkTrack', () => {
       sourceName: 'youtube',
     } as unknown as MoonlinkTrack;
 
-    const mapped = mapMoonlinkTrack(ytTrack);
-    expect(mapped.artworkUrl).toBe('https://i.ytimg.com/vi/cxk-1zsy_W8/hqdefault.jpg');
+    // The card must never show a video frame: this mapper runs on every read,
+    // so stamping a thumbnail here would out-resolve the artwork cascade.
+    expect(mapMoonlinkTrack(ytTrack).artworkUrl).toBeUndefined();
+  });
+
+  it('keeps a real resolved cover on a YouTube-sourced track', () => {
+    const ytTrack = {
+      identifier: 'cxk-1zsy_W8',
+      title: 'Rottweiler',
+      author: 'EsDeeKid',
+      uri: 'https://www.youtube.com/watch?v=cxk-1zsy_W8',
+      duration: 210000,
+      artworkUrl: 'https://i.scdn.co/image/rottweiler-cover',
+      sourceName: 'youtube',
+    } as unknown as MoonlinkTrack;
+
+    expect(mapMoonlinkTrack(ytTrack).artworkUrl).toBe('https://i.scdn.co/image/rottweiler-cover');
   });
 });
 

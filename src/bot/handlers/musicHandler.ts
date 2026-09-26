@@ -418,6 +418,20 @@ export class MusicHandler {
 
   private readonly progressFingerprints = new Map<string, string>();
   /**
+   * Chapter part of the visible fingerprint. The COVER URL is part of the
+   * key, not just its presence: a chapter whose art lands late (or replaces
+   * the held cover from the previous song) is a visible change, and keying
+   * on `title~hasArt` alone made every art swap look identical to the state
+   * already posted — the card kept the previous song's cover indefinitely.
+   */
+  private static chapterKeyFor(
+    chapter: { title: string; artworkUrl?: string | null } | null,
+    shownCover: string | null,
+  ): string {
+    if (!chapter) return 'none';
+    return `${chapter.title}~${shownCover ?? ''}`;
+  }
+  /**
    * Visible card fingerprint: track, pause state, queue shape, karaoke
    * window and chapter. On-demand publishes edit only on change; trackStart
    * syncs it to the posted card so a same-track re-post neither double-
@@ -612,12 +626,12 @@ export class MusicHandler {
       const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
       const chapter = this.chapterCardFor(player, queue.position);
       // Borrowed-cover expiry: holding the previous chapter's art avoids a
-      // flash, but after ~90s without a resolve it looks like a confirmed
-      // (wrong) answer. Fall through to track art instead.
+      // flash, but a chapter that never resolves must not sit on the wrong
+      // song's cover. Short window, then fall through to the track's own art.
       let holdCover = player.get<string | null>('lastCoverUrl') ?? null;
       if (chapter && !chapter.artworkUrl) {
         const startedAt = player.get<number | null>('chapterStartedAt') ?? null;
-        if (typeof startedAt === 'number' && Date.now() - startedAt > 90000) {
+        if (typeof startedAt === 'number' && Date.now() - startedAt > MusicHandler.BORROWED_COVER_MS) {
           holdCover = null;
         }
       }
@@ -627,7 +641,7 @@ export class MusicHandler {
         queue.current?.artworkUrl,
       );
       if (shownCover) player.set('lastCoverUrl', shownCover);
-      const chapterKey = displayChapter ? `${displayChapter.title}~${displayChapter.artworkUrl ? 'a' : ''}` : 'none';
+      const chapterKey = MusicHandler.chapterKeyFor(displayChapter, shownCover);
       const fingerprint = MusicHandler.fingerprintFor(queue, lyricKey, chapterKey);
       if (this.progressFingerprints.get(guildId) === fingerprint) return;
 
@@ -896,6 +910,12 @@ export class MusicHandler {
   private static readonly SEEK_GRACE_WINDOW_MS = 300000;
   private static readonly MAX_FALLBACKS_PER_GUILD_WINDOW = 5;
   private static readonly FALLBACK_BUDGET_WINDOW_MS = 60000;
+  /**
+   * How long a chapter may keep the PREVIOUS chapter's cover while its own
+   * art resolves. Long enough to avoid a flash on a 1-50ms cache hit, short
+   * enough that a chapter which never resolves stops showing a wrong song.
+   */
+  private static readonly BORROWED_COVER_MS = 15000;
 
   private fallbackTrackKey(guildId: string, failedKey: string): string {
     return `${guildId}|${failedKey}`;
@@ -1225,13 +1245,13 @@ export class MusicHandler {
         await this.resolveKaraokeLines(player, currentTrack.title, currentTrack.author, currentTrack.duration);
         this.resolveVideoChapters(player, player.current ?? track);
         const chapter = this.chapterCardFor(player, 0);
+        // Same cover resolution the publisher uses, so the first post and
+        // every later edit agree on what is on screen (and on the key).
+        const postedCover = chapter?.artworkUrl ?? queue.current?.artworkUrl ?? null;
         // Accent follows the displayed cover (chapter art when present),
         // mirroring the on-demand publisher below.
         const accentColor = this.colorService
-          ? await this.colorService.getAccentColorAsync(
-              player.guildId,
-              chapter?.artworkUrl ?? currentTrack.artworkUrl,
-            )
+          ? await this.colorService.getAccentColorAsync(player.guildId, postedCover)
           : undefined;
         const postedLyric = this.lyricWindowFor(player, 0);
         const response = MusicBuilders.buildNowPlayingResponse(
@@ -1300,7 +1320,7 @@ export class MusicHandler {
           // suppress the next real change (which a stale fingerprint from
           // a previous card would do, freezing the new card).
           const postedLyricKey = postedLyric ? `${postedLyric.current ?? ''}~${postedLyric.next ?? ''}` : 'none';
-          const postedChapterKey = chapter ? `${chapter.title}~${chapter.artworkUrl ? 'a' : ''}` : 'none';
+          const postedChapterKey = MusicHandler.chapterKeyFor(chapter, postedCover);
           this.progressFingerprints.set(
             player.guildId,
             MusicHandler.fingerprintFor(queue, postedLyricKey, postedChapterKey),

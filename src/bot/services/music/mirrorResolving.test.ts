@@ -198,7 +198,7 @@ describe('MusicService mirror resolving', () => {
     expect(results[0]?.source).toBe('youtube');
   });
 
-  it('leaves picker hits raw when Spotify has no valid match', async () => {
+  it('never hands out a picker YouTube thumb when Spotify has no valid match', async () => {
     const { svc } = buildHarness({
       spotifySearchTracks: [
         {
@@ -212,7 +212,9 @@ describe('MusicService mirror resolving', () => {
       ],
     });
     const results = await svc.searchTracks('midnight circuit neon skyline', 'youtube', false);
-    expect(results[0]?.artworkUrl).toBe(YT_THUMB);
+    // No mismatched Spotify cover AND no video frame either: the pick
+    // resolves its real art through the backfill cascade once it plays.
+    expect(results[0]?.artworkUrl).toBeUndefined();
   });
 
   it('playMirror resolves a Deezer track ISRC-first with the deezer badge', async () => {

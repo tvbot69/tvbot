@@ -268,6 +268,95 @@ describe('MusicHandler progress card', () => {
     handler.clearCardTimers('g-hype-1');
   });
 
+  it('publishes when a chapter cover lands (title-only keys swallowed the swap)', async () => {
+    const edit = vi.fn().mockResolvedValue({});
+    const channel = {
+      isTextBased: () => true,
+      messages: { cache: { get: () => ({ edit }) }, fetch: async () => ({ edit }) },
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map(), fetch: async () => channel } };
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const SHOW = [
+      { title: 'Rottweiler', startMs: 0 },
+      { title: '4 Raws', startMs: 150000 },
+    ];
+    const store: Record<string, unknown> = {
+      nowPlayingMessageId: 'msg-1',
+      chapters: SHOW,
+      chapterIdx: 0,
+      chapterStartedAt: Date.now(),
+      chapterCard: { title: 'Rottweiler', artworkUrl: 'https://img.test/rottweiler.jpg' },
+      lastCoverUrl: 'https://img.test/rottweiler.jpg',
+    };
+    const queue = {
+      current: {
+        identifier: 'show-1',
+        title: 'EsDeeKid - Live at Silver Spring',
+        author: 'EsDeeKid',
+        uri: 'https://youtube.com/watch?v=show-1',
+        duration: 3821000,
+        isSeekable: true,
+        isStream: false,
+        source: 'local',
+        artworkUrl: 'https://img.test/show.jpg',
+      },
+      tracks: [],
+      totalTracks: 1,
+      totalDuration: 3821000,
+      remainingDuration: 3821000,
+      loopMode: 'off',
+      volume: 100,
+      isPaused: false,
+      isPlaying: true,
+      is247: false,
+      autoplay: false,
+      position: 60000,
+    };
+    const player = {
+      guildId: 'g-chswap-1',
+      playing: true,
+      paused: false,
+      textChannelId: 'tc-1',
+      current: queue.current,
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+    };
+    const handler = new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => queue, is247: () => false, isKaraokeEnabled: () => false } as never,
+    ) as unknown as {
+      publishProgress: (player: unknown) => Promise<void>;
+      clearCardTimers: (guildId: string) => void;
+    };
+
+    // 1. Song 1 with its own cover: posted.
+    await handler.publishProgress(player);
+    expect(edit).toHaveBeenCalledTimes(1);
+
+    // 2. Boundary into song 2 while its art is still resolving: the card
+    //    borrows song 1's cover, so the title is the only visible change.
+    queue.position = 200000;
+    store.chapterIdx = 1;
+    store.chapterCard = { title: '4 Raws', artworkUrl: null };
+    await handler.publishProgress(player);
+    expect(edit).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(edit.mock.calls[1]![0])).toContain('rottweiler.jpg');
+
+    // 3. Song 2's cover resolves. Only the IMAGE changed — the old
+    //    `title~hasArt` key made this look identical to what was already
+    //    posted, so the card stayed on song 1's cover for the whole song.
+    store.chapterCard = { title: '4 Raws', artworkUrl: 'https://img.test/raws.jpg' };
+    await handler.publishProgress(player);
+    expect(edit).toHaveBeenCalledTimes(3);
+    expect(JSON.stringify(edit.mock.calls[2]![0])).toContain('raws.jpg');
+
+    // 4. Nothing changed: no edit (the dirty check still holds).
+    await handler.publishProgress(player);
+    expect(edit).toHaveBeenCalledTimes(3);
+    handler.clearCardTimers('g-chswap-1');
+  });
+
   it('keeps chapters across a same-video track restart (no wipe + re-probe gap)', () => {
     const manager = { on: vi.fn(), players: { get: () => undefined } };
     const client = { on: vi.fn(), channels: { cache: new Map() } };
