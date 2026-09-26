@@ -39,9 +39,14 @@ try {
 export const tempDir = path.join(os.tmpdir(), 'tvbot-audio');
 void fsp.mkdir(tempDir, { recursive: true }).catch(() => undefined);
 
+/** Bound on preview downloads. Without it a CDN that accepts the connection
+ *  and then stalls leaves this promise pending forever, and the caller
+ *  (a Discord interaction) never answers. */
+const PREVIEW_FETCH_TIMEOUT_MS = 15_000;
+
 export async function downloadMP3(url: string, trackId: string): Promise<string> {
   const mp3Path = path.join(tempDir, `${trackId}.mp3`);
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(PREVIEW_FETCH_TIMEOUT_MS) });
   if (!res.ok) throw new Error(`Failed to download preview (${res.status})`);
   const buf = Buffer.from(await res.arrayBuffer());
   await fsp.writeFile(mp3Path, buf);
@@ -51,11 +56,18 @@ export async function downloadMP3(url: string, trackId: string): Promise<string>
 export async function downloadAndConvert(url: string, trackId: string, duration?: number): Promise<string> {
   const mp3Path = await downloadMP3(url, trackId);
   const oggPath = path.join(tempDir, `${trackId}.ogg`);
-  await new Promise<void>((resolve, reject) => {
-    let cmd = ffmpeg(mp3Path).noVideo().audioChannels(1).audioCodec('libopus').format('ogg').outputOptions(['-vbr on']);
-    if (duration) cmd = cmd.duration(duration);
-    cmd.output(oggPath).on('end', () => resolve()).on('error', (err: any) => reject(err)).run();
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let cmd = ffmpeg(mp3Path).noVideo().audioChannels(1).audioCodec('libopus').format('ogg').outputOptions(['-vbr on']);
+      if (duration) cmd = cmd.duration(duration);
+      cmd.output(oggPath).on('end', () => resolve()).on('error', (err: any) => reject(err)).run();
+    });
+  } catch (err) {
+    // The unlink used to sit only on the success path, so every failed
+    // transcode left its .mp3 in the temp dir for the life of the process.
+    await fsp.unlink(mp3Path).catch(() => undefined);
+    throw err;
+  }
   await fsp.unlink(mp3Path).catch(() => undefined);
   return oggPath;
 }

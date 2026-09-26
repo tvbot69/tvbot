@@ -70,17 +70,32 @@ export class CommandHandler {
       return;
     }
 
-    const prefix = await this.prefixService.getPrefix(message.guildId);
-    const botMention1 = this.client.user ? `<@${this.client.user.id}>` : null;
-    const botMention2 = this.client.user ? `<@!${this.client.user.id}>` : null;
+    // Cheap reject first. The prefix lookup is an async cache/Redis/DB read,
+    // and with MessageContent + GuildMessages intents this handler runs for
+    // EVERY message in EVERY channel — so a busy guild paid a round trip per
+    // message just to discover it was not a command. Non-command messages skip
+    // the lookup and fall straight through to the active-game handling below.
+    const content = message.content;
+    const mentionsBot =
+      (this.client.user && (content.startsWith(`<@${this.client.user.id}>`) || content.startsWith(`<@!${this.client.user.id}>`))) ||
+      false;
+    const looksLikeCommand = content.startsWith('.') || content.startsWith('+') || mentionsBot;
 
     let matchedPrefix: string | null = null;
-    if (message.content.startsWith(prefix)) {
-      matchedPrefix = prefix;
-    } else if (botMention1 && message.content.startsWith(botMention1)) {
-      matchedPrefix = botMention1;
-    } else if (botMention2 && message.content.startsWith(botMention2)) {
-      matchedPrefix = botMention2;
+    if (looksLikeCommand) {
+      const prefix = await this.prefixService.getPrefix(message.guildId);
+      const botMention1 = this.client.user ? `<@${this.client.user.id}>` : null;
+      const botMention2 = this.client.user ? `<@!${this.client.user.id}>` : null;
+      if (content.startsWith(prefix)) {
+        matchedPrefix = prefix;
+      } else if (content.startsWith('+')) {
+        // Alternative prefix advertised by /help.
+        matchedPrefix = '+';
+      } else if (botMention1 && content.startsWith(botMention1)) {
+        matchedPrefix = botMention1;
+      } else if (botMention2 && content.startsWith(botMention2)) {
+        matchedPrefix = botMention2;
+      }
     }
 
     if (!matchedPrefix) {
@@ -136,13 +151,14 @@ export class CommandHandler {
       return;
     }
 
-    const rawArguments = message.content.slice(matchedPrefix.length).trim();
+    const rawArguments = content.slice(matchedPrefix.length).trim();
     if (!rawArguments) {
       return;
     }
 
     const split = rawArguments.split(/\s+/);
     const commandName = (split.shift() ?? '').toLowerCase();
+    const prefix = matchedPrefix;
 
     const command = getTextCommand(commandName);
     if (!command) {

@@ -31,8 +31,24 @@ export interface PlayResult {
 
 export const playErrorMessage = (reason?: PlayResult['errorReason']): string => {
   switch (reason) {
-    case 'no-nodes':
-      return 'All music nodes are rate-limited right now. Try again in 30–60 seconds.';
+    case 'no-nodes': {
+      // Derive the real cause instead of always claiming a rate limit.
+      // `this` is undefined when playErrorMessage is called as a free function
+      // (it is exported for the command layer), so read it defensively.
+      const mm = (this as { moonlinkManager?: MoonlinkManager } | undefined)?.moonlinkManager;
+      const fn = mm?.getUnavailableReason as
+        | (() => { reason: string; retryAfterMs: number })
+        | undefined;
+      if (typeof fn !== 'function') {
+        return 'All music nodes are rate-limited right now. Try again in 30–60 seconds.';
+      }
+      const info = fn.call(mm);
+      if (info.reason === 'disabled') return 'Music playback is disabled in this environment.';
+      if (info.reason === 'disconnected') return 'I cannot reach any music node right now. Try again shortly.';
+      const secs = Math.max(1, Math.ceil(info.retryAfterMs / 1000));
+      const wait = secs < 60 ? `${secs}s` : `${Math.ceil(secs / 60)} min`;
+      return `All music nodes are rate-limited right now. Try again in ${wait}.`;
+    }
     case 'voice':
       return 'I could not join your voice channel. Check my permissions and try again.';
     case 'empty-spotify':

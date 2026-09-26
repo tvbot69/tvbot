@@ -8,6 +8,9 @@ import { Logger } from '@domain/logger';
 const COLOR_CACHE_TTL_SECONDS = 86400; // 24 hours
 const ACCENT_FAILURE_TTL_SECONDS = 600; // 10-minute cooldown so dead images don't re-download every publish tick
 const MAX_SAMPLE_SIZE = 64;
+/** Cap on a fetched cover (~4MB) and on its decompressed raster. */
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_INPUT_PIXELS = 16_777_216;
 const QUANTIZE_SHIFT = 5;
 
 export interface ColorExtractionBin {
@@ -99,7 +102,10 @@ export class ColorService {
    */
   public async extractAccentColor(imageBuffer: Buffer): Promise<number> {
     try {
-      const { data, info } = await sharp(imageBuffer)
+      const { data, info } = await sharp(imageBuffer, {
+        // Bound decompression: a tiny file can expand to an enormous raster.
+        limitInputPixels: MAX_INPUT_PIXELS,
+      })
         .resize(MAX_SAMPLE_SIZE, MAX_SAMPLE_SIZE, { fit: 'inside', withoutEnlargement: false })
         .ensureAlpha()
         .raw()
@@ -153,22 +159,40 @@ export class ColorService {
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-
-      const resp = await fetch(processedUrl, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'tvbot/0.1.0 (+https://github.com/tvbot)',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-        },
-      });
-      clearTimeout(timeout);
+      let resp: Response;
+      try {
+        resp = await fetch(processedUrl, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'tvbot/0.1.0 (+https://github.com/tvbot)',
+            'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          },
+        });
+      } finally {
+        // The old code cleared this only on the success path, so every failed
+        // fetch leaked a live 5s timer that then aborted an already-dead
+        // controller.
+        clearTimeout(timeout);
+      }
 
       if (!resp.ok) {
         await this.cacheFailure(cacheKey);
         return DiscordConstants.LastFmColorRed;
       }
 
+      // Cap the download: this URL comes from track metadata, and a small
+      // decompression-bomb image (a few hundred KB on the wire) would
+      // otherwise be expanded in full before being resized to 64x64.
+      const declared = Number(resp.headers?.get('content-length') ?? '0');
+      if (Number.isFinite(declared) && declared > MAX_IMAGE_BYTES) {
+        await this.cacheFailure(cacheKey);
+        return DiscordConstants.LastFmColorRed;
+      }
       const arrayBuffer = await resp.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_IMAGE_BYTES) {
+        await this.cacheFailure(cacheKey);
+        return DiscordConstants.LastFmColorRed;
+      }
       const buffer = Buffer.from(arrayBuffer);
       const color = await this.extractAccentColor(buffer);
 

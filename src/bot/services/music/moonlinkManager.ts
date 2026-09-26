@@ -605,6 +605,34 @@ export class MoonlinkManager {
     return allNodes.some(n => n.connected && !this.isNodeInCooldown(n.identifier) && n.identifier !== 'dummy-disabled');
   }
 
+  /**
+   * WHY there is no usable node, plus how long until the longest cooldown
+   * expires. The single "All music nodes are rate-limited, try again in
+   * 30-60 seconds" message was wrong in three of the four cases it could
+   * report: Lavalink disabled locally, every node disconnected, a genuine
+   * 1-hour rate limit, and a 2-minute REST-dead cooldown all produced the same
+   * sentence — so a user hitting a real 4000 was told to retry in 30-60s,
+   * retried, and was still blocked.
+   */
+  public getUnavailableReason(): {
+    reason: 'disabled' | 'disconnected' | 'rate-limited';
+    retryAfterMs: number;
+  } {
+    if (!this.lavalinkEnabled) return { reason: 'disabled', retryAfterMs: 0 };
+    const allNodes = this.getAllNodes().filter(n => n.identifier !== 'dummy-disabled');
+    if (allNodes.length === 0) return { reason: 'disconnected', retryAfterMs: 0 };
+    const now = Date.now();
+    let longest = 0;
+    let anyConnected = false;
+    for (const node of allNodes) {
+      if (node.connected) anyConnected = true;
+      const until = this.nodeCooldownUntil.get(node.identifier) ?? 0;
+      if (until > now && until - now > longest) longest = until - now;
+    }
+    if (anyConnected && longest > 0) return { reason: 'rate-limited', retryAfterMs: longest };
+    return { reason: 'disconnected', retryAfterMs: 0 };
+  }
+
   public getHealthyNodeCount(): number {
     if (!this.lavalinkEnabled) return 0;
     const allNodes = this.getAllNodes();

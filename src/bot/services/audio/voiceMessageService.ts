@@ -31,6 +31,13 @@ const evictExpiredPreviews = (now: number): void => {
   }
 };
 
+/** Bound on every Discord CDN/API call here: a stalled upload otherwise
+ * hangs the interaction forever. */
+const DISCORD_TIMEOUT_MS = 20_000;
+
+const fetchTimeout = (url: string, init: RequestInit = {}): Promise<Response> =>
+  fetch(url, { ...init, signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS) });
+
 export const previewMap = new Map<string, string>();
 
 /** Register a resolvable preview, replacing any previous entry for the id. */
@@ -86,7 +93,7 @@ export class VoiceMessageService {
     };
     form.append('payload_json', JSON.stringify(payload));
 
-    const res = await fetch(`https://discord.com/api/v10/webhooks/${appId}/${interactionToken}`, {
+    const res = await fetchTimeout(`https://discord.com/api/v10/webhooks/${appId}/${interactionToken}`, {
       method: 'POST',
       headers: { Authorization: `Bot ${botToken}` },
       body: form as any,
@@ -106,7 +113,7 @@ export class VoiceMessageService {
 
     // Step 1: request upload url (Discord attachments endpoint)
     const reqBody = { files: [{ filename: fileName, file_size: stat.size, id: '0' }] };
-    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/attachments`, {
+    const res = await fetchTimeout(`https://discord.com/api/v10/channels/${channelId}/attachments`, {
       method: 'POST',
       body: JSON.stringify(reqBody),
       headers: { 'Content-Type': 'application/json', Authorization: `Bot ${botToken}` },
@@ -115,7 +122,7 @@ export class VoiceMessageService {
     const data: any = await res.json();
 
     // Step 2: PUT to upload_url
-    const putRes = await fetch(data.attachments[0].upload_url, {
+    const putRes = await fetchTimeout(data.attachments[0].upload_url, {
       method: 'PUT',
       body: await fs.readFile(oggPath),
       headers: { 'Content-Type': 'audio/ogg' },
@@ -131,7 +138,7 @@ export class VoiceMessageService {
     };
     if (replyToMessageId) payload.message_reference = { message_id: replyToMessageId };
 
-    const res3 = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    const res3 = await fetchTimeout(`https://discord.com/api/v10/channels/${channelId}/messages`, {
       method: 'POST',
       body: JSON.stringify(payload),
       headers: { 'Content-Type': 'application/json', Authorization: `Bot ${botToken}` },

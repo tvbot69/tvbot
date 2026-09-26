@@ -170,7 +170,7 @@ export class GameService {
 
   public async pixelateCover(coverUrl: string, pixelRatio = 0.04): Promise<Buffer> {
     try {
-      const res = await fetch(coverUrl);
+      const res = await fetch(coverUrl, { signal: AbortSignal.timeout(10_000) });
       if (!res.ok) throw new Error(`Failed to fetch image: ${res.statusText}`);
       const arrayBuf = await res.arrayBuffer();
       const b64 = Buffer.from(arrayBuf).toString('base64');

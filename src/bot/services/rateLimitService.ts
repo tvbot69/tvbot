@@ -95,7 +95,8 @@ export class RateLimitService {
     }
 
     const now = Date.now();
-    this.cleanupExpired(now);
+    // Cleanup runs on its own interval now — walking every tracked user on
+    // each command was an O(n) stall on the hot path.
 
     const errorSentExpiresAt = this.errorSentCache.get(discordUserId) ?? 0;
     const errorAlreadySent = errorSentExpiresAt > now;
@@ -141,22 +142,43 @@ export class RateLimitService {
     this.errorSentCache.delete(discordUserId);
   }
 
+  /**
+   * Sweeps expired entries on an interval instead of on the request path.
+   * This used to run inside the check itself, so once any map passed 2000
+   * entries EVERY command walked all three maps synchronously — and because
+   * only expired entries were dropped, a busy bot kept every user it had ever
+   * seen forever. Memory is now bounded by count as well as by age.
+   */
+  private readonly cleanupTimer: NodeJS.Timeout;
+
+  constructor() {
+    this.cleanupTimer = setInterval(() => this.cleanupExpired(Date.now()), 30_000);
+    this.cleanupTimer.unref?.();
+  }
+
+  private static readonly MAX_TRACKED_USERS = 20_000;
+
   private cleanupExpired(now: number): void {
-    // Only clean up intermittently if maps grow large
-    if (this.shortCache.size > 2000) {
-      for (const [key, entry] of this.shortCache.entries()) {
-        if (entry.expiresAt <= now) this.shortCache.delete(key);
-      }
+    for (const [key, entry] of this.shortCache.entries()) {
+      if (entry.expiresAt <= now) this.shortCache.delete(key);
     }
-    if (this.longCache.size > 2000) {
-      for (const [key, entry] of this.longCache.entries()) {
-        if (entry.expiresAt <= now) this.longCache.delete(key);
-      }
+    for (const [key, entry] of this.longCache.entries()) {
+      if (entry.expiresAt <= now) this.longCache.delete(key);
     }
-    if (this.errorSentCache.size > 2000) {
-      for (const [key, expiresAt] of this.errorSentCache.entries()) {
-        if (expiresAt <= now) this.errorSentCache.delete(key);
-      }
+    for (const [key, expiresAt] of this.errorSentCache.entries()) {
+      if (expiresAt <= now) this.errorSentCache.delete(key);
+    }
+    this.trim(this.shortCache);
+    this.trim(this.longCache);
+    this.trim(this.errorSentCache);
+  }
+
+  /** Oldest-first eviction so a flood of new users cannot grow memory forever. */
+  private trim<K>(map: Map<K, unknown>): void {
+    while (map.size > RateLimitService.MAX_TRACKED_USERS) {
+      const oldest = map.keys().next();
+      if (oldest.done) break;
+      map.delete(oldest.value);
     }
   }
 }

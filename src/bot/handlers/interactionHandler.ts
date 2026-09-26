@@ -376,18 +376,44 @@ export class InteractionHandler {
     const commandName = interaction.commandName.toLowerCase();
     Statistics.inc('SlashCommandExecuted');
 
+    const command = getSlashCommand(commandName);
+    if (!command) {
+      // Ack first (below) then report, or Discord shows "This application did
+      // not respond" with nothing in the logs.
+      await interaction
+        .reply({ content: 'That command is no longer available.', flags: MessageFlags.Ephemeral })
+        .catch(() => undefined);
+      Logger.warn({ commandName }, 'Unrouted slash command');
+      return;
+    }
+
+    // Acknowledge BEFORE the guard checks. Those are 4 sequential cache/DB
+    // reads plus 2-3 Redis round-trips for the rate limit, and Discord's
+    // interaction token expires at 3s: with a slow database the interaction
+    // was never acknowledged, Discord showed "This interaction failed", and
+    // the command then completed into the void — a visible error on a
+    // command that actually succeeded. Every path below now edits the
+    // deferred reply instead of replying.
+    if (command.ephemeral) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    } else {
+      await interaction.deferReply().catch(() => undefined);
+    }
+    const respond = async (content: string): Promise<void> => {
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ content }).catch(() => undefined);
+        return;
+      }
+      await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    };
+
     const blocked = await this.isBlockedInContext(
       interaction.guildId,
       interaction.channelId,
       commandName,
     );
     if (blocked) {
-      await interaction.reply({ content: blocked, ephemeral: true }).catch(() => undefined);
-      return;
-    }
-
-    const command = getSlashCommand(commandName);
-    if (!command) {
+      await respond(blocked);
       return;
     }
 
@@ -395,22 +421,11 @@ export class InteractionHandler {
     const rateLimit = await this.rateLimitService.checkUserRateLimitAsync(interaction.user.id);
     if (rateLimit.rateLimited) {
       if (!rateLimit.messageSent) {
-        await interaction
-          .reply({
-            content: `⏳ You are using commands too fast! Please slow down (${rateLimit.retryAfterSeconds ?? 8}s cooldown).`,
-            flags: MessageFlags.Ephemeral,
-          })
-          .catch(() => undefined);
+        await respond(
+          `⏳ You are using commands too fast! Please slow down (${rateLimit.retryAfterSeconds ?? 8}s cooldown).`,
+        );
       }
       return;
-    }
-
-    if (command.ephemeral) {
-      await interaction
-        .deferReply({ flags: MessageFlags.Ephemeral })
-        .catch(() => undefined);
-    } else {
-      await interaction.deferReply().catch(() => undefined);
     }
 
     void this.trackActivity(interaction);

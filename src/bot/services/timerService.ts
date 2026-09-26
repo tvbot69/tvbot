@@ -196,6 +196,9 @@ export class TimerService {
     ]);
   }
 
+  /** Jobs currently executing — a slow run must not overlap the next tick. */
+  private readonly running = new Set<string>();
+
   private registerJob(
     name: string,
     cronExpression: string,
@@ -209,10 +212,23 @@ export class TimerService {
       return;
     }
     const task = cron.schedule(cronExpression, async () => {
+      // node-cron fires unconditionally. The index-queue pump runs every 2
+      // minutes and walks up to 10k users; on a slow database a run easily
+      // outlasts its interval, so a second, then third, then fourth concurrent
+      // pump started — each hammering Postgres and the shared Last.fm token
+      // bucket. The `draining` flag inside one pump does not help across
+      // firings.
+      if (this.running.has(name)) {
+        Logger.warn({ job: name }, 'Scheduled job still running from a previous tick — skipping this one');
+        return;
+      }
+      this.running.add(name);
       try {
         await job();
       } catch (err) {
         Logger.error({ err }, `Scheduled job ${name} failed`);
+      } finally {
+        this.running.delete(name);
       }
     });
     this.tasks.set(name, task);
