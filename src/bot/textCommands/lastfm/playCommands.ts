@@ -14,18 +14,17 @@ import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { ChannelRepository } from '@persistence/repositories/channelRepository';
 import { parseFmEmbedType } from '@domain/enums/fmEmbedType';
 import { PrefixService } from '@bot/services/prefixService';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
 import { FmFooterResolver } from '@bot/services/fmFooterResolver';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import { ColorService } from '@bot/services/colorService';
 import { ExposedService } from '@bot/services/exposedService';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
-const FM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
 async function enrichFmTracks(tracks: RecentTrack[]): Promise<void> {
   if (!tracks[0]) return;
   const lfmImage = tracks[0].imageUrl;
-  const isPlaceholder = !lfmImage || lfmImage.includes(FM_PLACEHOLDER_HASH);
+  const isPlaceholder = !lfmImage || isPlaceholderImageUrl(lfmImage);
   try {
     const artService = container.resolve(ArtworkService);
     let resolved: string | null = null;

@@ -1,8 +1,8 @@
 import type { LfmImage, RecentTrackLfm } from '@lastfm/models/recentTracksLfm';
 import type { RecentTrack } from '@domain/models/recentTrack';
+import { isPlaceholderImageUrl } from '@bot/services/artworkService';
 
-const LASTFM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
-const isPlaceholder = (url?: string): boolean => !!url && url.includes(LASTFM_PLACEHOLDER_HASH);
+const isPlaceholder = (url?: string): boolean => !!url && isPlaceholderImageUrl(url);
 
 export class TrackConverter {
   public static pickLargestImage(images?: LfmImage[]): string | undefined {

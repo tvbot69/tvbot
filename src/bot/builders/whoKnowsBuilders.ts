@@ -22,7 +22,7 @@ import { container } from 'tsyringe';
 import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
 import { ArtistsService } from '@bot/services/artistsService';
 import { AlbumService } from '@bot/services/albumService';
-import { ArtworkService, matchesArtistName } from '@bot/services/artworkService';
+import { ArtworkService, matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
 import { UserService } from '@bot/services/userService';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
@@ -375,7 +375,7 @@ export class WhoKnowsBuilders {
               // 5. Supplement from candidate albums with pre-existing directImage
               if (distinctCovers.length < 10 && candidateAlbums.length > 0) {
                 for (const alb of candidateAlbums) {
-                  if (alb.directImage && !alb.directImage.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seenCovers.has(alb.directImage)) {
+                  if (alb.directImage && !isPlaceholderImageUrl(alb.directImage) && !seenCovers.has(alb.directImage)) {
                     seenCovers.add(alb.directImage);
                     distinctCovers.push(alb.directImage);
                     if (distinctCovers.length >= 10) break;

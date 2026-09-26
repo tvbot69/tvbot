@@ -7,7 +7,7 @@ import { ResponseMode } from '@domain/enums/responseMode';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { container } from 'tsyringe';
 import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import { ArtworkService, matchesArtistName } from '@bot/services/artworkService';
+import { ArtworkService, matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { Logger } from '@domain/logger';
 
@@ -43,7 +43,7 @@ async function resolveBackgroundCovers(
   const covers: string[] = [];
 
   for (const c of preferredCovers) {
-    if (c && !c.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(c)) {
+    if (c && !isPlaceholderImageUrl(c) && !seen.has(c)) {
       seen.add(c);
       covers.push(c);
       if (covers.length >= MOSAIC_COVER_TARGET) return covers;
@@ -73,7 +73,7 @@ async function resolveBackgroundCovers(
           }
           const spotifyCovers = await spotifyApi.getArtistDiscographyCovers(topArtist, hint, 15);
           for (const c of spotifyCovers) {
-            if (c && !c.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(c)) {
+            if (c && !isPlaceholderImageUrl(c) && !seen.has(c)) {
               seen.add(c);
               covers.push(c);
               if (covers.length >= MOSAIC_COVER_TARGET) return covers;
@@ -96,7 +96,7 @@ async function resolveBackgroundCovers(
           if (covers.length >= MOSAIC_COVER_TARGET) break;
           const dbCovers = await artistsService.getIndexedAlbumCoversForArtist(name, 5);
           for (const c of dbCovers) {
-            if (c && !c.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(c)) {
+            if (c && !isPlaceholderImageUrl(c) && !seen.has(c)) {
               seen.add(c);
               covers.push(c);
               if (covers.length >= MOSAIC_COVER_TARGET) return covers;
@@ -150,7 +150,7 @@ async function resolveBackgroundCovers(
         ).catch(() => []);
 
         for (const alb of albums) {
-          if (alb.imageUrl && !alb.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(alb.imageUrl)) {
+          if (alb.imageUrl && !isPlaceholderImageUrl(alb.imageUrl) && !seen.has(alb.imageUrl)) {
             seen.add(alb.imageUrl);
             covers.push(alb.imageUrl);
             if (covers.length >= MOSAIC_COVER_TARGET) return covers;
@@ -172,14 +172,14 @@ async function resolveArtistImages(
   const images: string[] = [];
   const seen = new Set<string>();
 
-  if (seedImage && !seedImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+  if (seedImage && !isPlaceholderImageUrl(seedImage)) {
     seen.add(seedImage);
     images.push(seedImage);
   }
 
   // 1. Seed with any valid non-placeholder images already on topArtists
   for (const a of topArtists) {
-    if (a.imageUrl && !a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(a.imageUrl)) {
+    if (a.imageUrl && !isPlaceholderImageUrl(a.imageUrl) && !seen.has(a.imageUrl)) {
       seen.add(a.imageUrl);
       images.push(a.imageUrl);
       if (images.length >= MOSAIC_COVER_TARGET) return images;
@@ -193,7 +193,7 @@ async function resolveArtistImages(
       const artistsService = container.resolve(ArtistsService);
       const hydrated = await artistsService.fillArtistImages(topArtists.slice(0, MOSAIC_COVER_TARGET));
       for (const a of hydrated) {
-        if (a.imageUrl && !a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(a.imageUrl)) {
+        if (a.imageUrl && !isPlaceholderImageUrl(a.imageUrl) && !seen.has(a.imageUrl)) {
           seen.add(a.imageUrl);
           images.push(a.imageUrl);
           if (images.length >= MOSAIC_COVER_TARGET) return images;
@@ -212,7 +212,7 @@ async function resolveArtistImages(
         if (images.length >= MOSAIC_COVER_TARGET) break;
         if (a.imageUrl && seen.has(a.imageUrl)) continue;
         const img = await artworkService.getArtistImageUrl(a.name);
-        if (img && !img.includes('2a96cbd8b46e442fc41c2b86b821562f') && !seen.has(img)) {
+        if (img && !isPlaceholderImageUrl(img) && !seen.has(img)) {
           seen.add(img);
           images.push(img);
         }
@@ -244,8 +244,8 @@ export class TopBuilders {
         if (container.isRegistered(ArtworkService)) {
           targetImage = (await container.resolve(ArtworkService).getArtistImageUrl(topItem.name)) ?? undefined;
         }
-        if (!targetImage || targetImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-          targetImage = topItem.imageUrl && !topItem.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topItem.imageUrl : undefined;
+        if (!targetImage || isPlaceholderImageUrl(targetImage)) {
+          targetImage = topItem.imageUrl && !isPlaceholderImageUrl(topItem.imageUrl) ? topItem.imageUrl : undefined;
         }
 
         const users: WhoKnowsUser[] = topArtists.slice(0, 10).map((a, idx) => ({
@@ -339,8 +339,8 @@ export class TopBuilders {
         if (container.isRegistered(ArtworkService)) {
           targetImage = (await container.resolve(ArtworkService).getAlbumCoverUrl(topItem.name, topItem.artistName)) ?? undefined;
         }
-        if (!targetImage || targetImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-          targetImage = topItem.imageUrl && !topItem.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topItem.imageUrl : undefined;
+        if (!targetImage || isPlaceholderImageUrl(targetImage)) {
+          targetImage = topItem.imageUrl && !isPlaceholderImageUrl(topItem.imageUrl) ? topItem.imageUrl : undefined;
         }
 
         const users: WhoKnowsUser[] = topAlbums.slice(0, 10).map((a, idx) => ({
@@ -437,8 +437,8 @@ export class TopBuilders {
         if (container.isRegistered(ArtworkService)) {
           targetImage = (await container.resolve(ArtworkService).getTrackCoverUrl(topItem.name, topItem.artistName)) ?? undefined;
         }
-        if (!targetImage || targetImage.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
-          targetImage = topItem.imageUrl && !topItem.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? topItem.imageUrl : undefined;
+        if (!targetImage || isPlaceholderImageUrl(targetImage)) {
+          targetImage = topItem.imageUrl && !isPlaceholderImageUrl(topItem.imageUrl) ? topItem.imageUrl : undefined;
         }
 
         const users: WhoKnowsUser[] = topTracks.slice(0, 10).map((t, idx) => ({

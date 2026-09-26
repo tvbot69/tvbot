@@ -14,6 +14,7 @@ import { parseSpotifyReleaseDate } from './albumEnrichmentService';
 import { PrismaClient } from '@prisma/client';
 import { Logger } from '@domain/logger';
 import { DiscordConstants } from '@bot/resources/discordConstants';
+import { isPlaceholderImageUrl } from '@bot/services/artworkService';
 
 const CACHE_TTL_SECONDS = 3600;
 
@@ -235,7 +236,7 @@ export class AlbumService {
     }
 
     // Resolve cover art — ArtworkService is primary (Spotify→Deezer→Apple→Last.fm), Last.fm raw URL is last-resort
-    const rawLfmCover = albumInfo?.imageUrl && !albumInfo.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? albumInfo.imageUrl : undefined;
+    const rawLfmCover = albumInfo?.imageUrl && !isPlaceholderImageUrl(albumInfo.imageUrl) ? albumInfo.imageUrl : undefined;
     const coverUrl =
       (await this.artworkService.getAlbumCoverUrl(resolvedAlbumName, resolvedArtistName)) ||
       rawLfmCover;

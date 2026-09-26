@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { CacheService } from './cacheService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { Logger } from '@domain/logger';
+import { isPlaceholderImageUrl } from '@bot/services/artworkService';
 
 const COLOR_CACHE_TTL_SECONDS = 86400; // 24 hours
 const ACCENT_FAILURE_TTL_SECONDS = 600; // 10-minute cooldown so dead images don't re-download every publish tick
@@ -130,7 +131,7 @@ export class ColorService {
     const cleanUrl = imageUrl.trim();
 
     // Check placeholder URLs (e.g. Last.fm default star placeholder)
-    if (cleanUrl.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+    if (isPlaceholderImageUrl(cleanUrl)) {
       return DiscordConstants.LastFmColorRed;
     }
 

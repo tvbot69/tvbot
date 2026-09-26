@@ -13,6 +13,7 @@ import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import type { PrismaClient } from '@prisma/client';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { Logger } from '@domain/logger';
+import { isPlaceholderImageUrl } from '@bot/services/artworkService';
 
 const CACHE_TTL_SECONDS = 3600;
 
@@ -172,7 +173,7 @@ export class ArtistsService {
    * Batch hydrates artist images using ArtworkService or database cache
    */
   public async fillArtistImages(topArtists: TopArtist[]): Promise<TopArtist[]> {
-    const missing = topArtists.filter((a) => !a.imageUrl || a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f'));
+    const missing = topArtists.filter((a) => !a.imageUrl || isPlaceholderImageUrl(a.imageUrl));
     if (missing.length === 0) return topArtists;
 
     if (this.artworkService) {
@@ -180,13 +181,13 @@ export class ArtistsService {
         missing.map(async (artist) => {
           try {
             const url = await this.artworkService!.getArtistImageUrl(artist.name);
-            if (url && !url.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+            if (url && !isPlaceholderImageUrl(url)) {
               artist.imageUrl = url;
-            } else if (artist.imageUrl?.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+            } else if (isPlaceholderImageUrl(artist.imageUrl)) {
               artist.imageUrl = undefined;
             }
           } catch {
-            if (artist.imageUrl?.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+            if (isPlaceholderImageUrl(artist.imageUrl)) {
               artist.imageUrl = undefined;
             }
           }
@@ -212,11 +213,11 @@ export class ArtistsService {
       const map = new Map<string, string>();
       for (const r of rows) {
         const cover = r.spotifyImageUrl ?? r.deezerImageUrl ?? r.imageUrl;
-        if (cover && !cover.includes('2a96cbd8b46e442fc41c2b86b821562f')) map.set(r.name.toLowerCase(), cover);
+        if (cover && !isPlaceholderImageUrl(cover)) map.set(r.name.toLowerCase(), cover);
       }
 
       for (const a of topArtists) {
-        if (!a.imageUrl || a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+        if (!a.imageUrl || isPlaceholderImageUrl(a.imageUrl)) {
           const found = map.get(a.name.toLowerCase());
           if (found) a.imageUrl = found;
           else a.imageUrl = undefined;
@@ -679,7 +680,7 @@ export class ArtistsService {
 
     const info = await this.getArtistInfo(searchArtist, user.userNameLastFm);
     if (info) {
-      const artUrl = (await this.artworkService?.getArtistImageUrl(info.name)) ?? (info.imageUrl && !info.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? info.imageUrl : undefined);
+      const artUrl = (await this.artworkService?.getArtistImageUrl(info.name)) ?? (info.imageUrl && !isPlaceholderImageUrl(info.imageUrl) ? info.imageUrl : undefined);
       return {
         artistName: info.name,
         artistUrl: info.url,
@@ -698,7 +699,7 @@ export class ArtistsService {
       const fallbackName = searchResults[0]!.name;
       const fallbackInfo = await this.getArtistInfo(fallbackName, user.userNameLastFm);
       if (fallbackInfo) {
-        const artUrl = (await this.artworkService?.getArtistImageUrl(fallbackInfo.name)) ?? (fallbackInfo.imageUrl && !fallbackInfo.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') ? fallbackInfo.imageUrl : undefined);
+        const artUrl = (await this.artworkService?.getArtistImageUrl(fallbackInfo.name)) ?? (fallbackInfo.imageUrl && !isPlaceholderImageUrl(fallbackInfo.imageUrl) ? fallbackInfo.imageUrl : undefined);
         return {
           artistName: fallbackInfo.name,
           artistUrl: fallbackInfo.url,

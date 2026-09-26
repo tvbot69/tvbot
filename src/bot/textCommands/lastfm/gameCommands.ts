@@ -10,7 +10,7 @@ import { GameBuilders } from '@bot/builders/gameBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/colorService';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
 
 @injectable()
 export class GameCommands implements ITextCommandModule {
@@ -234,7 +234,7 @@ export class GameCommands implements ITextCommandModule {
     const eligible = (topAlbums || []).filter(
       a =>
         a.imageUrl &&
-        !a.imageUrl.includes('2a96cbd8b46e442fc41c2b86b821562f') &&
+        !isPlaceholderImageUrl(a.imageUrl) &&
         a.name &&
         a.name.length >= 2 &&
         a.name.length <= 40 &&
@@ -253,7 +253,7 @@ export class GameCommands implements ITextCommandModule {
     const artistName = chosen.artistName ?? 'Unknown Artist';
     let coverUrl = chosen.imageUrl!;
     const resolvedCover = await this.artworkService?.getAlbumCoverUrl(albumName, artistName);
-    if (resolvedCover && !resolvedCover.includes('2a96cbd8b46e442fc41c2b86b821562f')) {
+    if (resolvedCover && !isPlaceholderImageUrl(resolvedCover)) {
       coverUrl = resolvedCover;
     }
 
