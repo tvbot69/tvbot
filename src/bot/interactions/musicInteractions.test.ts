@@ -160,7 +160,7 @@ describe('MusicInteractions chapter jump', () => {
     { title: 'KICK OUT', startMs: 465000 },
   ];
 
-  const makeSvc = (opts: { chapters?: unknown; requesterId?: string; seekResult?: boolean } = {}) => ({
+  const makeSvc = (opts: { chapters?: unknown; requesterId?: string; seekResult?: number | null } = {}) => ({
     getQueueInfo: vi.fn(() => ({
       current: {
         title: 'Travis Scott - Live',
@@ -173,7 +173,8 @@ describe('MusicInteractions chapter jump', () => {
     getPlayer: vi.fn(() => ({
       get: (key: string) => (key === 'chapters' ? (opts.chapters !== undefined ? opts.chapters : chapters) : undefined),
     })),
-    seek: vi.fn(async () => opts.seekResult ?? true),
+    // seek() now returns the applied position (or null when refused).
+    seek: vi.fn(async () => (opts.seekResult === undefined ? 214000 : opts.seekResult)),
   });
 
   const makeInteractions = (svc: unknown) =>
@@ -221,7 +222,7 @@ describe('MusicInteractions chapter jump', () => {
   });
 
   it('reports a failed seek', async () => {
-    const svc = makeSvc({ seekResult: false });
+    const svc = makeSvc({ seekResult: null });
     const mi = makeInteractions(svc);
     const select = makeSelect('music:chapters:seek:0', 'u1', ['1']);
 

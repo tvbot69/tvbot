@@ -254,4 +254,66 @@ describe('isSpotifyMatchValid', () => {
 
     expect(isSpotifyMatchValid(originalTrack, spotifyCandidate)).toBe(true);
   });
+
+  it('accepts a same-artist candidate that is genuinely the same recording', () => {
+    // Duration corroborates and the titles are the same recording.
+    expect(
+      isSpotifyMatchValid(
+        { title: 'Rottweiler', author: 'EsDeeKid', duration: 180000 },
+        { name: 'Rottweiler', artist: 'EsDeeKid', durationMs: 181000 },
+      ),
+    ).toBe(true);
+  });
+
+  it('REFUSES a different song by the same artist', () => {
+    // The regression that mattered: token overlap meant every song by an
+    // artist matched every other one, and the bot then announced the Spotify
+    // title over the audio of a completely different track.
+    expect(
+      isSpotifyMatchValid(
+        { title: 'Rottweiler', author: 'EsDeeKid', duration: 180000 },
+        { name: 'Century', artist: 'EsDeeKid', durationMs: 200000 },
+      ),
+    ).toBe(false);
+    expect(
+      isSpotifyMatchValid(
+        { title: 'Century', author: 'EsDeeKid', duration: 200000 },
+        { name: 'Rottweiler', artist: 'EsDeeKid', durationMs: 180000 },
+      ),
+    ).toBe(false);
+    expect(
+      isSpotifyMatchValid(
+        { title: 'Nice for What', author: 'Drake', duration: 240000 },
+        { name: 'One Dance', artist: 'Drake, Wizkid', durationMs: 217000 },
+      ),
+    ).toBe(false);
+  });
+
+  it('REFUSES a shorter title that is only a prefix of a different song', () => {
+    expect(
+      isSpotifyMatchValid(
+        { title: 'Talk', author: 'Yeat', duration: 180000 },
+        { name: 'Talk to Me', artist: 'Yeat', durationMs: 180000 },
+      ),
+    ).toBe(false);
+  });
+
+  it('REFUSES the same title when the duration says it is a different recording', () => {
+    // A 9-minute "Song" and a 3-minute "Song" are not the same recording.
+    expect(
+      isSpotifyMatchValid(
+        { title: 'SICKO MODE', author: 'Travis Scott', duration: 540000 },
+        { name: 'SICKO MODE', artist: 'Travis Scott', durationMs: 190000 },
+      ),
+    ).toBe(false);
+  });
+
+  it('still accepts the same title when one side has no duration', () => {
+    expect(
+      isSpotifyMatchValid(
+        { title: 'Century', author: 'EsDeeKid', duration: 0 },
+        { name: 'Century', artist: 'EsDeeKid', durationMs: 200000 },
+      ),
+    ).toBe(true);
+  });
 });

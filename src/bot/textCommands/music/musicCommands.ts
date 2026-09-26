@@ -13,6 +13,7 @@ import { ALL_FILTERS } from '@domain/models/music/musicQueue';
 import type { LyricsService } from '@bot/services/music/lyricsService';
 import type { MusicInteractions } from '@bot/interactions/musicInteractions';
 import { chapterIndexAt, type VideoChapter } from '@bot/services/music/videoChapters';
+import { formatDuration } from '@domain/models/music/musicTrack';
 
 export class MusicCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -480,12 +481,23 @@ export class MusicCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('Please provide a valid time in seconds or `mm:ss`.');
     }
 
-    const success = await this.musicService.seek(info.guildId, seconds);
-    if (!success) {
+    // Returns the position actually applied, so a clamped request does not
+    // get reported back as if it was honoured in full.
+    const appliedMs = await this.musicService.seek(info.guildId, seconds);
+    if (appliedMs === null) {
       return GenericEmbedService.buildNotFoundResponse('No track is currently playing to seek.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏩ Seeked', `Jumped to \`${raw}\` in the current track.`).setAutoDelete(4);
+    const appliedLabel = formatDuration(appliedMs);
+    const requestedLabel = formatDuration(seconds * 1000);
+    return MusicBuilders
+      .buildSimpleResponse(
+        '⏩ Seeked',
+        appliedLabel === requestedLabel
+          ? `Jumped to \`${appliedLabel}\` in the current track.`
+          : `Jumped to \`${appliedLabel}\` — that is as far as this track goes.`,
+      )
+      .setAutoDelete(4);
   }
 
   private async chaptersAsync(context: ContextModel): Promise<ResponseModel> {

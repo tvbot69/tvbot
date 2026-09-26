@@ -1595,18 +1595,31 @@ export class MusicService {
   }
 
   /**
-   * Seeks to `seconds`. The seek event fires synchronously inside
-   * player.seek (chapter swap runs instantly); the REST round-trip on slow
-   * nodes can take seconds, so it races a timeout instead of hanging the
-   * command. Intent markers are recorded BEFORE awaiting, so stall grace
-   * observes the seek even if REST hangs. A timed-out REST still applies
-   * late server-side (or the stuck detector recovers) — true either way,
-   * since the event already fired and recovery is event-driven.
+   * Seeks to `seconds`. Returns the position actually applied (ms) so callers
+   * can report the truth — a clamped seek used to answer "Jumped to 99999
+   * seconds" after jumping to the end — or null when the seek was refused
+   * (no player, no track, a live stream, or unknown duration).
+   *
+   * The seek event fires synchronously inside player.seek (chapter swap runs
+   * instantly); the REST round-trip on slow nodes can take seconds, so it
+   * races a timeout instead of hanging the command. Intent markers are
+   * recorded BEFORE awaiting, so stall grace observes the seek even if REST
+   * hangs. A timed-out REST still applies late server-side (or the stuck
+   * detector recovers) — true either way, since the event already fired and
+   * recovery is event-driven.
    */
-  public async seek(guildId: string, seconds: number, restTimeoutMs = 8000): Promise<boolean> {
+  public async seek(guildId: string, seconds: number, restTimeoutMs = 8000): Promise<number | null> {
     const player = this.getPlayer(guildId);
-    if (!player || !player.current) return false;
-    const ms = Math.max(0, Math.min(seconds * 1000, player.current.duration || 0));
+    if (!player || !player.current) return null;
+    // A stream has no duration, so the old clamp (min against duration || 0)
+    // silently turned EVERY seek on a live stream into a jump to 0 while
+    // still reporting success. Refuse what cannot be honoured.
+    if (player.current.isStream) return null;
+    const duration = player.current.duration || 0;
+    if (duration <= 0) return null;
+    const ms = Math.max(0, Math.min(seconds * 1000, duration));
+    // Identity of the track we are seeking, re-checked after the await below.
+    const trackIdentifier = (player.current as unknown as { identifier?: string }).identifier ?? '';
     // Record user seeks so a stall in the seconds after one retries the seek
     // itself instead of burning fallback budget on a healthy upload.
     try {
@@ -1631,10 +1644,15 @@ export class MusicService {
       if (timer) clearTimeout(timer);
     }
     if (player.current) {
-      player.current.position = ms;
-      player.current.time = Date.now();
+      // Only if the SAME track is still current: a REST that stalls past the
+      // track's end would otherwise stamp this position onto the next song.
+      const cur = player.current as unknown as { identifier?: string; position?: number; time?: number };
+      if (cur.identifier === trackIdentifier) {
+        cur.position = ms;
+        cur.time = Date.now();
+      }
     }
-    return true;
+    return ms;
   }
 
   public setVolume(guildId: string, volume: number): number | null {

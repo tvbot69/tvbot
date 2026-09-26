@@ -572,8 +572,8 @@ export class MusicInteractions {
 
       const chapter = chapters[idx]!;
       await interaction.deferUpdate().catch(() => undefined);
-      const success = await this.musicService.seek(guildId, Math.floor(chapter.startMs / 1000));
-      if (!success) {
+      const appliedMs = await this.musicService.seek(guildId, Math.floor(chapter.startMs / 1000));
+      if (appliedMs === null) {
         await interaction
           .followUp({ content: 'No track is currently playing.', ephemeral: true })
           .catch(() => undefined);

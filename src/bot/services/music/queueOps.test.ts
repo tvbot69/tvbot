@@ -308,20 +308,49 @@ describe('MusicService.seek', () => {
     expect(player.data.get('lastUserSeekAt')).toBeGreaterThan(0);
     expect(player.data.get('lastUserSeekPos')).toBe(650000);
     release();
-    await expect(pending).resolves.toBe(true);
+    // Returns the position actually applied, so callers report the truth.
+    await expect(pending).resolves.toBe(650000);
     expect(player.current.position).toBe(650000);
   });
 
-  it('never hangs the command when REST stalls (timeout resolves true)', async () => {
+  it('never hangs the command when REST stalls (timeout still resolves)', async () => {
     const player = seekPlayer(() => new Promise(() => undefined));
     const svc = seekSvc(player);
-    await expect(svc.seek('g', 650, 50)).resolves.toBe(true);
+    await expect(svc.seek('g', 650, 50)).resolves.toBe(650000);
     expect(player.data.get('lastUserSeekPos')).toBe(650000);
     expect(player.seek).toHaveBeenCalledWith(650000);
   });
 
   it('refuses without a player or current track', async () => {
     const svc = seekSvc(null);
-    await expect(svc.seek('g', 10)).resolves.toBe(false);
+    await expect(svc.seek('g', 10)).resolves.toBeNull();
+  });
+
+  it('refuses a live stream instead of silently jumping to 0', async () => {
+    // duration is 0 on a stream, so the old clamp (min against duration || 0)
+    // turned every seek into a jump to the start and still said "seeked".
+    const player = seekPlayer(async () => undefined);
+    player.current.duration = 0;
+    const svc = seekSvc(player);
+    await expect(svc.seek('g', 650, 50)).resolves.toBeNull();
+    expect(player.seek).not.toHaveBeenCalled();
+  });
+
+  it('clamps to the track end and reports the clamped position', async () => {
+    const player = seekPlayer(async () => undefined);
+    player.current.duration = 60_000;
+    const svc = seekSvc(player);
+    await expect(svc.seek('g', 9999, 50)).resolves.toBe(60_000);
+    expect(player.seek).toHaveBeenCalledWith(60_000);
+  });
+
+  it('does not stamp the position onto a DIFFERENT track after a stalled REST', async () => {
+    const player = seekPlayer(() => new Promise(() => undefined));
+    const svc = seekSvc(player);
+    const pending = svc.seek('g', 650, 50);
+    // Track ends and the next one starts while our REST call hangs.
+    player.current = { identifier: 't2', title: 'Next Song', duration: 200000 } as never;
+    await expect(pending).resolves.toBe(650000);
+    expect((player.current as unknown as { position?: number }).position).toBeUndefined();
   });
 });

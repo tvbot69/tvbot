@@ -484,13 +484,24 @@ export class MusicSlashCommands implements ISlashCommandModule {
     }
 
     const seconds = ctx.interaction?.options.getInteger('seconds') ?? 0;
-    const success = await this.musicService.seek(ctx.guildId, seconds);
+    // Returns the position actually applied, so the reply can state the truth
+    // when the request was clamped to the end of the track.
+    const appliedMs = await this.musicService.seek(ctx.guildId, seconds);
 
-    if (!success) {
+    if (appliedMs === null) {
       return GenericEmbedService.buildNotFoundResponse('No track is currently playing to seek.');
     }
 
-    return MusicBuilders.buildSimpleResponse('⏩ Seeked', `Jumped to **${seconds}** seconds in the current track.`).setAutoDelete(4);
+    const appliedSeconds = Math.floor(appliedMs / 1000);
+    const clamped = appliedSeconds !== Math.floor(seconds);
+    return MusicBuilders
+      .buildSimpleResponse(
+        '⏩ Seeked',
+        clamped
+          ? `Jumped to **${appliedSeconds}** seconds — that is the end of the track.`
+          : `Jumped to **${appliedSeconds}** seconds in the current track.`,
+      )
+      .setAutoDelete(4);
   }
 
   private async executeChapters(ctx: ContextModel): Promise<ResponseModel> {

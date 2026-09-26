@@ -140,53 +140,69 @@ export interface SpotifyMatchCandidate {
   album?: string;
 }
 
+/** Collapse to a comparable key: letters/digits only, single spaces. */
+const titleKey = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+/**
+ * True when one title is the other plus a qualifier tail ("sicko mode" vs
+ * "sicko mode remix"). Word-boundary aware, and the shorter side must be a
+ * substantial share of the longer: without that ratio, "talk" would adopt
+ * "talk to me", which is a different song by the same artist.
+ */
+const isTitleVariant = (a: string, b: string): boolean => {
+  const [shortKey, longKey] = a.length <= b.length ? [a, b] : [b, a];
+  if (shortKey === longKey) return true;
+  if (shortKey.length < 4) return false;
+  const aligned =
+    longKey.startsWith(`${shortKey} `) ||
+    longKey.endsWith(` ${shortKey}`) ||
+    longKey.includes(` ${shortKey} `);
+  if (!aligned) return false;
+  return shortKey.length / longKey.length >= 0.5;
+};
+
+/**
+ * Gate for adopting a Spotify result as the "clean" identity of a track that
+ * is already playing. Passing this OVERWRITES the title, author, artwork and
+ * uri, so a false positive does not merely mislabel metadata — it announces a
+ * different song while the original audio plays.
+ *
+ * The previous rule accepted ANY candidate sharing one 3+ character token
+ * with the title OR the author, which meant every song by an artist matched
+ * every other song by that artist ("Rottweiler" adopted "Century", "Nice for
+ * What" adopted "One Dance"). TITLE evidence is now mandatory, and duration
+ * is a requirement rather than a tie-breaker that token overlap could bypass.
+ */
 export const isSpotifyMatchValid = (
   originalTrack: { title: string; author?: string; duration?: number },
   candidate: SpotifyMatchCandidate,
 ): boolean => {
   if (!candidate.name?.trim()) return false;
 
-  const origTitle = (originalTrack.title || '').toLowerCase();
-  const origAuthor = (originalTrack.author || '').toLowerCase();
-  const candName = candidate.name.toLowerCase().trim();
-  const candArtist = (candidate.artist || '').toLowerCase().trim();
+  // Both sides get the same treatment: strip the "Artist - " prefix and the
+  // bracketed release/video cruft, so "Queen - Bohemian Rhapsody (Official
+  // Video Remastered)" and "Bohemian Rhapsody" compare equal, and
+  // "FE!N" vs "FE!N (feat. Playboi Carti)" compare equal too.
+  const origKey = titleKey(cleanTrackTitle(originalTrack.title || '', originalTrack.author));
+  const candKey = titleKey(cleanTrackTitle(candidate.name));
+  if (!origKey || !candKey) return false;
+  if (!isTitleVariant(origKey, candKey)) return false;
 
-  // 1. Duration check
+  // Duration must corroborate when both sides know it. Once the title is
+  // confirmed, a large duration gap means a different recording (a live
+  // cut, an extended mix, a radio edit) wearing the same name.
   const origDuration = originalTrack.duration || 0;
   const candDuration = candidate.durationMs || 0;
   if (origDuration > 0 && candDuration > 0) {
-    // If the original track is a long video/set (>10 mins / 600,000 ms), reject if difference > 60s
-    if (origDuration > 600_000 && Math.abs(origDuration - candDuration) > 60_000) {
-      return false;
-    }
-    // For standard songs, if duration differs by more than 45 seconds, reject unless exact match
-    if (
-      Math.abs(origDuration - candDuration) > 45_000 &&
-      !origTitle.includes(candName) &&
-      !candName.includes(origTitle)
-    ) {
-      return false;
-    }
+    const tolerance = origDuration > 600_000 ? 60_000 : 12_000;
+    if (Math.abs(origDuration - candDuration) > tolerance) return false;
   }
 
-  // 2. Token overlap check (tokens length >= 3)
-  const getTokens = (str: string) =>
-    (str.match(/[a-z0-9]+/g) || []).filter((w) => w.length >= 3);
-
-  const origTokens = new Set([...getTokens(origTitle), ...getTokens(origAuthor)]);
-  const candNameTokens = getTokens(candName);
-  const candArtistTokens = getTokens(candArtist);
-
-  const nameOverlap = candNameTokens.some((t) => origTokens.has(t));
-  const artistOverlap = candArtistTokens.some((t) => origTokens.has(t));
-
-  const substringMatch =
-    (candName.length >= 3 && origTitle.includes(candName)) ||
-    (origTitle.length >= 3 && candName.includes(origTitle)) ||
-    (candArtist.length >= 3 && origTitle.includes(candArtist)) ||
-    (candArtist.length >= 3 && origAuthor.includes(candArtist));
-
-  return nameOverlap || artistOverlap || substringMatch;
+  return true;
 };
 
 /**
