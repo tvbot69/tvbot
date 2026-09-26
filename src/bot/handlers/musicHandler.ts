@@ -670,19 +670,44 @@ export class MusicHandler {
             // the edit failed (no tick retries it anymore).
             this.updateChapterStatus(player);
           })
-          .catch((err: { code?: number }) => {
+          .catch((err: {
+            code?: number;
+            status?: number;
+            message?: string;
+            retryAfter?: number;
+            rawError?: { retry_after?: number };
+            retry_after?: number;
+          }) => {
             if (err?.code === 10008) {
               this.publishRetries.delete(guildId);
               this.forgetNowPlaying(player);
               return;
             }
-            // The card still exists but the edit failed (blip/rate-limit):
-            // bounded retries so a chapter attach isn't lost to one bad
+            // The card still exists but the edit failed. Log the cause —
+            // blind catches hid escalating Discord throttling here before —
+            // and honor 429 retry_after instead of hammering a fixed delay.
+            const retryAfterSec =
+              (typeof err?.retryAfter === 'number' && err.retryAfter > 0 && err.retryAfter) ||
+              (typeof err?.rawError?.retry_after === 'number' && err.rawError.retry_after > 0 && err.rawError.retry_after) ||
+              (typeof err?.retry_after === 'number' && err.retry_after > 0 && err.retry_after) ||
+              0;
+            Logger.warn(
+              {
+                guildId,
+                code: err?.code,
+                status: err?.status,
+                retryAfterSec,
+                message: String(err?.message ?? err).slice(0, 160),
+              },
+              '[Music] Card edit failed',
+            );
+            // Bounded retries so a chapter attach isn't lost to one bad
             // call. Boundary timers remain the steady-state retry path.
             const retries = (this.publishRetries.get(guildId) ?? 0) + 1;
             if (retries <= MusicHandler.MAX_PUBLISH_RETRIES) {
               this.publishRetries.set(guildId, retries);
-              this.scheduleImmediateProgress(player, 5000);
+              const backoffMs = retryAfterSec > 0 ? Math.min(Math.ceil(retryAfterSec * 1000) + 1000, 60000) : 5000;
+              this.scheduleImmediateProgress(player, backoffMs);
             } else {
               this.publishRetries.delete(guildId);
             }

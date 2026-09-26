@@ -44,8 +44,7 @@ export class MusicBuilders {
    * never polled, so remaining is a snapshot that refreshes on pause,
    * resume, seeks and boundaries. Text-only, no emojis.
    */
-  public static buildNowPlayingMetaLine(
-    durationMs: number,
+  public static buildNowPlayingMetaLine(    durationMs: number,
     positionMs: number,
     isStream: boolean,
     requesterTag?: string,
