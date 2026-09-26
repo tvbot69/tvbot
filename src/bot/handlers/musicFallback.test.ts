@@ -314,7 +314,7 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
     // Seek-download grace holds post-seek stalls on long tracks; exhaust it
     // here so this test keeps asserting the fall-through that follows.
     player.set('seekStallGraceSeekAt', player.get('lastUserSeekAt'));
-    player.set('seekStallGraceUsed', 5);
+    player.set('seekStallGraceUsed', 10);
     await onStuck(player, stuckTrack(), 10000);
     expect(search.mock.calls.length).toBeGreaterThan(0);
   });
@@ -478,7 +478,7 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
       ['lastUserSeekPos', 1800000],
       ['seekStallRetried', true],
       ['seekStallGraceSeekAt', seekAt],
-      ['seekStallGraceUsed', 5],
+      ['seekStallGraceUsed', 10],
     ]);
     const player = {
       guildId: 'g-seek',

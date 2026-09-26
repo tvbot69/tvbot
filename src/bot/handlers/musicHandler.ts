@@ -887,10 +887,13 @@ export class MusicHandler {
   private readonly guildFallbackBudget = new Map<string, { count: number; windowStart: number }>();
   private readonly triedFallbackIds = new Map<string, Set<string>>();
   private static readonly MAX_FALLBACKS_PER_TRACK = 3;
-  // Post-seek catch-up grace: ~5 extra stuck cycles (~50s past the first
-  // stuck) for far seeks in long videos before normal machinery resumes.
-  private static readonly MAX_SEEK_GRACE_STUCKS = 5;
-  private static readonly SEEK_GRACE_WINDOW_MS = 90000;
+  // Post-seek catch-up grace for far seeks in long videos before normal
+  // machinery resumes. Generous on purpose: slow downloads (SABR streams,
+  // still-growing local files) stall repeatedly while catching up, and each
+  // stall must not burn fallback budget toward skipping an hour-long show.
+  // Bounded — past this, the normal loud path resumes.
+  private static readonly MAX_SEEK_GRACE_STUCKS = 10;
+  private static readonly SEEK_GRACE_WINDOW_MS = 300000;
   private static readonly MAX_FALLBACKS_PER_GUILD_WINDOW = 5;
   private static readonly FALLBACK_BUDGET_WINDOW_MS = 60000;
 

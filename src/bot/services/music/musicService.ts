@@ -1567,15 +1567,19 @@ export class MusicService {
     return true;
   }
 
-  public async seek(guildId: string, seconds: number): Promise<boolean> {
+  /**
+   * Seeks to `seconds`. The seek event fires synchronously inside
+   * player.seek (chapter swap runs instantly); the REST round-trip on slow
+   * nodes can take seconds, so it races a timeout instead of hanging the
+   * command. Intent markers are recorded BEFORE awaiting, so stall grace
+   * observes the seek even if REST hangs. A timed-out REST still applies
+   * late server-side (or the stuck detector recovers) — true either way,
+   * since the event already fired and recovery is event-driven.
+   */
+  public async seek(guildId: string, seconds: number, restTimeoutMs = 8000): Promise<boolean> {
     const player = this.getPlayer(guildId);
     if (!player || !player.current) return false;
     const ms = Math.max(0, Math.min(seconds * 1000, player.current.duration || 0));
-    await player.seek(ms);
-    if (player.current) {
-      player.current.position = ms;
-      player.current.time = Date.now();
-    }
     // Record user seeks so a stall in the seconds after one retries the seek
     // itself instead of burning fallback budget on a healthy upload.
     try {
@@ -1583,7 +1587,25 @@ export class MusicService {
       player.set('lastUserSeekPos', ms);
       player.set('seekStallRetried', false);
     } catch {
-      // Non-critical metadata; seek already succeeded.
+      // Non-critical metadata; the seek below is what matters.
+    }
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        player.seek(ms),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('seek-rest-timeout')), restTimeoutMs);
+        }),
+      ]);
+    } catch {
+      // Slow/dead REST: the sync event already fired (swap ran, clock
+      // pinned); stuck detection owns recovery from here.
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (player.current) {
+      player.current.position = ms;
+      player.current.time = Date.now();
     }
     return true;
   }

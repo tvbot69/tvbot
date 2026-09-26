@@ -270,3 +270,58 @@ describe('MusicService combined queue (resolved + pending)', () => {
     expect(player.current.identifier).toBe('yt-hit');
   });
 });
+
+describe('MusicService.seek', () => {
+  const seekPlayer = (seekImpl: (ms: number) => Promise<unknown>) => {
+    const data = new Map<string, unknown>();
+    return {
+      current: { identifier: 't1', title: 'Long Show', duration: 3821000 } as {
+        identifier: string;
+        title: string;
+        duration: number;
+        position?: number;
+        time?: number;
+      },
+      seek: vi.fn(seekImpl),
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+      data,
+    };
+  };
+  const seekSvc = (player: unknown) =>
+    new MusicService(
+      { getManager: () => ({ players: { get: () => player } }) } as never,
+      {} as never,
+      {} as never,
+    );
+
+  it('records seek markers before awaiting the slow REST round-trip', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const player = seekPlayer(() => gate);
+    const svc = seekSvc(player);
+    const pending = svc.seek('g', 650, 5000);
+    // Markers are set synchronously at call time, not after REST resolves.
+    await Promise.resolve();
+    expect(player.data.get('lastUserSeekAt')).toBeGreaterThan(0);
+    expect(player.data.get('lastUserSeekPos')).toBe(650000);
+    release();
+    await expect(pending).resolves.toBe(true);
+    expect(player.current.position).toBe(650000);
+  });
+
+  it('never hangs the command when REST stalls (timeout resolves true)', async () => {
+    const player = seekPlayer(() => new Promise(() => undefined));
+    const svc = seekSvc(player);
+    await expect(svc.seek('g', 650, 50)).resolves.toBe(true);
+    expect(player.data.get('lastUserSeekPos')).toBe(650000);
+    expect(player.seek).toHaveBeenCalledWith(650000);
+  });
+
+  it('refuses without a player or current track', async () => {
+    const svc = seekSvc(null);
+    await expect(svc.seek('g', 10)).resolves.toBe(false);
+  });
+});
