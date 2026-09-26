@@ -260,9 +260,10 @@ export function getSourceVideoId(
 
 /**
  * Index of the chapter playing at a position (last chapter started at or
- * before it). -1 when there are no usable chapters. `startupOffsetMs`
- * reuses the karaoke clock correction (card clock runs ahead of audible
- * audio while the stream connects).
+ * before it). -1 when there are no usable chapters. Boundaries are exact:
+ * callers pass the raw clock so explicit seeks land on the chosen chapter
+ * and natural transitions flip the moment they start. `startupOffsetMs`
+ * stays as an escape hatch (default 0) for callers that deliberately lag.
  */
 export function chapterIndexAt(
   chapters: VideoChapter[] | null | undefined,

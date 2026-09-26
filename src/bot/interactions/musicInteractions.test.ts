@@ -142,11 +142,15 @@ describe('MusicInteractions chapter jump', () => {
       reply: vi.fn(async () => undefined),
       deferUpdate: vi.fn(async () => undefined),
       update: vi.fn(async () => undefined),
+      editReply: vi.fn(async () => undefined),
+      followUp: vi.fn(async () => undefined),
       message: { embeds: [], flags: { has: () => true } },
     }) as unknown as StringSelectMenuInteraction & {
       reply: ReturnType<typeof vi.fn>;
       deferUpdate: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      editReply: ReturnType<typeof vi.fn>;
+      followUp: ReturnType<typeof vi.fn>;
     };
 
   const chapters = [
@@ -185,7 +189,10 @@ describe('MusicInteractions chapter jump', () => {
     await mi.handleSelectMenu(select);
 
     expect(svc.seek).toHaveBeenCalledWith('g1', 214);
-    expect(select.update).toHaveBeenCalledTimes(1);
+    // Deferred first (slow seeks race the router auto-defer), then edited.
+    expect(select.deferUpdate).toHaveBeenCalledTimes(1);
+    expect(select.editReply).toHaveBeenCalledTimes(1);
+    expect(select.update).not.toHaveBeenCalled();
     expect(select.reply).not.toHaveBeenCalled();
   });
 
@@ -218,8 +225,9 @@ describe('MusicInteractions chapter jump', () => {
 
     await mi.handleSelectMenu(select);
 
-    expect(select.update).not.toHaveBeenCalled();
-    expect((select.reply.mock.calls[0]![0] as { content: string }).content).toBe('No track is currently playing.');
+    expect(select.editReply).not.toHaveBeenCalled();
+    expect(select.followUp).toHaveBeenCalledTimes(1);
+    expect((select.followUp.mock.calls[0]![0] as { content: string }).content).toBe('No track is currently playing.');
   });
 
   it('accepts the second select row (26+ chapters)', async () => {

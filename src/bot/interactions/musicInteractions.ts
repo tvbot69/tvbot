@@ -540,8 +540,10 @@ export class MusicInteractions {
     }
 
     // Chapter jump: seek the player to the selected chapter's start. The
-    // menu re-renders with the moved ▶ marker and stays reusable; the live
-    // card + cover swap happens via the updater's seek path.
+    // menu re-renders with the moved marker and stays reusable; the live
+    // card + cover swap happens via the seek path. Deferred FIRST: seeks
+    // take ~1s and the router auto-defers slow components at 2.5s — an
+    // update after that auto-defer throws InteractionAlreadyReplied.
     if (customId.startsWith('music:chapters:seek:')) {
       const idxStr = interaction.values[0];
       const idx = idxStr !== undefined ? Number(idxStr) : NaN;
@@ -555,19 +557,21 @@ export class MusicInteractions {
       }
 
       const chapter = chapters[idx]!;
+      await interaction.deferUpdate().catch(() => undefined);
       const success = await this.musicService.seek(guildId, Math.floor(chapter.startMs / 1000));
       if (!success) {
-        await interaction.reply({ content: 'No track is currently playing.', ephemeral: true });
+        await interaction
+          .followUp({ content: 'No track is currently playing.', ephemeral: true })
+          .catch(() => undefined);
         return;
       }
 
       const queue = this.musicService.getQueueInfo(guildId);
-      if (!queue?.current) {
-        await interaction.deferUpdate().catch(() => undefined);
-        return;
-      }
+      if (!queue?.current) return;
       const response = MusicBuilders.buildChaptersResponse(queue.current, chapters, idx, accentColor);
-      await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+      await interaction
+        .editReply(response.toMessagePayload() as unknown as Parameters<ButtonInteraction['editReply']>[0])
+        .catch(() => undefined);
       return;
     }
 

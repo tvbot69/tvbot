@@ -93,10 +93,7 @@ export class MusicHandler {
    * the real clock with no startup offset. Null when disabled, missing, or
    * nothing singable (card renders unchanged).
    */
-  private static readonly CLOCK_STARTUP_OFFSET_MS = 3000;
-
-  private lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
-    try {
+  private lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {    try {
       if (!this.lyricsService) return null;
       if (!this.queueService.isKaraokeEnabled(player.guildId)) return null;
       const lines = player.get<SyncedLine[] | null>('karaokeLines');
@@ -258,7 +255,9 @@ export class MusicHandler {
     try {
       const chapters = player.get<VideoChapter[] | null>('chapters');
       if (!chapters || chapters.length < 2) return player.get<ChapterCard | null>('chapterCard') ?? null;
-      const idx = chapterIndexAt(chapters, Math.max(0, positionMs), MusicHandler.CLOCK_STARTUP_OFFSET_MS);
+      // Exact boundaries: the legacy 3s startup offset made explicit seeks
+      // land on the PREVIOUS chapter for the whole song.
+      const idx = chapterIndexAt(chapters, Math.max(0, positionMs));
       const lastIdx = player.get<number>('chapterIdx') ?? -2;
       if (idx === lastIdx) {
         const stored = player.get<ChapterCard | null>('chapterCard') ?? null;
@@ -374,7 +373,9 @@ export class MusicHandler {
     try {
       const chapters = player.get<VideoChapter[] | null>('chapters');
       if (!chapters || chapters.length < 2) return;
-      const idx = chapterIndexAt(chapters, Math.max(0, positionMs), MusicHandler.CLOCK_STARTUP_OFFSET_MS);
+      // Exact boundaries (see chapterCardFor): a seek to a chapter start
+      // shows THAT chapter immediately.
+      const idx = chapterIndexAt(chapters, Math.max(0, positionMs));
       if (idx === (player.get<number>('chapterIdx') ?? -2)) return;
       player.set('chapterIdx', idx);
       player.set('chapterStartedAt', Date.now());

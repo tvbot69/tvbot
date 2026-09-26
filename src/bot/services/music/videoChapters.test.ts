@@ -15,7 +15,7 @@ describe('chapterIndexAt', () => {
     expect(chapterIndexAt(SHOW, 999999)).toBe(2);
   });
 
-  it('applies the startup offset like the lyric clock', () => {
+  it('supports an explicit lookup offset', () => {
     expect(chapterIndexAt(SHOW, 151000, 3000)).toBe(0);
     expect(chapterIndexAt(SHOW, 151000)).toBe(1);
   });

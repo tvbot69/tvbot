@@ -419,4 +419,32 @@ describe('MusicHandler progress card', () => {
     expect(deleted).toEqual(['msg-1']);
     expect(store.get('nowPlayingMessageId')).toBeNull();
   });
+
+  it('lands exactly on the chosen chapter when seeking to its start', () => {
+    const handler = buildHandler() as unknown as {
+      swapChapterOnSeek: (player: unknown, positionMs: number) => void;
+      clearCardTimers: (guildId: string) => void;
+    };
+    const store: Record<string, unknown> = {
+      chapterIdx: -2,
+      chapters: [
+        { title: 'Take Me To The Sun', startMs: 0 },
+        { title: 'Bleed Out', startMs: 276000 },
+      ],
+    };
+    const player = {
+      guildId: 'g-swap-1',
+      playing: false,
+      textChannelId: 'tc-1',
+      current: { title: 'd4vd - Live at Washington D.C' },
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+    };
+    // Exact boundary: the legacy 3s offset resolved this to the PREVIOUS
+    // chapter for the rest of the song.
+    handler.swapChapterOnSeek(player, 276000);
+    expect((store.chapterCard as { title: string }).title).toBe('Bleed Out');
+    expect(store.chapterIdx).toBe(1);
+    handler.clearCardTimers('g-swap-1');
+  });
 });
