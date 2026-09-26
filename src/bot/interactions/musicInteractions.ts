@@ -14,12 +14,7 @@ import type { FilterName } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 import { TtlStore } from '@bot/services/ttlStore';
 import { resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
-
-/**
- * Borrowed-cover window, shared with the handler's publisher: how long a
- * chapter may keep the previous chapter's cover while its own art resolves.
- */
-const BORROWED_COVER_MS = 15000;
+import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { lyricWindowAt, type SyncedLine } from '@bot/services/music/syncedLyrics';
 import { deferReplySafe, deferUpdateSafe, respondSafe } from './interactionAck';
 

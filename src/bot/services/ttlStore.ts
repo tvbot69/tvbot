@@ -21,6 +21,14 @@ export const resolveCacheService = (): CacheService | null => {
  */
 export class TtlStore<T> {
   private readonly mem = new Map<string, { value: T; expiresAt: number }>();
+  /**
+   * Memory entries were only ever removed on a matching `get`, and every
+   * `/music search` writes TWO keys (user id + interaction id) holding up to
+   * 10 MusicTrack objects. A user who searched a few hundred times grew this
+   * without bound until restart. Bounded, oldest-first, and expired entries
+   * are swept opportunistically.
+   */
+  private static readonly MAX_ENTRIES = 500;
 
   constructor(
     private readonly prefix: string,
@@ -28,7 +36,20 @@ export class TtlStore<T> {
     private readonly revive?: (value: T) => T,
   ) {}
 
+  private prune(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.mem) {
+      if (entry.expiresAt <= now) this.mem.delete(key);
+    }
+    while (this.mem.size > TtlStore.MAX_ENTRIES) {
+      const oldest = this.mem.keys().next();
+      if (oldest.done) break;
+      this.mem.delete(oldest.value);
+    }
+  }
+
   public set(key: string, value: T): void {
+    this.prune();
     this.mem.set(key, { value, expiresAt: Date.now() + this.ttlSeconds * 1000 });
     const cache = resolveCacheService();
     if (cache?.isRedisReady()) {

@@ -29,6 +29,7 @@ import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTra
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { healthFor, ladderFor, YoutubeHealth, HOME_NODE } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome } from '@bot/services/music/ytResolver';
+import { BORROWED_COVER_MS, CHAPTER_ART_RETRY_MS, CHAPTER_JUMP_CONFIRM_MS } from '@bot/services/music/musicConstants';
 
 export class MusicHandler {
   private readonly client: Client;
@@ -280,7 +281,7 @@ export class MusicHandler {
         // 2s cascade miss every 30s retry for nothing.
         if (!stored?.artworkUrl && idx >= 0 && !isGenericChapterTitle(chapters[idx]?.title)) {
           const retry = player.get<{ idx: number; at: number } | null>('chapterArtRetry');
-          if (!retry || retry.idx !== idx || Date.now() - retry.at > 30000) {
+          if (!retry || retry.idx !== idx || Date.now() - retry.at > CHAPTER_ART_RETRY_MS) {
             player.set('chapterArtRetry', { idx, at: Date.now() });
             void this.resolveChapterArt(player, idx, chapters);
           }
@@ -299,7 +300,7 @@ export class MusicHandler {
       if (lastIdx >= 0 && idx > lastIdx + 1) {
         const pending = player.get<{ idx: number; at: number } | null>('chapterJumpPending') ?? null;
         const sameJump = !!pending && pending.idx === idx;
-        const confirmed = sameJump && Date.now() - pending.at > MusicHandler.CHAPTER_JUMP_CONFIRM_MS;
+        const confirmed = sameJump && Date.now() - pending.at > CHAPTER_JUMP_CONFIRM_MS;
         if (!confirmed) {
           if (!sameJump) {
             player.set('chapterJumpPending', { idx, at: Date.now() });
@@ -310,7 +311,7 @@ export class MusicHandler {
             // Re-derive once the settle window closes: the next boundary timer
             // is armed from the (possibly wrong) jumped position, so it may
             // be minutes away. This is the only prompt re-check.
-            this.scheduleImmediateProgress(player, MusicHandler.CHAPTER_JUMP_CONFIRM_MS + 500);
+            this.scheduleImmediateProgress(player, CHAPTER_JUMP_CONFIRM_MS + 500);
           }
           return player.get<ChapterCard | null>('chapterCard') ?? null;
         }
@@ -336,7 +337,7 @@ export class MusicHandler {
         const upcomingIdx = chapters.findIndex((c, i) => i > idx && !isGenericChapterTitle(c.title));
         if (upcomingIdx >= 0) {
           const retry = player.get<{ idx: number; at: number } | null>('chapterArtRetry');
-          if (!retry || retry.idx !== upcomingIdx || Date.now() - retry.at > 30000) {
+          if (!retry || retry.idx !== upcomingIdx || Date.now() - retry.at > CHAPTER_ART_RETRY_MS) {
             player.set('chapterArtRetry', { idx: upcomingIdx, at: Date.now() });
             void this.resolveChapterArt(player, upcomingIdx, chapters, true);
           }
@@ -710,7 +711,7 @@ export class MusicHandler {
       let holdCover = player.get<string | null>('lastCoverUrl') ?? null;
       if (chapter && !chapter.artworkUrl) {
         const startedAt = player.get<number | null>('chapterStartedAt') ?? null;
-        if (typeof startedAt === 'number' && Date.now() - startedAt > MusicHandler.BORROWED_COVER_MS) {
+        if (typeof startedAt === 'number' && Date.now() - startedAt > BORROWED_COVER_MS) {
           holdCover = null;
         }
       }
@@ -995,19 +996,9 @@ export class MusicHandler {
   private static readonly SEEK_GRACE_WINDOW_MS = 300000;
   private static readonly MAX_FALLBACKS_PER_GUILD_WINDOW = 5;
   private static readonly FALLBACK_BUDGET_WINDOW_MS = 60000;
-  /**
-   * How long a chapter may keep the PREVIOUS chapter's cover while its own
-   * art resolves. Long enough to avoid a flash on a 1-50ms cache hit, short
-   * enough that a chapter which never resolves stops showing a wrong song.
-   */
-  private static readonly BORROWED_COVER_MS = 15000;
-  /**
-   * Settle window for an implausible multi-chapter forward jump. The card
-   * holds its current chapter for this long and re-derives once; a jump that
-   * survives the re-check is treated as real (a long stall legitimately moves
-   * the position several chapters in one go).
-   */
-  private static readonly CHAPTER_JUMP_CONFIRM_MS = 4000;
+  // Borrowed-cover window and the chapter-jump settle window live in
+  // musicConstants so the handler and the interaction surface cannot drift
+  // apart (they used to be separate literals for one concept).
 
   private fallbackTrackKey(guildId: string, failedKey: string): string {
     return `${guildId}|${failedKey}`;
@@ -2033,11 +2024,39 @@ export class MusicHandler {
         this.emptyChannelTimeouts.delete(guildId);
       }
       this.clearInactivityTimeout(guildId);
+      this.forgetGuild(guildId);
       const manager = this.moonlinkManager.getManager();
       const player = manager.players.get(guildId);
       if (player) {
         player.destroy('Guild removed').catch(() => undefined);
       }
     });
+  }
+
+  /**
+   * Everything this handler holds for one guild. GuildDelete used to clear
+   * timers and fallback state but left the card fingerprints, the chapter
+   * status memo, the publish bookkeeping and the coalescing sets behind, so a
+   * bot that churns through guilds accumulates them for the process lifetime.
+   */
+  private forgetGuild(guildId: string): void {
+    this.clearCardTimers(guildId);
+    this.clearFallbackState(guildId);
+    this.clearKickGrace(guildId);
+    this.clearInactivityTimeout(guildId);
+    this.clearOkTimer(guildId);
+    this.progressFingerprints.delete(guildId);
+    this.progressPublishing.delete(guildId);
+    this.publishRetries.delete(guildId);
+    this.pendingPublish.delete(guildId);
+    this.inFlightFallbacks.delete(guildId);
+    this.lastChapterStatus.delete(guildId);
+    this.guildFallbackBudget.delete(guildId);
+    this.triedFallbackIds.delete(guildId);
+    const empty = this.emptyChannelTimeouts.get(guildId);
+    if (empty) {
+      clearTimeout(empty);
+      this.emptyChannelTimeouts.delete(guildId);
+    }
   }
 }

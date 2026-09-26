@@ -1,4 +1,5 @@
 import http from 'http';
+import type { ServerResponse } from 'http';
 import { container } from 'tsyringe';
 import { Client } from 'discord.js';
 import { Logger } from '@domain/logger';
@@ -10,6 +11,8 @@ export class HealthServer {
   private port: number = 3000;
   private basePort: number = 3000;
   private static readonly PORT_PROBE_RANGE = 16;
+  /** Serve a cached snapshot for this long instead of re-probing the DB. */
+  private static readonly HEALTH_CACHE_MS = 5_000;
   private draining = false;
 
   /** Called on SIGTERM: readiness fails closed while in-flight work drains. */
@@ -39,6 +42,14 @@ export class HealthServer {
       }
 
       if (url === '/health' || url === '/') {
+        // Short cache: this endpoint runs a real `SELECT 1` and is polled by
+        // the platform, so an unauthenticated caller could otherwise occupy
+        // the same small connection pool every user command needs.
+        const cached = this.cachedHealth();
+        if (cached) {
+          this.writeJson(res, cached.statusCode, cached.body);
+          return;
+        }
         try {
           const dbHealth = await checkDatabaseHealth();
           let discordPing = -1;
@@ -72,7 +83,9 @@ export class HealthServer {
             database: {
               status: dbHealth.healthy ? 'connected' : 'error',
               latencyMs: dbHealth.latencyMs,
-              ...(dbHealth.error ? { error: dbHealth.error } : {}),
+              // NOT the raw Prisma message: it embeds the datasource host,
+              // port, user and database name, and this endpoint is reachable
+              // from outside. The detail goes to the log instead.
             },
             discord: {
               status: discordStatus,
@@ -87,12 +100,14 @@ export class HealthServer {
               heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
             },
           };
-
-          res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(response, null, 2));
+          if (!dbHealth.healthy) {
+            Logger.warn({ err: dbHealth.error }, '[Health] Database unhealthy');
+          }
+          this.rememberHealth(statusCode, response);
+          this.writeJson(res, statusCode, response);
         } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ status: 'error', message: (err as Error)?.message }));
+          Logger.error({ err }, '[Health] probe failed');
+          this.writeJson(res, 500, { status: 'error' });
         }
         return;
       }
@@ -104,7 +119,6 @@ export class HealthServer {
     this.server.listen(this.port, () => {
       Logger.info(`Health check probe listening on http://localhost:${this.port}/health`);
     });
-
     this.server.on('error', (err: NodeJS.ErrnoException) => {
       // Same-host shard workers share the port range: walk upward instead of
       // going dark. Shard 0 keeps the canonical port for the orchestrator.
@@ -124,6 +138,24 @@ export class HealthServer {
 
     // Unref server so it doesn't block node exit if shutdown is initiated
     this.server.unref();
+  }
+
+  /** 5s health snapshot cache — the probe must not hammer the DB pool. */
+  private healthCache: { at: number; statusCode: number; body: unknown } | null = null;
+
+  private cachedHealth(): { statusCode: number; body: unknown } | null {
+    if (!this.healthCache) return null;
+    if (Date.now() - this.healthCache.at > HealthServer.HEALTH_CACHE_MS) return null;
+    return { statusCode: this.healthCache.statusCode, body: this.healthCache.body };
+  }
+
+  private rememberHealth(statusCode: number, body: unknown): void {
+    this.healthCache = { at: Date.now(), statusCode, body };
+  }
+
+  private writeJson(res: ServerResponse, statusCode: number, body: unknown): void {
+    res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body, null, 2));
   }
 
   private async checkReadiness(): Promise<{

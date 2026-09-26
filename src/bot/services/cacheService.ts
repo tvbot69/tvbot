@@ -68,8 +68,15 @@ export class CacheService {
         const raw = await this.redis.get(key);
         if (raw) {
           const parsed = JSON.parse(raw) as T;
-          // Populate into memory cache
-          this.setMemory(key, parsed, undefined);
+          // Preserve the REMAINING Redis TTL when promoting into memory. It
+          // used to be promoted with `undefined`, which means "never expires":
+          // every finite TTL silently became permanent in this process. A
+          // 10-minute negative artwork marker read at minute 9 then lived
+          // until restart, so a cover that appeared on Spotify was never
+          // re-fetched — and the 5-minute guild/command-disabled settings
+          // froze for the life of the process (invisible across shards).
+          const remaining = await this.remainingTtlSeconds(key);
+          this.setMemory(key, parsed, remaining ?? undefined);
           return parsed;
         }
       } catch {
@@ -77,6 +84,19 @@ export class CacheService {
       }
     }
     return null;
+  }
+
+  /** Seconds left on a Redis key, or null when it has no expiry. */
+  private async remainingTtlSeconds(key: string): Promise<number | null> {
+    if (!this.redis) return null;
+    try {
+      const ttl = await this.redis.ttl(key);
+      // -1 = no expiry, -2 = key gone. A vanished key must not be cached at
+      // all, so report "no TTL known" and let the caller's value stand.
+      return ttl > 0 ? ttl : null;
+    } catch {
+      return null;
+    }
   }
 
   public async set<T>(key: string, value: T, ttlSeconds?: number): Promise<void> {

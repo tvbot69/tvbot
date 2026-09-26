@@ -41,15 +41,6 @@ export class PlayRepository implements IPlayRepository {
     this.prisma = prisma;
   }
 
-  private async reconnect(): Promise<void> {
-    try {
-      await this.prisma.$disconnect();
-      await this.prisma.$connect();
-    } catch {
-      return;
-    }
-  }
-
   private isTransientDbError(err: unknown): boolean {
     const message = String(err);
     return (
@@ -89,7 +80,12 @@ export class PlayRepository implements IPlayRepository {
         await new Promise((r) =>
           setTimeout(r, CHUNK_RETRY_DELAYS_MS[Math.min(attempt, CHUNK_RETRY_DELAYS_MS.length - 1)]),
         );
-        await this.reconnect();
+        // No reconnect() here on purpose. It called $disconnect() on the
+        // SHARED client, tearing down the connection pool for every in-flight
+        // query in the process — one transient blip in a stats write turned
+        // unrelated commands into pool timeouts. Prisma's engine already
+        // re-establishes a dropped connection per query, and the retry below
+        // is what actually recovers the write.
       }
     }
     throw lastError;

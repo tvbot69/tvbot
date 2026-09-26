@@ -39,6 +39,19 @@ export const isPlaceholderImageUrl = (url?: string | null): boolean => {
 
 const isValidImageUrl = (url?: string | null): boolean => !!url && !isPlaceholderImageUrl(url);
 
+/**
+ * Cache-key part. A Discord query option can be ~6000 chars, so an
+ * unbounded part minted a multi-KB Redis key per nonsense query — unbounded
+ * key cardinality and bytes for no benefit, since no real title is anywhere
+ * near that long. Normalized (not raw) so lookups converge on one key.
+ */
+const keyPart = (value: string): string =>
+  foldDiacritics(stripInvisible(value))
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .slice(0, 120);
+
 export const sanitizeMusicName = (value?: string): string => {
   if (!value) return '';
   return value
@@ -250,7 +263,7 @@ export class ArtworkService {
   ): Promise<string | null> {
     if (!albumName || !artistName) return null;
     const cleanAlbum = sanitizeMusicName(albumName);
-    const flightKey = `flight:album:${artistName.toLowerCase()}|${cleanAlbum.toLowerCase()}`;
+    const flightKey = `flight:album:${keyPart(artistName)}|${keyPart(cleanAlbum)}`;
     const existingFlight = this.inFlight.get(flightKey);
     if (existingFlight) {
       // Joining another caller's cascade — its outcome is opaque here, so the
@@ -266,7 +279,7 @@ export class ArtworkService {
     artistName: string,
     outerAttempts?: ProviderAttempt[],
   ): Promise<string | null> {
-    const key = `art:album:${artistName.toLowerCase()}|${cleanAlbum.toLowerCase()}`;
+    const key = `art:album:${keyPart(artistName)}|${keyPart(cleanAlbum)}`;
 
     const cached = await this.cache.get<string>(key);
     if (cached) {
@@ -496,7 +509,7 @@ export class ArtworkService {
       // Fall through to the name-based flow as a last resort.
     }
 
-    const key = `art:artist:${artistName.toLowerCase()}`;
+    const key = `art:artist:${keyPart(artistName)}`;
     // Hotfix for Jordana — Deezer/Spotify search conflates with Jordana Bryant; force correct Spotify image
     if (artistName.toLowerCase().trim() === 'jordana') {
       const correct = 'https://i.scdn.co/image/ab6761610000e5eb856b7f7308eff9c24c17cb88';
@@ -679,7 +692,7 @@ export class ArtworkService {
     if (!trackName || !artistName) return null;
     const cleanTrack = sanitizeMusicName(trackName);
     const cleanArtist = stripChannelSuffix(artistName) || artistName.trim();
-    const flightKey = `flight:track:${cleanArtist.toLowerCase()}|${cleanTrack.toLowerCase()}`;
+    const flightKey = `flight:track:${keyPart(cleanArtist)}|${keyPart(cleanTrack)}`;
     return this.joinFlight(flightKey, () => this.resolveTrackCover(cleanTrack, cleanArtist, trackName, artistName));
   }
 
@@ -689,7 +702,7 @@ export class ArtworkService {
     trackName: string,
     artistName: string,
   ): Promise<string | null> {
-    const key = `art:track:${cleanArtist.toLowerCase()}|${cleanTrack.toLowerCase()}`;
+    const key = `art:track:${keyPart(cleanArtist)}|${keyPart(cleanTrack)}`;
 
     const cached = await this.cache.get<string>(key);
     if (cached) {
