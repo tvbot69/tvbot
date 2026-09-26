@@ -165,6 +165,64 @@ export class MusicCommands implements ITextCommandModule {
         executeAsync: (ctx) => this.nodesAsync(ctx),
       },
     ];
+
+    // One gate for the whole surface: wrapping the registry means a new
+    // mutating command cannot forget the check, and the slash surface gates
+    // the same names from MusicService.canControlPlayback (single policy).
+    this.commands = this.commands.map((def) =>
+      MusicCommands.CONTROL_COMMANDS.has(def.name) && def.executeAsync
+        ? {
+            ...def,
+            executeAsync: (ctx, args) => this.withControl(ctx, () => def.executeAsync!(ctx, args)),
+          }
+        : def,
+    );
+  }
+
+  /**
+   * Commands that change what is playing, the volume, or where the bot is.
+   * Read-only views (nowplaying/queue/chapters/lyrics/history/search/nodes)
+   * and `play` stay open to everyone — queuing a song is how a shared music
+   * bot is meant to be used.
+   */
+  private static readonly CONTROL_COMMANDS = new Set([
+    'skip',
+    'previous',
+    'skipto',
+    'move',
+    'replay',
+    'stop',
+    'pause',
+    'resume',
+    'seek',
+    'volume',
+    'filters',
+    'join',
+    '247',
+    'autoplay',
+    'loop',
+    'shuffle',
+    'clear',
+    'remove',
+  ]);
+
+  /**
+   * Requester-or-admin gate: the person who queued the current track controls
+   * it, and a server admin can always recover the bot. Without this the
+   * buttons were requester-only but every command was open to the whole
+   * server.
+   */
+  private async withControl(
+    context: ContextModel,
+    run: () => Promise<ResponseModel>,
+  ): Promise<ResponseModel> {
+    if (!context.guildId) return run();
+    if (this.musicService.canControlPlayback(context.guildId, context.discordUserId, context.userIsGuildAdmin)) {
+      return run();
+    }
+    return GenericEmbedService.buildWrongInputResponse(
+      `Only the person who queued the current track — or a server admin — can control playback.`,
+    );
   }
 
   private async getGuildAndMember(

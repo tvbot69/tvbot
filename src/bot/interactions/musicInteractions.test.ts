@@ -49,6 +49,13 @@ describe('MusicInteractions control-row hardening', () => {
 
   const makeSvc = (queue: unknown) => ({
     getQueueInfo: vi.fn(() => queue),
+    // Mirrors MusicService.canControlPlayback: the current track's requester
+    // controls playback, admins bypass, requester-less tracks are open.
+    canControlPlayback: vi.fn((_guildId: string, userId: string, isAdmin = false) => {
+      if (isAdmin) return true;
+      const requesterId = (queue as { current?: { requester?: { id?: string } } } | null)?.current?.requester?.id;
+      return !requesterId || requesterId === userId;
+    }),
     skip: vi.fn(async () => false),
     pause: vi.fn(async () => undefined),
     resume: vi.fn(async () => undefined),
@@ -173,6 +180,11 @@ describe('MusicInteractions chapter jump', () => {
     getPlayer: vi.fn(() => ({
       get: (key: string) => (key === 'chapters' ? (opts.chapters !== undefined ? opts.chapters : chapters) : undefined),
     })),
+    // Mirrors MusicService.canControlPlayback (see the other harness).
+    canControlPlayback: vi.fn((_guildId: string, userId: string, isAdmin = false) => {
+      if (isAdmin) return true;
+      return !opts.requesterId || opts.requesterId === userId;
+    }),
     // seek() now returns the applied position (or null when refused).
     seek: vi.fn(async () => (opts.seekResult === undefined ? 214000 : opts.seekResult)),
   });

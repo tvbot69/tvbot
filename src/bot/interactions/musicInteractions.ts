@@ -4,6 +4,7 @@ import {
   type InteractionUpdateOptions,
   GuildMember,
   MessageFlags,
+  PermissionFlagsBits,
 } from 'discord.js';
 import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
 import { LyricsService } from '@bot/services/music/lyricsService';
@@ -119,14 +120,27 @@ export class MusicInteractions {
   private static readonly DOUBLE_PRESS_MS = 700;
   private readonly lastControlPress = new Map<string, number>();
 
-  /** Tracks without a requester (autoplay/24/7) stay controllable by anyone present. */
-  private isRequesterAllowed(guildId: string, userId: string): boolean {
+  /**
+   * Tracks without a requester (autoplay/24/7) stay controllable by anyone
+   * present. Server admins can always recover the bot — the same policy the
+   * slash and text commands use via MusicService.canControlPlayback, so the
+   * three surfaces cannot disagree about who is allowed to do what.
+   */
+  private isRequesterAllowed(guildId: string, userId: string, isAdmin = false): boolean {
     try {
-      const requesterId = this.musicService.getQueueInfo(guildId)?.current?.requester?.id;
-      return !requesterId || requesterId === userId;
+      return this.musicService.canControlPlayback(guildId, userId, isAdmin);
     } catch {
       return true;
     }
+  }
+
+  /** True when this member may bypass the requester-only rule. */
+  private memberIsAdmin(interaction: ButtonInteraction | StringSelectMenuInteraction): boolean {
+    const perms = interaction.memberPermissions;
+    if (!perms) return false;
+    return (
+      perms.has(PermissionFlagsBits.Administrator) || perms.has(PermissionFlagsBits.ManageGuild)
+    );
   }
 
   /** Claims the per-guild+button control slot; false = a press already landed inside the lock window. */
@@ -196,7 +210,7 @@ export class MusicInteractions {
     // Playback controls are requester-only and double-press locked: two
     // near-simultaneous presses must never double-skip or toggle pause twice.
     if (MusicInteractions.CONTROL_ACTIONS.has(customId)) {
-      if (!this.isRequesterAllowed(guildId, interaction.user.id)) {
+      if (!this.isRequesterAllowed(guildId, interaction.user.id, this.memberIsAdmin(interaction))) {
         await this.denyControl(interaction);
         return;
       }
@@ -509,7 +523,7 @@ export class MusicInteractions {
     }
 
     if (customId === 'music:filter:select' || customId.startsWith('music:chapters:seek:')) {
-      if (!this.isRequesterAllowed(guildId, interaction.user.id)) {
+      if (!this.isRequesterAllowed(guildId, interaction.user.id, this.memberIsAdmin(interaction))) {
         await this.denyControl(interaction);
         return;
       }
@@ -595,6 +609,13 @@ export class MusicInteractions {
 
     // Queue Quick Remove Track
     if (customId === 'music:queue:quick_remove') {
+      // Deleting other members' queued tracks is playback control: this path
+      // checked only voice presence, so any member in any voice channel could
+      // clear the queue.
+      if (!this.isRequesterAllowed(guildId, interaction.user.id, this.memberIsAdmin(interaction))) {
+        await this.denyControl(interaction);
+        return;
+      }
       const indexStr = interaction.values[0];
       const indexNumber = indexStr ? Number(indexStr) : NaN;
       if (Number.isNaN(indexNumber)) {

@@ -5,6 +5,7 @@ import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { MusicCommands } from '@bot/textCommands/music/musicCommands';
 import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import type { ResponseModel } from '@bot/models/responseModel';
 
 /**
  * Regression cover for defects that shipped with a fully green suite because
@@ -193,6 +194,81 @@ describe('user-facing failure honesty', () => {
     it('keeps error commands flagged as errors after clamping', () => {
       const res = GenericEmbedService.buildWrongInputResponse('q'.repeat(9000));
       expect(res.commandResponse).toBe(CommandResponse.WrongInput);
+    });
+  });
+
+  describe('playback control policy (requester or admin)', () => {
+    const makeCtx = (over: Record<string, unknown> = {}) =>
+      ({
+        guildId: 'g1',
+        discordUserId: 'u1',
+        prefix: '.',
+        userIsGuildAdmin: false,
+        member: { voice: { channelId: 'vc1' } },
+        message: { channelId: 'tc1' },
+        ...over,
+      }) as never;
+
+    const makeMusicService = (requesterId?: string) => {
+      const queue = requesterId
+        ? { current: { identifier: 't1', title: 'S', author: 'A', uri: 'u', duration: 1000, requester: { id: requesterId } }, tracks: [], isPaused: false, loopMode: 'off', volume: 100, position: 0 }
+        : null;
+      return {
+        getQueueInfo: vi.fn(() => queue),
+        canControlPlayback: vi.fn((_g: string, userId: string, isAdmin = false) => {
+          if (isAdmin) return true;
+          return !requesterId || requesterId === userId;
+        }),
+        stop: vi.fn(async () => undefined),
+        clear: vi.fn(async () => true),
+        setVolume: vi.fn(() => 50),
+        skip: vi.fn(async () => true),
+        seek: vi.fn(async () => 1000),
+      };
+    };
+
+    const findCommand = (cmds: ReadonlyArray<{ name: string; aliases?: string[]; executeAsync: (c: unknown, a: string[]) => Promise<ResponseModel> }>, name: string) =>
+      cmds.find((c) => c.name === name || (c.aliases ?? []).includes(name));
+
+    it('refuses a mutating text command from a non-requester', async () => {
+      const svc = makeMusicService('owner');
+      const commands = new MusicCommands(svc as never, { getAccentColorAsync: vi.fn(async () => 0) } as never, undefined as never, undefined as never);
+      const registry = (commands as unknown as { commands: Array<{ name: string; aliases?: string[]; executeAsync: (c: unknown, a: string[]) => Promise<ResponseModel> }> }).commands;
+
+      for (const name of ['stop', 'clear', 'volume', 'seek', 'skip']) {
+        const def = findCommand(registry, name);
+        expect(def, `${name} must be registered`).toBeDefined();
+        const res = await def!.executeAsync(makeCtx({ discordUserId: 'intruder' }), name === 'volume' ? ['10'] : []);
+        const payload = JSON.stringify(res.embed.toJSON());
+        expect(payload, `${name} must refuse a non-requester`).toContain('control playback');
+      }
+      expect(svc.stop).not.toHaveBeenCalled();
+      expect(svc.clear).not.toHaveBeenCalled();
+      expect(svc.setVolume).not.toHaveBeenCalled();
+    });
+
+    it('allows the requester and an admin', async () => {
+      const svc = makeMusicService('owner');
+      const commands = new MusicCommands(svc as never, { getAccentColorAsync: vi.fn(async () => 0) } as never, undefined as never, undefined as never);
+      const registry = (commands as unknown as { commands: Array<{ name: string; executeAsync: (c: unknown, a: string[]) => Promise<ResponseModel> }> }).commands;
+      const stop = findCommand(registry, 'stop')!;
+
+      await stop.executeAsync(makeCtx({ discordUserId: 'owner' }), []);
+      expect(svc.stop).toHaveBeenCalledTimes(1);
+
+      await stop.executeAsync(makeCtx({ discordUserId: 'admin', userIsGuildAdmin: true }), []);
+      expect(svc.stop).toHaveBeenCalledTimes(2);
+    });
+
+    it('leaves read-only views open to everyone', async () => {
+      const svc = makeMusicService('owner');
+      const commands = new MusicCommands(svc as never, { getAccentColorAsync: vi.fn(async () => 0) } as never, undefined as never, undefined as never);
+      const registry = (commands as unknown as { commands: Array<{ name: string; executeAsync: (c: unknown, a: string[]) => Promise<ResponseModel> }> }).commands;
+      for (const name of ['nowplaying', 'queue', 'lyrics']) {
+        const def = findCommand(registry, name);
+        const res = await def!.executeAsync(makeCtx({ discordUserId: 'intruder' }), []);
+        expect(JSON.stringify(res.embed.toJSON()), `${name} must stay open`).not.toContain('control playback');
+      }
     });
   });
 });

@@ -214,6 +214,32 @@ export class MusicSlashCommands implements ISlashCommandModule {
     ];
   }
 
+  /**
+   * Subcommands that change what is playing, who controls the volume, or
+   * where the bot is. Read-only views (nowplaying/queue/chapters/lyrics/
+   * history/search) stay open to everyone, as does `play` — queuing a song is
+   * how a shared bot is meant to be used.
+   */
+  private static readonly CONTROL_SUBCOMMANDS = new Set([
+    'skip',
+    'previous',
+    'skipto',
+    'move',
+    'replay',
+    'stop',
+    'pause',
+    'seek',
+    'volume',
+    'filter',
+    'join',
+    '247',
+    'autoplay',
+    'loop',
+    'shuffle',
+    'clear',
+    'remove',
+  ]);
+
   private async executeMusic(ctx: ContextModel): Promise<ResponseModel> {
     const sub = (() => {
       try {
@@ -222,6 +248,10 @@ export class MusicSlashCommands implements ISlashCommandModule {
         return null;
       }
     })();
+    if (sub && MusicSlashCommands.CONTROL_SUBCOMMANDS.has(sub)) {
+      const denied = this.denyIfNotController(ctx);
+      if (denied) return denied;
+    }
     switch (sub) {
       case 'play': return this.executePlay(ctx);
       case 'search': return this.executeSearch(ctx);
@@ -251,6 +281,20 @@ export class MusicSlashCommands implements ISlashCommandModule {
       default:
         return GenericEmbedService.buildWrongInputResponse('Unknown music command. Try `/music play`, `/music skip`, …');
     }
+  }
+
+  /**
+   * Requester-or-admin gate for anything that changes playback. Returns the
+   * refusal response, or null when the caller may proceed.
+   */
+  private denyIfNotController(ctx: ContextModel): ResponseModel | null {
+    if (!ctx.guildId) return null;
+    if (this.musicService.canControlPlayback(ctx.guildId, ctx.discordUserId, ctx.userIsGuildAdmin)) {
+      return null;
+    }
+    return GenericEmbedService.buildWrongInputResponse(
+      `Only the person who queued the current track — or a server admin — can control playback.`,
+    );
   }
 
   private async executePlay(ctx: ContextModel): Promise<ResponseModel> {

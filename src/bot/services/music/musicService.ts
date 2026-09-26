@@ -1655,6 +1655,28 @@ export class MusicService {
     return ms;
   }
 
+  /**
+   * Playback control policy, shared by every surface (slash, text, buttons,
+   * menus) so they cannot disagree: the person who queued the current track
+   * controls it, and server admins can always recover the bot. Tracks with no
+   * requester (autoplay, 24/7, a restored session) stay open — otherwise
+   * nobody could stop them.
+   *
+   * This exists because the BUTTONS enforced requester-only while NO command
+   * did: any member could `/music stop`, `clear`, `volume 0` or `skipto` and
+   * hijack a session they had nothing to do with.
+   */
+  public canControlPlayback(guildId: string, userId: string, isAdmin = false): boolean {
+    if (isAdmin) return true;
+    try {
+      const requesterId = this.getQueueInfo(guildId)?.current?.requester?.id;
+      return !requesterId || requesterId === userId;
+    } catch {
+      // Never lock the owner out of their own bot because a read failed.
+      return true;
+    }
+  }
+
   public setVolume(guildId: string, volume: number): number | null {
     const player = this.getPlayer(guildId);
     if (!player) return null;
