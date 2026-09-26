@@ -13,7 +13,7 @@ import { ColorService } from '@bot/services/colorService';
 import type { FilterName } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 import { TtlStore } from '@bot/services/ttlStore';
-import { resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
+import { chapterIndexAt, resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
 import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { lyricWindowAt, type SyncedLine } from '@bot/services/music/syncedLyrics';
 import { deferReplySafe, deferUpdateSafe, respondSafe } from './interactionAck';
@@ -54,9 +54,24 @@ export class MusicInteractions {
   private chapterCardFor(guildId: string): { title: string; artworkUrl?: string | null } | null {
     try {
       const player = this.musicService.getPlayer(guildId);
-      const card = (player?.get('chapterCard') as { title: string; artworkUrl?: string | null } | null) ?? null;
-      if (!card) return null;
       const queue = player ? this.musicService.getQueueInfo(guildId) : null;
+      // Re-derive from the CURRENT position instead of trusting whatever
+      // chapterCard happens to be stored. This is a pure reader, so a button
+      // press repainted the last chapter the publisher committed — which, right
+      // after a boundary or a seek, is the one the card has already moved on
+      // from. The publisher's own derivation (and its art resolve) is not
+      // reachable from here, so this at least never renders a chapter the
+      // position has already passed.
+      const chapters = player?.get('chapters') as { title: string; startMs: number }[] | null;
+      let card = (player?.get('chapterCard') as { title: string; artworkUrl?: string | null } | null) ?? null;
+      if (chapters && chapters.length >= 2 && queue) {
+        const idx = chapterIndexAt(chapters, Math.max(0, queue.position));
+        const current = chapters[idx];
+        if (current && current && current.title !== card?.title) {
+          card = { title: current.title, artworkUrl: null };
+        }
+      }
+      if (!card) return null;
       let holdCover = (player?.get('lastCoverUrl') as string | null) ?? null;
       if (!card.artworkUrl) {
         const startedAt = player?.get('chapterStartedAt') as number | null;
@@ -595,7 +610,16 @@ export class MusicInteractions {
 
       const queue = this.musicService.getQueueInfo(guildId);
       if (!queue?.current) return;
-      const response = MusicBuilders.buildChaptersResponse(queue.current, chapters, idx, accentColor);
+      // Mark the chapter the player is ACTUALLY at, not the one that was
+      // clicked. A seek can be clamped (or refused on a stream), and the menu
+      // then claimed a position the player never reached.
+      const landed = chapterIndexAt(chapters, Math.max(0, queue.position));
+      const response = MusicBuilders.buildChaptersResponse(
+        queue.current,
+        chapters,
+        landed >= 0 ? landed : idx,
+        accentColor,
+      );
       await interaction
         .editReply(response.toMessagePayload() as unknown as Parameters<ButtonInteraction['editReply']>[0])
         .catch(() => undefined);

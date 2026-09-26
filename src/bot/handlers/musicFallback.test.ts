@@ -1467,23 +1467,39 @@ describe('chapter art retry + prefetch', () => {
     vi.useRealTimers();
   });
 
-  it('retries a missed cover after 30s, not before', async () => {
+  it('retries a missed cover on its own timer, not on every publish', async () => {
     const { handler, getTrackCoverUrl } = makeHandler(async () => null);
-    const store: Record<string, unknown> = {
-      chapters: SHOW,
-      chapterIdx: 0,
-      chapterCard: { title: 'Rottweiler', artworkUrl: null },
-      chapterArtRetry: { idx: 0, at: Date.now() },
-    };
-    const player = mockPlayer(store);
 
-    handler.chapterCardFor(player, 60000);
-    expect(getTrackCoverUrl).not.toHaveBeenCalled();
-
-    vi.setSystemTime(Date.now() + 31000);
-    handler.chapterCardFor(player, 61000);
+    // 1. Entering a chapter resolves its cover immediately (the same pass also
+    //    prefetches the next two, so count only this chapter's own lookups).
+    const fresh: Record<string, unknown> = { chapters: SHOW, chapterIdx: -2 };
+    const freshPlayer = mockPlayer(fresh);
+    handler.chapterCardFor(freshPlayer, 0);
     await vi.advanceTimersByTimeAsync(0);
-    expect(getTrackCoverUrl).toHaveBeenCalledWith('Rottweiler', 'EsDeeKid');
+    const callsFor = (song: string): number =>
+      getTrackCoverUrl.mock.calls.filter((c) => c[0] === song).length;
+    expect(callsFor('Rottweiler')).toBe(1);
+
+    // 2. A chapter ALREADY on screen with no art gets no second sweep from
+    //    publishing — the retry is on a dedicated timer. This used to be
+    //    gated on a publish happening, and a paused player publishes every
+    //    15s, so a show left paused re-swept four providers every 30s for
+    //    the whole pause.
+    const stuck: Record<string, unknown> = {
+      chapters: SHOW,
+      chapterIdx: 1,
+      chapterCard: { title: '4 Raws', artworkUrl: null },
+    };
+    const stuckPlayer = mockPlayer(stuck);
+    const beforeRetry = callsFor('4 Raws');
+    handler.chapterCardFor(stuckPlayer, 200000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(callsFor('4 Raws')).toBe(beforeRetry);
+
+    // 3. …and the timer fires the retry on its own.
+    vi.advanceTimersByTime(31_000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(callsFor('4 Raws')).toBe(beforeRetry + 1);
   });
 
   it('never retries art for a generic-suppressed chapter', async () => {

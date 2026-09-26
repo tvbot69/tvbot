@@ -48,6 +48,8 @@ export class MusicHandler {
   // refresh the moment it does. Cleared on track change, seek, end, destroy.
   private readonly karaokeTimers = new Map<string, NodeJS.Timeout>();
   private readonly chapterTimers = new Map<string, NodeJS.Timeout>();
+  /** Dedicated cover-retry timers (one per guild), cleared with the card timers. */
+  private readonly chapterArtRetryTimers = new Map<string, NodeJS.Timeout>();
   /** Last chapter title pushed to voice status per guild (change-gated). */
   private readonly lastChapterStatus = new Map<string, string | null>();
   // Debounced on-demand publishes (chapter attach / art resolve bursts
@@ -266,6 +268,43 @@ export class MusicHandler {
    * cascade). Generic container titles (Intro/Outro/...) suppress the card
    * but still warm the first real song's cover so shows open on music art.
    */
+  /**
+   * Retry a chapter's cover on a DEDICATED timer rather than whenever a
+   * publish happens to occur. The retry used to be gated on publish triggers,
+   * and a paused player produces one every 15s via the chapter timer's
+   * re-arm — so a show left paused for hours re-swept all four artwork
+   * providers every 30 seconds, per chapter, burning quota for a cover that
+   * was genuinely missing. Publishing now costs nothing extra, and the retry
+   * cadence is explicit.
+   */
+  private scheduleChapterArtRetry(
+    player: Player,
+    idx: number,
+    chapters: VideoChapter[],
+  ): void {
+    const retry = player.get<{ idx: number; at: number } | null>('chapterArtRetry');
+    if (retry && retry.idx === idx && Date.now() - retry.at < CHAPTER_ART_RETRY_MS) return;
+    player.set('chapterArtRetry', { idx, at: Date.now() });
+    this.clearChapterArtRetryTimer(player.guildId);
+    const timer = setTimeout(() => {
+      this.chapterArtRetryTimers.delete(player.guildId);
+      // Only retry while this chapter is still the one on screen.
+      if ((player.get<number>('chapterIdx') ?? -2) !== idx) return;
+      if (player.get<ChapterCard | null>('chapterCard')?.artworkUrl) return;
+      void this.resolveChapterArt(player, idx, chapters);
+    }, CHAPTER_ART_RETRY_MS);
+    timer.unref?.();
+    this.chapterArtRetryTimers.set(player.guildId, timer);
+  }
+
+  private clearChapterArtRetryTimer(guildId: string): void {
+    const timer = this.chapterArtRetryTimers.get(guildId);
+    if (timer) {
+      clearTimeout(timer);
+      this.chapterArtRetryTimers.delete(guildId);
+    }
+  }
+
   private chapterCardFor(player: Player, positionMs: number): ChapterCard | null {
     try {
       const chapters = player.get<VideoChapter[] | null>('chapters');
@@ -280,11 +319,7 @@ export class MusicHandler {
         // attach — measured on Railway: a suppressed "08 DJ Intro" burned a
         // 2s cascade miss every 30s retry for nothing.
         if (!stored?.artworkUrl && idx >= 0 && !isGenericChapterTitle(chapters[idx]?.title)) {
-          const retry = player.get<{ idx: number; at: number } | null>('chapterArtRetry');
-          if (!retry || retry.idx !== idx || Date.now() - retry.at > CHAPTER_ART_RETRY_MS) {
-            player.set('chapterArtRetry', { idx, at: Date.now() });
-            void this.resolveChapterArt(player, idx, chapters);
-          }
+          this.scheduleChapterArtRetry(player, idx, chapters);
         }
         return stored;
       }
@@ -441,11 +476,20 @@ export class MusicHandler {
       // shows THAT chapter immediately.
       const idx = chapterIndexAt(chapters, Math.max(0, positionMs));
       if (idx === (player.get<number>('chapterIdx') ?? -2)) return;
+      this.clearChapterArtRetryTimer(player.guildId);
+      player.set('chapterArtRetry', null);
       player.set('chapterIdx', idx);
       player.set('chapterStartedAt', Date.now());
       const ch = idx >= 0 ? chapters[idx] : undefined;
       if (!ch || isGenericChapterTitle(ch.title)) {
         player.set('chapterCard', null);
+        // Seeking INTO a hype chapter dropped the gallery to the track art for
+        // the whole intro (unlike the natural-transition path, which warms the
+        // first real song's cover). Do the same warm here.
+        const upcomingIdx = chapters.findIndex((c, i) => i > idx && !isGenericChapterTitle(c.title));
+        if (upcomingIdx >= 0) {
+          void this.resolveChapterArt(player, upcomingIdx, chapters, true);
+        }
       } else {
         player.set('chapterCard', { title: ch.title, artworkUrl: null });
         player.set('chapterArtRetry', { idx, at: Date.now() });
@@ -546,6 +590,7 @@ export class MusicHandler {
       clearTimeout(timer);
       this.chapterTimers.delete(guildId);
     }
+    this.clearChapterArtRetryTimer(guildId);
   }
 
   /**
@@ -631,7 +676,15 @@ export class MusicHandler {
       if ((this.lastChapterStatus.get(player.guildId) ?? null) === key) return;
       this.lastChapterStatus.set(player.guildId, key);
       if (!card) {
-        if (cur?.title) void svc.setStatus(player.voiceChannelId, cur.title, cur.author).catch(() => undefined);
+        if (cur?.title) {
+          // While a generic chapter is up (an intro), the status fell back to
+          // the raw video title with the UPLOADER CHANNEL as the artist, so
+          // the room read "gloss - EsDeeKid - Live at Wembley (Official)".
+          // Use the display-cleaned title and the performer named in it.
+          const displayTitle = cleanTrackTitle(cur.title ?? '', cur.author);
+          const artist = extractArtistFromTitle(getVideoTitle(cur)) ?? cur?.author;
+          void svc.setStatus(player.voiceChannelId, displayTitle, artist).catch(() => undefined);
+        }
         return;
       }
       const artist = extractArtistFromTitle(getVideoTitle(cur)) ?? cur?.author;
