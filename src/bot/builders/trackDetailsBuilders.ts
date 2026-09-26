@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
-import { previewMap } from '@bot/services/audio/voiceMessageService';
+import { setPreview } from '@bot/services/audio/voiceMessageService';
 
 // Must match final JSON exactly: "**TRACK** by **ARTIST** has `140.0` bpm, is in key `G#` and lasts `3:18`"
 export class TrackDetailsBuilders {
@@ -10,7 +10,7 @@ export class TrackDetailsBuilders {
     const response = new ResponseModel(accentColor);
 
     // Store preview for button handler
-    if (details.previewUrl) previewMap.set(uniqueId, details.previewUrl);
+    if (details.previewUrl) setPreview(uniqueId, details.previewUrl);
 
     let content: string;
     if (details.bpm !== null && details.key !== null) {

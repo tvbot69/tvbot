@@ -3,7 +3,7 @@ import { EssentiaService } from './essentiaService';
 import { getAudioSignalAndSr } from './audioSignalService';
 import { PreviewResolverService, type ResolvedPreview } from './previewResolverService';
 import type { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import { previewMap } from './voiceMessageService';
+import { setPreview } from './voiceMessageService';
 
 function formatDuration(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
@@ -45,7 +45,7 @@ export class TrackDetailsService {
     }
 
     if (resolved.previewUrl && uniqueId) {
-      previewMap.set(uniqueId, resolved.previewUrl);
+      setPreview(uniqueId, resolved.previewUrl);
     }
 
     let bpm: number | null = null;

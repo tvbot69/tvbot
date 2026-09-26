@@ -20,6 +20,7 @@ import { resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/
  */
 const BORROWED_COVER_MS = 15000;
 import { lyricWindowAt, type SyncedLine } from '@bot/services/music/syncedLyrics';
+import { deferReplySafe, deferUpdateSafe, respondSafe } from './interactionAck';
 
 export const MUSIC_INTERACTION_PREFIXES = [
   'music:queue:',
@@ -145,9 +146,12 @@ export class MusicInteractions {
   }
 
   private async denyControl(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<void> {
-    await interaction.reply({
+    // respondSafe, not reply: if the ack guard already deferred this press, a
+    // plain reply() throws and the user gets NO explanation at all — which is
+    // exactly when the answer matters most.
+    await respondSafe(interaction, {
       content: 'Only the requester of the current track can control playback.',
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   }
 
@@ -182,9 +186,9 @@ export class MusicInteractions {
     const member = interaction.member instanceof GuildMember ? interaction.member : null;
     const voiceChannel = member?.voice?.channel;
     if (!voiceChannel) {
-      await interaction.reply({
+      await respondSafe(interaction, {
         content: 'You must be in a voice channel to use music controls.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -257,7 +261,7 @@ export class MusicInteractions {
         return;
       }
 
-      await interaction.deferReply({ ephemeral: true });
+      await deferReplySafe(interaction, { ephemeral: true });
 
       if (!this.lyricsService) {
         await interaction.editReply({ content: 'Lyrics service is currently unavailable.' });
@@ -309,7 +313,7 @@ export class MusicInteractions {
         const response = MusicBuilders.buildFiltersResponse(queue.activeFilters, accentColor);
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
       }
       return;
     }
@@ -359,7 +363,7 @@ export class MusicInteractions {
           : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
       }
       return;
     }
@@ -394,7 +398,7 @@ export class MusicInteractions {
           const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
           await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
         } else {
-          await interaction.deferUpdate();
+          await deferUpdateSafe(interaction);
         }
       } else {
         await interaction.reply({ content: 'No previous track in history to replay.', ephemeral: true });
@@ -414,7 +418,7 @@ export class MusicInteractions {
             : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
           await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
         } else {
-          await interaction.deferUpdate();
+          await deferUpdateSafe(interaction);
         }
       } else {
         await interaction.reply({ content: 'Queue is too small to shuffle.', ephemeral: true });
@@ -433,7 +437,7 @@ export class MusicInteractions {
           : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
       }
       return;
     }
@@ -446,7 +450,7 @@ export class MusicInteractions {
         const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
       }
       return;
     }
@@ -459,7 +463,7 @@ export class MusicInteractions {
         const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
       }
       return;
     }
@@ -472,7 +476,7 @@ export class MusicInteractions {
         const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
       }
       return;
     }
@@ -497,9 +501,9 @@ export class MusicInteractions {
     const member = interaction.member instanceof GuildMember ? interaction.member : null;
     const voiceChannel = member?.voice?.channel;
     if (!voiceChannel) {
-      await interaction.reply({
+      await respondSafe(interaction, {
         content: 'You must be in a voice channel to use music controls.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -521,7 +525,7 @@ export class MusicInteractions {
     if (customId === 'music:filter:select') {
       const selectedFilter = interaction.values[0] as FilterName;
       if (!selectedFilter) {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
         return;
       }
 
@@ -594,7 +598,7 @@ export class MusicInteractions {
       const indexStr = interaction.values[0];
       const indexNumber = indexStr ? Number(indexStr) : NaN;
       if (Number.isNaN(indexNumber)) {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
         return;
       }
 
@@ -605,7 +609,7 @@ export class MusicInteractions {
         const response = MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor);
         await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
       } else {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
       }
 
       if (removed) {
@@ -635,7 +639,7 @@ export class MusicInteractions {
       }
 
       const chosenTrack = cachedTracks[selectedIndex]!;
-      await interaction.deferUpdate();
+      await deferUpdateSafe(interaction);
 
       const requester = {
         id: interaction.user.id,

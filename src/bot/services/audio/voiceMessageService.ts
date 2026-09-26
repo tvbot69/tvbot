@@ -4,7 +4,53 @@ import path from 'path';
 import { getAudioDurationInSeconds } from 'get-audio-duration';
 import { Logger } from '@domain/logger';
 
+/**
+ * Preview URL hand-off between a command that resolves one and the button
+ * that plays it. Bounded + expiring on purpose: it used to be a plain Map
+ * that only ever grew, so every /track leaked an entry for the process
+ * lifetime AND its Preview button stayed clickable forever — each press
+ * re-running a download plus an ffmpeg transcode, on demand, with no limit.
+ */
+const PREVIEW_TTL_MS = 30 * 60 * 1000;
+const PREVIEW_MAX_ENTRIES = 500;
+const previewExpiry = new Map<string, number>();
+
+const evictExpiredPreviews = (now: number): void => {
+  for (const [key, expiresAt] of previewExpiry) {
+    if (expiresAt <= now) {
+      previewExpiry.delete(key);
+      previewMap.delete(key);
+    }
+  }
+  // Hard cap in case entries are created faster than they expire.
+  while (previewMap.size > PREVIEW_MAX_ENTRIES) {
+    const oldest = previewExpiry.keys().next();
+    if (oldest.done) break;
+    previewExpiry.delete(oldest.value);
+    previewMap.delete(oldest.value);
+  }
+};
+
 export const previewMap = new Map<string, string>();
+
+/** Register a resolvable preview, replacing any previous entry for the id. */
+export const setPreview = (id: string, url: string): void => {
+  const now = Date.now();
+  evictExpiredPreviews(now);
+  previewMap.set(id, url);
+  previewExpiry.set(id, now + PREVIEW_TTL_MS);
+};
+
+/** Fetch a preview if it has not expired. */
+export const getPreview = (id: string): string | undefined => {
+  const expiresAt = previewExpiry.get(id);
+  if (expiresAt !== undefined && expiresAt <= Date.now()) {
+    previewExpiry.delete(id);
+    previewMap.delete(id);
+    return undefined;
+  }
+  return previewMap.get(id);
+};
 
 async function getDuration(oggPath: string): Promise<number> {
   try {

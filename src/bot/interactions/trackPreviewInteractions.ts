@@ -1,6 +1,6 @@
 import { container } from 'tsyringe';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
-import { VoiceMessageService, previewMap } from '@bot/services/audio/voiceMessageService';
+import { VoiceMessageService, getPreview } from '@bot/services/audio/voiceMessageService';
 import { downloadAndConvert } from '@bot/services/audio/audioSignalService';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
@@ -22,7 +22,7 @@ export class TrackPreviewInteractions {
     // Stripping only a TRAILING colon left "name:fm" as the key, so the
     // lookup always missed; take the first segment instead.
     const uniqueId = customId.slice(TRACK_PREVIEW_PREFIX.length).split(':')[0] ?? '';
-    const previewUrl = previewMap.get(uniqueId);
+    const previewUrl = getPreview(uniqueId);
     if (!previewUrl) {
       await interaction.reply({ content: '❌ Preview expired.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
       return;

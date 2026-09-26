@@ -6,7 +6,7 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import { TrackService } from '@bot/services/trackService';
 import { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
-import { previewMap } from '@bot/services/audio/voiceMessageService';
+import { setPreview } from '@bot/services/audio/voiceMessageService';
 import { TrackBuilders } from '@bot/builders/trackBuilders';
 import { TrackDetailsBuilders } from '@bot/builders/trackDetailsBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
@@ -134,7 +134,7 @@ export class TrackSlashCommands implements ISlashCommandModule {
     } : null;
 
     if (mediaDetails?.previewUrl) {
-      previewMap.set(uniqueId, mediaDetails.previewUrl);
+      setPreview(uniqueId, mediaDetails.previewUrl);
     }
 
     const accentColor = await this.colorService?.getColorFromImageUrl(result.coverUrl) ?? DiscordConstants.LastFmColorRed;

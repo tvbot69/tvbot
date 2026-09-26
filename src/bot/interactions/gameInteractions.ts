@@ -3,6 +3,7 @@ import { injectable, inject } from 'tsyringe';
 import { GameService } from '@bot/services/gameService';
 import { GameBuilders } from '@bot/builders/gameBuilders';
 import { ColorService } from '@bot/services/colorService';
+import { deferReplySafe, deferUpdateSafe } from './interactionAck';
 
 @injectable()
 export class GameInteractions {
@@ -84,7 +85,7 @@ export class GameInteractions {
       }
 
       if (session.type === 'pixel' && session.coverUrl) {
-        await interaction.deferUpdate();
+        await deferUpdateSafe(interaction);
         const enhancedBuffer = await this.gameService.pixelateCover(
           session.coverUrl,
           session.blurLevel,

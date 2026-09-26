@@ -5,6 +5,7 @@ import { CountryBuilders } from '@bot/builders/countryBuilders';
 import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
 import { UserService } from '@bot/services/userService';
 import { TtlStore } from '@bot/services/ttlStore';
+import { deferReplySafe, deferUpdateSafe } from './interactionAck';
 
 export type CountryInteractionType = 'top' | 'info' | 'wkc' | 'chart';
 
@@ -283,7 +284,7 @@ export class CountryInteractions {
       return;
     }
 
-    await interaction.deferUpdate();
+    await deferUpdateSafe(interaction);
 
     const selectedThemeName = interaction.values[0]!;
     const theme = WorldMapGenerator.getThemeFromName(selectedThemeName);

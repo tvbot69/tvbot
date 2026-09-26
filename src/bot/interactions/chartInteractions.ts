@@ -19,6 +19,7 @@ import { UserService } from '@bot/services/userService';
 import { ColorService } from '@bot/services/colorService';
 import { registerModalHandler } from './index';
 import { Logger } from '@domain/logger';
+import { deferReplySafe, deferUpdateSafe } from './interactionAck';
 
 const MODAL_PREFIX = 'chart-edit-modal:';
 
@@ -191,7 +192,7 @@ export class ChartInteractions {
       return;
     }
 
-    await interaction.deferUpdate();
+    await deferUpdateSafe(interaction);
 
     try {
       const user = await this.userService.getUserByDiscordId(creatorId);

@@ -4,7 +4,6 @@ import { Client, GatewayIntentBits, ActivityType } from 'discord.js';
 import { PrismaClient } from '@prisma/client';
 import { ConfigData } from './configurations/configData';
 import { Logger } from '@domain/logger';
-import { reportFatalToDiscord } from '@domain/errorFeed';
 import { prisma } from '@persistence/prismaClient';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 import { StartupService } from './services/startupService';
@@ -995,15 +994,13 @@ export const configureContainer = (): void => {
 };
 
 const configureProcessErrorHandling = (): void => {
-  process.on('unhandledRejection', (reason) => {
-    Logger.error({ err: reason }, 'Unhandled promise rejection');
-    reportFatalToDiscord('unhandledRejection', reason);
-  });
-  process.on('uncaughtException', (error) => {
-    Logger.fatal({ err: error }, 'Uncaught exception');
-    reportFatalToDiscord('uncaughtException', error);
-  });
-
+  // NOTE: unhandledRejection/uncaughtException are registered ONCE, in
+  // src/bot/index.ts. They used to be registered here as well, so every
+  // unhandled rejection was logged twice and pushed to the error feed twice —
+  // doubling the most expensive path (a full error + stack to disk) exactly
+  // when the process is already in trouble. Registration here also happened
+  // AFTER configureContainer(), so a constructor failure escaped without it.
+  // Only the signal handlers belong here.
   process.on('SIGINT', () => { void ShutdownService.shutdown('SIGINT'); });
   process.on('SIGTERM', () => { void ShutdownService.shutdown('SIGTERM'); });
   process.on('SIGHUP', () => { void ShutdownService.shutdown('SIGHUP'); });
@@ -1015,8 +1012,11 @@ export class Startup {
     const settings = ConfigData.Data;
     Logger.info(`tvbot initializing in ${settings.environment} environment...`);
 
-    configureContainer();
+    // Signal handlers first: they only need module-level imports, and having
+    // them in place before the container is built means a constructor failure
+    // still shuts down cleanly.
     configureProcessErrorHandling();
+    configureContainer();
 
     await container.resolve(StartupService).startAsync();
 

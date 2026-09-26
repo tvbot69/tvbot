@@ -6,6 +6,7 @@ import { TrackService } from '@bot/services/trackService';
 import { LyricsService } from '@bot/services/music/lyricsService';
 import { UserRepository } from '@persistence/repositories/userRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
+import { deferReplySafe, deferUpdateSafe } from './interactionAck';
 
 @injectable()
 export class NowPlayingInteractions {
@@ -23,7 +24,7 @@ export class NowPlayingInteractions {
     const customId = interaction.customId;
     // Ack before any DB work — past 2.5s the global ack guard defers and a
     // late reply() throws, leaving the press answerless.
-    await interaction.deferReply({ ephemeral: true });
+    await deferReplySafe(interaction, { ephemeral: true });
     const user = await this.userRepository.getUserByDiscordUserId(interaction.user.id);
 
     if (!user || !user.userNameLastFm) {
@@ -104,7 +105,7 @@ export class NowPlayingInteractions {
     const artist = decodeURIComponent(parts[0] || '');
     const track = decodeURIComponent(parts[1] || '');
 
-    await interaction.deferReply({ ephemeral: true });
+    await deferReplySafe(interaction, { ephemeral: true });
     const user = await this.userRepository.getUserByDiscordUserId(interaction.user.id);
 
     if (!user || !user.userNameLastFm) {
@@ -165,7 +166,7 @@ export class NowPlayingInteractions {
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await deferReplySafe(interaction, { ephemeral: true });
 
     try {
       const result = await this.lyricsService.getLyrics(track, artist);
@@ -207,7 +208,7 @@ export class NowPlayingInteractions {
 
     const newPage = dir === 'prev' ? Math.max(0, currentPage - 1) : currentPage + 1;
 
-    await interaction.deferUpdate();
+    await deferUpdateSafe(interaction);
 
     try {
       const user = await this.userRepository.getUserByDiscordUserId(interaction.user.id);
