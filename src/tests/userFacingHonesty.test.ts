@@ -190,6 +190,72 @@ describe('user-facing failure honesty', () => {
     });
   });
 
+  describe('markdown escaping of user-supplied text', () => {
+    it('neutralises emphasis, strikethrough, code and links in a title', () => {
+      const res = MusicBuilders.buildNowPlayingResponse(
+        {
+          current: {
+            identifier: 'md-1',
+            title: '**FREE** [click](https://evil.example) `x` ~~y~~',
+            author: 'Artist |_-^',
+            uri: 'https://youtube.com/watch?v=md-1',
+            duration: 200000,
+            isSeekable: true,
+            isStream: false,
+            source: 'youtube',
+          },
+          tracks: [],
+          totalTracks: 1,
+          totalDuration: 0,
+          remainingDuration: 0,
+          loopMode: 'off',
+          volume: 100,
+          isPaused: false,
+          isPlaying: true,
+          is247: false,
+          autoplay: false,
+          position: 0,
+        } as never,
+        undefined,
+        null,
+        { title: '## Injected', artworkUrl: null },
+      );
+      const payload = res.toMessagePayload();
+      // Pull the rendered text out of the container rather than stringifying
+      // the payload (which would double-escape the backslashes).
+      const text = JSON.stringify(payload)
+        .replace(/\\\\/g, '\\')
+        .replace(/\\"/g, '"');
+      // The user's own markdown must not survive into the card: no bold
+      // escape, no fake link. (The chapter line's own ** markers are ours —
+      // the line always starts with "Live — ", so a leading ## can never
+      // become a heading.)
+      expect(text).not.toContain('**FREE**');
+      expect(text).not.toContain('[click](https://evil.example)');
+      expect(text).toContain('\\*\\*FREE\\*\\*');
+      expect(text).toContain('Live — **## Injected**');
+    });
+  });
+
+  describe('/nodes does not leak infrastructure to non-admins', () => {
+    const stats = [
+      { identifier: 'Home', host: '10.0.0.5', port: 2333, connected: true, players: 2, playingPlayers: 1, cpuLoad: 5, lavalinkLoad: 4, memoryUsedMb: 100, memoryAllocatedMb: 200, uptimeMs: 60000 },
+    ] as never[];
+
+    it('omits hosts, ports and load for a non-admin', () => {
+      const res = MusicBuilders.buildNodeStatsResponse(stats, undefined, false);
+      const payload = JSON.stringify(res.embed.toJSON());
+      expect(payload).not.toContain('10.0.0.5');
+      expect(payload).not.toContain('2333');
+      expect(payload).toContain('healthy');
+    });
+
+    it('includes the detail for an admin', () => {
+      const res = MusicBuilders.buildNodeStatsResponse(stats, undefined, true);
+      expect(JSON.stringify(res.embed.toJSON())).toContain('10.0.0.5');
+    });
+  });
+
   describe('generic response semantics', () => {
     it('keeps error commands flagged as errors after clamping', () => {
       const res = GenericEmbedService.buildWrongInputResponse('q'.repeat(9000));

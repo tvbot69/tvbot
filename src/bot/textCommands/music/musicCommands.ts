@@ -862,6 +862,6 @@ export class MusicCommands implements ITextCommandModule {
     const accentColor = context.guildId
       ? await this.colorService.getAccentColorAsync(context.guildId)
       : undefined;
-    return MusicBuilders.buildNodeStatsResponse(stats, accentColor);
+    return MusicBuilders.buildNodeStatsResponse(stats, accentColor, context.userIsGuildAdmin);
   }
 }

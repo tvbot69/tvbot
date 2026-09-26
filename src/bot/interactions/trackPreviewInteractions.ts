@@ -14,6 +14,14 @@ export class TrackPreviewInteractions {
     this.voiceService = container.resolve(VoiceMessageService);
   }
 
+  /**
+   * In-flight previews, keyed by user. Each press runs a download AND an
+   * ffmpeg transcode, and the button path was not covered by the command rate
+   * limiter — so holding the button (or spamming it) spawned parallel ffmpeg
+   * processes and re-uploaded the same clip repeatedly.
+   */
+  private readonly inFlight = new Set<string>();
+
   public async handle(interaction: ButtonInteraction): Promise<void> {
     const customId = interaction.customId;
     if (!customId.startsWith(TRACK_PREVIEW_PREFIX)) return;
@@ -27,6 +35,15 @@ export class TrackPreviewInteractions {
       await interaction.reply({ content: '❌ Preview expired.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
       return;
     }
+
+    const flightKey = `${interaction.user.id}:${uniqueId}`;
+    if (this.inFlight.has(flightKey)) {
+      await interaction
+        .reply({ content: '⏳ Still working on that preview — give it a moment.', flags: MessageFlags.Ephemeral })
+        .catch(() => undefined);
+      return;
+    }
+    this.inFlight.add(flightKey);
 
     await interaction.deferUpdate().catch(() => undefined);
 
@@ -51,6 +68,8 @@ export class TrackPreviewInteractions {
     } catch (err) {
       Logger.error({ err }, '[TrackPreview] failed to send voice preview');
       await interaction.followUp({ content: '⚠️ Failed to send preview.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    } finally {
+      this.inFlight.delete(flightKey);
     }
   }
 }

@@ -189,8 +189,11 @@ export class NowPlayingInteractions {
         content: res.componentsV2Container ? undefined : `### Lyrics for **${result.title}** by **${result.artist}**\n\n${result.plainLyrics.slice(0, 1900)}`,
       });
     } catch (err: any) {
+      Logger.warn({ err: err?.message }, '[NowPlayingInteractions] Lyrics lookup failed');
+      // Fixed copy: a raw provider message ("HTTP 403 from lyrics provider")
+      // reads as internal plumbing leaking at the user.
       await interaction.editReply({
-        content: `Failed to load lyrics: ${err?.message || 'Network error'}`,
+        content: '❌ Could not load lyrics for that track. Try again in a moment.',
       });
     }
   }

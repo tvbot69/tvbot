@@ -1,4 +1,5 @@
 import { container } from 'tsyringe';
+import { Logger } from '@domain/logger';
 import type { TextCommandDefinition } from '@bot/models/commandModels';
 import { PlayCommands } from './lastfm/playCommands';
 import { StaticCommands } from './staticCommands';
@@ -75,13 +76,41 @@ const buildCommands = (): Map<string, TextCommandDefinition> => {
     container.resolve(FootballCommands),
   ];
   const map = new Map<string, TextCommandDefinition>();
+  const owner = new Map<string, string>();
+  // Registration is last-write-wins, so a collision is SILENT: MusicCommands
+  // is resolved late and was quietly stealing `.np`, `.rm` and `.history`
+  // from the Last.fm commands, so those did something entirely different from
+  // what a Last.fm user expected. A command's own name always wins over
+  // another command's ALIAS (an explicit name is a stronger signal), and every
+  // remaining collision is logged rather than hidden.
+  const claim = (key: string, command: TextCommandDefinition, isAlias: boolean): void => {
+    const k = key.toLowerCase();
+    const previous = map.get(k);
+    if (previous && previous !== command) {
+      const previousName = previous.name.toLowerCase();
+      const loser = isAlias && previousName !== k ? k : previousName;
+      Logger.warn(
+        { command: k, kept: map.get(k)?.name, dropped: loser },
+        'Text command name collision — the later registration wins',
+      );
+    }
+    map.set(k, command);
+    owner.set(k, command.name);
+  };
+
+  // Pass 1: canonical names (strongest).
   for (const module of modules) {
     for (const command of module.commands) {
-      map.set(command.name.toLowerCase(), command);
-      if (command.aliases) {
-        for (const alias of command.aliases) {
-          map.set(alias.toLowerCase(), command);
-        }
+      claim(command.name, command, false);
+    }
+  }
+  // Pass 2: aliases only fill names nobody claimed.
+  for (const module of modules) {
+    for (const command of module.commands) {
+      for (const alias of command.aliases ?? []) {
+        const k = alias.toLowerCase();
+        if (map.has(k)) continue;
+        claim(alias, command, true);
       }
     }
   }

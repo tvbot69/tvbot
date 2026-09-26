@@ -163,8 +163,21 @@ export class CommandDispatcher {
     }
 
     if (!sentMessage && 'send' in channel) {
-      sentMessage = (await (channel as unknown as { send: (m: Record<string, unknown>) => Promise<Message> }).send(payload).catch((err) => {
-        Logger.error({ err }, `Failed to send command response for .${commandName}`);
+      sentMessage = (await (channel as unknown as { send: (m: Record<string, unknown>) => Promise<Message> }).send(payload).catch(async (err) => {
+        const code = (err as { code?: number })?.code;
+        Logger.error({ err, code }, `Failed to send command response for .${commandName}`);
+        // Silence is the worst outcome: the user typed a command and got
+        // nothing at all, with no hint that anything happened. A 50035 here
+        // means the payload was too large.
+        await (channel as unknown as { send: (m: Record<string, unknown>) => Promise<unknown> })
+          .send({
+            content:
+              code === 50035
+                ? '⚠️ That result was too large to display. Try a shorter search or a smaller page.'
+                : '⚠️ I could not display that result. Please try again in a moment.',
+            allowedMentions: { parse: [] },
+          })
+          .catch(() => undefined);
         return null;
       })) as Message | null;
 

@@ -791,6 +791,6 @@ export class MusicSlashCommands implements ISlashCommandModule {
     const accentColor = ctx.guildId
       ? await this.colorService.getAccentColorAsync(ctx.guildId)
       : undefined;
-    return MusicBuilders.buildNodeStatsResponse(stats, accentColor);
+    return MusicBuilders.buildNodeStatsResponse(stats, accentColor, ctx.userIsGuildAdmin);
   }
 }

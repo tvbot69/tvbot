@@ -244,6 +244,17 @@ export class UserSettingsInteractions {
     }
 
     if (customId === 'user-settings:tab:server') {
+      // The customId is a static global with no userId in it, and unlike the
+      // user tab this branch had no permission check. The button is only
+      // rendered for admins, so this is defence in depth rather than an open
+      // bypass — but a stale message from before a permission change would
+      // otherwise still render server settings.
+      if (!context.userIsGuildAdmin) {
+        await interaction
+          .reply({ content: '❌ You need `Manage Server` to view server settings.', flags: MessageFlags.Ephemeral })
+          .catch(() => undefined);
+        return;
+      }
       const res = await buildSettingsPage(context, this.prefixService);
       await interaction.update({
         components: res.componentsV2Container ? [res.componentsV2Container] : [],

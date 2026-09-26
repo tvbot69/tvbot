@@ -21,6 +21,7 @@ import { formatDuration, type MusicTrack } from '@domain/models/music/musicTrack
 import { ALL_FILTERS, type FilterName, type MusicQueueInfo } from '@domain/models/music/musicQueue';
 import type { LavalinkNodeStats } from '@bot/services/music/moonlinkManager';
 import type { VideoChapter } from '@bot/services/music/videoChapters';
+import { escapeInline, escapeLinkLabel } from '@domain/extensions/markdown';
 
 export const MUSIC_SOURCE_BADGES = {
   spotify: '<:sp:1496297132381048995>',
@@ -250,11 +251,16 @@ export class MusicBuilders {
     // No live position anywhere: the card is event-driven, never polled, so
     // every line must stay true without ticks. Text-only, no emojis. The
     // header is body-size on purpose — ### rendered oversized next to badges.
-    const headerParts = [`[${MusicBuilders.trimDisplayTitle(current.title)}](${current.uri})`];
-    if (current.album?.trim()) headerParts.push(current.album.trim());
-    headerParts.push(current.author, sourceIcon);
+    // Titles/artists/albums are user-supplied, so they are escaped: a release
+    // named "**FREE** [click](https://x)" used to restyle the whole card and
+    // render a fake link.
+    const headerParts = [
+      `[${escapeLinkLabel(MusicBuilders.trimDisplayTitle(current.title))}](${current.uri})`,
+    ];
+    if (current.album?.trim()) headerParts.push(escapeInline(current.album.trim(), 80));
+    headerParts.push(escapeInline(current.author, 80), sourceIcon);
     const header = headerParts.join(' • ');
-    const chapterLine = chapter ? `Live — **${chapter.title}**` : null;
+    const chapterLine = chapter ? `Live — **${escapeInline(chapter.title, 100)}**` : null;
     const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
     const legacyLyricSection = MusicBuilders.buildLyricSection(lyricWindow, false);
     const galleryUrl = chapter?.artworkUrl || current.artworkUrl;
@@ -492,7 +498,7 @@ export class MusicBuilders {
 
     let desc = `Found **${tracks.length}** results for \`${MusicBuilders.clamp(query, 300)}\`:\n\n`;
     tracks.slice(0, 10).forEach((t, idx) => {
-      desc += `\`${idx + 1}.\` **[${t.title}](${t.uri})**\n`;
+      desc += `\`${idx + 1}.\` **[${escapeLinkLabel(t.title)}](${t.uri})**\n`;
       desc += `   └ Artist: \`${t.author}\` • Duration: \`${formatDuration(t.duration)}\`\n`;
     });
 
@@ -699,9 +705,16 @@ export class MusicBuilders {
     return response;
   }
 
+  /**
+   * Lavalink node status. `detailed` includes hosts, ports, CPU and memory —
+   * infrastructure reconnaissance. Callers pass `detailed: false` for anyone
+   * who is not a server admin, so an ordinary member cannot read the node
+   * topology off the bot.
+   */
   public static buildNodeStatsResponse(
     stats: LavalinkNodeStats[],
     accentColor?: number,
+    detailed: boolean = true,
   ): ResponseModel {
     const color = accentColor ?? DiscordConstants.LastFmColorBlue;
     const response = new ResponseModel(color);
@@ -721,7 +734,21 @@ export class MusicBuilders {
       totalPlayers += node.players;
       totalPlaying += node.playingPlayers;
       if (node.connected) healthyNodes++;
+    }
 
+    if (!detailed) {
+      response.embed.setDescription(
+        [
+          `**Nodes:** ${healthyNodes}/${stats.length} healthy`,
+          `**Active players:** ${totalPlayers} (${totalPlaying} playing)`,
+          '',
+          '*Run `/nodes` as a server admin for per-node diagnostics.*',
+        ].join('\n'),
+      );
+      return response;
+    }
+
+    for (const node of stats) {
       const statusIcon = node.connected ? '🟢 Connected' : '🔴 Disconnected';
       const value = [
         `**Status:** ${statusIcon}`,
@@ -731,9 +758,11 @@ export class MusicBuilders {
         `**Uptime:** ${Math.floor(node.uptimeMs / 1000 / 60)} min`,
       ].join('\n');
 
+      // addFields asserts a 25-field total and a 256-char name.
+      if ((response.embed.data.fields?.length ?? 0) >= 24) break;
       response.embed.addFields({
-        name: `Node: ${node.identifier} (${node.host}:${node.port})`,
-        value,
+        name: `Node: ${node.identifier} (${node.host}:${node.port})`.slice(0, 256),
+        value: value.slice(0, 1024),
         inline: false,
       });
     }

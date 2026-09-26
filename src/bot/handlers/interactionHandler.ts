@@ -587,7 +587,22 @@ export class InteractionHandler {
         }, timeoutMs);
       }
     } catch (err) {
-      Logger.warn({ err }, 'Failed to send interaction response');
+      // Never swallow this into silence. A 50035 (invalid form body — every
+      // oversize payload), a missing Send Messages, or a 25-component
+      // violation all land here, and because the interaction was already
+      // deferred the user saw "bot is typing…" and then NOTHING: the visible
+      // symptom of every payload bug in this codebase. Say what happened.
+      const code = (err as { code?: number })?.code;
+      Logger.warn({ err, code, command: interaction.commandName }, 'Failed to send interaction response');
+      await interaction
+        .followUp({
+          content:
+            code === 50035
+              ? '⚠️ That result was too large to display. Try a shorter search or a smaller page.'
+              : '⚠️ I could not display that result. Please try again in a moment.',
+          flags: MessageFlags.Ephemeral,
+        })
+        .catch(() => undefined);
     }
   }
 
