@@ -70,6 +70,12 @@ export class MusicService {
   private readonly pendingTopUpRunning = new Set<string>();
   private pendingEventsBound = false;
   private static readonly JIT_AHEAD = 2;
+  /**
+   * Bound on the resolver's loadTracks REST call. Unbounded, it can hang
+   * forever on a WS-connected-but-REST-dead node and wedge the per-guild
+   * top-up guard, silently freezing that guild's pending queue.
+   */
+  private static readonly LOAD_TRACKS_TIMEOUT_MS = 8000;
   /** Artwork backfill must never stall resolution: cold provider cascades take seconds. */
   private static readonly ARTWORK_TIMEOUT_MS = 6000;
   /** Background paths (JIT top-up, warmup) can afford to wait out slow cascades. */
@@ -580,8 +586,27 @@ export class MusicService {
     if (!path) return null;
     let res: unknown;
     try {
-      res = await player.node.rest.loadTracks(path);
+      // MUST be bounded. The node can be WS-connected but REST-dead (the
+      // documented uplink-stall class), and this call is reached from
+      // topUpPending, which holds the per-guild reentrancy guard: an
+      // unsettled await means the guard is never released and that guild's
+      // whole pending queue is frozen forever, silently.
+      let loadTimer: NodeJS.Timeout | undefined;
+      try {
+        res = await Promise.race([
+          player.node.rest.loadTracks(path),
+          new Promise<never>((_, reject) => {
+            loadTimer = setTimeout(() => reject(new Error('loadtracks-timeout')), MusicService.LOAD_TRACKS_TIMEOUT_MS);
+          }),
+        ]);
+      } finally {
+        if (loadTimer) clearTimeout(loadTimer);
+      }
     } catch {
+      // Treat it like any other REST failure so the node cools down and the
+      // ladder falls through to the next rung instead of retrying it.
+      const nodeId = player.node?.identifier;
+      if (nodeId) this.moonlinkManager.noteRestFailure(nodeId);
       return null;
     }
     const typed = res as { loadType?: string; data?: { encoded?: string } };

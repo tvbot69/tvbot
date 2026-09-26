@@ -48,7 +48,16 @@ export class CommandHandler {
     this.rateLimitService = container.resolve(RateLimitService);
 
     this.client.on(Events.MessageCreate, (message) => {
-      void this.handleMessage(message, false);
+      // handleMessage has no top-level catch: any throw in prefix lookup or
+      // the game branch rejected into an unhandledRejection, which the
+      // process handler reports as a FATAL error (and pings the error feed)
+      // for what is an ordinary, user-triggered bug.
+      void this.handleMessage(message, false).catch((err) => {
+        Logger.error(
+          { err, guildId: message.guildId, author: message.author?.id },
+          'Message handler failed',
+        );
+      });
     });
   }
 

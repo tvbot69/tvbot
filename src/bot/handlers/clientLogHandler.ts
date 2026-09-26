@@ -29,8 +29,15 @@ export class ClientLogHandler {
 
     client.on(Events.GuildCreate, (guild) => {
       Logger.info(`JoinedGuild: ${guild.name} / ${guild.id} | ${guild.memberCount ?? 0} members`);
-      void guildService.ensureGuildExists(guild);
-      void guildUserService.storeGuildUsers(guild);
+      // storeGuildUsers fetches the full member list; without the privileged
+      // GuildMembers intent that throws, and an unhandled rejection here is
+      // reported as a fatal process error on every single guild join.
+      void guildService.ensureGuildExists(guild).catch((err) => {
+        Logger.warn({ err, guildId: guild.id }, 'Failed to ensure guild exists');
+      });
+      void guildUserService.storeGuildUsers(guild).catch((err) => {
+        Logger.warn({ err, guildId: guild.id }, 'Failed to store guild users');
+      });
     });
 
     client.on(Events.GuildDelete, (guild) => {

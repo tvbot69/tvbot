@@ -195,15 +195,34 @@ export class MoonlinkManager {
    * so a single sighting earns a short cooldown — no extra threshold.
    * Incident cost is one-time detection: subsequent commands route past
    * via pickSearchNode exclusions until this expires on its own.
+   *
+   * The cooldown is cheap and GLOBAL by design, but MIGRATING every player
+   * off the node is not: it re-seeks each one mid-song, so a single slow
+   * search in one guild would disrupt every OTHER guild's playback. That
+   * needs corroboration — a second failure inside the window — because the
+   * evidence from one search is genuinely ambiguous (slow node vs dead
+   * node). A real disconnect still migrates immediately via
+   * handleNodeFailover.
    */
   public noteRestFailure(identifier: string): void {
     this.setNodeCooldown(identifier, MoonlinkManager.REST_DEAD_COOLDOWN_MS, false);
+    const sightings = (this.restFailureSightings.get(identifier) ?? 0) + 1;
+    this.restFailureSightings.set(identifier, sightings);
     Logger.info(
-      `[Lavalink] Node "${identifier}" REST failed — cooling down ${MoonlinkManager.REST_DEAD_COOLDOWN_MS / 1000}s and migrating players`,
+      `[Lavalink] Node "${identifier}" REST failed (sighting ${sightings}) — cooling down ${MoonlinkManager.REST_DEAD_COOLDOWN_MS / 1000}s`,
+    );
+    if (sightings < MoonlinkManager.REST_DEAD_MIGRATE_SIGHTINGS) return;
+    this.restFailureSightings.delete(identifier);
+    Logger.warn(
+      `[Lavalink] Node "${identifier}" failed ${sightings}x within the window — migrating players`,
     );
     const node = this.getAllNodes().find((n) => n.identifier === identifier);
     if (node) this.handleNodeFailover(node);
   }
+
+  private readonly restFailureSightings = new Map<string, number>();
+  /** Corroborating REST failures required before players are migrated. */
+  private static readonly REST_DEAD_MIGRATE_SIGHTINGS = 2;
 
   private static readonly REST_DEAD_COOLDOWN_MS = 120_000;
 

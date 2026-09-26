@@ -13,6 +13,9 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (error) => {
   Logger.fatal({ err: error }, 'Uncaught exception intercepted in process');
   reportFatalToDiscord('uncaughtException', error);
+  // Log lines are buffered; a hard exit must not lose the tail that
+  // explains WHY the process died.
+  Logger.flushLogFile();
 });
 
 async function bootstrap(): Promise<void> {

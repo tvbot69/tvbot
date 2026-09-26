@@ -85,35 +85,85 @@ function padBoxLine(content: string, innerWidth: number = 58): string {
 }
 
 export class CustomLogger {
-  public isDebugEnabled = process.env.LOG_LEVEL === 'debug' || process.env.NODE_ENV !== 'production';
+  /**
+   * Debug logging is opt-in. It used to include `NODE_ENV !== 'production'`,
+   * but nothing sets NODE_ENV in the deploy env (only ENVIRONMENT), so DEBUG
+   * was ON in production: every one of the ~80 debug call sites then paid
+   * util.format + util.inspect + a synchronous disk append, on the hot path,
+   * for logs nobody reads. Gate on the key the rest of the app actually uses.
+   */
+  public isDebugEnabled =
+    process.env.LOG_LEVEL === 'debug' || (process.env.ENVIRONMENT ?? 'local') === 'local';
   public boundContext?: LogContext;
   private logDir = path.resolve(process.cwd(), 'logs');
   private fileLoggingEnabled = process.env.LOG_FILE !== 'false' && process.env.NODE_ENV !== 'test';
+  /**
+   * File writes are buffered and flushed on an interval. `appendFileSync` per
+   * line is 3+ blocking syscalls (existsSync/mkdirSync/append) on the event
+   * loop — on a container filesystem that is the difference between a
+   * responsive bot and a visibly laggy one under load. stdout still prints
+   * immediately, which is what the platform collects anyway.
+   */
+  private fileBuffer: string[] = [];
+  private logDirReady = false;
+  private static readonly FLUSH_INTERVAL_MS = 2000;
+  private static readonly FLUSH_MAX_LINES = 200;
+  private flushTimer?: NodeJS.Timeout;
 
   public withContext(context: LogContext): CustomLogger {
     const child = new CustomLogger();
     child.isDebugEnabled = this.isDebugEnabled;
     child.boundContext = { ...(this.boundContext ?? {}), ...context };
+    // Share the parent's buffer: a child logger must not interleave a
+    // separate flush into the middle of the parent's ordering.
+    child.fileBuffer = this.fileBuffer;
+    child.logDirReady = this.logDirReady;
     return child;
   }
 
   private writeLogToFile(level: string, message: string, err?: Error): void {
     if (!this.fileLoggingEnabled) return;
     try {
-      if (!fs.existsSync(this.logDir)) {
-        fs.mkdirSync(this.logDir, { recursive: true });
-      }
       const now = new Date();
-      const dateStr = now.toISOString().slice(0, 10);
-      const logFile = path.join(this.logDir, `tvbot-${dateStr}.log`);
-
       const cleanMsg = stripAnsi(message);
       const ctxPrefix = this.boundContext?.traceId ? `[trace:${this.boundContext.traceId}] ` : '';
       let logLine = `[${now.toISOString()}] [${level}] ${ctxPrefix}${cleanMsg}\n`;
       if (err?.stack) {
         logLine += `${err.stack}\n`;
       }
-      fs.appendFileSync(logFile, logLine, 'utf8');
+      this.fileBuffer.push(logLine);
+      if (this.fileBuffer.length >= CustomLogger.FLUSH_MAX_LINES) {
+        this.flushLogFile();
+        return;
+      }
+      if (!this.flushTimer) {
+        this.flushTimer = setInterval(() => this.flushLogFile(), CustomLogger.FLUSH_INTERVAL_MS);
+        this.flushTimer.unref?.();
+      }
+    } catch {
+      // Don't crash application on filesystem logging failure
+    }
+  }
+
+  /** Drains the buffer to today's log file. Never throws. */
+  public flushLogFile(): void {
+    if (!this.fileLoggingEnabled || this.fileBuffer.length === 0) return;
+    const lines = this.fileBuffer;
+    this.fileBuffer = [];
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = undefined;
+    }
+    try {
+      if (!this.logDirReady) {
+        if (!fs.existsSync(this.logDir)) {
+          fs.mkdirSync(this.logDir, { recursive: true });
+        }
+        this.logDirReady = true;
+      }
+      const now = new Date();
+      const logFile = path.join(this.logDir, `tvbot-${now.toISOString().slice(0, 10)}.log`);
+      fs.appendFileSync(logFile, lines.join(''), 'utf8');
     } catch {
       // Don't crash application on filesystem logging failure
     }

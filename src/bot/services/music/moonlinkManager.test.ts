@@ -298,4 +298,38 @@ describe('MoonlinkManager REST-dead failover (uplink-stall class)', () => {
     expect(fakePlayer.transferNode).toHaveBeenCalledWith(serenetia);
     expect(fakePlayer.restart).not.toHaveBeenCalled();
   });
+
+  it('does NOT migrate every guild off a node on ONE search failure', async () => {
+    useHomeEnv();
+    const manager = new MoonlinkManager();
+    liveManagers.push(manager);
+    const map = innerMapOf(manager);
+    map.set('Home', statNode('Home', 1));
+    map.set('Serenetia-SSL', statNode('Serenetia-SSL', 0));
+
+    const fakePlayer = {
+      guildId: 'g1',
+      node: { identifier: 'Home' },
+      volume: 100,
+      loop: 'off',
+      autoPlay: false,
+      filters: { enabled: [] as string[] },
+      current: { position: 120000 },
+      transferNode: vi.fn(async () => undefined),
+      restart: vi.fn(async () => undefined),
+    };
+    const playersMgr = manager.getManager().players as unknown as Record<string, unknown>;
+    Object.defineProperty(playersMgr, 'all', { value: [fakePlayer], configurable: true });
+
+    // One slow search in one guild must not re-seek every other guild.
+    manager.noteRestFailure('Home');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(manager.isNodeCoolingDown('Home')).toBe(true);
+    expect(fakePlayer.transferNode).not.toHaveBeenCalled();
+
+    // A corroborating failure confirms the node is really dead: now migrate.
+    manager.noteRestFailure('Home');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fakePlayer.transferNode).toHaveBeenCalledTimes(1);
+  });
 });

@@ -26,6 +26,13 @@ export interface ParsedScrobble {
 
 @injectable()
 export class ImportService {
+  /**
+   * Hard ceiling on an uploaded history file (~48MB of text). Comfortably
+   * covers a multi-year export while staying far below the heap ceiling that
+   * JSON.parse would otherwise blow through.
+   */
+  private static readonly MAX_IMPORT_CHARS = 50 * 1024 * 1024;
+
   constructor(@inject(PrismaClient) private readonly prisma?: PrismaClient) {}
 
   private get db(): PrismaClient {
@@ -77,6 +84,18 @@ export class ImportService {
     fileContent: string,
     source: ImportPlaySource = 'SpotifyImport',
   ): Promise<ImportSummary> {
+    // The process runs with a small heap cap, and JSON.parse is synchronous
+    // and unbounded: a large streaming-history file materialises as a string
+    // and then as an object graph several times its size, which OOM-kills the
+    // whole bot (not just the command) until the platform restarts it. Refuse
+    // oversized input with an actionable message instead.
+    if (fileContent.length > ImportService.MAX_IMPORT_CHARS) {
+      throw new Error(
+        `That file is too large to import (${(fileContent.length / 1024 / 1024).toFixed(0)}MB). ` +
+          `Please split it into smaller files, or import a shorter date range (try 6-12 months at a time).`,
+      );
+    }
+
     let raw: unknown;
     try {
       raw = JSON.parse(fileContent);

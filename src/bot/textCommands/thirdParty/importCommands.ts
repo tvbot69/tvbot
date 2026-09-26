@@ -69,6 +69,15 @@ export class ImportCommands implements ITextCommandModule {
         if (!fileRes.ok) {
           throw new Error(`Failed to download attached file (${fileRes.status} ${fileRes.statusText})`);
         }
+        // Refuse before buffering: the 15s timeout bounds the download time,
+        // not its size, and a streaming-history export can be hundreds of MB.
+        const declared = Number(fileRes.headers.get('content-length') ?? '0');
+        if (Number.isFinite(declared) && declared > 50 * 1024 * 1024) {
+          throw new Error(
+            `That file is too large to import (${(declared / 1024 / 1024).toFixed(0)}MB). ` +
+              `Please split it into smaller files, or import a shorter date range.`,
+          );
+        }
 
         const fileContent = await fileRes.text();
         const summary = await this.importService.parseAndImport(user.userId, fileContent);
