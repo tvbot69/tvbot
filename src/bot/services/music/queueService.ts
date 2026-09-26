@@ -85,12 +85,15 @@ export class QueueService {
 
   /**
    * Live position for the card, lyrics and queue. First live leg wins:
-   * 1. Fresh node clock — extrapolate from the last reported update (<60s).
-   * 2. Stalled node clock while audibly playing — wall-clock from track
-   *    start. Update stalls used to freeze the card + lyrics at the last
-   *    base forever (the classic "stuck at 0:04"); a moving approximation
-   *    beats a dead card, and the node clock retakes over the moment
-   *    updates resume. Clamped to duration so it never overruns.
+   * 1. Fresh node clock — extrapolate from the last reported update (<60s,
+   *    small negative skew tolerated and clamped to the base).
+   * 2. Stalled/future-dated node clock while audibly playing — wall-clock
+   *    from the last USER SEEK when there was one, else from track start.
+   *    Update stalls used to freeze the card + lyrics at the last base
+   *    forever (the classic "stuck at 0:04"); a moving approximation beats
+   *    a dead card. Seeking from the seek target matters on long content:
+   *    wall-clock-from-start ignores seeks and drags a 60-minute set back
+   *    to its opening track. Clamped to duration so it never overruns.
    * 3. No clock at all (paused, missing) — the last reported base.
    */
   public calculatePosition(player: Player): number {
@@ -116,15 +119,36 @@ export class QueueService {
     const updateTime = rawTrack.time || trackStartedAt;
     if (typeof updateTime === 'number' && updateTime > 0) {
       const elapsed = Date.now() - updateTime;
-      if (elapsed >= 0 && elapsed < 60000) {
-        return clamp(basePos + elapsed);
+      // Small negative elapsed is node/bot clock skew (the Home node is a
+      // residential PC), not a reason to discard the clock: freeze at the
+      // reported base instead of throwing the whole clock away.
+      if (elapsed >= -2000 && elapsed < 60000) {
+        return clamp(basePos + Math.max(0, elapsed));
       }
     }
 
-    // Node clock stale (or future-dated) — fall back to wall-clock from
-    // track start instead of freezing at the last base.
+    // Node clock stale (or future-dated) — fall back to wall-clock from track
+    // start instead of freezing at the last base, so the card and lyrics keep
+    // moving. Wall-clock-from-start IGNORES seeks, which on a 60-minute set
+    // teleports the position back to the top and lands the chapter system on
+    // a song from the start of the show. When the user has seeked since the
+    // track began, extrapolate from the seek target instead — same "keep
+    // moving" guarantee, but seek-relative.
+    const now = Date.now();
+    const seekAt = typeof player.get === 'function' ? player.get<number>('lastUserSeekAt') : undefined;
+    const seekPos = typeof player.get === 'function' ? player.get<number>('lastUserSeekPos') : undefined;
+    if (
+      typeof seekAt === 'number' &&
+      seekAt > 0 &&
+      typeof seekPos === 'number' &&
+      seekPos >= 0 &&
+      (typeof trackStartedAt !== 'number' || seekAt > trackStartedAt)
+    ) {
+      const since = now - seekAt;
+      if (since >= -2000) return clamp(seekPos + Math.max(0, since));
+    }
     if (typeof trackStartedAt === 'number' && trackStartedAt > 0) {
-      const elapsed = Date.now() - trackStartedAt;
+      const elapsed = now - trackStartedAt;
       if (elapsed >= 0) return clamp(elapsed);
     }
 

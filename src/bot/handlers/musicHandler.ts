@@ -135,9 +135,21 @@ export class MusicHandler {
     const rec = track as unknown as { sourceName?: string; identifier?: string } | null;
     const id = getSourceVideoId(rec);
     // Same video restarting (double trackStart, replay, loop): keep the
-    // attached chapters, card and index — the trackStart post renders them
-    // immediately instead of gaping through a wipe + re-probe.
-    if (id && id === player.get<string>('chapterSourceId')) return;
+    // attached chapters — the trackStart post renders them immediately
+    // instead of gaping through a wipe + re-probe — but reset the
+    // PRESENTATION state. Carrying the previous play-through's cover/timer
+    // into a new one paints the encore's artwork next to song one, and a
+    // stale chapterStartedAt makes the borrow window already-expired (or
+    // not) at random. The index is re-derived at position 0 by trackStart.
+    if (id && id === player.get<string>('chapterSourceId')) {
+      player.set('chapterIdx', -2);
+      player.set('chapterCard', null);
+      player.set('lastCoverUrl', null);
+      player.set('chapterStartedAt', null);
+      player.set('chapterArtRetry', null);
+      player.set('chapterJumpPending', null);
+      return;
+    }
     // Generation token: a slow probe from a skipped track must never attach
     // its chapters (or covers) to the next track. Bumped synchronously on
     // every track so orphans always fail the check below.
@@ -149,6 +161,8 @@ export class MusicHandler {
     player.set('chapterCard', null);
     player.set('lastCoverUrl', null);
     player.set('chapterStartedAt', null);
+    player.set('chapterArtRetry', null);
+    player.set('chapterJumpPending', null);
     try {
       // Standalone live gate: chapters probe ONLY for long videos. Short
       // tracks and Spotify-link plays return here with zero probe cost and
@@ -273,6 +287,40 @@ export class MusicHandler {
         }
         return stored;
       }
+      // Multi-chapter forward jump with no seek behind it. A seek commits its
+      // own index (swapChapterOnSeek), so reaching here means the POSITION is
+      // suspect — a stale/future-dated node clock, or the wall-clock fallback
+      // after a long stall. Committing it would skip every chapter in between
+      // for good: armChapterTimer re-arms to chapters[idx+1], so the songs
+      // being skipped are never revisited and the card sits on the wrong song
+      // (and the wrong cover) until the next boundary. Hold the current
+      // chapter for one settle window instead; if the clock still says so
+      // afterwards, the jump was real (a long stall) and it is committed.
+      if (lastIdx >= 0 && idx > lastIdx + 1) {
+        const pending = player.get<{ idx: number; at: number } | null>('chapterJumpPending') ?? null;
+        const sameJump = !!pending && pending.idx === idx;
+        const confirmed = sameJump && Date.now() - pending.at > MusicHandler.CHAPTER_JUMP_CONFIRM_MS;
+        if (!confirmed) {
+          if (!sameJump) {
+            player.set('chapterJumpPending', { idx, at: Date.now() });
+            Logger.info(
+              { guildId: player.guildId, from: lastIdx, to: idx },
+              '[Music] Implausible chapter jump — holding current chapter to confirm',
+            );
+            // Re-derive once the settle window closes: the next boundary timer
+            // is armed from the (possibly wrong) jumped position, so it may
+            // be minutes away. This is the only prompt re-check.
+            this.scheduleImmediateProgress(player, MusicHandler.CHAPTER_JUMP_CONFIRM_MS + 500);
+          }
+          return player.get<ChapterCard | null>('chapterCard') ?? null;
+        }
+        player.set('chapterJumpPending', null);
+        Logger.info(
+          { guildId: player.guildId, from: lastIdx, to: idx },
+          '[Music] Chapter jump confirmed after settle — committing',
+        );
+      }
+      player.set('chapterJumpPending', null);
       player.set('chapterIdx', idx);
       player.set('chapterStartedAt', Date.now());
       const ch = idx >= 0 ? chapters[idx] : undefined;
@@ -417,6 +465,12 @@ export class MusicHandler {
   }
 
   private readonly progressFingerprints = new Map<string, string>();
+  /**
+   * Guilds with a publish that arrived while another was in flight. The
+   * set is the coalescing queue: presence means "re-derive once the current
+   * publish settles", absence means "nothing waiting".
+   */
+  private readonly pendingPublish = new Set<string>();
   /**
    * Chapter part of the visible fingerprint. The COVER URL is part of the
    * key, not just its presence: a chapter whose art lands late (or replaces
@@ -587,6 +641,15 @@ export class MusicHandler {
       if (!player) return;
       if (this.queueService.isKaraokeEnabled(guildId)) this.armKaraokeTimer(player as Player);
       else this.clearKaraokeTimer(guildId);
+      // The chapter timer is the ONLY thing that advances chapters on a long
+      // set, and it is dropped by channel deletion, a re-attach, or any
+      // swallowed throw inside armChapterTimer. Nothing else re-arms it, so a
+      // single loss freezes the card on one song for the rest of the show.
+      // Re-arming here is idempotent (armChapterTimer clears its own timer)
+      // and this is also the late-artwork notifier, so it is the natural
+      // heartbeat for a live show.
+      const chapters = (player as Player).get<unknown[]>('chapters');
+      if (chapters && chapters.length >= 2) this.armChapterTimer(player as Player);
       void this.publishProgress(player as Player);
     } catch {
       // Never break commands.
@@ -605,11 +668,21 @@ export class MusicHandler {
    * Publishes the now-playing card when its visible fingerprint changed.
    * Purely on-demand (track start, boundary timers, seeks, nudges) — there
    * is no polling loop. The fingerprint admits an edit only on real change.
+   *
+   * Overlapping publishes COALESCE (they never drop): a chapter cover that
+   * lands while an edit is in flight used to be discarded by the in-flight
+   * guard, so the card kept the previous song's artwork until the next
+   * chapter boundary — or forever on the last chapter of a set. Arriving
+   * mid-edit now queues exactly one follow-up pass, which re-derives the
+   * (new) state and publishes it if it is still visibly different.
    */
   private async publishProgress(player: Player): Promise<void> {
     const guildId = player.guildId;
     const guardSince = this.progressPublishing.get(guildId);
-    if (guardSince !== undefined && Date.now() - guardSince < MusicHandler.PUBLISH_STALL_MS) return;
+    if (guardSince !== undefined && Date.now() - guardSince < MusicHandler.PUBLISH_STALL_MS) {
+      this.pendingPublish.add(guildId);
+      return;
+    }
     this.progressPublishing.set(guildId, Date.now());
     try {
       if (!player.playing || !player.textChannelId) return;
@@ -749,6 +822,12 @@ export class MusicHandler {
       // Silently skip if rate limited or network hiccup
     } finally {
       this.progressPublishing.delete(guildId);
+    }
+    // Drain the coalesced follow-up AFTER releasing the guard, so it can
+    // actually run. Bounded by the fingerprint: a burst of chapter/art
+    // updates collapses into at most one extra edit per settle.
+    if (this.pendingPublish.delete(guildId)) {
+      void this.publishProgress(player).catch(() => undefined);
     }
   }
 
@@ -916,6 +995,13 @@ export class MusicHandler {
    * enough that a chapter which never resolves stops showing a wrong song.
    */
   private static readonly BORROWED_COVER_MS = 15000;
+  /**
+   * Settle window for an implausible multi-chapter forward jump. The card
+   * holds its current chapter for this long and re-derives once; a jump that
+   * survives the re-check is treated as real (a long stall legitimately moves
+   * the position several chapters in one go).
+   */
+  private static readonly CHAPTER_JUMP_CONFIRM_MS = 4000;
 
   private fallbackTrackKey(guildId: string, failedKey: string): string {
     return `${guildId}|${failedKey}`;
@@ -1345,6 +1431,27 @@ export class MusicHandler {
       this.armChapterTimer(player);
     });
 
+    // Node-initiated seek (Lavalink's own recovery, a remote restart, a
+    // dashboard jump). moonlink applies the new position but leaves
+    // current.time at the last update, so the position calculator keeps
+    // extrapolating from a stale base for up to a minute and can cross a
+    // chapter boundary early. Re-stamp the clock and swap the chapter.
+    manager.on('playerSeek', (player: Player, position: number) => {
+      try {
+        const cur = player.current as unknown as { position?: unknown; time?: unknown } | null;
+        if (cur) {
+          cur.position = position;
+          cur.time = Date.now();
+        }
+        this.swapChapterOnSeek(player, position);
+        this.armKaraokeTimer(player);
+        this.armChapterTimer(player);
+        this.scheduleImmediateProgress(player);
+      } catch {
+        // Never break playback.
+      }
+    });
+
     manager.on('trackEnd', (player: Player, track: Track, reason: string) => {
       Logger.debug(
         `[Music] Track ended in guild ${player.guildId}: "${track.title}" (reason: ${reason})`,
@@ -1683,6 +1790,8 @@ export class MusicHandler {
       this.clearKickGrace(player.guildId);
       this.clearInactivityTimeout(player.guildId);
       this.progressFingerprints.delete(player.guildId);
+      this.pendingPublish.delete(player.guildId);
+      this.progressPublishing.delete(player.guildId);
 
       if (player.voiceChannelId && this.voiceChannelStatusService) {
         void this.voiceChannelStatusService.clearStatus(player.voiceChannelId);

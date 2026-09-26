@@ -221,16 +221,21 @@ describe('negative-cache semantics (definitive vs inconclusive misses)', () => {
     SpotifySearchApi.clearRateLimit();
   });
 
-  it('does not cache inconclusive misses (provider throws) — next lookup retries', async () => {
+  it('never records an inconclusive run as a definitive miss, and backs off instead', async () => {
     let calls = 0;
     const { service, cache } = makeTrackArt(async () => {
       calls++;
       throw new Error('boom');
     });
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    // 'none' means "this cover does not exist" — a provider throw tells us
+    // nothing of the sort, so it gets its own short-lived marker.
     expect([...cache.store.values()]).not.toContain('none');
+    expect(cache.store.get('art:track:mond|esme')).toBe('inconclusive');
+    // Within the backoff window the cascade is not re-run: this is what stops
+    // an unresolvable chapter re-sweeping every provider on a timer.
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
   });
 
   it('caches definitive misses briefly — clean provider no-hits are not retried', async () => {
@@ -477,8 +482,9 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
     // First run concluded definitively (the album sweep answered no)…
     expect(cache.store.get('art:album:mond|homework')).toBe('none');
     expect(cache.store.get('art:track:mond|esme')).toBe('none');
-    // …but the second track joined the in-flight album cascade — inconclusive.
-    expect(cache.store.get('art:track:mond|around the world')).toBeUndefined();
+    // …but the second track joined the in-flight album cascade — inconclusive,
+    // so it must be backoff-marked, never a definitive 'none'.
+    expect(cache.store.get('art:track:mond|around the world')).toBe('inconclusive');
   });
 
   it('contains DB probe failures instead of rejecting the cascade', async () => {
@@ -506,11 +512,14 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
   it('does not negative-cache ambiguous Last.fm nulls during an outage', async () => {
     const { service, cache, calls } = makeResilient({ tracker: { isElevated: () => true } });
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
-    expect(cache.store.get('art:track:mond|esme')).toBeUndefined();
+    // An elevated-error-rate Last.fm answers ambiguously: back off, but never
+    // claim the cover does not exist.
+    expect(cache.store.get('art:track:mond|esme')).not.toBe('none');
+    expect(cache.store.get('art:track:mond|esme')).toBe('inconclusive');
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
-    // 2 spotify calls per cascade — the second lookup retried instead of
-    // being served a poisoned 'none'.
-    expect(calls.spotifyTracks).toBe(4);
+    // 2 spotify calls for the first cascade; the second is served by the
+    // backoff marker instead of re-running every provider.
+    expect(calls.spotifyTracks).toBe(2);
   });
 
   it('still caches definitive misses when Last.fm is healthy', async () => {

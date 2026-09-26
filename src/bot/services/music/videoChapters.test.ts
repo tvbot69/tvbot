@@ -93,7 +93,21 @@ describe('transitionLeadSong', () => {
     expect(transitionLeadSong('BACKR00MS TO KICK OUT')).toBe('BACKR00MS');
     expect(transitionLeadSong('NO BYSTANDERS TO FE!N')).toBe('NO BYSTANDERS');
     expect(transitionLeadSong('01. BACKR00MS TO KICK OUT')).toBe('BACKR00MS');
-    expect(transitionLeadSong('travis scott to kick out')).toBe('travis scott');
+  });
+
+  it('accepts a joiner as an explicit transition marker', () => {
+    expect(transitionLeadSong('SICKO MODE → TOO COOL')).toBe('SICKO MODE');
+    expect(transitionLeadSong('ROCKIN ROBIN INTO A THUNDERSTORM')).toBe('ROCKIN ROBIN');
+  });
+
+  it('never splits a real song title that merely contains "to"', () => {
+    // "Back"/"Talk"/"Listen" are real songs by these artists: splitting them
+    // served a DIFFERENT recording's cover under the right chapter name.
+    expect(transitionLeadSong('Back To December')).toBeNull();
+    expect(transitionLeadSong('Talk to Me')).toBeNull();
+    expect(transitionLeadSong('Listen To Your Heart')).toBeNull();
+    expect(transitionLeadSong('Turn Back To Earth')).toBeNull();
+    expect(transitionLeadSong('travis scott to kick out')).toBeNull();
   });
 
   it('returns null for non-transition titles', () => {

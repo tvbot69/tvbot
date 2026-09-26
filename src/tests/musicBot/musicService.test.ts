@@ -265,6 +265,53 @@ describe('MusicService', () => {
     expect(pos).toBeLessThanOrEqual(91000);
   });
 
+  it('extrapolates from the SEEK target when the node clock is unusable', () => {
+    const now = Date.now();
+    const seekedPlayer = {
+      ...mockPlayer,
+      playing: true,
+      paused: false,
+      current: {
+        ...mockPlayer.current,
+        position: 4000,
+        time: now - 90000, // node clock went stale
+        duration: 3600000,
+      },
+      // Track began 6 minutes ago; the user seeked to 45:00 ninety seconds ago.
+      get: vi.fn((key: string) => {
+        if (key === 'trackStartedAt') return now - 360000;
+        if (key === 'lastUserSeekAt') return now - 90000;
+        if (key === 'lastUserSeekPos') return 2700000;
+        return undefined;
+      }),
+    } as unknown as Player;
+
+    // Wall-clock-from-track-start would report ~6:00 and drag a 60-minute
+    // set back to its opening track. The seek target is the truth.
+    const pos = queueService.calculatePosition(seekedPlayer);
+    expect(pos).toBeGreaterThanOrEqual(2789000);
+    expect(pos).toBeLessThanOrEqual(2791000);
+  });
+
+  it('tolerates small node clock skew instead of discarding the clock', () => {
+    const now = Date.now();
+    const skewedPlayer = {
+      ...mockPlayer,
+      playing: true,
+      paused: false,
+      current: {
+        ...mockPlayer.current,
+        position: 10000,
+        time: now + 900, // node PC runs 900ms ahead
+        duration: 354000,
+      },
+      get: vi.fn((key: string) => (key === 'trackStartedAt' ? now - 200000 : undefined)),
+    } as unknown as Player;
+
+    // Clamped to the reported base: 10:00, not 0:00 (wall-clock from start).
+    expect(queueService.calculatePosition(skewedPlayer)).toBe(10000);
+  });
+
   it('returns the last base when every clock is missing while playing', () => {
     const noClockPlayer = {
       ...mockPlayer,

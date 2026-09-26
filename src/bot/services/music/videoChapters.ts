@@ -134,10 +134,20 @@ export function splitChapterTitle(title: string): { artist?: string; song: strin
  * Lead song of a transition/medley chapter title ("BACKR00MS TO KICK OUT"
  * — A fading into B; the cover matching the chapter START is A's). Null
  * when the title isn't a transition. Callers must treat this as a FALLBACK
- * after the full title misses, so real songs containing "to" ("Back To
- * December") are never affected — they hit on the first attempt.
+ * after the full title misses.
+ *
+ * The split alone is far too eager: "Back To December", "Talk to Me" and
+ * "Listen to Your Heart" all match, and a lead fragment like "Back" or
+ * "Talk" is very often a REAL song by the same artist — so the fallback
+ * would confidently paint the wrong recording's cover. Real transition
+ * markers in chapter lists are either shouted (an ALL-CAPS block) or
+ * carry an explicit joiner, so require one of those.
  */
-const TRANSITION_SPLIT = /^(.{2,80}?)\s+to\s+(.{2,})$/i;
+const TRANSITION_SPLIT = /^(.{2,80}?)\s+(?:into|to|→|>>|>)\s+(.{2,})$/i;
+/** Explicit joiners used by chapter lists for medleys/interludes. */
+const TRANSITION_JOINER = /(?:→|>>|\bx\b|into|fade|fading|transition|medley)/i;
+/** Letters that carry no case information (digits/punctuation are ignored). */
+const casedLetters = (s: string): string => s.replace(/[^a-z]/gi, '');
 
 export function transitionLeadSong(title: string | null | undefined): string | null {
   const t = (title ?? '')
@@ -146,7 +156,11 @@ export function transitionLeadSong(title: string | null | undefined): string | n
     .trim();
   const m = TRANSITION_SPLIT.exec(t);
   const lead = m?.[1]?.trim() ?? '';
-  return lead.length >= 2 ? lead : null;
+  if (lead.length < 2) return null;
+  const letters = casedLetters(t);
+  const shouted = letters.length >= 6 && letters === letters.toUpperCase();
+  if (!shouted && !TRANSITION_JOINER.test(t)) return null;
+  return lead;
 }
 
 /**

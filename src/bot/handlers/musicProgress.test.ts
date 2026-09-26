@@ -357,7 +357,127 @@ describe('MusicHandler progress card', () => {
     handler.clearCardTimers('g-chswap-1');
   });
 
-  it('keeps chapters across a same-video track restart (no wipe + re-probe gap)', () => {
+  it('coalesces a publish that lands mid-edit instead of dropping it', async () => {
+    let releaseEdit!: () => void;
+    const editGate = new Promise<void>((r) => {
+      releaseEdit = r;
+    });
+    const edited: string[] = [];
+    const edit = vi.fn(async (payload: unknown) => {
+      edited.push(JSON.stringify(payload));
+      // First edit hangs (slow Discord); the second call must NOT be lost.
+      if (edit.mock.calls.length === 1) await editGate;
+      return {};
+    });
+    const channel = {
+      isTextBased: () => true,
+      messages: { cache: { get: () => ({ edit }) }, fetch: async () => ({ edit }) },
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map(), fetch: async () => channel } };
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const store: Record<string, unknown> = { nowPlayingMessageId: 'msg-1' };
+    const queue = {
+      current: {
+        identifier: 'coalesce-1',
+        title: 'Coalesce Song',
+        author: 'Band',
+        uri: 'https://youtube.com/watch?v=coalesce-1',
+        duration: 200000,
+        isSeekable: true,
+        isStream: false,
+        source: 'local',
+      },
+      tracks: [],
+      totalTracks: 1,
+      totalDuration: 200000,
+      remainingDuration: 200000,
+      loopMode: 'off',
+      volume: 100,
+      isPaused: false,
+      isPlaying: true,
+      is247: false,
+      autoplay: false,
+      position: 1000,
+    };
+    const handler = new MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => queue, is247: () => false, isKaraokeEnabled: () => false } as never,
+    ) as unknown as {
+      publishProgress: (player: unknown) => Promise<void>;
+      clearCardTimers: (guildId: string) => void;
+    };
+    const player = {
+      guildId: 'g-coalesce-1',
+      playing: true,
+      paused: false,
+      textChannelId: 'tc-1',
+      current: queue.current,
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+    };
+
+    const first = handler.publishProgress(player);
+    // A visible change (pause flips the play/pause button) lands while the
+    // first edit is still in flight.
+    await Promise.resolve();
+    queue.isPaused = true;
+    void handler.publishProgress(player);
+    releaseEdit();
+    await first;
+    // The queued follow-up runs after the guard releases and publishes it.
+    await vi.waitFor(() => expect(edit.mock.calls.length).toBe(2));
+    handler.clearCardTimers('g-coalesce-1');
+  });
+
+  it('holds an implausible multi-chapter jump, then commits it once confirmed', async () => {
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const handler = new (await import('./musicHandler')).MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false, isKaraokeEnabled: () => false } as never,
+      undefined,
+      undefined,
+      undefined,
+      { getTrackCoverUrl: async () => null } as never,
+    ) as unknown as {
+      chapterCardFor: (player: unknown, pos: number) => { title: string; artworkUrl?: string | null } | null;
+      clearCardTimers: (guildId: string) => void;
+    };
+    vi.useFakeTimers();
+    try {
+      const SHOW = [
+        { title: 'One', startMs: 0 },
+        { title: 'Two', startMs: 100000 },
+        { title: 'Three', startMs: 200000 },
+        { title: 'Four', startMs: 300000 },
+      ];
+      const store: Record<string, unknown> = { chapters: SHOW, chapterIdx: -2 };
+      const player = {
+        guildId: 'g-jump-1',
+        current: { title: 'EsDeeKid - Live at Silver Spring' },
+        get: (k: string) => store[k],
+        set: (k: string, v: unknown) => void (store[k] = v),
+      };
+
+      expect(handler.chapterCardFor(player, 0)?.title).toBe('One');
+      expect(handler.chapterCardFor(player, 150000)?.title).toBe('Two');
+      // Clock jumps 3 chapters with no seek behind it: hold "Two" so the
+      // songs in between are not skipped for good.
+      expect(handler.chapterCardFor(player, 350000)?.title).toBe('Two');
+      expect(store.chapterIdx).toBe(1);
+      // Still claiming the same jump after the settle window: it was real.
+      vi.setSystemTime(Date.now() + 5000);
+      expect(handler.chapterCardFor(player, 350000)?.title).toBe('Four');
+      expect(store.chapterIdx).toBe(3);
+    } finally {
+      vi.useRealTimers();
+      handler.clearCardTimers('g-jump-1');
+    }
+  });
+
+  it('keeps chapters across a same-video restart but resets the presentation', () => {
     const manager = { on: vi.fn(), players: { get: () => undefined } };
     const client = { on: vi.fn(), channels: { cache: new Map() } };
     const handler = buildHandler() as unknown as {
@@ -368,12 +488,14 @@ describe('MusicHandler progress card', () => {
       { title: 'Take Me To The Sun', startMs: 0 },
       { title: 'Bleed Out', startMs: 276000 },
     ];
-    const card = { title: 'Take Me To The Sun', artworkUrl: 'https://img.test/sun.jpg' };
     const store: Record<string, unknown> = {
       chapterSourceId: 'KxkrKdefKqw',
       chapters,
-      chapterCard: card,
-      chapterIdx: 0,
+      // State left over from the PREVIOUS play-through of the same video.
+      chapterCard: { title: 'Bleed Out', artworkUrl: 'https://img.test/bleed.jpg' },
+      chapterIdx: 1,
+      lastCoverUrl: 'https://img.test/bleed.jpg',
+      chapterStartedAt: Date.now() - 600000,
     };
     const player = {
       guildId: 'g-samevid-1',
@@ -382,11 +504,14 @@ describe('MusicHandler progress card', () => {
     };
     const track = { sourceName: 'youtube', identifier: 'KxkrKdefKqw', title: 'Show', duration: 3821000 };
     handler.resolveVideoChapters(player, track);
-    // Untouched: same chapters, same card, and crucially no probe fired.
+    // Chapters survive (no wipe, no re-probe)...
     expect(store.chapters).toBe(chapters);
-    expect(store.chapterCard).toBe(card);
-    expect(store.chapterIdx).toBe(0);
     expect(fetchSpy).not.toHaveBeenCalled();
+    // ...but the encore's cover/timer/index must not leak into song one.
+    expect(store.chapterIdx).toBe(-2);
+    expect(store.chapterCard).toBeNull();
+    expect(store.lastCoverUrl).toBeNull();
+    expect(store.chapterStartedAt).toBeNull();
   });
 
   it('syncs the posted fingerprint on track start', async () => {

@@ -20,6 +20,15 @@ const MEMORY_CACHE_TTL_SECONDS = 3600;
  * Inconclusive runs (throws, rate-limits) are never cached — the next
  * lookup retries. Kept short anyway: new releases appear, providers change. */
 const NONE_TTL_SECONDS = 600;
+/**
+ * Negative cache for INCONCLUSIVE runs — a provider threw, timed out, or was
+ * rate-limited, so we never learned whether the cover exists. Without this,
+ * an unresolvable chapter re-swept all four providers every 30s for the whole
+ * show: a paused set is re-checked on a timer, and the misses are exactly
+ * what burns provider quota. Short by design — an outage or a 429 must clear
+ * quickly once the provider recovers.
+ */
+const INCONCLUSIVE_TTL_SECONDS = 90;
 const FRESHNESS_WINDOW_MS = 90 * 24 * 3600 * 1000;
 const LASTFM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
 
@@ -650,7 +659,9 @@ export class ArtworkService {
 
     const cached = await this.cache.get<string>(key);
     if (cached) {
-      if (cached === 'none') return null;
+      // 'inconclusive' is a short-lived backoff marker, not a URL: a previous
+      // run never learned whether this cover exists (outage/rate limit).
+      if (cached === 'none' || cached === 'inconclusive') return null;
       if (isPlaceholderImageUrl(cached)) return null;
       return cached;
     }
@@ -770,6 +781,11 @@ export class ArtworkService {
     } else if (attempts.length === 0) {
       // Definitive miss only — see NONE_TTL_SECONDS.
       await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    } else {
+      // Inconclusive (outage / rate limit / timeout). Do not remember it as
+      // "no cover exists", but do stop the 30s chapter retry from re-running
+      // the entire cascade every time — see INCONCLUSIVE_TTL_SECONDS.
+      await this.cache.set(key, 'inconclusive', INCONCLUSIVE_TTL_SECONDS);
     }
     return result;
   }
