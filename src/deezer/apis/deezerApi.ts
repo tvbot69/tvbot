@@ -53,11 +53,31 @@ export class DeezerApi {
     return this.getNullable<DeezerAlbum>(`/album/${encodeURIComponent(albumId)}`);
   }
 
+  /**
+   * Follows Deezer's `next` cursor. Deezer caps `limit` at 100 and ignores
+   * anything larger, so asking for 10000 returned exactly 100 and a 2000-track
+   * playlist was silently truncated to its first page — with a "25 tracks
+   * added" style reply and no partial flag. Bounded so a pathological cursor
+   * chain cannot loop forever.
+   */
+  private async collectPages(
+    firstPath: string,
+    maxItems: number,
+    maxPages: number,
+  ): Promise<DeezerTrack[]> {
+    const out: DeezerTrack[] = [];
+    let path: string | null = firstPath;
+    for (let page = 0; page < maxPages && path && out.length < maxItems; page++) {
+      const body: { data?: DeezerTrack[]; next?: string | null } | null = await this.getNullable(path);
+      const data = body?.data ?? [];
+      out.push(...data);
+      path = body?.next ?? null;
+    }
+    return out.slice(0, maxItems);
+  }
+
   public async getAlbumTracks(albumId: string): Promise<DeezerTrack[]> {
-    const page = await this.getNullable<{ data?: DeezerTrack[] }>(
-      `/album/${encodeURIComponent(albumId)}/tracks?limit=10000`,
-    );
-    return page?.data ?? [];
+    return this.collectPages(`/album/${encodeURIComponent(albumId)}/tracks?limit=100`, 5000, 60);
   }
 
   public async getPlaylistById(playlistId: string): Promise<DeezerPlaylist | null> {
@@ -65,10 +85,7 @@ export class DeezerApi {
   }
 
   public async getPlaylistTracks(playlistId: string): Promise<DeezerTrack[]> {
-    const page = await this.getNullable<{ data?: DeezerTrack[] }>(
-      `/playlist/${encodeURIComponent(playlistId)}/tracks?limit=10000`,
-    );
-    return page?.data ?? [];
+    return this.collectPages(`/playlist/${encodeURIComponent(playlistId)}/tracks?limit=100`, 5000, 60);
   }
 
   public async getArtistTop(artistId: string): Promise<DeezerTrack[]> {

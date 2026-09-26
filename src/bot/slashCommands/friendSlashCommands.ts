@@ -140,7 +140,11 @@ export class FriendSlashCommands implements ISlashCommandModule {
       try {
         const artSvc = container.resolve(ArtworkService);
         const clrSvc = container.resolve(ColorService);
-        const artUrl = await artSvc.getTrackCoverUrl(items[0].artistName, items[0].trackName);
+        // Signature is (trackName, artistName) — these were swapped, so the
+        // lookup searched for a track named after the artist by an artist
+        // named after the track: never matched, five wasted provider calls,
+        // and the command always fell back to the red accent.
+        const artUrl = await artSvc.getTrackCoverUrl(items[0].trackName, items[0].artistName);
         if (artUrl) {
           accentColor = await clrSvc.getColorFromImageUrl(artUrl);
         }

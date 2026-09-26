@@ -30,14 +30,31 @@ describe('parseTimestampLines', () => {
         ].join('\n'),
       ),
     ).toEqual([
+      // "0:00 - Rottweiler" and "00:00 Intro" share a timestamp. Both used to
+      // survive, and the LAST one won the boundary — so the card showed
+      // "Intro" and masked the actual opening song for its full duration. The
+      // real song name now wins over a generic container title.
       { title: 'Rottweiler', startMs: 0 },
-      { title: 'Intro', startMs: 0 },
       { title: '4 Raws', startMs: 150_000 },
       { title: 'Century', startMs: 355_000 },
       { title: 'Panic', startMs: 520_000 },
       { title: 'RockWave', startMs: 1_020_000 },
       { title: 'Closer', startMs: 3_723_000 },
     ]);
+  });
+
+  it('keeps a real song when a generic title is listed at the same timestamp', () => {
+    const chapters = parseTimestampLines(['0:00 - Rottweiler', '00:00 Intro', '2:30 Outro'].join('\n'));
+    expect(chapters).toEqual([
+      { title: 'Rottweiler', startMs: 0 },
+      { title: 'Outro', startMs: 150_000 },
+    ]);
+  });
+
+  it('keeps distinct chapters that are genuinely close together', () => {
+    // 5s apart is a real (if abrupt) track change, not a duplicate listing.
+    const chapters = parseTimestampLines(['0:00 - Rottweiler', '0:05 - 4 Raws'].join('\n'));
+    expect(chapters).toHaveLength(2);
   });
 
   it('falls back to a numbered title when the line is timestamp-only', () => {

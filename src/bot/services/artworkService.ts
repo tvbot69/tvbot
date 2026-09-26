@@ -121,15 +121,22 @@ export const matchesArtistName = (candidate: string, target: string): boolean =>
   const nt = normalizeArtistKey(target);
   if (nc.length > 0 && nc === nt) return true;
 
-  // Split collaboration/feature formats: "A & B", "A feat. B", "A x B", "A / B", "A with B"
-  const collabs = cLow
-    .split(/\s*(?:feat\.?|ft\.?|featuring|\bx\b|&|\/|,|\bwith\b)\s*/i)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Split collaboration/feature formats: "A & B", "A feat. B", "A x B", "A / B", "A with B".
+  // BOTH sides are split: a provider row spells the credits "Drake, Future"
+  // while the track is billed "Drake feat. Future", and with only the
+  // candidate split that pair never matched — the whole cascade was wasted
+  // and the card fell back to an artist photo instead of the song cover.
+  const splitArtists = (value: string): string[] =>
+    value
+      .split(/\s*(?:feat\.?|ft\.?|featuring|\bx\b|&|\/|,|\bwith\b)\s*/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-  if (collabs.length > 1) {
-    for (const part of collabs) {
-      if (part === tLow || normalizeArtistKey(part) === nt) {
+  const collabs = splitArtists(cLow);
+  const targets = splitArtists(tLow);
+  for (const part of collabs) {
+    for (const target of targets) {
+      if (part === target || normalizeArtistKey(part) === normalizeArtistKey(target)) {
         return true;
       }
     }

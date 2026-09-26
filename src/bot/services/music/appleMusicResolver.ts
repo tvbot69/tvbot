@@ -10,8 +10,13 @@ const ITUNES_LOOKUP = 'https://itunes.apple.com/lookup';
 const WEB_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36';
 
+/**
+ * The id segment must allow `.` and `-`: Apple playlist ids look like
+ * `pl.u-1234567890`, and the previous character class stopped at the dot, so
+ * EVERY Apple Music playlist link parsed as id "pl" and 404'd.
+ */
 const APPLE_URL_REGEX =
-  /(?:https?:\/\/)?music\.apple\.com\/(?:([a-z]{2})\/)?(song|album|playlist|artist)\/(?:[^?#]+\/)?([a-zA-Z0-9]+)(?:\?i=(\d+))?/i;
+  /(?:https?:\/\/)?music\.apple\.com\/(?:([a-z]{2})\/)?(song|album|playlist|artist)\/(?:[^?#]*\/)?([A-Za-z0-9._-]+)(?:\?i=(\d+))?/i;
 
 interface CatalogArtwork {
   url?: string;
@@ -62,6 +67,13 @@ export class AppleMusicResolver {
     const parsed = this.parseAppleMusicUrl(url);
     if (!parsed) return null;
     try {
+      // "Share -> Copy Link" on a song inside an album yields
+      // /album/<albumId>?i=<trackId>. The ?i= track is what the user asked
+      // for, so it wins — otherwise the whole album is queued and the song
+      // they clicked is silently discarded.
+      if (parsed.trackId) {
+        return await this.resolveSong({ ...parsed, id: parsed.trackId });
+      }
       switch (parsed.type) {
         case 'song':
           return await this.resolveSong(parsed);

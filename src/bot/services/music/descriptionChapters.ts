@@ -29,6 +29,14 @@ const TIMESTAMP_LINE = /^[\s>•·\-–—*(\[]*(\d{1,2}:\d{2}(?::\d{2})?)[.)\]]
 // Greedy title keeps full names on "A - B - 1:00".
 const TRAILING_TIMESTAMP_LINE = /^(\S.{0,199})\s*[-–—|]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*[.)\]]*\s*$/;
 
+/**
+ * Chapters closer together than this are the same boundary listed twice (a
+ * "Tracklist" plus a "Chapters" block is common in live-set descriptions).
+ * Below the threshold, the LAST duplicate used to win — so a real first song
+ * could be masked by a stray "Intro" at 0:00 for its whole duration.
+ */
+const MIN_CHAPTER_GAP_MS = 1_000;
+
 export const parseTimestampLines = (description: string): VideoChapterDto[] => {
   const out: VideoChapterDto[] = [];
   for (const line of description.split('\n')) {
@@ -46,8 +54,31 @@ export const parseTimestampLines = (description: string): VideoChapterDto[] => {
     const title = String((leading ? m[2] : m[1]) ?? '').trim().slice(0, 200) || `Chapter ${out.length + 1}`;
     out.push({ title, startMs: seconds * 1000 });
   }
-  return out.sort((a, b) => a.startMs - b.startMs);
+  out.sort((a, b) => a.startMs - b.startMs);
+
+  // Collapse same-instant duplicates. The surviving entry is the one with the
+  // most song-like title: generic container titles ("Intro", "Outro", a bare
+  // number) lose to a real song name, so a stray generic line can never mask
+  // the actual track at that timestamp.
+  const deduped: VideoChapterDto[] = [];
+  for (const chapter of out) {
+    const previous = deduped[deduped.length - 1];
+    if (previous && chapter.startMs - previous.startMs < MIN_CHAPTER_GAP_MS) {
+      if (isWeakerTitle(chapter.title) && !isWeakerTitle(previous.title)) continue;
+      deduped[deduped.length - 1] = chapter;
+      continue;
+    }
+    deduped.push(chapter);
+  }
+  return deduped;
 };
+
+/** A title with no letters is an index number, not a song. */
+const isWeakerTitle = (title: string): boolean =>
+  !/[a-z0-9]/i.test(title.replace(/[^\p{L}\p{N}]+/gu, '')) ||
+  /^(?:intro|outro|interlude|intermission|credits|applause|commentary|talk|chat|announcement)(?:\s*\d+)?$/i.test(
+    title.trim(),
+  );
 
 /**
  * Chapter list parsed from the video's YouTube description timestamps

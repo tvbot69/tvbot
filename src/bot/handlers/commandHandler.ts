@@ -146,6 +146,22 @@ export class CommandHandler {
 
     const command = getTextCommand(commandName);
     if (!command) {
+      // Total silence is the worst possible answer: a guest who mistypes, or
+      // follows a command name the bot itself used to advertise, gets no
+      // signal at all and concludes the bot is broken. Answer briefly, and
+      // only for real command-shaped input (not chat that happens to start
+      // with the prefix).
+      if (commandName.length >= 2 && /^[a-z0-9_]+$/.test(commandName) && message.channel && 'send' in message.channel) {
+        const embed = new EmbedBuilder()
+          .setColor(DiscordConstants.ErrorColorRed)
+          .setDescription(
+            `Unknown command \`${prefix}${commandName}\`. Use \`${prefix}help\` to see what is available.`,
+          );
+        await (message.channel as unknown as { send: (m: Record<string, unknown>) => Promise<unknown> }).send({
+          embeds: [embed],
+          allowedMentions: { parse: [] },
+        }).catch(() => undefined);
+      }
       return;
     }
 
