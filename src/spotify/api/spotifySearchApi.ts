@@ -17,14 +17,49 @@ export class SpotifyUnavailableError extends Error {}
 
 export class SpotifySearchApi {
   private static rateLimitedUntil: number = 0;
+  /**
+   * Outage breaker. Only a 429 armed the cooldown, so a 5xx / DNS failure /
+   * timeout did nothing: every artwork lookup and every ladder search re-ran
+   * the doomed Spotify leg (and, because an inconclusive run is never cached
+   * as a definitive miss, nothing was memoised either). A run of transport
+   * failures now opens the same gate, briefly.
+   */
+  private static outageUntil: number = 0;
+  private static consecutiveTransportFailures = 0;
+  private static readonly OUTAGE_AFTER_FAILURES = 4;
+  private static readonly OUTAGE_COOLDOWN_MS = 20_000;
   private readonly tokenManager: SpotifyTokenManager;
 
   constructor(tokenManager: SpotifyTokenManager) {
     this.tokenManager = tokenManager;
   }
 
+  /** True when Spotify is rate-limited OR in a transport-outage cooldown. */
   public static isRateLimited(): boolean {
-    return Date.now() < SpotifySearchApi.rateLimitedUntil;
+    return (
+      Date.now() < SpotifySearchApi.rateLimitedUntil || Date.now() < SpotifySearchApi.outageUntil
+    );
+  }
+
+  /** Records a transport-level failure; opens the breaker after a run of them. */
+  public static noteTransportFailure(): void {
+    SpotifySearchApi.consecutiveTransportFailures++;
+    if (SpotifySearchApi.consecutiveTransportFailures >= SpotifySearchApi.OUTAGE_AFTER_FAILURES) {
+      SpotifySearchApi.outageUntil = Date.now() + SpotifySearchApi.OUTAGE_COOLDOWN_MS;
+      Logger.warn(
+        {
+          failures: SpotifySearchApi.consecutiveTransportFailures,
+          cooldownSec: SpotifySearchApi.OUTAGE_COOLDOWN_MS / 1000,
+        },
+        '[Spotify] Repeated transport failures — pausing lookups briefly',
+      );
+    }
+  }
+
+  /** Any successful response clears the transport-failure run. */
+  public static noteTransportSuccess(): void {
+    SpotifySearchApi.consecutiveTransportFailures = 0;
+    SpotifySearchApi.outageUntil = 0;
   }
 
   public static getRateLimitedUntil(): number {
@@ -33,6 +68,8 @@ export class SpotifySearchApi {
 
   public static clearRateLimit(): void {
     SpotifySearchApi.rateLimitedUntil = 0;
+    SpotifySearchApi.outageUntil = 0;
+    SpotifySearchApi.consecutiveTransportFailures = 0;
   }
 
   private static checkRateLimit(): void {
@@ -142,6 +179,7 @@ export class SpotifySearchApi {
         headers: { Authorization: `Bearer ${token}` },
       });
     } catch (err) {
+      SpotifySearchApi.noteTransportFailure();
       throw new SpotifyUnavailableError(`Spotify network error: ${String(err)}`);
     }
     if (response.status === 401) {
@@ -159,8 +197,10 @@ export class SpotifySearchApi {
       throw new SpotifyUnavailableError('Spotify rate limited');
     }
     if (!response.ok) {
+      if (response.status >= 500) SpotifySearchApi.noteTransportFailure();
       throw new SpotifyUnavailableError(`Spotify HTTP ${response.status}`);
     }
+    SpotifySearchApi.noteTransportSuccess();
     return (await response.json()) as SpotifySearchTrack;
   }
 
@@ -243,7 +283,8 @@ export class SpotifySearchApi {
         return null;
       }
       if (!response.ok) return null;
-      return (await response.json()) as SpotifySearchAlbum;
+      SpotifySearchApi.noteTransportSuccess();
+    return (await response.json()) as SpotifySearchAlbum;
     } catch {
       return null;
     }
@@ -325,6 +366,7 @@ export class SpotifySearchApi {
         // Ignore telemetry errors
       }
     } catch (err) {
+      SpotifySearchApi.noteTransportFailure();
       throw new SpotifyUnavailableError(`Spotify network error: ${String(err)}`);
     }
 
@@ -345,9 +387,11 @@ export class SpotifySearchApi {
       throw new SpotifyUnavailableError('Spotify rate limited');
     }
     if (!response.ok) {
+      if (response.status >= 500) SpotifySearchApi.noteTransportFailure();
       throw new SpotifyUnavailableError(`Spotify HTTP ${response.status}`);
     }
 
+    SpotifySearchApi.noteTransportSuccess();
     return (await response.json()) as SpotifySearchResponse;
   }
 

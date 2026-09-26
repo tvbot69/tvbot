@@ -78,6 +78,10 @@ export class MusicService {
   private readonly pendingTopUpRunning = new Set<string>();
   private pendingEventsBound = false;
   private static readonly JIT_AHEAD = 2;
+  /** Wall-clock budget for one pending top-up pass before deferring the rest. */
+  private static readonly TOP_UP_DEADLINE_MS = 60_000;
+  /** Consecutive resolve failures that mean "stop, this source is down". */
+  private static readonly TOP_UP_MAX_CONSECUTIVE_MISSES = 5;
   /** Artwork backfill must never stall resolution: cold provider cascades take seconds. */
   private static readonly ARTWORK_TIMEOUT_MS = 6000;
   /** Background paths (JIT top-up, warmup) can afford to wait out slow cascades. */
@@ -509,12 +513,45 @@ export class MusicService {
         continue;
       }
       if (!ytHit) continue;
-      if (rung === 'plugin') return { track: ytHit, rung };
+      if (rung === 'plugin') {
+        // The provider's exact length is in scope, and this is the LAST point
+        // before the hit gets relabelled as the provider track. Adopting the
+        // bare ytsearch top hit meant `.play <any link with a popular title>`
+        // could play a 3-hour compilation or a live cut while the card
+        // confidently named the requested song. Same tolerance the ISRC and
+        // resolver gates already use.
+        if (!this.pluginHitMatchesProvider(ytHit, meta)) {
+          Logger.info(
+            {
+              query,
+              expectedMs: meta?.durationMs ?? 0,
+              gotMs: ytHit.duration ?? 0,
+              title: ytHit.title,
+            },
+            '[Music] Plugin hit does not match the provider track — skipping rung',
+          );
+          continue;
+        }
+        return { track: ytHit, rung };
+      }
       const local = await this.tryResolverTrack(player, ytHit, meta);
       if (local) return { track: local, rung };
     }
     if (transportFailed || !answered) return { transportError: true };
     return null;
+  }
+
+  /**
+   * Does this YouTube hit actually look like the provider track we asked for?
+   * Duration is the only signal the mirror gives us, so it is the gate; a
+   * missing duration on either side is not evidence of a mismatch.
+   */
+  private pluginHitMatchesProvider(hit: Track, meta?: ResolverMeta): boolean {
+    const expected = meta?.durationMs ?? 0;
+    if (!expected || !hit.duration) return true;
+    // Mirrors and provider edits differ slightly; the resolver gate uses 30s
+    // and the ISRC gate 60s, so sit between them.
+    return Math.abs(hit.duration - expected) <= 45_000;
   }
 
   /** Narrows a ladder result to the transport-failure variant. */
@@ -1511,6 +1548,13 @@ export class MusicService {
     let skipped = 0;
     let drained = false;
     try {
+      // The only brake on this loop was `queue.size`, which stays 0 when every
+      // resolve fails. A node/YouTube outage then drained a 400-track playlist
+      // one entry at a time, each costing up to ~84s of ladder retries and up
+      // to 8 searches — hours of background work that would trip 4000 on every
+      // public node. Stop on a run of misses and keep the rest pending.
+      let consecutiveMisses = 0;
+      const deadline = Date.now() + MusicService.TOP_UP_DEADLINE_MS;
       for (;;) {
         const player = this.getPlayer(guildId);
         if (!player) {
@@ -1524,6 +1568,13 @@ export class MusicService {
           break;
         }
         if (player.queue.size >= MusicService.JIT_AHEAD) break;
+        if (Date.now() > deadline) {
+          Logger.warn(
+            { guildId, remaining: list.length, added, skipped },
+            '[Music] Pending top-up hit its time budget — deferring the rest',
+          );
+          break;
+        }
         const entry = list.shift()!;
         const found = await this.resolvePlaylistTrack(player, entry.spTrack).catch(() => null);
         if (!this.getPlayer(guildId)) {
@@ -1532,8 +1583,16 @@ export class MusicService {
         }
         if (!found) {
           skipped++;
+          if (++consecutiveMisses >= MusicService.TOP_UP_MAX_CONSECUTIVE_MISSES) {
+            Logger.warn(
+              { guildId, misses: consecutiveMisses, remaining: list.length },
+              '[Music] Pending top-up hit consecutive resolve misses — deferring the rest',
+            );
+            break;
+          }
           continue;
         }
+        consecutiveMisses = 0;
         this.adoptMirrorTrack(
           found.lavalinkTrack,
           found.spTrack,
@@ -1586,8 +1645,12 @@ export class MusicService {
       durationMs: spTrack.durationMs,
     });
     if (!found || MusicService.isTransportError(found)) return null;
-    // Background-only path (topUpPending): generous art timeout, nobody waits.
-    await this.maybeBackfillArt(
+    // Audio-first, like every other path: this await used to sit between the
+    // ladder and the return, so the JIT could not enqueue track N+1 until
+    // track N's 10s artwork race finished — and `move`/`skipto` onto a pending
+    // entry blocked the user for the same 10s. The track object is mutated in
+    // place and notifyCardArt refreshes the card when art lands.
+    void this.maybeBackfillArt(
       found.track,
       spTrack.artworkUrl,
       spTrack.name,
@@ -1635,7 +1698,13 @@ export class MusicService {
     this.playlistChunkManager?.clear(guildId);
     this.pendingSpotify.delete(guildId);
     player.queue.clear();
-    await player.destroy('Stopped by user');
+    try {
+      await player.destroy('Stopped by user');
+    } catch (err) {
+      // A failed teardown must not reject into the command (and, unhandled,
+      // into the process) — the player is going away either way.
+      Logger.warn({ err, guildId }, '[Music] Player destroy reported a failure');
+    }
   }
 
   public async leave(guildId: string): Promise<void> {
@@ -1649,12 +1718,18 @@ export class MusicService {
   public async pause(guildId: string): Promise<boolean> {
     const player = this.getPlayer(guildId);
     if (!player) return false;
+    if (player.paused) return true;
     if (player.current) {
       const currentPos = this.queueService.calculatePosition(player);
       player.current.position = currentPos;
       player.current.time = Date.now();
     }
-    await player.pause();
+    try {
+      await player.pause();
+    } catch (err) {
+      Logger.warn({ err, guildId }, '[Music] Pause failed');
+      return false;
+    }
     return true;
   }
 
@@ -1664,7 +1739,12 @@ export class MusicService {
     if (player.current) {
       player.current.time = Date.now();
     }
-    await player.resume();
+    try {
+      await player.resume();
+    } catch (err) {
+      Logger.warn({ err, guildId }, '[Music] Resume failed');
+      return false;
+    }
     return true;
   }
 
@@ -1812,7 +1892,15 @@ export class MusicService {
     const player = this.getPlayer(guildId);
     if (!player) return false;
     player.filters.clear();
-    await player.filters.apply();
+    try {
+      // Unguarded, a dead-node REST rejection here became an UNHANDLED
+      // rejection — fatal to the process on Node's default policy, from a
+      // command as ordinary as "clear the filters".
+      await player.filters.apply();
+    } catch (err) {
+      Logger.warn({ err, guildId }, '[Music] Clear filters: apply failed');
+      return false;
+    }
     this.queueService.saveSettings(guildId, { filters: [] });
     return true;
   }

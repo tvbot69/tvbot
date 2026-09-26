@@ -117,6 +117,40 @@ describe('MusicService mirror resolving', () => {
     expect(track.artworkUrl).toBe('https://i.scdn.co/image/abc');
   });
 
+  it('REFUSES a plugin hit that is nowhere near the provider duration', async () => {
+    // The plugin rung used to adopt the bare ytsearch top hit with no check
+    // at all, then relabel it as the provider track — so a 3-hour compilation
+    // could be played while the card named a 3-minute song.
+    const { svc, mockPlayer: player } = buildHarness({
+      searchImpl: async () => ({
+        tracks: [
+          { identifier: 'compilation0001', title: 'Artist - Album (Full Album)', duration: 12_960_000 },
+        ],
+      }),
+    });
+    const found = await ladderOnce(svc, player, 'midnight circuit neon skyline', {
+      title: 'Neon Skyline',
+      artist: 'Midnight Circuit',
+      durationMs: 213_000,
+    });
+    // Not adopted as the plugin rung — the ladder falls through instead.
+    expect(found && 'rung' in found ? found.rung : null).not.toBe('plugin');
+  });
+
+  it('accepts a plugin hit that matches the provider duration', async () => {
+    const { svc, mockPlayer: player } = buildHarness({
+      searchImpl: async () => ({
+        tracks: [{ identifier: 'rightlength01', title: 'Neon Skyline', duration: 214_000 }],
+      }),
+    });
+    const found = await ladderOnce(svc, player, 'midnight circuit neon skyline', {
+      title: 'Neon Skyline',
+      artist: 'Midnight Circuit',
+      durationMs: 213_000,
+    });
+    expect(found && 'track' in found ? found.track.identifier : null).toBe('rightlength01');
+  });
+
   it('normalizeIsrc strips dashes and rejects garbage', () => {
     expect(MusicService.normalizeIsrc('USRC17607839')).toBe('USRC17607839');
     expect(MusicService.normalizeIsrc('usrc-1760-7839')).toBe('USRC17607839');

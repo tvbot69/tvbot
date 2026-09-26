@@ -86,27 +86,33 @@ export class SpotifyTokenManager {
       return this.getAnonToken();
     }
 
-    const currentCred = creds[this.activeIndex] ?? creds[0]!;
-    const cached = this.cachedTokens.get(this.activeIndex);
+    // Capture the index. `rotateCredential()` runs on every 429, so by the
+    // time this request settles `this.activeIndex` may point at a DIFFERENT
+    // credential: the old `finally` then deleted the NEW index's inflight
+    // entry (wiping its dedupe guard, so two token requests raced) and leaked
+    // its own entry forever.
+    const index = this.activeIndex;
+    const cred = creds[index] ?? creds[0]!;
+    const cached = this.cachedTokens.get(index);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.accessToken;
     }
 
-    const inflight = this.inflightRequests.get(this.activeIndex);
+    const inflight = this.inflightRequests.get(index);
     if (inflight) {
       return inflight;
     }
 
     // Credential failure no longer throws up the stack (which surfaced as a
     // command crash) — it degrades to the anon token, then to null.
-    const req = this.requestToken(currentCred.key, currentCred.secret, this.activeIndex)
+    const req = this.requestToken(cred.key, cred.secret, index)
       .then((token): string | null => token)
       .catch(() => this.getAnonToken())
       .finally(() => {
-        this.inflightRequests.delete(this.activeIndex);
+        this.inflightRequests.delete(index);
       });
 
-    this.inflightRequests.set(this.activeIndex, req);
+    this.inflightRequests.set(index, req);
     return req;
   }
 

@@ -82,8 +82,16 @@ const pickLargest = (
  */
 const foldDiacritics = (s: string): string => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
+/**
+ * Strip invisible formatting before comparing. Zero-width joiners survive
+ * trim() and bidi controls reverse the visual order, so a title pasted from a
+ * fancy chat client produced a key that could never match the provider's —
+ * a guaranteed miss on an otherwise valid track.
+ */
+const stripInvisible = (s: string): string => s.replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '');
+
 export const normalizeArtistKey = (s: string): string =>
-  foldDiacritics(s)
+  foldDiacritics(stripInvisible(s))
     .toLowerCase()
     .replace(/\$/g, 's')
     .replace(/\+/g, 't')
@@ -91,18 +99,32 @@ export const normalizeArtistKey = (s: string): string =>
     .replace(/[^\p{L}\p{N}]/gu, '');
 
 const normalizeTitleKey = (s: string): string =>
-  foldDiacritics(s).toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]/gu, '');
+  foldDiacritics(stripInvisible(s)).toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]/gu, '');
 
 const stripBracketed = (s: string): string =>
   s.replace(/\s*[([{\u3010].*?[)\]}\u3011]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
 /**
- * Strict recording-title match: normalized equality, tolerating edition tags
- * ("Song (Remastered)" vs "Song"). Never use substring matching here — "Song"
- * must not match "Song 2" or a same-title recording by another artist.
+ * Recording-variant tags: these identify a DIFFERENT recording (a remix, a
+ * radio edit, a live cut), so a candidate carrying one must never be served
+ * for a target without it — "Song (Remix)" and "Song" were one identity, so
+ * each got the other's cover. A REMASTER is deliberately absent: it is the
+ * same recording, and providers legitimately return it for a plain title.
+ */
+const EDITION_TAG =
+  /\s*[-–—(]\s*(?:radio\s+edit|extended\s+(?:mix|version)|club\s+mix|dub\s+remix|remix|live|acoustic|sped\s*up|nightcore|8d|rework|bootleg)\b[^)\]}]*\)?\s*$/i;
+
+/**
+ * Strict recording-title match: normalized equality, tolerating harmless
+ * bracketed noise ("Song (Official Video)" vs "Song") but NOT edition tags.
+ * Never use substring matching here — "Song" must not match "Song 2" or a
+ * same-title recording by another artist.
  */
 export const matchesTrackTitle = (candidate: string, target: string): boolean => {
   if (!candidate || !target) return false;
+  // A candidate that ADDS a distinguishing edition tag is a different
+  // recording; refuse before anything else can call it equal.
+  if (EDITION_TAG.test(candidate) && !EDITION_TAG.test(target)) return false;
   const c = normalizeTitleKey(candidate);
   const t = normalizeTitleKey(target);
   if (!c || !t) return false;
@@ -209,9 +231,14 @@ export class ArtworkService {
   private joinFlight(flightKey: string, run: () => Promise<string | null>): Promise<string | null> {
     const existing = this.inFlight.get(flightKey);
     if (existing) return existing;
-    const flight = run().finally(() => {
-      this.inFlight.delete(flightKey);
-    });
+    // Never reject: a shared flight hands its outcome to every joiner, so one
+    // unexpected throw (a cache-layer failure, say) would otherwise propagate
+    // into unrelated callers that had no way to anticipate it.
+    const flight = run()
+      .catch(() => null)
+      .finally(() => {
+        this.inFlight.delete(flightKey);
+      });
     this.inFlight.set(flightKey, flight);
     return flight;
   }
@@ -749,7 +776,10 @@ export class ArtworkService {
 
     if (!result) {
       try {
-        const songs = await this.appleMusicApi.searchSongs(cleanTrack, artistName);
+        // The gate below matches on the CLEAN artist, so the query must use it
+        // too: "Song Drake - Topic" matches nothing, making this leg a
+        // guaranteed miss on every topic-channel author.
+        const songs = await this.appleMusicApi.searchSongs(cleanTrack, cleanArtist);
         const match = songs.find(
           (s) => s.artworkUrl100 && trackMatches(s.artistName, s.trackName),
         );
@@ -766,7 +796,9 @@ export class ArtworkService {
     if (!result) {
       let answered = false;
       try {
-        const info = await this.lastfmRepository.getTrackInfo(trackName, cleanArtist);
+        // Last.fm indexes the clean title; the raw one carries "(Official
+        // Video)"-style cruft that the strict gate then rejects anyway.
+        const info = await this.lastfmRepository.getTrackInfo(cleanTrack, cleanArtist);
         if (info?.albumName) {
           answered = true;
           result = await this.getAlbumCoverUrl(info.albumName, cleanArtist, attempts);
@@ -809,8 +841,15 @@ export class ArtworkService {
 
   private async resolveTrackCoverBySpotifyId(id: string): Promise<string | null> {
     const key = `art:spid:${id}`;
-    const hit = await this.cache.get<string>(key);
-    if (hit) return hit === 'none' ? null : hit;
+    try {
+      // Inside the try: a cache-layer rejection here used to escape to every
+      // joiner of this flight, and nothing would be negatively cached.
+      const hit = await this.cache.get<string>(key);
+      if (hit === 'none' || hit === 'inconclusive') return null;
+      if (hit) return isPlaceholderImageUrl(hit) ? null : hit;
+    } catch {
+      // Treat an unreadable cache as a miss and fall through to the provider.
+    }
     if (SpotifySearchApi.isRateLimited()) return null;
     try {
       const t = await this.spotifyApi.getTrack(id);

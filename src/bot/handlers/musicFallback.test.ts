@@ -1127,6 +1127,16 @@ describe('JIT pending Spotify entries', () => {
 describe('resolve artwork backfill', () => {
   const player = { node: { identifier: 'test-node' } };
   const spTrack = { searchQuery: 'Mond - Esme', name: 'Esme', artist: 'Mond' };
+  /**
+   * Artwork resolution is AUDIO-FIRST: resolvePlaylistTrack fires the cascade
+   * and returns without waiting, so the JIT could not enqueue track N+1 until
+   * track N's artwork race finished (up to 10s — which also blocked
+   * `skipto`/`move` onto a pending entry). Tests that assert the backfill
+   * lands flush the microtask queue instead of relying on that await.
+   */
+  const flushArt = async (): Promise<void> => {
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+  };
 
   const makeArtSvc = (
     artImpl?: () => Promise<string | null>,
@@ -1168,6 +1178,7 @@ describe('resolve artwork backfill', () => {
   it('backfills missing art via ArtworkService with clean Spotify meta', async () => {
     const { svc, getTrackCoverUrl } = makeArtSvc();
     const res = await svc.resolvePlaylistTrack(player, spTrack);
+    await flushArt();
     expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/backfilled.jpg');
   });
@@ -1197,6 +1208,7 @@ describe('resolve artwork backfill', () => {
       async () => 'https://img.test/artist.jpg',
     );
     const res = await svc.resolvePlaylistTrack(player, spTrack);
+    await flushArt();
     expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');
     expect(getArtistImageUrl).toHaveBeenCalledWith('Mond', 'Esme');
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/artist.jpg');
@@ -1215,6 +1227,7 @@ describe('resolve artwork backfill', () => {
       artist: 'gloss',
     };
     const res = await svc.resolvePlaylistTrack(player, liveTrack);
+    await flushArt();
     expect(getArtistImageUrl).toHaveBeenCalledWith('EsDeeKid', liveTrack.name);
     expect(getArtistImageUrl).not.toHaveBeenCalledWith('gloss', expect.anything());
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/esdeekid.jpg');
@@ -1261,6 +1274,7 @@ describe('resolve artwork backfill', () => {
       ...spTrack,
       spotifyUri: 'spotify:track:4mF0aVVHtmHQSIdem2Wh0g',
     });
+    await flushArt();
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/exact.jpg');
     expect(getTrackCoverBySpotifyId).toHaveBeenCalledWith('4mF0aVVHtmHQSIdem2Wh0g');
     expect(getTrackCoverUrl).not.toHaveBeenCalled();
@@ -1276,6 +1290,7 @@ describe('resolve artwork backfill', () => {
       ...spTrack,
       spotifyUri: 'spotify:track:4mF0aVVHtmHQSIdem2Wh0g',
     });
+    await flushArt();
     expect(res?.lavalinkTrack.artworkUrl).toBe('https://img.test/cascade.jpg');
     expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');
   });
