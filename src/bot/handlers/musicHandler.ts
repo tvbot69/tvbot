@@ -466,6 +466,12 @@ export class MusicHandler {
 
   private readonly progressFingerprints = new Map<string, string>();
   /**
+   * Guilds with a fallback search currently running, keyed by the FAILED
+   * track. Stops a track that raises both `trackStuck` and `trackException`
+   * from producing two identical alternate uploads and two skips.
+   */
+  private readonly inFlightFallbacks = new Map<string, string>();
+  /**
    * Guilds with a publish that arrived while another was in flight. The
    * set is the coalescing queue: presence means "re-derive once the current
    * publish settles", absence means "nothing waiting".
@@ -1601,6 +1607,19 @@ export class MusicHandler {
       }
 
       const failedKeyStr = String(failedKey ?? 'unknown');
+      // Moonlink can emit BOTH trackStuck and trackException for the same
+      // track. The budget check below is check-then-act, so both handlers used
+      // to pass it, run identical searches, and enqueue the SAME alternate
+      // twice — then skip twice for one visible failure. Claim the track first
+      // so the second event returns immediately.
+      const inFlight = this.inFlightFallbacks.get(player.guildId);
+      if (inFlight === failedKeyStr) {
+        Logger.debug(
+          { guildId: player.guildId, track: track.title },
+          '[Music] Fallback already in flight for this track — skipping duplicate',
+        );
+        return;
+      }
       if (!this.checkFallbackBudget(player.guildId, failedKeyStr)) {
         Logger.warn(
           { guildId: player.guildId, track: track.title },
@@ -1613,7 +1632,13 @@ export class MusicHandler {
         { guildId: player.guildId, track: track.title, threshold },
         `[Music] Track stuck (${threshold}ms) — looking for an alternate upload for "${track.title}"...`,
       );
-      const fallback = await this.findAlternatePlayableTrack(manager, player, track, player.guildId, failedKeyStr);
+      this.inFlightFallbacks.set(player.guildId, failedKeyStr);
+      let fallback: Track | null = null;
+      try {
+        fallback = await this.findAlternatePlayableTrack(manager, player, track, player.guildId, failedKeyStr);
+      } finally {
+        this.inFlightFallbacks.delete(player.guildId);
+      }
       if (fallback) {
         const resumeMs = this.frozenPosition(player);
         player.queue.unshift(fallback);
@@ -1699,6 +1724,15 @@ export class MusicHandler {
       }
 
       const failedKeyStr = String(failedKey ?? 'unknown');
+      // Same claim as the stuck path: a track can raise BOTH events, and two
+      // concurrent fallbacks enqueue the same alternate twice and skip twice.
+      if (this.inFlightFallbacks.get(player.guildId) === failedKeyStr) {
+        Logger.debug(
+          { guildId: player.guildId, track: track.title },
+          '[Music] Fallback already in flight for this track — skipping duplicate',
+        );
+        return;
+      }
       if (!this.checkFallbackBudget(player.guildId, failedKeyStr)) {
         Logger.warn(
           { guildId: player.guildId, track: track.title },
@@ -1722,7 +1756,13 @@ export class MusicHandler {
           ? `[Music] Track failed (YouTube outage) — looking for a fallback for "${track.title}"...`
           : `[Music] Track failed — looking for an alternate upload for "${track.title}"...`,
       );
-      const fallback = await this.findAlternatePlayableTrack(manager, player, track, player.guildId, failedKeyStr, exception);
+      this.inFlightFallbacks.set(player.guildId, failedKeyStr);
+      let fallback: Track | null = null;
+      try {
+        fallback = await this.findAlternatePlayableTrack(manager, player, track, player.guildId, failedKeyStr, exception);
+      } finally {
+        this.inFlightFallbacks.delete(player.guildId);
+      }
       if (fallback) {
         // Inject at the front of the queue so it plays next, then advance to it —
         // Moonlink only auto-skips fault-severity exceptions, so common-severity
@@ -1792,6 +1832,7 @@ export class MusicHandler {
       this.progressFingerprints.delete(player.guildId);
       this.pendingPublish.delete(player.guildId);
       this.progressPublishing.delete(player.guildId);
+      this.inFlightFallbacks.delete(player.guildId);
 
       if (player.voiceChannelId && this.voiceChannelStatusService) {
         void this.voiceChannelStatusService.clearStatus(player.voiceChannelId);

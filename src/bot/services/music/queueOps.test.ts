@@ -13,12 +13,20 @@ const makePlayer = (currentId: string | null, queueIds: string[], previousIds: s
     previous: previousIds.map(track),
     queue: {
       tracks: queueIds.map(track),
+      // Moonlink exposes the live list as `all`; production code (queueService,
+      // identity-based rollback) reads it, so the double must model it.
+      get all() {
+        return this.tracks;
+      },
       get size() {
         return this.tracks.length;
       },
       removeRange(start: number, end: number) {
         this.tracks.splice(start, end - start + 1);
         return true;
+      },
+      remove(index: number) {
+        return this.tracks.splice(index, 1)[0];
       },
       unshift(t: { identifier: string; title: string; encoded: string }) {
         this.tracks.unshift(t);
@@ -268,6 +276,121 @@ describe('MusicService combined queue (resolved + pending)', () => {
     const { svc, player } = makeCombined(['a'], 1);
     expect(await svc.skip('g', 2)).toBe(true);
     expect(player.current.identifier).toBe('yt-hit');
+  });
+});
+
+describe('MusicService player lifecycle safety', () => {
+  const makeLifecycle = (opts: { destroyed?: boolean; connected?: boolean } = {}) => {
+    const data = new Map<string, unknown>();
+    const player: any = {
+      guildId: 'g-life',
+      destroyed: opts.destroyed ?? false,
+      connected: opts.connected ?? false,
+      playing: false,
+      paused: false,
+      voiceChannelId: 'vc-real',
+      textChannelId: 'tc-real',
+      current: null,
+      previous: [],
+      node: { identifier: 'Home' },
+      queue: {
+        tracks: [] as unknown[],
+        get all() {
+          return this.tracks;
+        },
+        get size() {
+          return this.tracks.length;
+        },
+        add(t: unknown) {
+          this.tracks.push(t);
+        },
+        remove(i: number) {
+          return this.tracks.splice(i, 1)[0];
+        },
+        unshift(t: unknown) {
+          this.tracks.unshift(t);
+        },
+        clear() {
+          this.tracks.length = 0;
+        },
+      },
+      connect: vi.fn(async () => undefined),
+      play: vi.fn(async () => true),
+      destroy: vi.fn(async () => undefined),
+      setVoiceChannelId: vi.fn(function (this: any, id: string) {
+        this.voiceChannelId = id;
+      }),
+      setTextChannelId: vi.fn(function (this: any, id: string) {
+        this.textChannelId = id;
+      }),
+      get: (k: string) => data.get(k),
+      set: (k: string, v: unknown) => void data.set(k, v),
+    };
+    const players = new Map<string, unknown>([['g-life', player]]);
+    const svc = new MusicService(
+      {
+        getManager: () => ({
+          players: {
+            get: (g: string) => players.get(g),
+            create: vi.fn(() => player),
+            delete: (g: string) => players.delete(g),
+          },
+        }),
+        hasHealthyNode: () => true,
+        isNodeCoolingDown: () => false,
+      } as never,
+      {} as never,
+      { getSettings: () => ({ autoplay: false, volume: 100, loopMode: 'off', filters: [] }) } as never,
+    );
+    return { svc, player, players };
+  };
+
+  it('never hands out a destroyed player (it would be reconnected with nothing tracking it)', () => {
+    const { svc } = makeLifecycle({ destroyed: true });
+    expect(svc.getPlayer('g-life')).toBeUndefined();
+  });
+
+  it('refuses to enqueue onto a destroyed player', async () => {
+    const { svc, player } = makeLifecycle({ destroyed: true });
+    const res = await (svc as unknown as {
+      enqueueLavalinkTracks: (
+        p: unknown,
+        t: unknown[],
+        r: unknown,
+        o: undefined,
+        s: string,
+      ) => Promise<{ loadType: string; totalTracksAdded: number }>;
+    }).enqueueLavalinkTracks(player, [track('a')], { id: 'u1' } as never, undefined, 'youtube');
+    expect(res.loadType).toBe('error');
+    expect(res.totalTracksAdded).toBe(0);
+    expect(player.queue.size).toBe(0);
+  });
+
+  it('does not retarget the voice channel of a LIVE session (it never moves the connection)', async () => {
+    const { svc, player } = makeLifecycle({ connected: true });
+    await svc.getOrCreatePlayer('g-life', 'vc-someone-else', 'tc-new');
+    // Retargeting here used to make the empty-channel timer watch the
+    // CALLER's channel while audio kept playing in the real one.
+    expect(player.voiceChannelId).toBe('vc-real');
+    // The card channel is a local pointer, so retargeting it is safe.
+    expect(player.textChannelId).toBe('tc-new');
+  });
+
+  it('rejects a play into a full queue instead of reporting success', async () => {
+    const { svc, player } = makeLifecycle();
+    player.queue.tracks = Array.from({ length: 5000 }, (_, i) => track(`t${i}`));
+    const res = await (svc as unknown as {
+      enqueueLavalinkTracks: (
+        p: unknown,
+        t: unknown[],
+        r: unknown,
+        o: undefined,
+        s: string,
+      ) => Promise<{ loadType: string; errorReason?: string; totalTracksAdded: number }>;
+    }).enqueueLavalinkTracks(player, [track('new')], { id: 'u1' } as never, undefined, 'youtube');
+    expect(res.loadType).toBe('error');
+    expect(res.errorReason).toBe('queue-full');
+    expect(res.totalTracksAdded).toBe(0);
   });
 });
 

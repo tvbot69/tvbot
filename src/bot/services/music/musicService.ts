@@ -11,6 +11,7 @@ import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
 import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
+import { LOAD_TRACKS_TIMEOUT_MS, MAX_QUEUE_TRACKS, SEEK_REST_TIMEOUT_MS } from './musicConstants';
 import { extractArtistFromTitle } from './videoChapters';
 import type { ArtworkService } from '@bot/services/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
@@ -25,7 +26,7 @@ export interface PlayResult {
   positionInQueue: number;
   /** True when fewer tracks resolved than the source listed (blocked/missing). */
   partial?: boolean;
-  errorReason?: 'no-nodes' | 'voice' | 'search' | 'empty-spotify';
+  errorReason?: 'no-nodes' | 'voice' | 'search' | 'empty-spotify' | 'queue-full';
 }
 
 export const playErrorMessage = (reason?: PlayResult['errorReason']): string => {
@@ -36,13 +37,20 @@ export const playErrorMessage = (reason?: PlayResult['errorReason']): string => 
       return 'I could not join your voice channel. Check my permissions and try again.';
     case 'empty-spotify':
       return 'Could not resolve that Spotify link (private, deleted, or region-locked?).';
+    case 'queue-full':
+      return `The queue is full (${MAX_QUEUE_TRACKS} tracks). Clear some of it first.`;
     default:
       return 'An error occurred while communicating with the music node. Try again in a few seconds.';
   }
 };
 
-/** Hard sanity cap on the player queue — stops runaway playlist ingestion. */
-export const MAX_QUEUE_TRACKS = 5000;
+/**
+ * Hard cap on the player queue — stops runaway playlist ingestion. Lives in
+ * musicConstants (which moonlinkManager and the chunk manager also read) so
+ * the service, the chunk manager and Moonlink's own maxSize can never disagree
+ * about what the cap is.
+ */
+export { MAX_QUEUE_TRACKS };
 
 /** Unresolved entry waiting for just-in-time resolution. The slot names are
  * historical — `spTrack`/`spotifyUrl` now carry any provider's mirror track
@@ -70,12 +78,6 @@ export class MusicService {
   private readonly pendingTopUpRunning = new Set<string>();
   private pendingEventsBound = false;
   private static readonly JIT_AHEAD = 2;
-  /**
-   * Bound on the resolver's loadTracks REST call. Unbounded, it can hang
-   * forever on a WS-connected-but-REST-dead node and wedge the per-guild
-   * top-up guard, silently freezing that guild's pending queue.
-   */
-  private static readonly LOAD_TRACKS_TIMEOUT_MS = 8000;
   /** Artwork backfill must never stall resolution: cold provider cascades take seconds. */
   private static readonly ARTWORK_TIMEOUT_MS = 6000;
   /** Background paths (JIT top-up, warmup) can afford to wait out slow cascades. */
@@ -224,9 +226,22 @@ export class MusicService {
     });
   }
 
+  /**
+   * A destroyed player stays in moonlink's map until its REST teardown
+   * finishes (hundreds of ms to seconds). Handing that corpse out invites the
+   * worst failure in this file: a `stop()` during an in-flight ladder search
+   * would let the search land afterwards, `queue.add` onto the dead player and
+   * `play()` reconnect the bot to voice — with the map entry deleted a moment
+   * later, so nothing owned the connection and the bot sat in a channel muted
+   * until someone manually disconnected it.
+   */
+  private static isDestroyed(player: Player | undefined | null): boolean {
+    return !!player && (player as unknown as { destroyed?: boolean }).destroyed === true;
+  }
+
   public getPlayer(guildId: string): Player | undefined {
-    const manager = this.moonlinkManager.getManager();
-    return manager.players.get(guildId);
+    const player = this.moonlinkManager.getManager().players.get(guildId);
+    return MusicService.isDestroyed(player) ? undefined : player;
   }
 
   public async getOrCreatePlayer(
@@ -237,6 +252,17 @@ export class MusicService {
     const manager = this.moonlinkManager.getManager();
     let player = manager.players.get(guildId);
     let created = false;
+    if (MusicService.isDestroyed(player)) {
+      // Still mapped, already dead: players.create() hands the corpse back, so
+      // evict it first or the guild is stuck with an unplayable player until
+      // moonlink's own teardown lands.
+      try {
+        (manager.players as unknown as { delete: (id: string) => unknown }).delete(guildId);
+      } catch {
+        // Older shapes expose a Map; fall through and let create() decide.
+      }
+      player = undefined;
+    }
     if (!player) {
       // Re-apply persisted guild prefs so a recreate (rejoin, failover,
       // restart) doesn't reset volume/loop/autoplay/filters.
@@ -293,7 +319,16 @@ export class MusicService {
       }
     }
 
-    if (player.voiceChannelId !== voiceChannelId) {
+    if (MusicService.isDestroyed(player)) {
+      throw new Error('player-destroyed');
+    }
+
+    // setVoiceChannelId is a LOCAL assignment — it does not move the Discord
+    // connection. Retargeting it while connected made the bot's own bookkeeping
+    // lie: the empty-channel timer read the CALLER's channel (so any member
+    // could trigger a pause + destroy from an empty one) while audio kept
+    // playing where the bot actually was. Only sync it when we are not live.
+    if (player.voiceChannelId !== voiceChannelId && !player.connected) {
       player.setVoiceChannelId(voiceChannelId);
     }
     if (player.textChannelId !== textChannelId) {
@@ -307,6 +342,12 @@ export class MusicService {
   private isCooling(identifier: string): boolean {
     const fn = this.moonlinkManager.isNodeCoolingDown;
     return typeof fn === 'function' ? fn.call(this.moonlinkManager, identifier) : false;
+  }
+
+  /** Node availability, tolerant of partial test doubles (assume healthy). */
+  private hasHealthyNode(): boolean {
+    const fn = this.moonlinkManager.hasHealthyNode;
+    return typeof fn === 'function' ? fn.call(this.moonlinkManager) : true;
   }
 
   private async raceSearch(
@@ -596,7 +637,7 @@ export class MusicService {
         res = await Promise.race([
           player.node.rest.loadTracks(path),
           new Promise<never>((_, reject) => {
-            loadTimer = setTimeout(() => reject(new Error('loadtracks-timeout')), MusicService.LOAD_TRACKS_TIMEOUT_MS);
+            loadTimer = setTimeout(() => reject(new Error('loadtracks-timeout')), LOAD_TRACKS_TIMEOUT_MS);
           }),
         ]);
       } finally {
@@ -859,17 +900,25 @@ export class MusicService {
   /**
    * moonlink's play() resolves false instead of throwing when voice isn't
    * ready (it retries connect internally) or the head track is undecodable.
-   * Give the handshake one more short chance, then roll back everything this
-   * enqueue added — a full queue in silent limbo is worse than an honest
-   * failure the command can report.
+   * Give the handshake one more short chance, then roll back exactly what THIS
+   * call added — the old index-range rollback (`while size > sizeBefore`)
+   * truncated everything, so two members racing /play where one handshake
+   * failed lost BOTH tracks while the other was told "Added to Queue".
    */
-  private async startPlaybackOrRollback(player: Player, sizeBefore: number): Promise<boolean> {
+  private async startPlaybackOrRollback(player: Player, addedRaw: Track[]): Promise<boolean> {
     if (player.playing || player.paused) return true;
     if (await player.play()) return true;
     await new Promise((resolve) => setTimeout(resolve, 300));
     if (player.playing || player.paused) return true;
     if (await player.play()) return true;
-    while (player.queue.size > sizeBefore) player.queue.remove(sizeBefore);
+    for (const track of addedRaw) {
+      try {
+        const at = player.queue.all.indexOf(track);
+        if (at !== -1) player.queue.remove(at);
+      } catch {
+        // Already consumed by playback or removed elsewhere.
+      }
+    }
     return false;
   }
 
@@ -887,11 +936,18 @@ export class MusicService {
     playlistName?: string,
     enrichWithSpotify = false,
   ): Promise<PlayResult> {
+    // Single gate for every enqueue path (single track, playlist, mirror, JIT).
+    // A ladder search can take 20-70s; if the player was stopped/destroyed in
+    // that window, writing to it now would resurrect a dead session.
+    if (MusicService.isDestroyed(player)) {
+      return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: 0 };
+    }
     const sizeBefore = player.queue.size;
     const room = Math.max(0, MAX_QUEUE_TRACKS - sizeBefore);
     const incoming = tracks.slice(0, room);
     const capped = tracks.length > incoming.length;
     const addedTracks: MusicTrack[] = [];
+    const addedRaw: Track[] = [];
     for (const rawTrack of incoming) {
       rawTrack.requester = requester;
       if (trackOverride?.title) rawTrack.title = trackOverride.title;
@@ -931,15 +987,33 @@ export class MusicService {
           // Fallback safely to Lavalink track info
         }
       }
+      // The Spotify enrichment above awaits; the player may have been stopped
+      // (and possibly replaced) in that window.
+      if (MusicService.isDestroyed(player)) {
+        return { loadType: 'error', errorReason: 'voice', totalTracksAdded: addedTracks.length, positionInQueue: sizeBefore };
+      }
       player.queue.add(rawTrack);
+      addedRaw.push(rawTrack);
       const domain = mapMoonlinkTrack(rawTrack, requester);
       domain.source = finalSource;
       if (trackOverride?.artworkUrl) domain.artworkUrl = trackOverride.artworkUrl;
       addedTracks.push(domain);
     }
 
-    if (incoming.length > 0 && !(await this.startPlaybackOrRollback(player, sizeBefore))) {
-      return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: sizeBefore };
+    if (incoming.length === 0) {
+      // Queue is full. Returning a success-shaped result with zero tracks made
+      // the command answer "Added <query> to the queue" for a track that was
+      // never queued.
+      Logger.info({ guildId: player.guildId, size: sizeBefore }, 'Queue full — rejecting play');
+      return { loadType: 'error', errorReason: 'queue-full', totalTracksAdded: 0, positionInQueue: sizeBefore };
+    }
+
+    if (!(await this.startPlaybackOrRollback(player, addedRaw))) {
+      // A failed handshake on a lagging public node is a NODE problem, not a
+      // voice-permission problem; saying "check my permissions" sent users
+      // hunting for a permission that was never wrong.
+      const reason = this.hasHealthyNode() ? 'voice' : 'no-nodes';
+      return { loadType: 'error', errorReason: reason, totalTracksAdded: 0, positionInQueue: sizeBefore };
     }
 
     if (tracks.length > 1 || playlistName) {
@@ -1059,7 +1133,7 @@ export class MusicService {
         domainTrack.artworkUrl = trackOverride.artworkUrl;
       }
 
-      if (!(await this.startPlaybackOrRollback(player, sizeBefore))) {
+      if (!(await this.startPlaybackOrRollback(player, [chosenTrack]))) {
         return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: sizeBefore };
       }
 
@@ -1104,7 +1178,7 @@ export class MusicService {
       const firstSizeBefore = player.queue.size;
       player.queue.add(firstLavalinkTrack);
 
-      if (!(await this.startPlaybackOrRollback(player, firstSizeBefore))) {
+      if (!(await this.startPlaybackOrRollback(player, [firstLavalinkTrack]))) {
         return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: firstSizeBefore };
       }
     }
@@ -1608,7 +1682,7 @@ export class MusicService {
    * detector recovers) — true either way, since the event already fired and
    * recovery is event-driven.
    */
-  public async seek(guildId: string, seconds: number, restTimeoutMs = 8000): Promise<number | null> {
+  public async seek(guildId: string, seconds: number, restTimeoutMs = SEEK_REST_TIMEOUT_MS): Promise<number | null> {
     const player = this.getPlayer(guildId);
     if (!player || !player.current) return null;
     // A stream has no duration, so the old clamp (min against duration || 0)
@@ -1857,7 +1931,18 @@ export class MusicService {
     // current into history, so re-adding it duplicates the queue on every
     // toggle. Just front the previous track and advance to it.
     player.queue.unshift(prevTrack);
-    return await player.skip();
+    if (await player.skip()) return true;
+    // skip() resolved false (voice not ready): the old code had already lost
+    // the history entry AND left the track duplicated in the queue, then told
+    // the user "No previous track in history". Put both back.
+    try {
+      const at = player.queue.all.indexOf(prevTrack);
+      if (at !== -1) player.queue.remove(at);
+      player.previous.push(prevTrack);
+    } catch {
+      // Best effort restore.
+    }
+    return false;
   }
 
   public async skipto(guildId: string, position: number): Promise<boolean> {
@@ -1876,19 +1961,40 @@ export class MusicService {
     if (index < player.queue.size) {
       // removeRange is inclusive on both ends: to land on the Nth upcoming
       // track, drop the N-1 before it, then skip().
+      //
+      // The dropped tracks are captured first: if skip() then fails (voice not
+      // ready) the old code had already destroyed them and still reported
+      // "Invalid track position" — 11 tracks gone with nothing said.
+      const dropped = index > 0 ? player.queue.all.slice(0, index) : [];
       if (index > 0) player.queue.removeRange(0, index - 1);
-      return await player.skip();
+      if (await player.skip()) return true;
+      for (const track of dropped) {
+        try {
+          player.queue.add(track);
+        } catch {
+          // Best effort restore.
+        }
+      }
+      return false;
     }
     const pending = this.pendingSpotify.get(guildId);
     const entry = pending?.[index - player.queue.size];
     if (!pending || !entry) return false;
+    const sizeAtEntry = player.queue.size;
     const found = await this.resolvePlaylistTrack(player, entry.spTrack).catch(() => null);
     const live = this.getPlayer(guildId);
     const liveList = this.pendingSpotify.get(guildId);
     if (!found || !live || !liveList) return false;
+    // The player may have been replaced entirely while we resolved.
+    if (live !== player || MusicService.isDestroyed(live)) return false;
     const at = liveList.indexOf(entry);
     if (at === -1) return false;
-    live.queue.clear();
+    // Drop only what existed when the jump started. `queue.clear()` here wiped
+    // tracks ANOTHER member queued during the ~18s resolve, while this user
+    // was told "Jumped to track #N".
+    for (let i = 0; i < sizeAtEntry && live.queue.size > 0; i++) {
+      live.queue.remove(0);
+    }
     liveList.splice(0, at + 1);
     if (liveList.length === 0) this.pendingSpotify.delete(guildId);
     this.adoptMirrorTrack(
@@ -1977,7 +2083,11 @@ export class MusicService {
       entry.spotifyUrl,
       entry.override,
     );
-    if (j < live.queue.size) live.queue.insert(j, found.lavalinkTrack);
+    // `j` was derived from the queue size captured before a resolve that can
+    // take ~18s. Recompute the destination against the CURRENT size so the
+    // track lands where the user asked even if the queue grew meanwhile.
+    const target = Math.max(0, Math.min(j, live.queue.size));
+    if (target < live.queue.size) live.queue.insert(target, found.lavalinkTrack);
     else live.queue.add(found.lavalinkTrack);
     return true;
   }

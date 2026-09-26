@@ -1908,6 +1908,10 @@ describe('enqueue guardrails (play-false rollback, queue cap)', () => {
       queue: {
         add: (t: unknown) => void queued.push(t as Record<string, unknown>),
         remove: (i: number) => queued.splice(i, 1)[0],
+        // Moonlink's live list accessor; the identity-based rollback uses it.
+        get all() {
+          return queued;
+        },
         get size() {
           return queued.length;
         },

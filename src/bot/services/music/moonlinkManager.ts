@@ -3,6 +3,7 @@ import type { Client } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { getLavalinkNodes, type LavalinkNodeConfig } from '@config/lavalink';
 import type { CacheService } from '../cacheService';
+import { MAX_QUEUE_TRACKS } from './musicConstants';
 
 export interface LavalinkNodeStats {
   identifier: string;
@@ -118,6 +119,10 @@ export class MoonlinkManager {
           timeout: 15000,
           autoReconnect: true,
         },
+        // Our MAX_QUEUE_TRACKS is the real cap. Moonlink defaults to 1000 and
+        // SILENTLY drops anything past it, so a large playlist was truncated
+        // at 1000 while our reply counted every track as added.
+        queue: { maxSize: MAX_QUEUE_TRACKS, historyLimit: 50 },
       },
     });
 
