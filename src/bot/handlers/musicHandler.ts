@@ -52,6 +52,9 @@ export class MusicHandler {
   // collapse into one edit). No polling behind it.
   private readonly progressNudgeTimers = new Map<string, NodeJS.Timeout>();
   private readonly progressPublishing = new Map<string, number>();
+  /** Consecutive failed publishes per guild (bounded retry budget). */
+  private readonly publishRetries = new Map<string, number>();
+  private static readonly MAX_PUBLISH_RETRIES = 3;
   /**
    * A publish whose awaited work hangs (REST stall) must never wedge the card
    * forever: a guard older than this is treated as dead and retaken, so the
@@ -161,10 +164,16 @@ export class MusicHandler {
               '[Music] Video chapters attached',
             );
             this.prefetchChapterArts(player, chapters, [0, 1, 2]);
+            // Chapters landed after track start (the trackStart timer check
+            // found nothing) — arm following now, or transitions never fire.
+            this.armChapterTimer(player);
             // Publish the chapter card now instead of waiting for a boundary
             // timer — the card is ready the moment chapters land.
             this.scheduleImmediateProgress(player);
           }
+          // null (transient probe failure) deliberately does NOT retry here:
+          // both cache layers negative-cache misses for 10 minutes, so a
+          // quick retry could never succeed — the next track re-probes.
         } catch {
           // Plain card — chapters are decoration, never load-bearing.
         }
@@ -227,12 +236,13 @@ export class MusicHandler {
   }
 
   /**
-   * Display-ready chapter card for a tick. Advances with playback; on a
-   * chapter change it publishes the title immediately and resolves that
-   * chapter's cover in the background (late-attach via the fingerprint).
-   * A missed cover is retried at most every 30s while the chapter plays
-   * (the first attempt often loses to a cold provider cascade).
-   * Generic container titles (Intro/Outro/...) suppress the card.
+   * Display-ready chapter card for the current position. Advances with
+   * playback; on a chapter change it stages the title immediately and
+   * resolves that chapter's cover in the background (late-attach via the
+   * fingerprint). A missed cover is retried at most every 30s while the
+   * chapter plays (the first attempt often loses to a cold provider
+   * cascade). Generic container titles (Intro/Outro/...) suppress the card
+   * but still warm the first real song's cover so shows open on music art.
    */
   private chapterCardFor(player: Player, positionMs: number): ChapterCard | null {
     try {
@@ -258,7 +268,22 @@ export class MusicHandler {
       player.set('chapterStartedAt', Date.now());
       const ch = idx >= 0 ? chapters[idx] : undefined;
       if (!ch || isGenericChapterTitle(ch.title)) {
+        const hadCard = player.get<ChapterCard | null>('chapterCard') ?? null;
         player.set('chapterCard', null);
+        if (hadCard) {
+          Logger.debug({ guildId: player.guildId, chapter: hadCard.title }, '[Music] Chapter card cleared (generic/no chapter)');
+        }
+        // Hype/intro chapters stay off the card, but the show should still
+        // open on the first real song's cover: warm it cover-only (title
+        // untouched) so the gallery never sits bare behind the intro.
+        const upcomingIdx = chapters.findIndex((c, i) => i > idx && !isGenericChapterTitle(c.title));
+        if (upcomingIdx >= 0) {
+          const retry = player.get<{ idx: number; at: number } | null>('chapterArtRetry');
+          if (!retry || retry.idx !== upcomingIdx || Date.now() - retry.at > 30000) {
+            player.set('chapterArtRetry', { idx: upcomingIdx, at: Date.now() });
+            void this.resolveChapterArt(player, upcomingIdx, chapters, true);
+          }
+        }
         return null;
       }
       const card: ChapterCard = { title: ch.title, artworkUrl: null };
@@ -272,7 +297,12 @@ export class MusicHandler {
     }
   }
 
-  private async resolveChapterArt(player: Player, idx: number, chapters: VideoChapter[]): Promise<void> {
+  private async resolveChapterArt(
+    player: Player,
+    idx: number,
+    chapters: VideoChapter[],
+    coverOnly = false,
+  ): Promise<void> {
     // Generation captured before the cascade: a track change mid-resolve
     // must not paint this cover onto the next track's card.
     const chapterToken = player.get<number>('chapterToken');
@@ -305,6 +335,14 @@ export class MusicHandler {
       // generation AND chapter index — a list swap mid-resolve must not
       // paint the wrong cover).
       if (player.get<number>('chapterToken') !== chapterToken) return;
+      if (coverOnly) {
+        // Opening hype: show the first real song's cover WITHOUT naming it
+        // (the card stays on the show until its chapter starts). The hold
+        // rule picks it up on the next publish.
+        player.set('lastCoverUrl', art);
+        this.scheduleImmediateProgress(player);
+        return;
+      }
       if ((player.get<number>('chapterIdx') ?? -2) !== idx) return;
       player.set('chapterCard', { title: ch.title, artworkUrl: art });
       // Art landed with no publish scheduled — push the swap immediately.
@@ -369,6 +407,7 @@ export class MusicHandler {
     this.clearKaraokeTimer(guildId);
     this.clearChapterTimer(guildId);
     this.lastChapterStatus.delete(guildId);
+    this.publishRetries.delete(guildId);
   }
 
   private clearKaraokeTimer(guildId: string): void {
@@ -553,9 +592,6 @@ export class MusicHandler {
       ].join('|');
       if (this.progressFingerprints.get(guildId) === fingerprint) return;
 
-      // Chapter changes ride along for free — no polling behind this.
-      this.updateChapterStatus(player);
-
       const channel =
         this.client.channels.cache.get(player.textChannelId) ??
         (await this.client.channels.fetch(player.textChannelId).catch(() => null));
@@ -605,9 +641,28 @@ export class MusicHandler {
         ])
           .then(() => {
             this.progressFingerprints.set(guildId, fingerprint);
+            this.publishRetries.delete(guildId);
+            // Status follows successful edits only — updating it before the
+            // edit permanently diverged room status from the card whenever
+            // the edit failed (no tick retries it anymore).
+            this.updateChapterStatus(player);
           })
           .catch((err: { code?: number }) => {
-            if (err?.code === 10008) this.forgetNowPlaying(player);
+            if (err?.code === 10008) {
+              this.publishRetries.delete(guildId);
+              this.forgetNowPlaying(player);
+              return;
+            }
+            // The card still exists but the edit failed (blip/rate-limit):
+            // bounded retries so a chapter attach isn't lost to one bad
+            // call. Boundary timers remain the steady-state retry path.
+            const retries = (this.publishRetries.get(guildId) ?? 0) + 1;
+            if (retries <= MusicHandler.MAX_PUBLISH_RETRIES) {
+              this.publishRetries.set(guildId, retries);
+              this.scheduleImmediateProgress(player, 5000);
+            } else {
+              this.publishRetries.delete(guildId);
+            }
           });
       } finally {
         if (editTimer) clearTimeout(editTimer);
@@ -623,6 +678,7 @@ export class MusicHandler {
   private forgetNowPlaying(player: Player): void {
     player.set('nowPlayingMessageId', null);
     this.progressFingerprints.delete(player.guildId);
+    this.publishRetries.delete(player.guildId);
     Logger.debug({ guildId: player.guildId }, '[Music] Now-playing card gone — cleared card state');
   }
 
@@ -967,9 +1023,6 @@ export class MusicHandler {
       const rawTitle = srcRec._rawVideoTitle ?? getVideoTitle(src as unknown as { title?: string }) ?? src.title;
       if (typeof rawTitle === 'string' && rawTitle) dstRec._rawVideoTitle = rawTitle;
       if (videoId) dstRec._sourceVideoId = videoId;
-      if (typeof srcRec._videoThumb === 'string' && typeof dstRec._videoThumb !== 'string') {
-        dstRec._videoThumb = srcRec._videoThumb;
-      }
       return t;
     } catch (err) {
       Logger.debug(

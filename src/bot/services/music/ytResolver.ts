@@ -82,21 +82,6 @@ export const resolverEnabled = (): boolean =>
   !!process.env.HOME_RESOLVER_TOKEN &&
   Date.now() >= pausedUntil;
 
-/**
- * Display URL for the rug's square video-thumb crop (640x640 center crop —
- * kills hqdefault's baked black bars and maxres's wide shape). Pure string
- * mapping: Discord fetches /thumb from the resolver's public Funnel URL
- * itself, so this never touches the network and art lookups stay
- * side-effect-free. null when the resolver is unconfigured/paused or the
- * URL isn't a video thumbnail.
- */
-export function squareVideoThumbUrl(url: string | null | undefined): string | null {
-  if (!url || !resolverEnabled()) return null;
-  const id = url.match(/i\.ytimg\.com\/vi(?:_webp)?\/([\w-]{11})\//)?.[1];
-  if (!id) return null;
-  return `${(process.env.HOME_RESOLVER_URL as string).replace(/\/+$/, '')}/thumb?id=${id}`;
-}
-
 export interface VideoChapterDto {
   title: string;
   startMs: number;

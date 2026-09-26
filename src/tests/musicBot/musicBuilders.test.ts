@@ -84,6 +84,7 @@ describe('MusicBuilders', () => {
       expect(response.embed.data.description).toContain(
         '[Starboy](https://open.spotify.com/track/abc12345) • The Weeknd •',
       );
+      expect(response.embed.data.description).not.toContain('###');
       // Text-only remaining-time footer (position 100000 of 230000).
       expect(response.embed.data.description).toContain('Ordered by TestUser#0001 • 2:10 mins left');
       expect(response.embed.data.description).toContain('<:sp:1496297132381048995>');

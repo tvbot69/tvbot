@@ -10,8 +10,8 @@ import type { AppleMusicResolver } from './appleMusicResolver';
 import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
 import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
-import { resolveViaHome, resolverEnabled, squareVideoThumbUrl, type ResolverMeta } from './ytResolver';
-import { extractArtistFromTitle, isLiveVideo } from './videoChapters';
+import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
+import { extractArtistFromTitle } from './videoChapters';
 import type { ArtworkService } from '@bot/services/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
@@ -554,15 +554,6 @@ export class MusicService {
     track: { artworkUrl?: string | null; duration?: number | null },
     artworkUrl?: string | null,
   ): void {
-    const rec = track as unknown as Record<string, unknown>;
-    if (
-      typeof rec._videoThumb !== 'string' &&
-      isLiveVideo(track.duration) &&
-      typeof track.artworkUrl === 'string' &&
-      track.artworkUrl
-    ) {
-      rec._videoThumb = squareVideoThumbUrl(track.artworkUrl) ?? track.artworkUrl;
-    }
     if (artworkUrl && !MusicService.isYoutubeThumb(artworkUrl)) track.artworkUrl = artworkUrl;
     else if (MusicService.isYoutubeThumb(track.artworkUrl)) track.artworkUrl = null;
   }
@@ -621,9 +612,6 @@ export class MusicService {
       }
       if (/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) {
         dstRec._sourceVideoId = ytTrack.identifier;
-      }
-      if (typeof srcRec._videoThumb === 'string' && typeof dstRec._videoThumb !== 'string') {
-        dstRec._videoThumb = srcRec._videoThumb;
       }
       return track;
     } catch (err) {
@@ -1181,30 +1169,7 @@ export class MusicService {
       const started = Date.now();
       const trackRec = track as unknown as Record<string, unknown>;
       trackRec._artLookupStartedAt = started;
-      // Long-form content (DJ sets, full concerts): the cascade chases a
-      // studio cover that doesn't exist. Use the stashed video thumbnail
-      // immediately and skip the network round-trips — the card renders
-      // with art from frame one. Needs no service, so it runs even when
-      // the artwork stack is unwired. Falls through to the cascade only
-      // when no thumbnail survived (nothing to show otherwise).
       const dur = track.duration || 0;
-      // Long-form (DJ sets, full concerts): paint the stashed square video
-      // thumbnail immediately — the card never renders bare — but keep the
-      // cascade running below; a found cover overwrites the thumb.
-      let thumbPainted: string | null = null;
-      if (isLiveVideo(dur)) {
-        const thumb = trackRec._videoThumb;
-        if (typeof thumb === 'string' && thumb) {
-          track.artworkUrl = thumb;
-          thumbPainted = thumb;
-          trackRec._artLookupResolvedAt = Date.now();
-          trackRec._artLookupOutcome = 'longform-thumb';
-          Logger.info(
-            { title: t, artist: a, durationMs: dur },
-            '[Music] Long-form art: video thumbnail painted, cascade resolving',
-          );
-        }
-      }
       const svc = this.artworkService;
       if (!svc) {
         Logger.debug('[Music] Artwork backfill skipped — no artwork service wired');
@@ -1274,7 +1239,7 @@ export class MusicService {
           // refresh the event-driven card so it shows up.
           void lookup
             .then((late) => {
-              if (late && (!track.artworkUrl || track.artworkUrl === thumbPainted)) {
+              if (late && !track.artworkUrl) {
                 track.artworkUrl = late;
                 const lateMs = Date.now() - started;
                 trackRec._artLookupResolvedAt = Date.now();

@@ -1313,13 +1313,12 @@ describe('resolve artwork backfill', () => {
     expect(track.artworkUrl).toBe('https://img.test/first.jpg');
   });
 
-  it('paints the video thumbnail instantly for long-form content and still cascades', async () => {
+  it('resolves cascade art for long-form content with no video thumbnail involved', async () => {
     const { svc, getTrackCoverUrl, getArtistImageUrl } = makeArtSvc();
     const track = {
       title: 'DJ Set - Live at Home [FULL SET]',
       author: 'some-channel',
       duration: 3600000,
-      _videoThumb: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
     } as unknown as { title: string; author: string; duration: number; artworkUrl?: string };
     await svc.maybeBackfillArt(track, undefined, 'DJ Set', 'DJ', 6000);
     expect(getTrackCoverUrl).toHaveBeenCalledWith('DJ Set', 'DJ');
@@ -1327,17 +1326,16 @@ describe('resolve artwork backfill', () => {
     expect(getArtistImageUrl).not.toHaveBeenCalled();
   });
 
-  it('keeps the video thumbnail for long-form content when the cascade misses', async () => {
+  it('leaves long-form content bare when the cascade misses (no video thumbnail fallback)', async () => {
     const { svc, getTrackCoverUrl } = makeArtSvc(async () => null);
     const track = {
       title: 'DJ Set - Live at Home [FULL SET]',
       author: 'some-channel',
       duration: 3600000,
-      _videoThumb: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
     } as unknown as { title: string; author: string; duration: number; artworkUrl?: string };
     await svc.maybeBackfillArt(track, undefined, 'DJ Set', 'DJ', 6000);
     expect(getTrackCoverUrl).toHaveBeenCalled();
-    expect(track.artworkUrl).toBe('https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg');
+    expect(track.artworkUrl).toBeUndefined();
   });
 
   it('falls through to the cascade for long-form content with no thumbnail', async () => {
@@ -1357,7 +1355,6 @@ describe('resolve artwork backfill', () => {
       title: 'Esme',
       author: 'Mond',
       duration: 180000,
-      _videoThumb: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
     } as unknown as { title: string; author: string; duration: number; artworkUrl?: string };
     await svc.maybeBackfillArt(track, undefined, 'Esme', 'Mond', 6000);
     expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');

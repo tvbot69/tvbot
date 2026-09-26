@@ -30,8 +30,10 @@ export function isLiveVideo(durationMs: number | null | undefined): boolean {
 /**
  * Applies the hold-last-cover rule: a chapter still waiting on its art
  * keeps the previously displayed cover instead of flashing generic track
- * art and swapping again when the real cover lands. Returns the card to
- * render plus the effective cover (also persisted as the next hold).
+ * art and swapping again when the real cover lands. With no chapter at all
+ * (hype intro, interlude), the hold still wins over track art so the
+ * gallery stays on show art between songs. Returns the card to render plus
+ * the effective cover (also persisted as the next hold).
  */
 export function resolveDisplayedChapter(
   chapter: ChapterCard | null,
@@ -42,7 +44,7 @@ export function resolveDisplayedChapter(
   if (chapter && !chapter.artworkUrl && lastCoverUrl) {
     display = { title: chapter.title, artworkUrl: lastCoverUrl };
   }
-  const shownCover = display?.artworkUrl ?? trackArtworkUrl ?? null;
+  const shownCover = display?.artworkUrl ?? lastCoverUrl ?? trackArtworkUrl ?? null;
   return { card: display, shownCover };
 }
 

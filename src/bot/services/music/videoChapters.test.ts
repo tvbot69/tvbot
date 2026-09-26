@@ -183,4 +183,11 @@ describe('resolveDisplayedChapter', () => {
       shownCover: 'https://cdn.example.com/video.jpg',
     });
   });
+
+  it('holds the last show cover through chapter-less stretches (hype/interlude)', () => {
+    expect(resolveDisplayedChapter(null, 'https://cdn.example.com/song.jpg', 'https://cdn.example.com/track.jpg')).toEqual({
+      card: null,
+      shownCover: 'https://cdn.example.com/song.jpg',
+    });
+  });
 });

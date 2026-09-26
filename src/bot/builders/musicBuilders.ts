@@ -249,11 +249,12 @@ export class MusicBuilders {
     // One-line header: title • album (when known) • artist • source badge.
     // Then live-show chapter, lyrics, and a static remaining-time meta line.
     // No live position anywhere: the card is event-driven, never polled, so
-    // every line must stay true without ticks. Text-only, no emojis.
+    // every line must stay true without ticks. Text-only, no emojis. The
+    // header is body-size on purpose — ### rendered oversized next to badges.
     const headerParts = [`[${MusicBuilders.trimDisplayTitle(current.title)}](${current.uri})`];
     if (current.album?.trim()) headerParts.push(current.album.trim());
     headerParts.push(current.author, sourceIcon);
-    const header = `### ${headerParts.join(' • ')}`;
+    const header = headerParts.join(' • ');
     const chapterLine = chapter ? `Live — **${chapter.title}**` : null;
     const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
     const legacyLyricSection = MusicBuilders.buildLyricSection(lyricWindow, false);

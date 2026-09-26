@@ -646,72 +646,29 @@ describe('MusicService', () => {
 
     expect(res.loadType).toBe('track');
     const queued = addMock.mock.calls[addMock.mock.calls.length - 1]?.[0] as { artworkUrl?: string | null };
-    // Long-form (>20min): the video thumbnail is kept immediately and the
-    // cascade is skipped — no studio cover exists for a full live set.
-    expect(queued?.artworkUrl).toBe('https://i.ytimg.com/vi/livevid12345/maxresdefault.jpg');
+    // No video-thumbnail system anymore: the raw thumb is dropped and the
+    // cascade (artist fallback for shows) fills real art instead.
+    expect(queued?.artworkUrl).toBeNull();
   });
 
-  it('stashes the square resolver thumb for long-form video thumbnails', () => {
-    const savedUrl = process.env.HOME_RESOLVER_URL;
-    const savedToken = process.env.HOME_RESOLVER_TOKEN;
-    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
-    process.env.HOME_RESOLVER_TOKEN = 'tok';
-    try {
-      const track: { artworkUrl?: string | null; duration?: number; _videoThumb?: unknown } = {
-        artworkUrl: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
-        duration: 25 * 60 * 1000,
-      };
-      MusicService.preCleanArtwork(track, undefined);
-      expect(track._videoThumb).toBe('http://127.0.0.1:2335/thumb?id=abcdefghijk');
-      expect(track.artworkUrl).toBeNull();
-    } finally {
-      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
-      else process.env.HOME_RESOLVER_URL = savedUrl;
-      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
-      else process.env.HOME_RESOLVER_TOKEN = savedToken;
-    }
+  it('never stashes a video thumbnail — long-form tracks cascade like the rest', () => {
+    const track: { artworkUrl?: string | null; duration?: number } = {
+      artworkUrl: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+      duration: 25 * 60 * 1000,
+    };
+    MusicService.preCleanArtwork(track, undefined);
+    expect(track.artworkUrl).toBeNull();
+    expect('_videoThumb' in track).toBe(false);
   });
 
-  it('never stashes the video thumb for short tracks — cascade-only', () => {
-    const savedUrl = process.env.HOME_RESOLVER_URL;
-    const savedToken = process.env.HOME_RESOLVER_TOKEN;
-    process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
-    process.env.HOME_RESOLVER_TOKEN = 'tok';
-    try {
-      const track: { artworkUrl?: string | null; duration?: number; _videoThumb?: unknown } = {
-        artworkUrl: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
-        duration: 3 * 60 * 1000,
-      };
-      MusicService.preCleanArtwork(track, undefined);
-      expect(track._videoThumb).toBeUndefined();
-      expect(track.artworkUrl).toBeNull();
-    } finally {
-      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
-      else process.env.HOME_RESOLVER_URL = savedUrl;
-      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
-      else process.env.HOME_RESOLVER_TOKEN = savedToken;
-    }
-  });
-
-  it('keeps the raw thumb stash when the resolver is unconfigured', () => {
-    const savedUrl = process.env.HOME_RESOLVER_URL;
-    const savedToken = process.env.HOME_RESOLVER_TOKEN;
-    delete process.env.HOME_RESOLVER_URL;
-    delete process.env.HOME_RESOLVER_TOKEN;
-    try {
-      const track: { artworkUrl?: string | null; duration?: number; _videoThumb?: unknown } = {
-        artworkUrl: 'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',
-        duration: 30 * 60 * 1000,
-      };
-      MusicService.preCleanArtwork(track, undefined);
-      expect(track._videoThumb).toBe('https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg');
-      expect(track.artworkUrl).toBeNull();
-    } finally {
-      if (savedUrl === undefined) delete process.env.HOME_RESOLVER_URL;
-      else process.env.HOME_RESOLVER_URL = savedUrl;
-      if (savedToken === undefined) delete process.env.HOME_RESOLVER_TOKEN;
-      else process.env.HOME_RESOLVER_TOKEN = savedToken;
-    }
+  it('never stashes a video thumbnail for short tracks either', () => {
+    const track: { artworkUrl?: string | null; duration?: number } = {
+      artworkUrl: 'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+      duration: 3 * 60 * 1000,
+    };
+    MusicService.preCleanArtwork(track, undefined);
+    expect(track.artworkUrl).toBeNull();
+    expect('_videoThumb' in track).toBe(false);
   });
 });
 

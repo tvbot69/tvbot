@@ -119,6 +119,120 @@ describe('MusicHandler progress card', () => {
     expect(handler.chapterTimers.size).toBe(0);
   });
 
+  it('arms the chapter timer when chapters attach after track start', async () => {
+    const savedKey = process.env.YOUTUBE_API_KEY;
+    process.env.YOUTUBE_API_KEY = 'test-key';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{ snippet: { description: 'Full Set\n\n0:00 - A\n1:00 - B' } }] }),
+    } as Response);
+    try {
+      const manager = { on: vi.fn(), players: { get: () => undefined } };
+      const client = { on: vi.fn(), channels: { cache: new Map() } };
+      const handler = buildHandler() as unknown as {
+        resolveVideoChapters: (player: unknown, track: unknown) => void;
+        publishProgress: (player: unknown) => Promise<void>;
+        clearCardTimers: (guildId: string) => void;
+        chapterTimers: Map<string, NodeJS.Timeout>;
+      };
+      const spy = vi.spyOn(handler, 'publishProgress').mockResolvedValue(undefined);
+      const store: Record<string, unknown> = {};
+      const player = {
+        guildId: 'g-attach-1',
+        playing: true,
+        paused: false,
+        textChannelId: 'tc-1',
+        get: (k: string) => store[k],
+        set: (k: string, v: unknown) => void (store[k] = v),
+      };
+      handler.resolveVideoChapters(player, {
+        sourceName: 'youtube',
+        identifier: 'attachvid01',
+        title: 'Full Set',
+        duration: 3600000,
+      });
+      await new Promise((r) => setTimeout(r, 450));
+      // Chapters attached (nudge published) AND following armed — before the
+      // fix only the nudge existed, so later transitions never fired.
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect((store.chapters as unknown[]).length).toBe(2);
+      expect(handler.chapterTimers.has('g-attach-1')).toBe(true);
+      handler.clearCardTimers('g-attach-1');
+      expect(handler.chapterTimers.has('g-attach-1')).toBe(false);
+    } finally {
+      if (savedKey === undefined) delete process.env.YOUTUBE_API_KEY;
+      else process.env.YOUTUBE_API_KEY = savedKey;
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('retries a failed card edit a bounded number of times', async () => {
+    const edit = vi.fn().mockRejectedValue({ code: 50013 });
+    const msg = { edit };
+    const channel = {
+      isTextBased: () => true,
+      messages: { cache: { get: () => null }, fetch: async () => msg },
+    };
+    const client = { on: vi.fn(), channels: { cache: new Map(), fetch: async () => channel } };
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const queue = {
+      current: {
+        identifier: 't-retry-1',
+        title: 'Retry Song',
+        author: 'Band',
+        uri: 'https://youtube.com/watch?v=t-retry-1',
+        duration: 200000,
+        isSeekable: true,
+        isStream: false,
+        source: 'youtube',
+      },
+      tracks: [],
+      totalTracks: 1,
+      totalDuration: 200000,
+      remainingDuration: 200000,
+      loopMode: 'off',
+      volume: 100,
+      isPaused: false,
+      isPlaying: true,
+      is247: false,
+      autoplay: false,
+      position: 5000,
+    };
+    const handler = new (await import('./musicHandler')).MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => queue, is247: () => false, isKaraokeEnabled: () => true } as never,
+    ) as unknown as {
+      publishProgress: (player: unknown) => Promise<void>;
+      clearCardTimers: (guildId: string) => void;
+      publishRetries: Map<string, number>;
+      progressNudgeTimers: Map<string, NodeJS.Timeout>;
+    };
+    const player = {
+      guildId: 'g-retry-1',
+      playing: true,
+      paused: false,
+      textChannelId: 'tc-1',
+      get: (k: string) => (k === 'nowPlayingMessageId' ? 'msg-1' : undefined),
+      set: () => undefined,
+    };
+    await handler.publishProgress(player);
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(handler.publishRetries.get('g-retry-1')).toBe(1);
+    expect(handler.progressNudgeTimers.has('g-retry-1')).toBe(true);
+    // Exhaust the budget: retries climb to 3, then the entry is dropped and
+    // no further retry is scheduled (each publish = exactly one edit).
+    await handler.publishProgress(player);
+    expect(handler.publishRetries.get('g-retry-1')).toBe(2);
+    await handler.publishProgress(player);
+    expect(handler.publishRetries.get('g-retry-1')).toBe(3);
+    await handler.publishProgress(player);
+    expect(edit).toHaveBeenCalledTimes(4);
+    expect(handler.publishRetries.has('g-retry-1')).toBe(false);
+    handler.clearCardTimers('g-retry-1');
+    expect(handler.progressNudgeTimers.has('g-retry-1')).toBe(false);
+  });
+
   it('deletes the now-playing card when the song ends', async () => {
     const deleted: string[] = [];
     const store = new Map<string, unknown>([['nowPlayingMessageId', 'msg-1']]);
@@ -164,5 +278,40 @@ describe('MusicHandler progress card', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(deleted).toEqual(['msg-1']);
     expect(store.get('nowPlayingMessageId')).toBeNull();
+  });
+
+  it('opens hype chapters on the first real song cover without naming it', async () => {
+    const manager = { on: vi.fn(), players: { get: () => undefined } };
+    const client = { on: vi.fn(), channels: { cache: new Map() } };
+    const handler = new (await import('./musicHandler')).MusicHandler(
+      client as never,
+      { getManager: () => manager } as never,
+      { getQueueInfo: () => null, is247: () => false, isKaraokeEnabled: () => true } as never,
+    ) as unknown as {
+      chapterCardFor: (player: unknown, positionMs: number) => { title: string; artworkUrl?: string | null } | null;
+      clearCardTimers: (guildId: string) => void;
+      artworkService: unknown;
+    };
+    handler.artworkService = { getTrackCoverUrl: async () => 'https://img.test/real.jpg' };
+    const store: Record<string, unknown> = {};
+    const player = {
+      guildId: 'g-hype-1',
+      playing: true,
+      paused: false,
+      textChannelId: 'tc-1',
+      current: { title: 'd4vd - Live at Washington D.C' },
+      get: (k: string) => store[k],
+      set: (k: string, v: unknown) => void (store[k] = v),
+    };
+    store.chapters = [
+      { title: 'Intro', startMs: 0 },
+      { title: 'Take Me To The Sun', startMs: 5000 },
+    ];
+    // Inside the hype chapter: no card line, but the hold carries song art.
+    expect(handler.chapterCardFor(player, 2000)).toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(store.chapterCard ?? null).toBeNull();
+    expect(store.lastCoverUrl).toBe('https://img.test/real.jpg');
+    handler.clearCardTimers('g-hype-1');
   });
 });
