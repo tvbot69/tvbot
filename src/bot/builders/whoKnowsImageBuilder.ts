@@ -6,19 +6,11 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 
 
-import { container } from 'tsyringe';
-import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import { ArtistsService } from '@bot/services/artistsService';
-import { AlbumService } from '@bot/services/albumService';
-import { ArtworkService, matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
-import { UserService } from '@bot/services/userService';
+import { matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
 
-import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import { DeezerApi } from '@deezer/apis/deezerApi';
 import type { DeezerAlbum } from '@deezer/models/deezerModels';
 import { DeezerCoverIndexer } from '@bot/services/deezerCoverIndexer';
-import { ArtistRepository } from '@persistence/repositories/artistRepository';
-import { AlbumRepository } from '@persistence/repositories/albumRepository';
+import type { WhoKnowsImageDeps } from './whoKnowsImageDeps';
 import { Logger } from '@domain/logger';
 
 
@@ -59,30 +51,32 @@ import { Logger } from '@domain/logger';
  *
  * Behaviour is unchanged by that removal, and whoKnowsImageBuilder.test.ts pins
  * the observable behaviour so the claim is checkable rather than asserted.
+ *
+ * Dependencies are injected: see `WhoKnowsImageDeps`. The nineteen
+ * `container.resolve` calls this file used to make are now one audited
+ * resolution in a sibling module, and the builder is a pure function of its
+ * arguments - which is what finally lets its test substitute doubles instead of
+ * mutating the global container.
  */
 /**
  * Fire-and-forget cover indexing, kept module-level because the exported entry
  * point is a plain arrow function with no `this`.
  *
- * `isRegistered` is still used to decide whether the write path exists, which is
- * the same coupling the rest of this file has. Narrowing it is the next step
- * once the behaviour is pinned; what matters here is that the builder no longer
- * performs writes itself.
+ * Takes the indexer as an argument so the builder reaches for nothing. A null
+ * indexer means the repositories were not registered, which disables the write
+ * path - the same state the old `isRegistered` guard produced.
  */
 const indexDiscoveredCovers = async (
+  indexer: DeezerCoverIndexer | null,
   artistName: string,
   albums: DeezerAlbum[],
 ): Promise<void> => {
-  if (!container.isRegistered(ArtistRepository) || !container.isRegistered(AlbumRepository)) return;
+  if (!indexer) return;
   try {
-    const indexer = new DeezerCoverIndexer(
-      container.resolve(ArtistRepository),
-      container.resolve(AlbumRepository),
-    );
     await indexer.indexCovers(artistName, albums);
   } catch (err) {
-    // Constructing the indexer should not throw, but a builder must never let a
-    // background write escape into the process.
+    // indexCovers swallows its own failures; this is a belt-and-braces guard so
+    // a background write can never escape into the process.
     Logger.debug({ err, artistName }, 'Could not start Deezer cover indexing');
   }
 };
@@ -107,7 +101,7 @@ export const buildWhoKnowsImageResponse = async (args: {
     topItemExtra?: string;
     topTracks?: string[];
   };
-}): Promise<ResponseModel | null> => {
+}, deps: WhoKnowsImageDeps): Promise<ResponseModel | null> => {
   const {
     context,
     title,
@@ -125,8 +119,8 @@ export const buildWhoKnowsImageResponse = async (args: {
   let metadata = args.metadata;
       let imageBuffer: Buffer | null = null;
       try {
-        if (container.isRegistered(WhoKnowsGenerator)) {
-          const generator = container.resolve(WhoKnowsGenerator);
+        if (deps.generator) {
+          const generator = deps.generator;
           const location = context.guild?.name ?? 'Server';
 
           // Extract artist and album names
@@ -146,9 +140,9 @@ export const buildWhoKnowsImageResponse = async (args: {
           }
 
           let effectiveCallerId = requestedUserId;
-          if (!effectiveCallerId && context.discordUserId && container.isRegistered(UserService)) {
+          if (!effectiveCallerId && context.discordUserId && deps.userService) {
             try {
-              const userSvc = container.resolve(UserService);
+              const userSvc = deps.userService;
               const u = await userSvc.getUserByDiscordId(context.discordUserId);
               if (u) effectiveCallerId = u.userId;
             } catch {
@@ -160,8 +154,8 @@ export const buildWhoKnowsImageResponse = async (args: {
           if (type === 'Album' && resolvedAlbumName) {
             try {
               const albumTracks: string[] = [];
-              if (resolvedArtistName && container.isRegistered(AlbumService)) {
-                const albumService = container.resolve(AlbumService);
+              if (resolvedArtistName && deps.albumService) {
+                const albumService = deps.albumService;
                 // 1. Caller's personalized top tracks for this album
                 if (effectiveCallerId) {
                   const userTracks = await albumService.getTopTracksForAlbum(resolvedArtistName, resolvedAlbumName, 3, effectiveCallerId);
@@ -192,8 +186,8 @@ export const buildWhoKnowsImageResponse = async (args: {
               }
 
               // 4. Fallback from Spotify
-              if (albumTracks.length < 3 && container.isRegistered(SpotifySearchApi)) {
-                const spotifyApi = container.resolve(SpotifySearchApi);
+              if (albumTracks.length < 3 && deps.spotifyApi) {
+                const spotifyApi = deps.spotifyApi;
                 const spTracks = await spotifyApi.getAlbumTrackNames(resolvedAlbumName, resolvedArtistName, 5);
                 for (const t of spTracks) {
                   if (t && !albumTracks.includes(t)) {
@@ -216,9 +210,9 @@ export const buildWhoKnowsImageResponse = async (args: {
 
           // Fetch caller's top albums for this artist
           let backgroundCovers: string[] = [];
-          if (resolvedArtistName && container.isRegistered(ArtistsService) && container.isRegistered(ArtworkService)) {
+          if (resolvedArtistName && deps.artistsService && deps.artworkService) {
             try {
-              const artistsService = container.resolve(ArtistsService);
+              const artistsService = deps.artistsService;
 
               const candidateAlbums: Array<{ name: string; artistName: string; directImage?: string; isTrack?: boolean }> = [];
               const existing = new Set<string>();
@@ -293,9 +287,9 @@ export const buildWhoKnowsImageResponse = async (args: {
 
               // 2. Query Spotify verified official discography for this artist (albums, singles, appears_on/features).
               // The track hint anchors same-name artists to the right entity.
-              if (container.isRegistered(SpotifySearchApi)) {
+              if (deps.spotifyApi) {
                 try {
-                  const spotifyApi = container.resolve(SpotifySearchApi);
+                  const spotifyApi = deps.spotifyApi;
                   const trackHint = sampleTrackName || candidateAlbums[0]?.name;
                   const spotifyCovers = await spotifyApi.getArtistDiscographyCovers(resolvedArtistName, trackHint, 15);
                   for (const c of spotifyCovers) {
@@ -341,9 +335,9 @@ export const buildWhoKnowsImageResponse = async (args: {
               // Deezer search is fuzzy — only albums actually credited to the
               // artist are accepted, otherwise wrong-artist covers (and DB rows)
               // leak into the mosaic.
-              if (distinctCovers.length < 8 && container.isRegistered(DeezerApi)) {
+              if (distinctCovers.length < 8 && deps.deezerApi) {
                 try {
-                  const deezerApi = container.resolve(DeezerApi);
+                  const deezerApi = deps.deezerApi;
                   const deezerAlbums = await deezerApi.searchAlbums(resolvedArtistName, 15);
                   const verifiedAlbums = deezerAlbums.filter((da) =>
                     matchesArtistName(da.artist?.name ?? '', resolvedArtistName),
@@ -363,7 +357,7 @@ export const buildWhoKnowsImageResponse = async (args: {
                   // could not be unit-tested and failed silently.
                   if (verifiedAlbums.length > 0) {
                     setImmediate(() => {
-                      void indexDiscoveredCovers(resolvedArtistName, verifiedAlbums);
+                      void indexDiscoveredCovers(deps.coverIndexer, resolvedArtistName, verifiedAlbums);
                     });
                   }
                 } catch {

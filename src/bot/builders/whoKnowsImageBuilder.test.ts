@@ -1,34 +1,35 @@
 import 'reflect-metadata';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { container } from 'tsyringe';
+import { describe, it, expect, vi } from 'vitest';
 import { buildWhoKnowsImageResponse } from './whoKnowsImageBuilder';
-import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
+import type { WhoKnowsImageDeps } from './whoKnowsImageDeps';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 
 /**
- * Characterisation test for the WhoKnows image builder.
+ * Characterisation test for the WhoKnows image builder, and the proof that the
+ * dependency-injection refactor was a no-op.
  *
- * WHY THIS IS A CHARACTERISATION TEST
- * ----------------------------------
- * `whoKnowsImageBuilder.ts` is 395 lines, calls `container.resolve` /
- * `container.isRegistered` twelve times, has three options it accepts and
- * ignores, writes to the database from a builder, and had **zero direct tests**.
- * It is also the file the quality review flagged as the worst layering
- * violation in the codebase.
+ * WHY THIS EXISTS
+ * ---------------
+ * `whoKnowsImageBuilder.ts` is 429 lines and had **zero direct tests**. It called
+ * `container.resolve` nineteen times with no declared dependencies, accepted
+ * three options it ignored (one of them REQUIRED by the type), and wrote to the
+ * database from inside a response builder. It was also the worst layering
+ * violation in the codebase, and the quality review refused to refactor it
+ * because nothing could prove a refactor had not changed the rendered card.
  *
- * It was deliberately NOT refactored, because nothing could prove a refactor
- * had not changed the rendered card. This file closes that gap: it pins the
- * current observable behaviour, so the eventual dependency-injection refactor
- * becomes a provable no-op instead of a leap of faith.
+ * This file was written FIRST, pinning the observable behaviour, which made the
+ * refactor provable: the same assertions run before and after.
  *
- * The container is the function's ambient input, so the test drives it the way
- * the function reads it - by registering and unregistering the real token. That
- * is uncomfortable, and it is exactly the coupling being removed later.
+ * It was also the proof the refactor was worth doing. The first version had to
+ * mutate the global tsyringe container, because the container WAS the
+ * function's ambient input. Now the test passes a `WhoKnowsImageDeps` object and
+ * never touches global state - which is the entire point of the change, visible
+ * in the diff rather than only in a commit message.
  *
  * WHAT IS PINNED
  * --------------
- *  - the isRegistered guard: no generator means no image and a null return
+ *  - no generator means no image and a null return
  *  - a successful render returns a ResponseModel carrying the PNG
  *  - a generator that throws is swallowed and degrades to null, never bubbling
  *    into the command dispatcher
@@ -67,58 +68,64 @@ interface Overrides {
   thumbnailUrl?: string | null;
 }
 
-const call = (overrides: Overrides = {}) =>
-  buildWhoKnowsImageResponse({
-    context: makeContext(
-      overrides.guildName === undefined ? 'Test Guild' : (overrides.guildName ?? undefined),
-    ),
-    title: 'Radiohead',
-    url: 'https://www.last.fm/music/Radiohead',
-    thumbnailUrl: overrides.thumbnailUrl === undefined ? 'https://img.test/rh.jpg' : overrides.thumbnailUrl,
-    users: USERS,
-    resolvedAccent: 0x00ff00,
-    type: overrides.type ?? 'Artist',
-    requestedUserId: 1,
-    footerExtra: overrides.footerExtra,
-    genres: overrides.genres,
-    metadata: { globalPlays: 999, globalListeners: 12 },
-  });
+const call = (overrides: Overrides = {}, deps: WhoKnowsImageDeps = NO_DEPS) =>
+  buildWhoKnowsImageResponse(
+    {
+      context: makeContext(
+        overrides.guildName === undefined ? 'Test Guild' : (overrides.guildName ?? undefined),
+      ),
+      title: 'Radiohead',
+      url: 'https://www.last.fm/music/Radiohead',
+      thumbnailUrl:
+        overrides.thumbnailUrl === undefined ? 'https://img.test/rh.jpg' : overrides.thumbnailUrl,
+      users: USERS,
+      resolvedAccent: 0x00ff00,
+      type: overrides.type ?? 'Artist',
+      requestedUserId: 1,
+      footerExtra: overrides.footerExtra,
+      genres: overrides.genres,
+      metadata: { globalPlays: 999, globalListeners: 12 },
+    },
+    deps,
+  );
 
-/** Register a stub generator and hand back the mock so args can be asserted. */
-const stubGenerator = (impl: (args: Record<string, unknown>) => Promise<Buffer>) => {
-  const generate = vi.fn(impl);
-  container.registerInstance(WhoKnowsGenerator, { generateWhoKnowsImage: generate } as never);
-  return generate;
+/** Every collaborator absent - the shape of a partially built container. */
+const NO_DEPS: WhoKnowsImageDeps = {
+  generator: null,
+  artistsService: null,
+  albumService: null,
+  artworkService: null,
+  userService: null,
+  spotifyApi: null,
+  deezerApi: null,
+  coverIndexer: null,
 };
 
-let wasRegistered = false;
-
-beforeEach(() => {
-  wasRegistered = container.isRegistered(WhoKnowsGenerator);
-});
-
-afterEach(() => {
-  // Leave the global container exactly as this file found it.
-  if (wasRegistered) {
-    // tsyringe has no unregister, so re-register a harmless placeholder only if
-    // the token did not exist before; otherwise the next test overwrites it.
-    return;
-  }
-  container.clearInstances();
-  vi.restoreAllMocks();
-});
+/**
+ * Build deps around a stub generator and hand back the mock so its arguments can
+ * be asserted. No global state is touched, which is the whole improvement over
+ * the first version of this file.
+ */
+const depsWith = (
+  impl: (args: Record<string, unknown>) => Promise<Buffer>,
+): { deps: WhoKnowsImageDeps; generate: ReturnType<typeof vi.fn> } => {
+  const generate = vi.fn(impl);
+  return {
+    deps: { ...NO_DEPS, generator: { generateWhoKnowsImage: generate } as never },
+    generate,
+  };
+};
 
 describe('whoKnowsImageBuilder (characterisation)', () => {
   it('returns null and renders nothing when no generator is registered', async () => {
-    container.clearInstances();
-    expect(container.isRegistered(WhoKnowsGenerator)).toBe(false);
-    expect(await call()).toBeNull();
+    // The old test had to assert on the container here; now absence is just a null field.
+    expect(await call({}, NO_DEPS)).toBeNull();
   });
 
   it('returns a ResponseModel carrying the PNG on a successful render', async () => {
-    const generate = stubGenerator(async () => PNG);
+    const { deps, generate } = depsWith(async () => PNG);
 
-    const response = await call();
+    const response = await call({}, deps);
 
     expect(generate).toHaveBeenCalledTimes(1);
     expect(response).not.toBeNull();
@@ -130,49 +137,49 @@ describe('whoKnowsImageBuilder (characterisation)', () => {
     // The builder wraps generation in try/catch and logs at error. A throw here
     // reaching the dispatcher would fail a user-visible command because a
     // background image render failed.
-    stubGenerator(async () => {
+    const { deps } = depsWith(async () => {
       throw new Error('chrome exploded');
     });
-    expect(await call()).toBeNull();
+    expect(await call({}, deps)).toBeNull();
   });
 
   it('passes crownText only when footerExtra mentions a crown', async () => {
-    const withCrown = stubGenerator(async () => PNG);
-    await call({ footerExtra: 'Holds the crown for Radiohead' });
-    expect(withCrown.mock.calls[0]![0].crownText).toBe('Holds the crown for Radiohead');
+    const withCrown = depsWith(async () => PNG);
+    await call({ footerExtra: 'Holds the crown for Radiohead' }, withCrown.deps);
+    expect(withCrown.generate.mock.calls[0]![0].crownText).toBe('Holds the crown for Radiohead');
 
-    const withoutCrown = stubGenerator(async () => PNG);
-    await call({ footerExtra: 'just a footer' });
-    expect(withoutCrown.mock.calls[0]![0].crownText).toBeUndefined();
+    const withoutCrown = depsWith(async () => PNG);
+    await call({ footerExtra: 'just a footer' }, withoutCrown.deps);
+    expect(withoutCrown.generate.mock.calls[0]![0].crownText).toBeUndefined();
   });
 
   it('sends genres as tags for Artist and Album but not for Track', async () => {
-    const artist = stubGenerator(async () => PNG);
-    await call({ type: 'Artist', genres: ['rock', 'art rock'] });
-    expect(artist.mock.calls[0]![0].tags).toEqual(['rock', 'art rock']);
+    const artist = depsWith(async () => PNG);
+    await call({ type: 'Artist', genres: ['rock', 'art rock'] }, artist.deps);
+    expect(artist.generate.mock.calls[0]![0].tags).toEqual(['rock', 'art rock']);
 
-    const album = stubGenerator(async () => PNG);
-    await call({ type: 'Album', genres: ['rock'] });
-    expect(album.mock.calls[0]![0].tags).toEqual(['rock']);
+    const album = depsWith(async () => PNG);
+    await call({ type: 'Album', genres: ['rock'] }, album.deps);
+    expect(album.generate.mock.calls[0]![0].tags).toEqual(['rock']);
 
-    const track = stubGenerator(async () => PNG);
-    await call({ type: 'Track', genres: ['rock'] });
-    expect(track.mock.calls[0]![0].tags).toBeUndefined();
+    const track = depsWith(async () => PNG);
+    await call({ type: 'Track', genres: ['rock'] }, track.deps);
+    expect(track.generate.mock.calls[0]![0].tags).toBeUndefined();
   });
 
   it('uses the guild name as location and falls back to Server', async () => {
-    const named = stubGenerator(async () => PNG);
-    await call({ guildName: 'The Listening Room' });
-    expect(named.mock.calls[0]![0].location).toBe('The Listening Room');
+    const named = depsWith(async () => PNG);
+    await call({ guildName: 'The Listening Room' }, named.deps);
+    expect(named.generate.mock.calls[0]![0].location).toBe('The Listening Room');
 
-    const anonymous = stubGenerator(async () => PNG);
-    await call({ guildName: null });
-    expect(anonymous.mock.calls[0]![0].location).toBe('Server');
+    const anonymous = depsWith(async () => PNG);
+    await call({ guildName: null }, anonymous.deps);
+    expect(anonymous.generate.mock.calls[0]![0].location).toBe('Server');
   });
 
   it('forwards the caller identity and the leaderboard unchanged', async () => {
-    const generate = stubGenerator(async () => PNG);
-    await call();
+    const { deps, generate } = depsWith(async () => PNG);
+    await call({}, deps);
     const args = generate.mock.calls[0]![0] as Record<string, unknown>;
 
     expect(args.type).toBe('Who Knows Artist');

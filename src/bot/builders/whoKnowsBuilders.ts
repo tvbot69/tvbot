@@ -26,6 +26,7 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 
 
 import { buildWhoKnowsImageResponse } from './whoKnowsImageBuilder';
+import { resolveWhoKnowsImageDeps } from './whoKnowsImageDeps';
 
 export class WhoKnowsBuilders {
   public static async buildWhoKnowsResponse(
@@ -105,19 +106,24 @@ export class WhoKnowsBuilders {
 
     // === Image Mode ===
     if (mode === WhoKnowsMode.Image) {
-      const image = await buildWhoKnowsImageResponse({
-        context,
-        title,
-        url,
-        thumbnailUrl,
-        users,
-        genres,
-        resolvedAccent,
-        type,
-        requestedUserId,
-        footerExtra,
-        metadata,
-      });
+      // Dependencies are resolved once, here, and passed in. The builder no
+      // longer reaches into the container, which is what makes it testable.
+      const image = await buildWhoKnowsImageResponse(
+        {
+          context,
+          title,
+          url,
+          thumbnailUrl,
+          users,
+          genres,
+          resolvedAccent,
+          type,
+          requestedUserId,
+          footerExtra,
+          metadata,
+        },
+        resolveWhoKnowsImageDeps(),
+      );
       if (image) return image;
     }
 
