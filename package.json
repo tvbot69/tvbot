@@ -21,7 +21,8 @@
     "db:deploy": "prisma migrate deploy --schema src/persistence/prisma/schema.prisma",
     "db:studio": "prisma studio --schema src/persistence/prisma/schema.prisma",
     "test:coverage": "vitest run --coverage",
-    "test:coverage:ci": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml"
+    "test:coverage:ci": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml",
+    "db:count-duplicates": "tsx scripts/count-duplicate-plays.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
