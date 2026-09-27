@@ -1,7 +1,7 @@
 # tvbot — AI Assistant Instructions & Workspace Rules
 
 > **MANDATORY CONTEXT: this file is loaded on every turn.**
-> You are the dedicated core engineer on **tvbot**, a private unlimited Discord bot mirroring `fmbot` for Last.fm stats and Lavalink music. You do not need to ask what the bot is. Read this file, then `tvbot.md` for the long-form handbook.
+> You are the dedicated core engineer on **tvbot**, a private unlimited Discord bot mirroring `fmbot` for Last.fm stats and Lavalink music. You do not need to ask what the bot is. This file plus `.opencode/skills/tvbot/SKILL.md` are the only two AI-instruction files in the repo. Keep it that way — duplicated handbooks drift and then actively mislead.
 
 Paths below are **repo-relative**. Do not write absolute `file://` URLs — they break on any machine that isn't the author's.
 
@@ -28,7 +28,11 @@ Paths below are **repo-relative**. Do not write absolute `file://` URLs — they
 3. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 4. Push **only** when asked.
 
-Current baseline: **117 test files / 919 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
+Current baseline: **120 test files / 935 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
+
+`npm test` does not typecheck. Always run `npm run build` too — otherwise a bad constructor arity passes vitest and breaks the build.
+
+**Run it**: `npm install` → `npm run db:generate` → `npm run dev` (tsx watch, ephemeral Puppeteer, Lavalink off). Production is `npm run build` then `npm start`.
 
 ---
 
@@ -47,6 +51,9 @@ Current baseline: **117 test files / 919 tests**. If the numbers in this file dr
 6. **Chapter/artwork state is only decoration.** Chapter logic must never break playback, and must never trip the audio resolver's pause/alert machinery.
 
 7. **Environment**: in dev (`ENVIRONMENT=local`) `ENABLE_LAVALINK=false` by default, to avoid burning public node rate limits on reload.
+8. **Delete scrapped approaches completely.** No flags, no legacy rungs, no commented-out remnants of a removed feature — unless the user explicitly asks to keep a path behind a flag. Piped chapters and fake-Spotify presence were both fully deleted.
+9. **Type-only imports across music modules** (`import type { X } from './ytResolver'`) — this is what keeps the playback DAG acyclic. A value import there closes a cycle.
+10. **`Logger.debug` for internal degradation paths.** The user reads Railway logs, and INFO-level noise hides the lines that matter. An expected-but-notable outcome is DEBUG; a lost capability is WARN.
 
 ---
 
@@ -217,3 +224,42 @@ Three fixes, in priority order:
 3. **Doubles that are deliberately uncooperative** — a double whose `current.position` *disagrees* with the recorded seek intent. Cooperation between double and code is what hid the bug.
 
 And the honest limit: **no test can catch "Spotify changed their API"**, because that is a fact about the world. Only watching the real thing catches it — which is why §9 exists, and why reading the log is part of the job rather than a fallback.
+
+---
+
+## 12. Environment variables
+
+`src/bot/configurations/envValidator.ts` validates these at boot; `.env.example` is the reference copy.
+
+| Variable | Used for |
+|---|---|
+| `DISCORD_TOKEN` | Bot authentication. Nothing works without it. |
+| `DATABASE_URL` | Railway PostgreSQL connection string. |
+| `REDIS_URL` | `redis://localhost:6379`. `CacheService` falls back to an in-memory LRU if Redis is down — it does not fail. |
+| `LASTFM_API_KEY` / `LASTFM_API_SECRET` | Every Last.fm read: scrobbles, library, top lists, who-knows. |
+| `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Search + cover art. **Client-credentials scope only — see §10 for what that cannot do.** |
+| `GENIUS_CLIENT_ID` / `GENIUS_CLIENT_SECRET` | Lyrics lookup. |
+| `YOUTUBE_API_KEY` | Chapter timestamps via one `videos.list?part=snippet` call. |
+| `HOME_RESOLVER_URL` / `HOME_RESOLVER_TOKEN` | The user PC's yt-dlp resolver. The first rung of the search ladder. |
+| `HOME_LADDER_MODE` | Which rungs the ladder is allowed to use. |
+| `AUDD_API_TOKEN`, `DISCOGS_KEY` / `DISCOGS_SECRET` | Song recognition and last-resort search. |
+| `ENABLE_LAVALINK` | `false` in dev, `true` in prod. |
+| `FFMPEG_PATH` | System ffmpeg/ffprobe, used for previews, voice messages and BPM/key analysis. |
+| `STAGING_CHANNEL_ID` | Scratch channel for temporary chart uploads. |
+
+---
+
+## 13. Subsystem map
+
+Where each pillar of the bot actually lives. Read the file before editing it.
+
+- **DI container** — `src/bot/startup.ts:configureContainer()`. The entire graph is constructed by hand and registered with `container.registerInstance`. No reflection.
+- **Command framework** — `ContextModel` (`src/bot/models/contextModel.ts`) normalises a `Message`, a `ChatInputCommandInteraction` and a `ButtonInteraction` behind one API. Builders return a `ResponseModel` (embeds, buttons, or Components V2 containers).
+- **Persistence** — `src/persistence/prisma/schema.prisma`. `UserPlay` is the indexed scrobble history; `Artist`/`Album`/`Track` are cached metadata; `UserArtist`/`UserAlbum`/`UserTrack` are per-user denormalised rollups all keyed `(userId, <id>)`; `UserCrown` tracks guild crown holders; `GuildAutopost` holds scheduled-post config.
+- **Last.fm sync** — `updateService.ts` (delta sync, 3h overlap, 14-day fallback, backoff `500/2500/5000/10000/25000ms`), `indexService.ts` (full history, up to 1000 pages, batch commits every 10), `timerService.ts` (cron).
+- **Artwork engine** — `artworkService.ts`. Memory + Redis cache (1h positive / 10min definitive-none / 90s inconclusive), then a DB row if fresher than 90 days, then the cascade Spotify → Deezer → Apple → Last.fm, then persist. See §3.2 and §3.3.
+- **Social intelligence** — `src/bot/services/whoKnows/`. Ranks top listeners per artist/album/track from indexed plays plus a live Last.fm count, respecting `privacy_level`, guild bans and `self_block_from_who_knows`.
+- **Crowns** — `src/bot/services/crown/crownService.ts`. Claim/steal with a play threshold, dynamic re-evaluation against live scrobbles, bulk seeding, moderation.
+- **Autoposts** — `src/bot/services/autopostService.ts`. Scheduled leaderboard/crown posts on a 15-minute cron sweep.
+- **OAuth actions** — `.love`/`.unlove`/`.scrobble` live in the track command modules and now-playing interactions, and use the user's `session_key`.
+- **Audio analysis** — `src/bot/services/audio/`: `previewResolverService` (30s previews), `audioSignalService` (ffmpeg → PCM), `essentiaService` (WASM BPM + key), `voiceMessageService` (Opus OGG with `flags: 8192` and a base64 waveform).
