@@ -57,3 +57,29 @@ export interface SpotifySearchResponse {
   albums?: { items?: SpotifySearchAlbum[] };
   tracks?: { items?: SpotifySearchTrack[] };
 }
+
+/**
+ * `GET /v1/artists/{id}/albums`
+ *
+ * Distinct from a search response, and getting this wrong is easy because the
+ * two look alike: a SEARCH result for a track carries its artwork at
+ * `album.images`, while this endpoint returns album objects that carry
+ * `images` at the TOP level. Verified against the live API - the item keys
+ * are album_type, total_tracks, external_urls, href, id, images, name,
+ * release_date, release_date_precision, type, uri, artists.
+ *
+ * Note there is no `total_pages` on this response, so paging cannot be
+ * inferred from it.
+ */
+export interface SpotifyArtistAlbumsResponse {
+  items?: Array<{
+    id: string;
+    name: string;
+    album_type?: string;
+    release_date?: string;
+    total_tracks?: number;
+    images?: SpotifyImage[];
+    external_urls?: { spotify?: string };
+  }>;
+  href?: string;
+}

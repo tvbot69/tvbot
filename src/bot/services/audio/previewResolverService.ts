@@ -3,6 +3,8 @@ import { DeezerApi } from '@deezer/apis/deezerApi';
 import { SpotifyScraperService } from '../music/spotifyScraperService';
 import { CacheService } from '../cacheService';
 import { Logger } from '@domain/logger';
+import type { ITunesSearchResult } from '@applemusic/models/itunesModels';
+import type { DeezerTrack } from '@deezer/models/deezerModels';
 
 export interface ResolvedPreview {
   trackName: string;
@@ -113,10 +115,10 @@ export class PreviewResolverService {
       const cleanTrack = this.clean(track);
       const cleanQuery = this.clean(`${artist} ${track}`);
       const cleanAlbumHint = albumHint ? this.clean(albumHint) : '';
-      const scored = data.map((item: any, idx: number) => {
+      const scored = data.map((item: ITunesSearchResult, idx: number) => {
         const resTrack = (item.trackName ?? '').toLowerCase();
         const resArt = (item.artistName ?? '').toLowerCase();
-        const resColl = ((item as any).collectionName ?? '').toLowerCase();
+        const resColl = (item.collectionName ?? '').toLowerCase();
         const combined = `${resArt} ${resTrack}`;
         const cResArt = this.clean(resArt);
         const cResTrack = this.clean(resTrack);
@@ -151,9 +153,9 @@ export class PreviewResolverService {
         score += (15 - idx) * 10;
         return { item, score };
       });
-      const valid = scored.filter((r: any) => r.score >= 0);
+      const valid = scored.filter((r) => r.score >= 0);
       if (valid.length === 0) return null;
-      valid.sort((a: any, b: any) => b.score - a.score);
+      valid.sort((a, b) => b.score - a.score);
       const chosen = valid[0]!.item;
       if (!chosen) return null;
       // Extra guard: reject if artist validation fails
@@ -161,10 +163,12 @@ export class PreviewResolverService {
       return {
         trackName: chosen.trackName ?? track,
         artistName: chosen.artistName ?? artist,
-        albumName: (chosen as any).collectionName ?? null,
-        durationMs: Number((chosen as any).trackTimeMillis ?? 0),
-        previewUrl: (chosen as any).previewUrl ?? null,
-        storeUrl: (chosen as any).trackViewUrl ?? null,
+        albumName: chosen.collectionName ?? null,
+        // trackTimeMillis is a NUMBER in the iTunes response, measured. The
+      // Number() was defensive against a type that did not exist yet.
+      durationMs: chosen.trackTimeMillis ?? 0,
+        previewUrl: chosen.previewUrl ?? null,
+        storeUrl: chosen.trackViewUrl ?? null,
         artworkUrl: chosen.artworkUrl100 ? chosen.artworkUrl100.replace('100x100bb', '600x600bb') : null,
         source: 'apple',
       };
@@ -182,7 +186,7 @@ export class PreviewResolverService {
       const cleanArtist = this.clean(artist);
       const cleanTrack = this.clean(track);
       const cleanAlbumHint = albumHint ? this.clean(albumHint) : '';
-      const scored = results.map((item: any) => {
+      const scored = results.map((item: DeezerTrack) => {
         const resTrack = (item.title ?? '').toLowerCase();
         const resArt = (item.artist?.name ?? '').toLowerCase();
         const resColl = (item.album?.title ?? '').toLowerCase();
@@ -212,9 +216,9 @@ export class PreviewResolverService {
         if (artist.toLowerCase().includes('baba') && !resArt.includes('baba')) score -= 5000;
         return { item, score };
       });
-      const valid = scored.filter((r: any) => r.score >= 0);
+      const valid = scored.filter((r) => r.score >= 0);
       if (valid.length === 0) return null;
-      valid.sort((a: any, b: any) => b.score - a.score);
+      valid.sort((a, b) => b.score - a.score);
       const chosen = valid[0]!.item;
       if (!chosen) return null;
       if (!this.validateArtist(artist, chosen.artist?.name ?? '')) return null;

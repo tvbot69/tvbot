@@ -9,8 +9,22 @@ import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 import ffmpegFluent from 'fluent-ffmpeg';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let ffmpeg: any = null;
+/**
+ * The fluent-ffmpeg module, captured so the resolved binary paths can be
+ * installed once at import time.
+ *
+ * Typed as `typeof ffmpegFluent` rather than `any`. `@types/fluent-ffmpeg` is
+ * already a devDependency and describes the whole surface used here -
+ * setFfmpegPath, setFfprobePath, the callable command form, audioChannels,
+ * output, run and ffprobe - so the annotation was suppressing checks that
+ * would have passed.
+ *
+ * `typeof ffmpegFluent` rather than the FfmpegCommand interface: the module
+ * IS the callable command factory, and FfmpegCommand is the instance type it
+ * returns. The typings use `export =`, so the interface has to be reached
+ * through the namespace rather than a named import.
+ */
+let ffmpeg: typeof ffmpegFluent | null = null;
 let resolvedFfmpeg: string | undefined;
 let resolvedFfprobe: string | undefined;
 
@@ -60,7 +74,7 @@ export async function downloadAndConvert(url: string, trackId: string, duration?
     await new Promise<void>((resolve, reject) => {
       let cmd = ffmpeg(mp3Path).noVideo().audioChannels(1).audioCodec('libopus').format('ogg').outputOptions(['-vbr on']);
       if (duration) cmd = cmd.duration(duration);
-      cmd.output(oggPath).on('end', () => resolve()).on('error', (err: any) => reject(err)).run();
+      cmd.output(oggPath).on('end', () => resolve()).on('error', (err: Error) => reject(err)).run();
     });
   } catch (err) {
     // The unlink used to sit only on the success path, so every failed
@@ -76,14 +90,34 @@ export async function getAudioSignalAndSr(trackId: string, url: string): Promise
   const mp3Path = await downloadMP3(url, trackId);
   let rawPath: string | undefined;
   try {
-    const metadata: any = await new Promise((resolve, reject) => {
-      ffmpeg.ffprobe(mp3Path, (err: any, data: any) => (err ? reject(err) : resolve(data)));
+    // The ffprobe shapes, declared rather than imported. @types/fluent-ffmpeg
+    // declares FfprobeData/FfprobeStream inside a namespace that is not
+    // reachable as a named export (the module uses `export =`), and ffprobe is
+    // overloaded four ways, so inferring through Parameters<> picks the wrong
+    // overload and yields `never`. Spelling out the two fields actually read is
+    // clearer than working around the packaging.
+    //
+    // `streams` is a required array per those typings, so the optional chaining
+    // below is defensive against a shape the types already guarantee.
+    interface FfprobeStream {
+      codec_type?: string;
+      sample_rate?: string | number;
+      codec_name?: string;
+    }
+    interface FfprobeData {
+      streams: FfprobeStream[];
+    }
+
+    const metadata = await new Promise<FfprobeData>((resolve, reject) => {
+      // Typed explicitly because ffprobe is overloaded four ways in the
+      // typings, which leaves the callback parameters contextually untyped.
+      ffmpeg.ffprobe(mp3Path, (err: Error, data: FfprobeData) => (err ? reject(err) : resolve(data)));
     });
-    const audioStream = metadata?.streams?.find((s: any) => s.codec_type === 'audio');
+    const audioStream = metadata?.streams?.find((s) => s.codec_type === 'audio');
     const sampleRate = audioStream?.sample_rate ? Number(audioStream.sample_rate) : 44100;
     rawPath = path.join(tempDir, `${trackId}.raw`);
     await new Promise<void>((resolve, reject) => {
-      ffmpeg(mp3Path).audioChannels(1).audioCodec('pcm_f32le').format('f32le').output(rawPath!).on('end', () => resolve()).on('error', (err: any) => reject(err)).run();
+      ffmpeg(mp3Path).audioChannels(1).audioCodec('pcm_f32le').format('f32le').output(rawPath!).on('end', () => resolve()).on('error', (err: Error) => reject(err)).run();
     });
     const buffer = await fsp.readFile(rawPath);
     const signal = new Float32Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.length / 4));

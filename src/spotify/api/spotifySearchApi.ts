@@ -4,6 +4,7 @@ import { SpotifyTokenManager } from './spotifyTokenManager';
 import { TelemetryService } from '@bot/services/telemetryService';
 import { Logger } from '@domain/logger';
 import type {
+  SpotifyArtistAlbumsResponse,
   SpotifySearchAlbum,
   SpotifySearchArtist,
   SpotifySearchResponse,
@@ -220,7 +221,11 @@ export class SpotifySearchApi {
       const cleanArtist = SpotifySearchApi.clean(artistName);
       const cleanTrack = SpotifySearchApi.clean(trackName);
       const cleanQuery = SpotifySearchApi.clean(`${artistName} ${trackName}`);
-      const scored = results.map((item: any, idx: number) => {
+      // Typed as SpotifySearchTrack, not any: the scorer reads name,
+      // artists[0].name, id and external_urls.spotify, and all four are
+      // declared. Typing the input also gives `scored` a real shape, which is
+      // what removed the two downstream annotations on filter/sort below.
+      const scored = results.map((item: SpotifySearchTrack, idx: number) => {
         const resTrack = (item.name ?? '').toLowerCase();
         const resArt = (item.artists?.[0]?.name ?? '').toLowerCase();
         const combined = `${resArt} ${resTrack}`;
@@ -252,9 +257,9 @@ export class SpotifySearchApi {
         score += (15 - idx) * 10;
         return { item, score };
       });
-      const valid = scored.filter((r: any) => r.score >= 0);
+      const valid = scored.filter((r) => r.score >= 0);
       if (valid.length === 0) return null;
-      valid.sort((a: any, b: any) => b.score - a.score);
+      valid.sort((a, b) => b.score - a.score);
       const chosen = valid[0]!.item;
       if (!chosen) return null;
       if (chosen.id) return `https://open.spotify.com/track/${chosen.id}`;
@@ -460,8 +465,8 @@ export class SpotifySearchApi {
         return [];
       }
       if (!res.ok) return [];
-      const data: any = await res.json();
-      const items: any[] = data.items ?? [];
+      const data = (await res.json()) as SpotifyArtistAlbumsResponse;
+      const items = data.items ?? [];
 
       const covers: string[] = [];
       const seenUrls = new Set<string>();
