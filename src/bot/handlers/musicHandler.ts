@@ -2,6 +2,8 @@ import { Client, Events, VoiceChannel, StageChannel } from 'discord.js';
 import type { Manager, Player } from 'moonlink.js';
 import { Track } from 'moonlink.js';
 import { Logger } from '@domain/logger';
+import { FallbackBudget } from './music/fallbackBudget';
+import { buildFallbackQuery, chapterKeyFor, clientFailuresText, fingerprintFor } from './music/cardFingerprint';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { QueueService } from '@bot/services/music/queueService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
@@ -29,7 +31,7 @@ import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTra
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { healthFor, ladderFor, YoutubeHealth, HOME_NODE } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome } from '@bot/services/music/ytResolver';
-import { BORROWED_COVER_MS, CHAPTER_ART_RETRY_MS, CHAPTER_JUMP_CONFIRM_MS } from '@bot/services/music/musicConstants';
+import { BORROWED_COVER_MS, CHAPTER_ART_RETRY_MS, CHAPTER_JUMP_CONFIRM_MS, CHAPTER_REGRESSION_TOLERANCE_MS, USER_SEEK_INTENT_WINDOW_MS } from '@bot/services/music/musicConstants';
 
 export class MusicHandler {
   private readonly client: Client;
@@ -86,6 +88,12 @@ export class MusicHandler {
     this.lyricsService = lyricsService;
     this.artworkService = artworkService;
 
+    this.fallbackBudget = new FallbackBudget(
+      this.fallbackAttempts,
+      this.guildFallbackBudget,
+      this.triedFallbackIds,
+      this.songFailureCounts,
+    );
     this.registerMoonlinkEvents();
     this.registerDiscordEvents();
   }
@@ -146,6 +154,7 @@ export class MusicHandler {
     // not) at random. The index is re-derived at position 0 by trackStart.
     if (id && id === player.get<string>('chapterSourceId')) {
       player.set('chapterIdx', -2);
+      player.set('chapterCommittedPosMs', null);
       player.set('chapterCard', null);
       player.set('lastCoverUrl', null);
       player.set('chapterStartedAt', null);
@@ -161,6 +170,7 @@ export class MusicHandler {
     player.set('chapterSourceId', null);
     player.set('chapters', null);
     player.set('chapterIdx', -2);
+    player.set('chapterCommittedPosMs', null);
     player.set('chapterCard', null);
     player.set('lastCoverUrl', null);
     player.set('chapterStartedAt', null);
@@ -323,6 +333,47 @@ export class MusicHandler {
         }
         return stored;
       }
+
+      // REGRESSION GUARD. The forward-jump guard below handles clock drift, but
+      // nothing handled the opposite: a stale position read (a `queue.position`
+      // of 0 captured before a seek's REST landed) rewound the card straight
+      // back to chapter 0 with no delay and no confirmation. Measured locally
+      // 2026-09-27: a `.seek 21:58` correctly showed chapter 8 with resolved
+      // art, then one second later the card reverted to chapter 0 — the exact
+      // "chapter didn't change" symptom.
+      //
+      // A position that goes BACKWARDS, with no user seek to explain it, is
+      // stale data — never a listener request. A genuine backward seek always
+      // carries a recorded seek intent, so it still gets through.
+      if (lastIdx >= 0 && idx < lastIdx) {
+        const committedAt = player.get<number>('chapterCommittedPosMs');
+        const seekedAt = player.get<number | null>('lastUserSeekAt') ?? null;
+        const seekedPos = player.get<number | null>('lastUserSeekPos') ?? null;
+        const explainedBySeek =
+          seekedAt !== null &&
+          seekedPos !== null &&
+          Date.now() - seekedAt < USER_SEEK_INTENT_WINDOW_MS &&
+          chapterIndexAt(chapters, Math.max(0, seekedPos)) === idx;
+        const regression =
+          typeof committedAt === 'number' && positionMs < committedAt - CHAPTER_REGRESSION_TOLERANCE_MS;
+        if (regression && !explainedBySeek) {
+          Logger.info(
+            {
+              guildId: player.guildId,
+              from: lastIdx,
+              to: idx,
+              positionMs,
+              committedAt,
+            },
+            '[Music] Stale position read — refusing to rewind the chapter',
+          );
+          // Nudge a re-derive so a genuinely-moved clock is picked up soon
+          // rather than being frozen out.
+          this.scheduleImmediateProgress(player);
+          return player.get<ChapterCard | null>('chapterCard') ?? null;
+        }
+      }
+
       // Multi-chapter forward jump with no seek behind it. A seek commits its
       // own index (swapChapterOnSeek), so reaching here means the POSITION is
       // suspect — a stale/future-dated node clock, or the wall-clock fallback
@@ -333,32 +384,58 @@ export class MusicHandler {
       // chapter for one settle window instead; if the clock still says so
       // afterwards, the jump was real (a long stall) and it is committed.
       if (lastIdx >= 0 && idx > lastIdx + 1) {
-        const pending = player.get<{ idx: number; at: number } | null>('chapterJumpPending') ?? null;
-        const sameJump = !!pending && pending.idx === idx;
-        const confirmed = sameJump && Date.now() - pending.at > CHAPTER_JUMP_CONFIRM_MS;
-        if (!confirmed) {
-          if (!sameJump) {
-            player.set('chapterJumpPending', { idx, at: Date.now() });
-            Logger.info(
-              { guildId: player.guildId, from: lastIdx, to: idx },
-              '[Music] Implausible chapter jump — holding current chapter to confirm',
-            );
-            // Re-derive once the settle window closes: the next boundary timer
-            // is armed from the (possibly wrong) jumped position, so it may
-            // be minutes away. This is the only prompt re-check.
-            this.scheduleImmediateProgress(player, CHAPTER_JUMP_CONFIRM_MS + 500);
+        // A jump the USER asked for is not a suspicious clock. `seek()` records
+        // its intent on the player BEFORE awaiting the REST round-trip, so this
+        // is the authoritative signal that the position is deliberate.
+        //
+        // Measured 2026-09-27 (local test): a deliberate `.seek 21:50` across
+        // five chapters was logged as "Implausible chapter jump" twice and took
+        // ~17s to commit, because swapChapterOnSeek had already early-returned
+        // (moonlink reports the pre-seek position on playerTriggeredSeek) and
+        // the position-derived path then treated the user's own seek as clock
+        // drift. Honouring the recorded intent removes that stall entirely.
+        const seekedAt = player.get<number | null>('lastUserSeekAt') ?? null;
+        const seekedPos = player.get<number | null>('lastUserSeekPos') ?? null;
+        const userInitiated =
+          seekedAt !== null &&
+          seekedPos !== null &&
+          Date.now() - seekedAt < USER_SEEK_INTENT_WINDOW_MS &&
+          chapterIndexAt(chapters, Math.max(0, seekedPos)) === idx;
+        if (userInitiated) {
+          player.set('chapterJumpPending', null);
+          Logger.info(
+            { guildId: player.guildId, from: lastIdx, to: idx },
+            '[Music] Multi-chapter jump matches a user seek — committing immediately',
+          );
+        } else {
+          const pending = player.get<{ idx: number; at: number } | null>('chapterJumpPending') ?? null;
+          const sameJump = !!pending && pending.idx === idx;
+          const confirmed = sameJump && Date.now() - pending.at > CHAPTER_JUMP_CONFIRM_MS;
+          if (!confirmed) {
+            if (!sameJump) {
+              player.set('chapterJumpPending', { idx, at: Date.now() });
+              Logger.info(
+                { guildId: player.guildId, from: lastIdx, to: idx },
+                '[Music] Implausible chapter jump — holding current chapter to confirm',
+              );
+              // Re-derive once the settle window closes: the next boundary timer
+              // is armed from the (possibly wrong) jumped position, so it may
+              // be minutes away. This is the only prompt re-check.
+              this.scheduleImmediateProgress(player, CHAPTER_JUMP_CONFIRM_MS + 500);
+            }
+            return player.get<ChapterCard | null>('chapterCard') ?? null;
           }
-          return player.get<ChapterCard | null>('chapterCard') ?? null;
+          player.set('chapterJumpPending', null);
+          Logger.info(
+            { guildId: player.guildId, from: lastIdx, to: idx },
+            '[Music] Chapter jump confirmed after settle — committing',
+          );
         }
-        player.set('chapterJumpPending', null);
-        Logger.info(
-          { guildId: player.guildId, from: lastIdx, to: idx },
-          '[Music] Chapter jump confirmed after settle — committing',
-        );
       }
       player.set('chapterJumpPending', null);
       player.set('chapterIdx', idx);
       player.set('chapterStartedAt', Date.now());
+      player.set('chapterCommittedPosMs', positionMs);
       const ch = idx >= 0 ? chapters[idx] : undefined;
       if (!ch || isGenericChapterTitle(ch.title)) {
         const hadCard = player.get<ChapterCard | null>('chapterCard') ?? null;
@@ -480,6 +557,7 @@ export class MusicHandler {
       player.set('chapterArtRetry', null);
       player.set('chapterIdx', idx);
       player.set('chapterStartedAt', Date.now());
+      player.set('chapterCommittedPosMs', positionMs);
       const ch = idx >= 0 ? chapters[idx] : undefined;
       if (!ch || isGenericChapterTitle(ch.title)) {
         player.set('chapterCard', null);
@@ -529,41 +607,24 @@ export class MusicHandler {
    * on `title~hasArt` alone made every art swap look identical to the state
    * already posted — the card kept the previous song's cover indefinitely.
    */
-  private static chapterKeyFor(
-    chapter: { title: string; artworkUrl?: string | null } | null,
-    shownCover: string | null,
-  ): string {
-    if (!chapter) return 'none';
-    return `${chapter.title}~${shownCover ?? ''}`;
-  }
   /**
-   * Visible card fingerprint: track, pause state, queue shape, karaoke
-   * window and chapter. On-demand publishes edit only on change; trackStart
-   * syncs it to the posted card so a same-track re-post neither double-
-   * publishes identical state nor suppresses the next real change.
+   * Static delegates onto cardFingerprint.ts. That module is pure (no state,
+   * no timers), but these call sites — including a test that reads the static
+   * straight off the class — have always gone through MusicHandler, so the
+   * aliases keep the split invisible to every caller.
    */
-  private static fingerprintFor(
-    queue: MusicQueueInfo,
-    lyricKey: string,
-    chapterKey: string,
-  ): string {
-    return [
-      queue.current?.identifier ?? queue.current?.uri ?? 'none',
-      queue.isPaused ? 'p' : 'r',
-      queue.tracks.length,
-      queue.loopMode,
-      queue.volume,
-      lyricKey,
-      chapterKey,
-    ].join('|');
+  private static chapterKeyFor = chapterKeyFor;
+  private static fingerprintFor = fingerprintFor;
+  private static clientFailuresText = clientFailuresText;
+
+  /** See cardFingerprint.buildFallbackQuery. */
+  private buildFallbackQuery(track: Track | null | undefined): string | null {
+    return buildFallbackQuery(track);
   }
-  // Event-driven card: no polling. Boundary one-shots (karaoke/chapter)
-  // re-evaluate their section at the exact moment it changes, and an edit
-  // only goes out when the fingerprint (track, state, lyric window, chapter)
-  // actually changed — quiet stretches cost zero edits.
+
+  /** 15s node-health survival probe, armed on trackStart. */
   private readonly okTimers = new Map<string, NodeJS.Timeout>();
 
-  /** Clears every per-guild card timer (nudge, karaoke, chapter). */
   private clearCardTimers(guildId: string): void {
     const nudge = this.progressNudgeTimers.get(guildId);
     if (nudge) {
@@ -955,34 +1016,6 @@ export class MusicHandler {
    * "(from GTAVI: The Album)" in the title) and full-noise queries return zero
    * SoundCloud hits. First billed artist + bracket-stripped title matches far better.
    */
-  private buildFallbackQuery(track: Track | null | undefined): string | null {
-    if (!track?.title || !track?.author) return null;
-    const firstArtist =
-      track.author
-        .split(/[,/&]/)[0]
-        ?.replace(/\s+(feat\.?|ft\.?|featuring|with|x)\s+.*$/i, '')
-        .trim() || track.author;
-    const strippedTitle =
-      cleanTrackTitle(track.title, track.author)
-        .replace(/\s*[([{\u3010].*?[)\]}\u3011]\s*/g, ' ')
-        .replace(/\s{2,}/g, ' ')
-        .trim() || track.title;
-    return `${firstArtist} - ${strippedTitle}`;
-  }
-
-  /**
-   * Compacts a Moonlink track exception into one log line per client
-   * ("ANDROID_VR: requires login | WEB: no supported audio streams").
-   * The old 300-char truncation hid every client except the first.
-   */
-  private static clientFailuresText(reason: unknown): string {
-    const text = typeof reason === 'string' ? reason : String(reason ?? '');
-    const hits = [...text.matchAll(/Client \[(\w+)\] failed: ([^\r\n]+)/g)].map(
-      (m) => `${m[1] ?? '?'}: ${(m[2] ?? '').trim().replace(/\.$/, '')}`,
-    );
-    return hits.length > 0 ? hits.join(' | ') : text.slice(0, 200);
-  }
-
   private adoptFallbackMetadata(fallback: Track, failedTrack: Track, source: string): void {
     fallback.requester = failedTrack.requester;
     fallback.title = failedTrack.title;
@@ -1039,7 +1072,8 @@ export class MusicHandler {
   private readonly fallbackAttempts = new Map<string, number>();
   private readonly guildFallbackBudget = new Map<string, { count: number; windowStart: number }>();
   private readonly triedFallbackIds = new Map<string, Set<string>>();
-  private static readonly MAX_FALLBACKS_PER_TRACK = 3;
+  // Song-identity circuit breaker state, owned here and passed to FallbackBudget.
+  private readonly songFailureCounts = new Map<string, { count: number; firstAt: number }>();
   // Post-seek catch-up grace for far seeks in long videos before normal
   // machinery resumes. Generous on purpose: slow downloads (SABR streams,
   // still-growing local files) stall repeatedly while catching up, and each
@@ -1053,98 +1087,33 @@ export class MusicHandler {
   // musicConstants so the handler and the interaction surface cannot drift
   // apart (they used to be separate literals for one concept).
 
-  private fallbackTrackKey(guildId: string, failedKey: string): string {
-    return `${guildId}|${failedKey}`;
-  }
+  /** Fallback budget + song circuit breaker — see music/fallbackBudget.ts.
+   * The Maps stay owned by this handler and are passed in BY REFERENCE, so
+   * forgetGuild still sweeps them and the tests can still read them here. */
+  private readonly fallbackBudget: FallbackBudget;
 
   private checkFallbackBudget(guildId: string, failedKey: string): boolean {
-    const attempts = this.fallbackAttempts.get(this.fallbackTrackKey(guildId, failedKey)) ?? 0;
-    if (attempts >= MusicHandler.MAX_FALLBACKS_PER_TRACK) return false;
-    const now = Date.now();
-    const budget = this.guildFallbackBudget.get(guildId);
-    if (!budget || now - budget.windowStart > MusicHandler.FALLBACK_BUDGET_WINDOW_MS) {
-      this.guildFallbackBudget.set(guildId, { count: 0, windowStart: now });
-    } else if (budget.count >= MusicHandler.MAX_FALLBACKS_PER_GUILD_WINDOW) {
-      return false;
-    }
-    return true;
+    return this.fallbackBudget.checkFallbackBudget(guildId, failedKey);
   }
 
   private recordFallbackAttempt(guildId: string, failedKey: string, fallbackId?: string): void {
-    const trackKey = this.fallbackTrackKey(guildId, failedKey);
-    this.fallbackAttempts.set(trackKey, (this.fallbackAttempts.get(trackKey) ?? 0) + 1);
-    const budget = this.guildFallbackBudget.get(guildId);
-    if (budget) budget.count++;
-    if (fallbackId) {
-      let tried = this.triedFallbackIds.get(guildId);
-      if (!tried) {
-        tried = new Set();
-        this.triedFallbackIds.set(guildId, tried);
-      }
-      if (tried.size >= 10) tried.clear();
-      tried.add(fallbackId);
-    }
+    return this.fallbackBudget.recordFallbackAttempt(guildId, failedKey, fallbackId);
   }
 
   private clearFallbackState(guildId: string): void {
-    this.guildFallbackBudget.delete(guildId);
-    this.triedFallbackIds.delete(guildId);
-    for (const key of this.fallbackAttempts.keys()) {
-      if (key.startsWith(`${guildId}|`)) this.fallbackAttempts.delete(key);
-    }
-    for (const key of this.songFailureCounts.keys()) {
-      if (key.startsWith(`${guildId}|`)) this.songFailureCounts.delete(key);
-    }
-  }
-
-  // Song-identity circuit breaker: budgets keyed on track bytes can't stop a
-  // poison SONG (every alternate upload is a new encoded id). After N failed
-  // attempts at the same artist+title, abandon the song instead of burning
-  // more searches and stuttering dead air.
-  private readonly songFailureCounts = new Map<string, { count: number; firstAt: number }>();
-  private static readonly MAX_FAILURES_PER_SONG = 2;
-  private static readonly SONG_FAILURE_WINDOW_MS = 600000;
-
-  private songIdentityKey(guildId: string, track: Track): string {
-    return `${guildId}|${(track.author || '').toLowerCase().trim()} - ${(track.title || '').toLowerCase().trim()}`;
+    return this.fallbackBudget.clearFallbackState(guildId);
   }
 
   private isSongExhausted(guildId: string, track: Track): boolean {
-    const key = this.songIdentityKey(guildId, track);
-    const now = Date.now();
-    const entry = this.songFailureCounts.get(key);
-    if (!entry || now - entry.firstAt > MusicHandler.SONG_FAILURE_WINDOW_MS) {
-      this.songFailureCounts.set(key, { count: 1, firstAt: now });
-      return false;
-    }
-    entry.count++;
-    return entry.count > MusicHandler.MAX_FAILURES_PER_SONG;
+    return this.fallbackBudget.isSongExhausted(guildId, track);
   }
 
-  /**
-   * Finds an alternate playable upload for a failed/stuck track.
-   * Order matters:
-   *  1. Alternate YouTube upload — official label uploads are the most likely to be
-   *     region/age/embed-blocked for Lavalink; lyric and fan re-uploads of the same
-   *     duration (different video id) usually play fine.
-   *  2. SoundCloud version — last resort; duration-gated so we never silently play a
-   *     wrong song (worse UX than skipping).
-   * Previously-tried uploads are excluded so a failing fallback can't loop.
-   * Returns null when nothing playable exists so the caller can skip past the poison track.
-   */
   private matchesFallbackDuration(failedTrack: Track, duration?: number): boolean {
-    const failedDuration = failedTrack.duration || 0;
-    if (!duration || !failedDuration) return true;
-    return Math.abs(duration - failedDuration) <= 30000;
+    return this.fallbackBudget.matchesFallbackDuration(failedTrack, duration);
   }
 
   private isFreshCandidate(failedTrack: Track, guildId: string, t: Track): boolean {
-    const tried = this.triedFallbackIds.get(guildId) ?? new Set<string>();
-    return (
-      t.identifier !== failedTrack.identifier &&
-      !tried.has(t.identifier) &&
-      this.matchesFallbackDuration(failedTrack, t.duration)
-    );
+    return this.fallbackBudget.isFreshCandidate(failedTrack, guildId, t);
   }
 
   private async searchYoutubeAlternate(
@@ -1380,7 +1349,10 @@ export class MusicHandler {
         const queue = this.queueService.getQueueInfo(player);
         await this.resolveKaraokeLines(player, currentTrack.title, currentTrack.author, currentTrack.duration);
         this.resolveVideoChapters(player, player.current ?? track);
-        const chapter = this.chapterCardFor(player, 0);
+        // The REAL position, not a hardcoded 0: a track that starts part-way
+        // through (fallback resume, a restored session) must render the chapter
+        // it is actually on.
+        const chapter = this.chapterCardFor(player, this.queueService.calculatePosition(player));
         // Same cover resolution the publisher uses, so the first post and
         // every later edit agree on what is on screen (and on the key).
         const postedCover = chapter?.artworkUrl ?? queue.current?.artworkUrl ?? null;

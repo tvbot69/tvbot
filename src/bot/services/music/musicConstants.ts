@@ -27,6 +27,21 @@ export const CHAPTER_ART_RETRY_MS = 30_000;
  * its current chapter for this long and re-derives once.
  */
 export const CHAPTER_JUMP_CONFIRM_MS = 4_000;
+/**
+ * How long a recorded user-seek intent stays authoritative. `seek()` stamps
+ * `lastUserSeekAt` before it awaits the node, so the chapter guard can tell
+ * "the listener jumped here on purpose" from "this node's clock drifted".
+ * Long enough to cover a slow seek REST round-trip, short enough that a later
+ * spontaneous jump is still treated as drift.
+ */
+export const USER_SEEK_INTENT_WINDOW_MS = 30_000;
+/**
+ * How far BACK a position read may sit from the one a chapter was committed
+ * at before it is treated as stale data rather than a rewind. Small on
+ * purpose: a real backward seek is explained by a recorded seek intent, so
+ * this only has to absorb clock jitter between readers.
+ */
+export const CHAPTER_REGRESSION_TOLERANCE_MS = 2_000;
 
 /** Bound on a Lavalink search before another node is tried. */
 export const SEARCH_TIMEOUT_MS = 8_000;

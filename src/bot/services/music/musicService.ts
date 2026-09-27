@@ -14,7 +14,14 @@ import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver
 import { LOAD_TRACKS_TIMEOUT_MS, MAX_QUEUE_TRACKS, SEEK_REST_TIMEOUT_MS } from './musicConstants';
 import { extractArtistFromTitle } from './videoChapters';
 import type { ArtworkService } from '@bot/services/artworkService';
+import { MusicSearchLadder } from './musicSearchLadder';
+import { MusicTrackArtwork, isYoutubeThumb, preCleanArtwork, sanitizeOverride, leadArtist, ARTWORK_TIMEOUT_MS, BACKGROUND_ARTWORK_TIMEOUT_MS } from './musicTrackArtwork';
+import { adoptMirrorTrack } from './musicTrackAdoption';
+import { hasHealthyNode, isNodeCooling } from './musicNodeHealth';
+import { PlayerRegistry, isDestroyedPlayer } from './musicPlayerRegistry';
+import { MusicPlaybackControls } from './musicPlaybackControls';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
+import type { PendingEntry, PendingQueueView } from './musicTypes';
 
 export interface PlayResult {
   loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'mirror_album' | 'mirror_playlist' | 'mirror_artist' | 'empty' | 'error';
@@ -83,6 +90,14 @@ export class MusicService {
   private readonly spotifyResolver: SpotifyResolver;
   private readonly queueService: QueueService;
   private readonly playlistChunkManager?: PlaylistChunkManager;
+  /** Provider search ladder (ISRC-first, title, plugin/resolver/soundcloud rungs). */
+  private readonly ladder: MusicSearchLadder;
+  /** Artwork backfill, cascade lookup and upcoming-track warmup. */
+  private readonly artwork: MusicTrackArtwork;
+  /** Player acquisition/creation, destroyed-player guard, filter definitions. */
+  private readonly registry: PlayerRegistry;
+  /** Pause/resume/seek/previous/replay/volume/filters/loop/autoplay/24-7/karaoke. */
+  private readonly controls: MusicPlaybackControls;
 
   /**
    * Just-in-time Spotify entries: resolved 2-ahead as playback advances
@@ -99,21 +114,27 @@ export class MusicService {
   /** Consecutive resolve failures that mean "stop, this source is down". */
   private static readonly TOP_UP_MAX_CONSECUTIVE_MISSES = 5;
   /** Artwork backfill must never stall resolution: cold provider cascades take seconds. */
-  private static readonly ARTWORK_TIMEOUT_MS = 6000;
-  /** Background paths (JIT top-up, warmup) can afford to wait out slow cascades. */
-  private static readonly BACKGROUND_ARTWORK_TIMEOUT_MS = 10000;
-  /** Upcoming entries with a warmup cascade already in flight (dedupes overlap). */
-  private readonly artWarmKeys = new Set<string>();
   private readonly artworkService?: ArtworkService;
   /** Optional provider resolvers (wired at startup; absent = links unsupported). */
   private deezerResolver?: DeezerResolver;
   private appleMusicResolver?: AppleMusicResolver;
   /** Wired at startup — best-effort one-line notice in the now-playing channel. */
   private unavailableNotifier: ((guildId: string, message: string) => void) | null = null;
-  /** Wired at startup — refreshes the event-driven card on karaoke toggle. */
-  private karaokeToggleNotifier: ((guildId: string) => void) | null = null;
   /** Wired at startup — repaints the event-driven card when backfill lands art. */
   private cardRefreshNotifier: ((guildId: string) => void) | null = null;
+
+  /**
+   * Static aliases onto the extracted collaborators. The ladder/artwork logic
+   * now lives in MusicSearchLadder / MusicTrackArtwork, but these call sites
+   * (production AND the test suite) have always read them off MusicService —
+   * keeping the aliases means the split needed zero call-site churn.
+   */
+  public static readonly fallbackSearchQuery = MusicSearchLadder.fallbackSearchQuery;
+  public static readonly normalizeIsrc = MusicSearchLadder.normalizeIsrc;
+  public static readonly isTransportError = MusicSearchLadder.isTransportError;
+  public static readonly isYoutubeThumb = isYoutubeThumb;
+  public static readonly preCleanArtwork = preCleanArtwork;
+  public static readonly sanitizeOverride = sanitizeOverride;
 
   public setUnavailableNotifier(notifier: (guildId: string, message: string) => void): void {
     this.unavailableNotifier = notifier;
@@ -138,69 +159,6 @@ export class MusicService {
     }
   }
 
-  /**
-   * Custom definitions for our FilterNames that Moonlink does NOT ship
-   * built in (it only has nightcore/vaporwave/karaoke of ours — the rest
-   * throw `Filter does not exist` on enable). Registered per player via
-   * ensureFilterDefined before every enable, so toggles, restores, and
-   * interaction retries all work. Values are standard audible Lavalink
-   * shapes; distortion starts mild — ear-test before pushing further.
-   */
-  private static readonly FILTER_DEFINITIONS: Partial<Record<FilterName, Record<string, unknown>>> = {
-    bassboost: {
-      equalizer: [
-        { band: 0, gain: 0.6 }, { band: 1, gain: 0.5 }, { band: 2, gain: 0.4 },
-        { band: 3, gain: 0.2 }, { band: 4, gain: 0 }, { band: 5, gain: 0 },
-        { band: 6, gain: 0 }, { band: 7, gain: 0 }, { band: 8, gain: 0 },
-        { band: 9, gain: 0 }, { band: 10, gain: 0 }, { band: 11, gain: 0 },
-        { band: 12, gain: 0 }, { band: 13, gain: 0 }, { band: 14, gain: 0 },
-      ],
-    },
-    // Studio clarity via SUBTRACTION: cut mud and harshness, leave everything
-    // else flat. Deliberately almost no boosts — boosts on small drivers +
-    // low-bitrate streams clip and distort (v1 boosted the lows and sounded
-    // like a muddy bassboost). Cuts can't clip; nudge volume up to compensate.
-    audiophile: {
-      equalizer: [
-        { band: 0, gain: 0 }, { band: 1, gain: 0 }, { band: 2, gain: 0 },
-        { band: 3, gain: 0 }, { band: 4, gain: -0.05 }, { band: 5, gain: -0.15 },
-        { band: 6, gain: -0.05 }, { band: 7, gain: 0 }, { band: 8, gain: 0 },
-        { band: 9, gain: 0 }, { band: 10, gain: -0.15 }, { band: 11, gain: -0.1 },
-        { band: 12, gain: 0 }, { band: 13, gain: 0.1 }, { band: 14, gain: 0 },
-      ],
-    },
-    tremolo: { tremolo: { frequency: 2.0, depth: 0.5 } },
-    vibrato: { vibrato: { frequency: 4.0, depth: 0.5 } },
-    rotation: { rotation: { rotationHz: 0.2 } },
-    distortion: {
-      distortion: {
-        sinOffset: 0, sinScale: 1.5, cosOffset: 0, cosScale: 0.8,
-        tanOffset: 0, tanScale: 0.5, offset: 0, scale: 1,
-      },
-    },
-    lowpass: { lowPass: { smoothing: 20.0 } },
-  };
-
-  /** Registers our custom definition on the player (idempotent, silent). */
-  private ensureFilterDefined(player: Player, filter: FilterName): void {
-    const def = MusicService.FILTER_DEFINITIONS[filter];
-    if (def === undefined) return;
-    try {
-      player.filters.define(filter, def as never);
-    } catch {
-      // Already defined or client without custom support — enable decides.
-    }
-  }
-
-  /**
-   * Equalizer presets are mutually exclusive: Moonlink CONCATENATES the band
-   * arrays of every active EQ filter (30 entries for two presets), which
-   * Lavalink resolves unpredictably — in practice, mud. Enabling one EQ
-   * preset silently switches the other off. All other DSP blocks combine
-   * cleanly and stay stackable.
-   */
-  private static readonly EQ_EXCLUSIVE_GROUP: FilterName[] = ['bassboost', 'audiophile'];
-
   constructor(
     moonlinkManager: MoonlinkManager,
     spotifyResolver: SpotifyResolver,
@@ -213,6 +171,10 @@ export class MusicService {
     this.queueService = queueService;
     this.playlistChunkManager = playlistChunkManager;
     this.artworkService = artworkService;
+    this.ladder = new MusicSearchLadder(moonlinkManager, spotifyResolver);
+    this.artwork = new MusicTrackArtwork(artworkService, spotifyResolver, this.pendingView());
+    this.registry = new PlayerRegistry(moonlinkManager, queueService);
+    this.controls = new MusicPlaybackControls(this.registry, queueService, (g) => this.getQueueInfo(g));
     this.playlistChunkManager?.bindEvents();
     // Chunked (>100) playlist tails resolve through the same ladder
     // (resolver-first, gated, backfilled) instead of raw YouTube search.
@@ -220,6 +182,21 @@ export class MusicService {
       this.resolvePlaylistTrack(player, spTrack),
     );
     this.bindPendingEvents();
+  }
+
+  /**
+   * The live pending store as a port. Returns the SAME Map instance the
+   * service owns — never a copy — because shuffle reorders and remove splices
+   * the array in place. A copying port would silently turn both into no-ops.
+   */
+  private pendingView(): PendingQueueView {
+    const store = this.pendingSpotify;
+    return {
+      get: (guildId) => store.get(guildId),
+      set: (guildId, entries) => void store.set(guildId, entries),
+      delete: (guildId) => void store.delete(guildId),
+      has: (guildId) => store.has(guildId),
+    };
   }
 
   /** Advance hook: keep 2 resolved tracks ahead; refill + play when drained. */
@@ -246,223 +223,21 @@ export class MusicService {
     });
   }
 
-  /**
-   * A destroyed player stays in moonlink's map until its REST teardown
-   * finishes (hundreds of ms to seconds). Handing that corpse out invites the
-   * worst failure in this file: a `stop()` during an in-flight ladder search
-   * would let the search land afterwards, `queue.add` onto the dead player and
-   * `play()` reconnect the bot to voice — with the map entry deleted a moment
-   * later, so nothing owned the connection and the bot sat in a channel muted
-   * until someone manually disconnected it.
-   */
-  private static isDestroyed(player: Player | undefined | null): boolean {
-    return !!player && (player as unknown as { destroyed?: boolean }).destroyed === true;
-  }
-
-  public getPlayer(guildId: string): Player | undefined {
-    const player = this.moonlinkManager.getManager().players.get(guildId);
-    return MusicService.isDestroyed(player) ? undefined : player;
-  }
-
-  public async getOrCreatePlayer(
-    guildId: string,
-    voiceChannelId: string,
-    textChannelId: string,
-  ): Promise<Player> {
-    const manager = this.moonlinkManager.getManager();
-    let player = manager.players.get(guildId);
-    let created = false;
-    if (MusicService.isDestroyed(player)) {
-      // Still mapped, already dead: players.create() hands the corpse back, so
-      // evict it first or the guild is stuck with an unplayable player until
-      // moonlink's own teardown lands.
-      try {
-        (manager.players as unknown as { delete: (id: string) => unknown }).delete(guildId);
-      } catch {
-        // Older shapes expose a Map; fall through and let create() decide.
-      }
-      player = undefined;
-    }
-    if (!player) {
-      // Re-apply persisted guild prefs so a recreate (rejoin, failover,
-      // restart) doesn't reset volume/loop/autoplay/filters.
-      const prefs = this.queueService.getSettings(guildId);
-      player = manager.players.create({
-        guildId,
-        voiceChannelId,
-        textChannelId,
-        autoPlay: prefs.autoplay,
-        volume: prefs.volume,
-        selfDeaf: true,
-      });
-      if (prefs.loopMode !== 'off') {
-        try {
-          player.setLoop(prefs.loopMode as 'track' | 'queue');
-        } catch {
-          // ignore invalid stored loop values
-        }
-      }
-      if (prefs.filters.length > 0) {
-        // Sanitize: settings saved while EQ presets could stack may hold
-        // both bassboost and audiophile — keep the most recent (last).
-        const eqSeen = new Set<FilterName>();
-        const sanitized = [...prefs.filters].reverse().filter((f) => {
-          if ((MusicService.EQ_EXCLUSIVE_GROUP as string[]).includes(f)) {
-            if (eqSeen.size > 0) return false;
-            eqSeen.add(f as FilterName);
-          }
-          return true;
-        }).reverse();
-        for (const filter of sanitized) {
-          try {
-            this.ensureFilterDefined(player, filter as FilterName);
-            player.filters.enable(filter as Parameters<typeof player.filters.enable>[0]);
-          } catch {
-            // ignore unknown filter names
-          }
-        }
-        void player.filters.apply().catch(() => undefined);
-      }
-      created = true;
-    }
-
-    // Fresh players start on Home when the resolver is configured: local
-    // files only exist there, and Home-first is the standing preference.
-    // Existing (playing) players are never moved here — failover owns that.
-    // A REST-dead Home is never pinned: the least-load pick stands and
-    // search-level exclusions route around it.
-    if (created && resolverEnabled() && !this.isCooling(HOME_NODE)) {
-      try {
-        await player.transferNode(HOME_NODE).catch(() => undefined);
-      } catch {
-        // Home down or missing — least-load pick stands
-      }
-    }
-
-    if (MusicService.isDestroyed(player)) {
-      throw new Error('player-destroyed');
-    }
-
-    // setVoiceChannelId is a LOCAL assignment — it does not move the Discord
-    // connection. Retargeting it while connected made the bot's own bookkeeping
-    // lie: the empty-channel timer read the CALLER's channel (so any member
-    // could trigger a pause + destroy from an empty one) while audio kept
-    // playing where the bot actually was. Only sync it when we are not live.
-    if (player.voiceChannelId !== voiceChannelId && !player.connected) {
-      player.setVoiceChannelId(voiceChannelId);
-    }
-    if (player.textChannelId !== textChannelId) {
-      player.setTextChannelId(textChannelId);
-    }
-
-    return player;
-  }
-
-  /** REST-dead cooldown check, tolerant of partial test doubles. */
-  private isCooling(identifier: string): boolean {
-    const fn = this.moonlinkManager.isNodeCoolingDown;
-    return typeof fn === 'function' ? fn.call(this.moonlinkManager, identifier) : false;
-  }
-
-  /** Node availability, tolerant of partial test doubles (assume healthy). */
-  private hasHealthyNode(): boolean {
-    const fn = this.moonlinkManager.hasHealthyNode;
-    return typeof fn === 'function' ? fn.call(this.moonlinkManager) : true;
-  }
-
-  private async raceSearch(
-    manager: { search: (args: { query: string; source: string; node?: string }) => Promise<unknown> },
-    args: { query: string; source: string; node?: string },
-    ms: number,
-  ): Promise<{ tracks?: Track[] } | null> {
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      const raced = await Promise.race([
-        manager.search(args),
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), ms);
-        }),
-      ]);
-      return raced as { tracks?: Track[] } | null;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
-
-  /**
-   * Node-aware search with cross-node retry (tower-uplink-stall class,
-   * proven live 2026-09-24): Moonlink's picker can't see REST-death, so a
-   * REST-dead-but-WS-connected node absorbs every search. We pick
-   * exclusions-aware and mark failures — one observed failure (throw OR
-   * timeout-null; the incident surfaced as timeouts) already cost ~4 REST
-   * attempts, so it cools the node down immediately and the same command
-   * retries on the next candidate. Partial test doubles without the new
-   * manager methods fall back to the legacy single attempt.
-   */
+  /** Node-aware search with cross-node retry — see MusicSearchLadder. */
   private async searchWithTimeout(
     args: { query: string; source: string },
     ms: number = 8000,
   ): Promise<{ tracks?: Track[] } | null> {
-    const manager = this.moonlinkManager.getManager();
-    const canFailover =
-      typeof this.moonlinkManager.pickSearchNode === 'function' &&
-      typeof this.moonlinkManager.noteRestFailure === 'function';
-    if (!canFailover) {
-      return this.raceSearch(manager, args, ms);
-    }
-    const tried = new Set<string>();
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const node = this.moonlinkManager.pickSearchNode([...tried]);
-      if (!node) return null;
-      try {
-        const res = await this.raceSearch(manager, { ...args, node: node.identifier }, ms);
-        if (res) return res;
-        this.moonlinkManager.noteRestFailure(node.identifier);
-        tried.add(node.identifier);
-      } catch {
-        this.moonlinkManager.noteRestFailure(node.identifier);
-        tried.add(node.identifier);
-      }
-    }
-    return null;
+    return this.ladder.searchWithTimeout(args, ms);
   }
 
-  /**
-   * Lead-artist fallback query ("ZAF, Omar Taa'i - cashwekaas" -> "ZAF -
-   * cashwekaas"). Multi-artist Spotify billing poisons YouTube search into
-   * a genuine empty while the video exists; the lead artist + exact title
-   * surfaces it. Returns null when no distinct fallback exists.
-   */
-  public static fallbackSearchQuery(query: string, meta?: ResolverMeta): string | null {
-    const title = meta?.title?.trim();
-    const artist = meta?.artist?.trim();
-    if (!title || !artist) return null;
-    const lead = MusicService.leadArtist(artist);
-    if (!lead || lead.toLowerCase() === artist.toLowerCase()) return null;
-    const fallback = `${lead} - ${title}`;
-    if (fallback.toLowerCase() === query.trim().toLowerCase()) return null;
-    return fallback;
-  }
-
-  /**
-   * One YouTube attempt shared by the plugin + resolver rungs, then per-rung
-   * selection. Resolver hits are labeled 'local' so failure handling treats
-   * them as resolver output, never as YouTube plugin output. Distinguishes
-   * transport failure (node unreachable mid-ladder — every search THREW or
-   * returned null) from a genuine miss so callers can report "try again"
-   * instead of the misleading "No tracks found".
-   */
+  /** One ladder pass, then one lead-artist fallback pass. */
   private async searchTrackWithLadder(
     player: Player,
     query: string,
     meta?: ResolverMeta,
   ): Promise<{ track: Track; rung: Rung } | { transportError: true } | null> {
-    const first = await this.searchTrackWithLadderOnce(player, query, meta);
-    if (first) return first;
-    const fallbackQuery = MusicService.fallbackSearchQuery(query, meta);
-    if (!fallbackQuery) return null;
-    Logger.info({ query, fallbackQuery }, '[Music] Search empty — retrying with lead artist');
-    return this.searchTrackWithLadderOnce(player, fallbackQuery, meta);
+    return this.ladder.searchTrackWithLadder(player, query, meta);
   }
 
   private async searchTrackWithLadderOnce(
@@ -470,278 +245,11 @@ export class MusicService {
     query: string,
     meta?: ResolverMeta,
   ): Promise<{ track: Track; rung: Rung } | { transportError: true } | null> {
-    const rungs = ladderFor(player);
-    let ytHit: Track | undefined;
-    let transportFailed = false;
-    // Any search returning a response object (even an empty one) proves the
-    // network answered; all-null across every rung means the nodes are dead,
-    // which must report as transportError, not as "No tracks found".
-    let answered = false;
-    if (rungs.includes('plugin') || rungs.includes('resolver')) {
-      // ISRC-first: an exact-recording hit replaces the fuzzy title search
-      // entirely (faster AND more accurate). Only on miss/skip does the
-      // title search run, so behavior without metadata is unchanged.
-      const isrcHit = await this.searchIsrcFirst(player, rungs, meta);
-      if (isrcHit) {
-        answered = true;
-        ytHit = isrcHit;
-      } else {
-        try {
-          const yt = await this.searchWithTimeout({ query, source: 'youtube' });
-          if (yt) {
-            answered = true;
-            ytHit = yt.tracks?.[0];
-          }
-        } catch {
-          // Node unreachable, not a miss — remember it for the result below.
-          transportFailed = true;
-        }
-      }
-    }
-    if (ytHit) {
-      // Artwork pre-clean (single choke point): stamp a known-good cover, or
-      // drop a raw YouTube thumbnail so the backfill cascade below fills real
-      // (Spotify-first) art instead of skipping on the wrong image. Without
-      // this, scraper playlists (no per-track covers) inherit YouTube thumbs
-      // permanently: adoption skips missing art AND backfill skips present art.
-      MusicService.preCleanArtwork(ytHit, meta?.artworkUrl);
-      // Chapter context: stash the raw video title + ID before Spotify
-      // adoption overwrites title/author. Without this, extractArtistFromTitle
-      // reads the Spotify title (no " - ") and resolver local files lose the
-      // video ID entirely.
-      const rec = ytHit as unknown as Record<string, unknown>;
-      if (typeof rec._rawVideoTitle !== 'string' && ytHit.title) {
-        rec._rawVideoTitle = ytHit.title;
-      }
-      if (typeof rec._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(ytHit.identifier ?? '')) {
-        rec._sourceVideoId = ytHit.identifier;
-      }
-    }
-    for (const rung of rungs) {
-      if (rung === 'soundcloud') {
-        try {
-          const sc = await this.searchWithTimeout({ query, source: 'soundcloud' });
-          if (sc) answered = true;
-          if (sc?.tracks?.[0]) return { track: sc.tracks[0], rung };
-        } catch {
-          transportFailed = true;
-        }
-        continue;
-      }
-      if (!ytHit) continue;
-      if (rung === 'plugin') {
-        // The provider's exact length is in scope, and this is the LAST point
-        // before the hit gets relabelled as the provider track. Adopting the
-        // bare ytsearch top hit meant `.play <any link with a popular title>`
-        // could play a 3-hour compilation or a live cut while the card
-        // confidently named the requested song. Same tolerance the ISRC and
-        // resolver gates already use.
-        if (!this.pluginHitMatchesProvider(ytHit, meta)) {
-          Logger.info(
-            {
-              query,
-              expectedMs: meta?.durationMs ?? 0,
-              gotMs: ytHit.duration ?? 0,
-              title: ytHit.title,
-            },
-            '[Music] Plugin hit does not match the provider track — skipping rung',
-          );
-          continue;
-        }
-        return { track: ytHit, rung };
-      }
-      const local = await this.tryResolverTrack(player, ytHit, meta);
-      if (local) return { track: local, rung };
-    }
-    if (transportFailed || !answered) return { transportError: true };
-    return null;
-  }
-
-  /**
-   * Does this YouTube hit actually look like the provider track we asked for?
-   * Duration is the only signal the mirror gives us, so it is the gate; a
-   * missing duration on either side is not evidence of a mismatch.
-   */
-  private pluginHitMatchesProvider(hit: Track, meta?: ResolverMeta): boolean {
-    const expected = meta?.durationMs ?? 0;
-    if (!expected || !hit.duration) return true;
-    // Mirrors and provider edits differ slightly; the resolver gate uses 30s
-    // and the ISRC gate 60s, so sit between them.
-    return Math.abs(hit.duration - expected) <= 45_000;
-  }
-
-  /** Narrows a ladder result to the transport-failure variant. */
-  private static isTransportError(
-    found: { track: Track; rung: Rung } | { transportError: true } | null,
-  ): found is { transportError: true } {
-    return !!found && 'transportError' in found;
-  }
-
-  /**
-   * Normalizes an ISRC for search (dashes stripped, uppercased). ISRCs are
-   * 12 alphanumerics (CC-XXX-YY-NNNNN); anything else is not searched —
-   * a malformed code would only return junk.
-   */
-  public static normalizeIsrc(isrc?: string): string | null {
-    if (!isrc) return null;
-    const stripped = isrc.replace(/-/g, '').toUpperCase();
-    return /^[A-Z0-9]{12}$/.test(stripped) ? stripped : null;
-  }
-
-  /**
-   * ISRC-first YouTube hit (LavaSrc DefaultMirroringAudioTrackResolver):
-   * `ytsearch:"ISRC"` matches the exact recording where a title search can
-   * land on a cover, remix, or live upload. Runs BEFORE the fuzzy title
-   * search and replaces it on success — same cost on hit, one extra probe
-   * on miss. Gross-mismatch guard: the exact recording must be close in
-   * length (±60s); a wild duration means the code matched wrong metadata,
-   * so fall through to the title search instead of playing a wrong song.
-   */
-  private async searchIsrcFirst(
-    player: Player,
-    rungs: Rung[],
-    meta?: ResolverMeta,
-  ): Promise<Track | null> {
-    const isrc = MusicService.normalizeIsrc(meta?.isrc);
-    if (!isrc) return null;
-    if (!rungs.includes('plugin') && !rungs.includes('resolver')) return null;
-    let res: { tracks?: Track[] } | null = null;
-    try {
-      // Shorter budget than the fuzzy search: this is a precise lookup,
-      // and a dead node must not cost double latency before the fallback.
-      res = await this.searchWithTimeout({ query: `"${isrc}"`, source: 'youtube' }, 5000);
-    } catch {
-      return null;
-    }
-    const hit = res?.tracks?.[0];
-    if (!hit) return null;
-    const expected = meta?.durationMs || 0;
-    if (expected > 0 && hit.duration > 0 && Math.abs(hit.duration - expected) > 60_000) {
-      Logger.info(
-        { isrc, hitMs: hit.duration, expectedMs: expected },
-        '[Music] ISRC hit duration-mismatched — falling back to title search',
-      );
-      return null;
-    }
-    Logger.info({ isrc, title: hit.title }, '[Music] ISRC-first search hit');
-    return hit;
-  }
-
-  /** True for raw YouTube-family thumbnails (never correct on adopted tracks). */
-  public static isYoutubeThumb(url: string | null | undefined): boolean {
-    return isYoutubeThumbUrl(url);
-  }
-
-  /**
-   * Artwork pre-clean (single choke point, also used by the direct URL
-   * path): stamp a known-good cover, or drop a raw YouTube thumbnail so a
-   * later backfill cascade fills real art instead of skipping on it. Only
-   * long-form content (>20min) additionally stashes the video thumbnail —
-   * that stash is the sole entry into the long-form video-art system
-   * (square rug crop → card paint). Short tracks never enter it: no video
-   * thumb, no crop downloads — cascade art only.
-   *
-   * A YouTube thumbnail passed AS the trusted cover (search picks carry the
-   * Lavalink hit's ytimg art as their override) is treated as absent: it is
-   * never stamped, so backfill/enrichment still run. Stamping it would
-   * permanently paint the card with a video frame instead of the song cover.
-   */
-  public static preCleanArtwork(
-    track: { artworkUrl?: string | null; duration?: number | null },
-    artworkUrl?: string | null,
-  ): void {
-    if (artworkUrl && !MusicService.isYoutubeThumb(artworkUrl)) track.artworkUrl = artworkUrl;
-    else if (MusicService.isYoutubeThumb(track.artworkUrl)) track.artworkUrl = null;
-  }
-
-  /**
-   * Drops a YouTube-thumbnail artworkUrl from a play override. Overrides are
-   * trusted downstream (they skip backfill AND Spotify enrichment), so a
-   * ytimg URL smuggled in as "known art" — the +search select path — would
-   * paint video frames on the card forever. Applied once at play() entry so
-   * every downstream path (ladder, adopt, backfill, domain) treats the art
-   * as unknown and resolves the real cover.
-   */
-  public static sanitizeOverride<T extends { artworkUrl?: string } | undefined>(override: T): T {
-    if (override?.artworkUrl && MusicService.isYoutubeThumb(override.artworkUrl)) {
-      Logger.debug('[Music] Dropping YouTube-thumbnail override art — resolving the real cover instead');
-      const { artworkUrl: _dropped, ...rest } = override;
-      return rest as T;
-    }
-    return override;
+    return this.ladder.searchTrackWithLadderOnce(player, query, meta);
   }
 
   private async tryResolverTrack(player: Player, ytTrack: Track, meta?: ResolverMeta): Promise<Track | null> {
-    if (player.node?.identifier !== HOME_NODE) return null;
-    // Skip fast when Home is REST-dead instead of burning a doomed loadTracks.
-    if (this.isCooling(player.node?.identifier ?? '')) return null;
-    if (!/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) return null;
-    const path = await resolveViaHome(ytTrack.identifier, meta);
-    if (!path) return null;
-    let res: unknown;
-    try {
-      // MUST be bounded. The node can be WS-connected but REST-dead (the
-      // documented uplink-stall class), and this call is reached from
-      // topUpPending, which holds the per-guild reentrancy guard: an
-      // unsettled await means the guard is never released and that guild's
-      // whole pending queue is frozen forever, silently.
-      let loadTimer: NodeJS.Timeout | undefined;
-      try {
-        res = await Promise.race([
-          player.node.rest.loadTracks(path),
-          new Promise<never>((_, reject) => {
-            loadTimer = setTimeout(() => reject(new Error('loadtracks-timeout')), LOAD_TRACKS_TIMEOUT_MS);
-          }),
-        ]);
-      } finally {
-        if (loadTimer) clearTimeout(loadTimer);
-      }
-    } catch {
-      // Treat it like any other REST failure so the node cools down and the
-      // ladder falls through to the next rung instead of retrying it.
-      const nodeId = player.node?.identifier;
-      if (nodeId) this.moonlinkManager.noteRestFailure(nodeId);
-      return null;
-    }
-    const typed = res as { loadType?: string; data?: { encoded?: string } };
-    if (typed?.loadType !== 'track' || !typed.data?.encoded) return null;
-    try {
-      const track = new MoonlinkTrack(typed.data, ytTrack.requester);
-      // The resolver's own response carries the SOURCE VIDEO's thumbnail.
-      // Left stamped, it looks like resolved art: the backfill cascade skips
-      // any track that already has artwork, so the card would show a video
-      // frame for the whole set instead of the real cover. Drop it here (no
-      // known art to stamp) so the ladder's backfill fills real art.
-      MusicService.preCleanArtwork(track as unknown as { artworkUrl?: string | null });
-      // Wrong-song guard (same ±30s rule as fallbacks): the ytsearch top hit
-      // can be a compilation or wrong upload; the probed file duration is
-      // ground truth. Missing durations pass through.
-      const expected = ytTrack.duration || 0;
-      if (track.duration && expected && Math.abs(track.duration - expected) > 30000) {
-        Logger.warn(
-          { guildId: player.guildId, videoId: ytTrack.identifier, fileMs: track.duration, expectedMs: expected },
-          '[Music] Resolver file duration-mismatched — refusing a wrong song.',
-        );
-        return null;
-      }
-      // Carry chapter context onto the local file (it has no video ID itself).
-      const srcRec = ytTrack as unknown as Record<string, unknown>;
-      const dstRec = track as unknown as Record<string, unknown>;
-      const rawTitle = srcRec._rawVideoTitle ?? ytTrack.title;
-      if (typeof rawTitle === 'string' && rawTitle && typeof dstRec._rawVideoTitle !== 'string') {
-        dstRec._rawVideoTitle = rawTitle;
-      }
-      if (/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) {
-        dstRec._sourceVideoId = ytTrack.identifier;
-      }
-      return track;
-    } catch (err) {
-      Logger.debug(
-        { err, keys: typed.data ? Object.keys(typed.data) : [] },
-        '[Music] Track construction from resolver data failed',
-      );
-      return null;
-    }
+    return this.ladder.tryResolverTrack(player, ytTrack, meta);
   }
 
   public async play(
@@ -789,7 +297,7 @@ export class MusicService {
     // enrichment), so a YouTube thumbnail smuggled in as "known art" — the
     // +search pick path — is dropped here, once. Every path below then
     // resolves the real cover instead of painting video frames on the card.
-    trackOverride = MusicService.sanitizeOverride(trackOverride);
+    trackOverride = sanitizeOverride(trackOverride);
 
     // 1. Spotify link resolution
     if (this.spotifyResolver.isSpotifyUrl(trimmedQuery)) {
@@ -872,7 +380,7 @@ export class MusicService {
           if (!swapped) {
             return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
           }
-          if (MusicService.isTransportError(swapped)) {
+          if (MusicSearchLadder.isTransportError(swapped)) {
             return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
           }
           const hit = swapped.track;
@@ -886,7 +394,7 @@ export class MusicService {
               trackOverride?.artworkUrl,
               hit.title,
               hit.author,
-              MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+              BACKGROUND_ARTWORK_TIMEOUT_MS,
               hit.uri,
               player.guildId,
             );
@@ -902,13 +410,13 @@ export class MusicService {
         // card refreshes when late-arriving art lands).
         // Enrichment adopts the Spotify-side clean title + cover for pasted
         // URLs (no trusted override); picks already carry upgraded metadata.
-        MusicService.preCleanArtwork(meta, trackOverride?.artworkUrl);
+        preCleanArtwork(meta, trackOverride?.artworkUrl);
         void this.maybeBackfillArt(
           meta,
           trackOverride?.artworkUrl,
           trackOverride?.title || meta.title,
           trackOverride?.author || meta.author,
-          MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+          BACKGROUND_ARTWORK_TIMEOUT_MS,
           meta.uri,
           player.guildId,
         );
@@ -924,7 +432,7 @@ export class MusicService {
       if (!found) {
         return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
       }
-      if (MusicService.isTransportError(found)) {
+      if (MusicSearchLadder.isTransportError(found)) {
         return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
       }
       // Audio-first: never gate playback on art — background cascade,
@@ -934,7 +442,7 @@ export class MusicService {
         trackOverride?.artworkUrl,
         trackOverride?.title || found.track.title,
         trackOverride?.author || found.track.author,
-        MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+        BACKGROUND_ARTWORK_TIMEOUT_MS,
         found.track.uri,
         player.guildId,
       );
@@ -992,7 +500,7 @@ export class MusicService {
     // Single gate for every enqueue path (single track, playlist, mirror, JIT).
     // A ladder search can take 20-70s; if the player was stopped/destroyed in
     // that window, writing to it now would resurrect a dead session.
-    if (MusicService.isDestroyed(player)) {
+    if (isDestroyedPlayer(player)) {
       return { loadType: 'error', errorReason: 'voice', totalTracksAdded: 0, positionInQueue: 0 };
     }
     const sizeBefore = player.queue.size;
@@ -1042,7 +550,7 @@ export class MusicService {
       }
       // The Spotify enrichment above awaits; the player may have been stopped
       // (and possibly replaced) in that window.
-      if (MusicService.isDestroyed(player)) {
+      if (isDestroyedPlayer(player)) {
         return { loadType: 'error', errorReason: 'voice', totalTracksAdded: addedTracks.length, positionInQueue: sizeBefore };
       }
       player.queue.add(rawTrack);
@@ -1065,7 +573,7 @@ export class MusicService {
       // A failed handshake on a lagging public node is a NODE problem, not a
       // voice-permission problem; saying "check my permissions" sent users
       // hunting for a permission that was never wrong.
-      const reason = this.hasHealthyNode() ? 'voice' : 'no-nodes';
+      const reason = hasHealthyNode(this.moonlinkManager) ? 'voice' : 'no-nodes';
       return { loadType: 'error', errorReason: reason, totalTracksAdded: 0, positionInQueue: sizeBefore };
     }
 
@@ -1153,7 +661,7 @@ export class MusicService {
           positionInQueue: 0,
         };
       }
-      if (MusicService.isTransportError(found)) {
+      if (MusicSearchLadder.isTransportError(found)) {
         return {
           loadType: 'error',
           totalTracksAdded: 0,
@@ -1162,7 +670,7 @@ export class MusicService {
       }
 
       const chosenTrack = found.track;
-      this.adoptMirrorTrack(chosenTrack, mirrorTrack, found.rung, requester, sourceUrl, trackOverride);
+      adoptMirrorTrack(chosenTrack, mirrorTrack, found.rung, requester, sourceUrl, trackOverride);
       // Backfill AFTER adoption: adoption clears the raw YouTube thumbnail
       // when the provider has no cover, so the cascade can fill real artwork
       // instead of skipping on the wrong image.
@@ -1173,7 +681,7 @@ export class MusicService {
         trackOverride?.artworkUrl || mirrorTrack.artworkUrl,
         trackOverride?.title || mirrorTrack.name,
         trackOverride?.author || mirrorTrack.artist,
-        MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+        BACKGROUND_ARTWORK_TIMEOUT_MS,
         mirrorTrack.spotifyUri,
         player.guildId,
       );
@@ -1204,12 +712,12 @@ export class MusicService {
 
     // Resolve first track immediately so playback begins with minimum delay.
     const firstFound = await this.searchTrackWithLadder(player, firstTrack.searchQuery, mirrorMeta(firstTrack));
-    if (firstFound && MusicService.isTransportError(firstFound)) {
+    if (firstFound && MusicSearchLadder.isTransportError(firstFound)) {
       return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
     }
     if (firstFound) {
       const firstLavalinkTrack = firstFound.track;
-      this.adoptMirrorTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, sourceUrl, trackOverride);
+      adoptMirrorTrack(firstLavalinkTrack, firstTrack, firstFound.rung, requester, sourceUrl, trackOverride);
       // Audio-first: never gate playback on art — background cascade,
       // late-attach, and the card refreshes when art lands.
       void this.maybeBackfillArt(
@@ -1217,7 +725,7 @@ export class MusicService {
         firstTrack.artworkUrl,
         firstTrack.name,
         firstTrack.artist,
-        MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+        BACKGROUND_ARTWORK_TIMEOUT_MS,
         firstTrack.spotifyUri,
         player.guildId,
       );
@@ -1298,237 +806,30 @@ export class MusicService {
     };
   }
 
-  /**
-   * Backfills a missing track cover through ArtworkService (Spotify →
-   * Deezer → Apple → Last.fm cascade, strict artist+title matching).
-   * Only fires when NEITHER the raw track NOR the known Spotify art has a
-   * URL — hot paths (API tracks with art, YouTube hits with thumbs) return
-   * synchronously free. Timeout-guarded and catch-all: art must never break
-   * or stall playback resolution.
-   */
+  /** Artwork backfill — see MusicTrackArtwork. */
   private async maybeBackfillArt(
     track: Track,
     knownArtworkUrl?: string,
     title?: string,
     artist?: string,
-    timeoutMs: number = MusicService.ARTWORK_TIMEOUT_MS,
+    timeoutMs: number = ARTWORK_TIMEOUT_MS,
     spotifyUri?: string | null,
     notifyGuildId?: string,
   ): Promise<void> {
-    try {
-      if (!track || track.artworkUrl || knownArtworkUrl) return;
-      const t = (title || track.title)?.trim();
-      const a = (artist || track.author)?.trim();
-      if (!t || !a) return;
-      const started = Date.now();
-      const trackRec = track as unknown as Record<string, unknown>;
-      trackRec._artLookupStartedAt = started;
-      const dur = track.duration || 0;
-      const svc = this.artworkService;
-      if (!svc) {
-        Logger.debug('[Music] Artwork backfill skipped — no artwork service wired');
-        return;
-      }
-      Logger.info(
-        { title: t, artist: a, timeoutMs, durationMs: dur },
-        '[Music] Artwork lookup start',
-      );
-      // Never-rejecting lookup: exact by-ID first (no matching risk), then
-      // the name cascade, then the artist profile picture. One slow leg
-      // can't hang the race.
-      const lookup: Promise<string | null> = (async () => {
-        try {
-          const id = this.spotifyTrackId(spotifyUri);
-          if (id) {
-            const byId = await svc.getTrackCoverBySpotifyId(id);
-            if (byId) return byId;
-          }
-          const cover = await svc.getTrackCoverUrl(t, a);
-          if (cover) return cover;
-          // Artist fallback (live sets, bootlegs, cover-less tracks): the
-          // artist's profile picture beats a blank card. When the title
-          // names the performer ("EsDeeKid - Live...") THAT is the search
-          // target and the uploader channel is skipped entirely — channels
-          // ("gloss") can strictly match same-named wrong artists.
-          // Otherwise the billed author is tried as before.
-          const titleLead = extractArtistFromTitle(t);
-          const candidates =
-            titleLead && titleLead.toLowerCase() !== MusicService.leadArtist(a).toLowerCase()
-              ? [titleLead]
-              : [MusicService.leadArtist(a)];
-          for (const lead of candidates) {
-            if (!lead) continue;
-            const pic = await svc.getArtistImageUrl(lead, t).catch(() => null);
-            if (pic) return pic;
-          }
-          return null;
-        } catch {
-          return null;
-        }
-      })();
-      let timer: NodeJS.Timeout | undefined;
-      try {
-        const timeout = new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), timeoutMs);
-        });
-        const url = await Promise.race([lookup, timeout]);
-        if (url) {
-          track.artworkUrl = url;
-          trackRec._artLookupResolvedAt = Date.now();
-          trackRec._artLookupOutcome = 'hit';
-          Logger.info(
-            { title: t, artist: a, resolveMs: Date.now() - started },
-            '[Music] Artwork backfilled',
-          );
-          this.notifyCardArt(notifyGuildId);
-        } else {
-          trackRec._artLookupOutcome = 'miss';
-          Logger.debug(
-            { title: t, artist: a, resolveMs: Date.now() - started },
-            '[Music] Artwork backfill miss',
-          );
-          // Late attach: the race abandons slow lookups but doesn't cancel
-          // them — the cascade still finishes and caches. If art arrives
-          // after the timeout and the track is still bare, take it and
-          // refresh the event-driven card so it shows up.
-          void lookup
-            .then((late) => {
-              if (late && !track.artworkUrl) {
-                track.artworkUrl = late;
-                const lateMs = Date.now() - started;
-                trackRec._artLookupResolvedAt = Date.now();
-                trackRec._artLookupOutcome = 'late-hit';
-                Logger.info({ title: t, artist: a, resolveMs: lateMs }, '[Music] Artwork late-attached');
-                this.notifyCardArt(notifyGuildId);
-              }
-            })
-            .catch(() => undefined);
-        }
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-    } catch {
-      // ignore — playback without art beats no playback
-    }
+    return this.artwork.maybeBackfillArt(
+      track,
+      knownArtworkUrl,
+      title,
+      artist,
+      timeoutMs,
+      spotifyUri,
+      notifyGuildId,
+    );
   }
 
-  /** Spotify track ID from a spotify: URI or open.spotify URL (track type only). */
-  private spotifyTrackId(uri?: string | null): string | undefined {
-    if (!uri) return undefined;
-    try {
-      const parsed = this.spotifyResolver.parseSpotifyUrl(uri);
-      return parsed?.type === 'track' ? parsed.id : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  /**
-   * First billed artist for profile-picture fallback ("A, B & C feat. D" →
-   * "A"). Channel suffixes ("X - Topic", "X VEVO") are stripped — uploads
-   * come from auto-generated topic channels as often as from the artist.
-   * Mirrors the fallback-query artist logic.
-   */
-  private static leadArtist(artist: string): string {
-    const first = artist.split(/[,/&]/)[0] ?? '';
-    return first
-      .replace(/\s*-\s*Topic$/i, '')
-      .replace(/\s*VEVO$/i, '')
-      .replace(/\s+(feat\.?|ft\.?|featuring|with|x)\s+.*$/i, '')
-      .trim();
-  }
-  /**
-   * Stamps provider display metadata onto a resolved Lavalink track. The
-   * moonlink track keeps its true backend label ('local' for resolver
-   * output, otherwise the provider) so failure handling routes correctly;
-   * the display model keeps the familiar provider badge. Artwork correctness
-   * is handled upstream (ladder pre-clean + override sanitizing), so a plain
-   * conditional stamp here can never resurrect a wrong image. A trusted
-   * override cover wins over provider art; YouTube thumbnails never qualify.
-   */
-  private adoptMirrorTrack(
-    lavalinkTrack: Track,
-    mirrorTrack: MirrorTrack,
-    rung: Rung,
-    requester: MusicTrackRequester,
-    sourceUrl: string,
-    trackOverride?: { title?: string; author?: string; artworkUrl?: string; source?: string },
-  ): void {
-    const record = lavalinkTrack as unknown as Record<string, unknown>;
-    // Preserve chapter context: the raw video title is captured in
-    // searchTrackWithLadder before this overwrite runs. Fall back to the
-    // pre-adoption title when the stash is missing (older queue entries).
-    if (typeof record._rawVideoTitle !== 'string' && lavalinkTrack.title) {
-      record._rawVideoTitle = lavalinkTrack.title;
-    }
-    if (typeof record._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(lavalinkTrack.identifier ?? '')) {
-      const src = String(record.sourceName ?? '');
-      if (src === 'youtube' || src === '') record._sourceVideoId = lavalinkTrack.identifier;
-    }
-    lavalinkTrack.requester = requester;
-    lavalinkTrack.title = mirrorTrack.name;
-    lavalinkTrack.author = mirrorTrack.artist;
-    if (mirrorTrack.artworkUrl) {
-      lavalinkTrack.artworkUrl = mirrorTrack.artworkUrl;
-    }
-    if (mirrorTrack.album?.trim()) {
-      record._album = mirrorTrack.album.trim();
-    }
-    lavalinkTrack.uri = spotifyUriToUrl(mirrorTrack.spotifyUri) || mirrorTrack.sourceUrl || sourceUrl;
-    const backend = rung === 'resolver' ? 'local' : (mirrorTrack.provider ?? 'spotify');
-    record.sourceName = trackOverride?.source || backend;
-    record.source = trackOverride?.source || backend;
-    if (trackOverride?.artworkUrl && !MusicService.isYoutubeThumb(trackOverride.artworkUrl)) {
-      lavalinkTrack.artworkUrl = trackOverride.artworkUrl;
-    }
-  }
-
-  /**
-   * Warms the artwork memory cache for the next couple of unresolved entries
-   * so their resolve-time backfill usually hits cache instead of racing
-   * providers. Bounded, deduped in-flight, timeout-guarded, silent — and
-   * skipped entirely while Spotify is rate-limited, so warmup never spends
-   * quota the resolvers need.
-   */
-  private warmUpcomingArt(guildId: string): void {
-    if (!this.artworkService) return;
-    if (SpotifySearchApi.isRateLimited()) return;
-    const pending = this.pendingSpotify.get(guildId);
-    if (!pending || pending.length === 0) return;
-    for (const entry of pending.slice(0, 2)) {
-      // Entries that already carry art need no lookup — adoption sets it.
-      if (entry.spTrack.artworkUrl || entry.override?.artworkUrl) continue;
-      const key = `${entry.spTrack.artist} - ${entry.spTrack.name}`.toLowerCase();
-      if (this.artWarmKeys.has(key)) continue;
-      this.artWarmKeys.add(key);
-      void (async () => {
-        let timer: NodeJS.Timeout | undefined;
-        try {
-          const svc = this.artworkService!;
-          const run: Promise<string | null> = (async () => {
-            try {
-              const id = this.spotifyTrackId(entry.spTrack.spotifyUri);
-              if (id) {
-                const byId = await svc.getTrackCoverBySpotifyId(id);
-                if (byId) return byId;
-              }
-              return await svc.getTrackCoverUrl(entry.spTrack.name, entry.spTrack.artist);
-            } catch {
-              return null;
-            }
-          })();
-          const timeout = new Promise<null>((resolve) => {
-            timer = setTimeout(() => resolve(null), MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS);
-          });
-          await Promise.race([run, timeout]);
-        } catch {
-          // ignore — resolve-time backfill remains the safety net
-        } finally {
-          if (timer) clearTimeout(timer);
-          this.artWarmKeys.delete(key);
-        }
-      })();
-    }
+  /** Prewarm the next couple of pending covers — see MusicTrackArtwork. */
+  public warmUpcomingArt(guildId: string): void {
+    this.artwork.warmUpcomingArt(guildId);
   }
 
   private mapPendingEntry(e: PendingSpotifyEntry): MusicTrack {
@@ -1609,7 +910,7 @@ export class MusicService {
           continue;
         }
         consecutiveMisses = 0;
-        this.adoptMirrorTrack(
+        adoptMirrorTrack(
           found.lavalinkTrack,
           found.spTrack,
           found.rung,
@@ -1635,7 +936,7 @@ export class MusicService {
       const unit = skipped === 1 ? 'track' : 'tracks';
       this.notifyUnavailable(guildId, `⚠️ ${skipped} queued ${unit} could not be resolved and were skipped.`);
     }
-    this.warmUpcomingArt(guildId);
+    this.artwork.warmUpcomingArt(guildId);
     if (added > 0) {
       const player = this.getPlayer(guildId);
       if (player && !player.playing && !player.paused) {
@@ -1660,7 +961,7 @@ export class MusicService {
       isrc: spTrack.isrc,
       durationMs: spTrack.durationMs,
     });
-    if (!found || MusicService.isTransportError(found)) return null;
+    if (!found || MusicSearchLadder.isTransportError(found)) return null;
     // Audio-first, like every other path: this await used to sit between the
     // ladder and the return, so the JIT could not enqueue track N+1 until
     // track N's 10s artwork race finished — and `move`/`skipto` onto a pending
@@ -1671,7 +972,7 @@ export class MusicService {
       spTrack.artworkUrl,
       spTrack.name,
       spTrack.artist,
-      MusicService.BACKGROUND_ARTWORK_TIMEOUT_MS,
+      BACKGROUND_ARTWORK_TIMEOUT_MS,
       spTrack.spotifyUri,
       player.guildId,
     );
@@ -1731,129 +1032,44 @@ export class MusicService {
     this.playlistChunkManager?.clear(guildId);
   }
 
+  public getPlayer(guildId: string): Player | undefined {
+    return this.registry.getPlayer(guildId);
+  }
+
+  public async getOrCreatePlayer(
+    guildId: string,
+    voiceChannelId: string,
+    textChannelId: string,
+  ): Promise<Player> {
+    return this.registry.getOrCreatePlayer(guildId, voiceChannelId, textChannelId);
+  }
+
   public async pause(guildId: string): Promise<boolean> {
-    const player = this.getPlayer(guildId);
-    if (!player) return false;
-    if (player.paused) return true;
-    if (player.current) {
-      const currentPos = this.queueService.calculatePosition(player);
-      player.current.position = currentPos;
-      player.current.time = Date.now();
-    }
-    try {
-      await player.pause();
-    } catch (err) {
-      Logger.warn({ err, guildId }, '[Music] Pause failed');
-      return false;
-    }
-    return true;
+    return this.controls.pause(guildId);
   }
 
   public async resume(guildId: string): Promise<boolean> {
-    const player = this.getPlayer(guildId);
-    if (!player) return false;
-    if (player.current) {
-      player.current.time = Date.now();
-    }
-    try {
-      await player.resume();
-    } catch (err) {
-      Logger.warn({ err, guildId }, '[Music] Resume failed');
-      return false;
-    }
-    return true;
+    return this.controls.resume(guildId);
   }
 
-  /**
-   * Seeks to `seconds`. Returns the position actually applied (ms) so callers
-   * can report the truth — a clamped seek used to answer "Jumped to 99999
-   * seconds" after jumping to the end — or null when the seek was refused
-   * (no player, no track, a live stream, or unknown duration).
-   *
-   * The seek event fires synchronously inside player.seek (chapter swap runs
-   * instantly); the REST round-trip on slow nodes can take seconds, so it
-   * races a timeout instead of hanging the command. Intent markers are
-   * recorded BEFORE awaiting, so stall grace observes the seek even if REST
-   * hangs. A timed-out REST still applies late server-side (or the stuck
-   * detector recovers) — true either way, since the event already fired and
-   * recovery is event-driven.
-   */
   public async seek(guildId: string, seconds: number, restTimeoutMs = SEEK_REST_TIMEOUT_MS): Promise<number | null> {
-    const player = this.getPlayer(guildId);
-    if (!player || !player.current) return null;
-    // A stream has no duration, so the old clamp (min against duration || 0)
-    // silently turned EVERY seek on a live stream into a jump to 0 while
-    // still reporting success. Refuse what cannot be honoured.
-    if (player.current.isStream) return null;
-    const duration = player.current.duration || 0;
-    if (duration <= 0) return null;
-    const ms = Math.max(0, Math.min(seconds * 1000, duration));
-    // Identity of the track we are seeking, re-checked after the await below.
-    const trackIdentifier = (player.current as unknown as { identifier?: string }).identifier ?? '';
-    // Record user seeks so a stall in the seconds after one retries the seek
-    // itself instead of burning fallback budget on a healthy upload.
-    try {
-      player.set('lastUserSeekAt', Date.now());
-      player.set('lastUserSeekPos', ms);
-      player.set('seekStallRetried', false);
-    } catch {
-      // Non-critical metadata; the seek below is what matters.
-    }
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      await Promise.race([
-        player.seek(ms),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error('seek-rest-timeout')), restTimeoutMs);
-        }),
-      ]);
-    } catch {
-      // Slow/dead REST: the sync event already fired (swap ran, clock
-      // pinned); stuck detection owns recovery from here.
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-    if (player.current) {
-      // Only if the SAME track is still current: a REST that stalls past the
-      // track's end would otherwise stamp this position onto the next song.
-      const cur = player.current as unknown as { identifier?: string; position?: number; time?: number };
-      if (cur.identifier === trackIdentifier) {
-        cur.position = ms;
-        cur.time = Date.now();
-      }
-    }
-    return ms;
+    return this.controls.seek(guildId, seconds, restTimeoutMs);
   }
 
   /**
-   * Playback control policy, shared by every surface (slash, text, buttons,
-   * menus) so they cannot disagree: the person who queued the current track
-   * controls it, and server admins can always recover the bot. Tracks with no
-   * requester (autoplay, 24/7, a restored session) stay open — otherwise
-   * nobody could stop them.
-   *
-   * This exists because the BUTTONS enforced requester-only while NO command
-   * did: any member could `/music stop`, `clear`, `volume 0` or `skipto` and
-   * hijack a session they had nothing to do with.
+   * Playback control policy — see MusicPlaybackControls. Kept as a delegate so
+   * every surface (slash, text, buttons, menus) keeps one shared answer.
    */
   public canControlPlayback(guildId: string, userId: string, isAdmin = false): boolean {
-    if (isAdmin) return true;
-    try {
-      const requesterId = this.getQueueInfo(guildId)?.current?.requester?.id;
-      return !requesterId || requesterId === userId;
-    } catch {
-      // Never lock the owner out of their own bot because a read failed.
-      return true;
-    }
+    return this.controls.canControlPlayback(guildId, userId, isAdmin);
   }
 
   public setVolume(guildId: string, volume: number): number | null {
-    const player = this.getPlayer(guildId);
-    if (!player) return null;
-    const clamped = Math.max(0, Math.min(150, Math.round(volume)));
-    player.setVolume(clamped);
-    this.queueService.saveSettings(guildId, { volume: clamped });
-    return clamped;
+    return this.controls.setVolume(guildId, volume);
+  }
+
+  public adjustVolume(guildId: string, delta: number): number | null {
+    return this.controls.adjustVolume(guildId, delta);
   }
 
   public async setFilter(
@@ -1861,124 +1077,53 @@ export class MusicService {
     filter: FilterName,
     enabled: boolean,
   ): Promise<{ applied: boolean; replaced: FilterName[] }> {
-    const none = { applied: false, replaced: [] as FilterName[] };
-    const player = this.getPlayer(guildId);
-    if (!player) return none;
-
-    const replaced: FilterName[] = [];
-    if (enabled) {
-      this.ensureFilterDefined(player, filter);
-      if (MusicService.EQ_EXCLUSIVE_GROUP.includes(filter)) {
-        for (const other of MusicService.EQ_EXCLUSIVE_GROUP) {
-          if (other !== filter && player.filters.enabled.includes(other)) {
-            try {
-              player.filters.disable(other);
-              replaced.push(other);
-            } catch {
-              // ignore — enable below decides
-            }
-          }
-        }
-      }
-      try {
-        player.filters.enable(filter);
-      } catch (err) {
-        Logger.warn({ err, guildId, filter }, '[Music] Enable filter failed');
-        return { applied: false, replaced };
-      }
-    } else {
-      try {
-        player.filters.disable(filter);
-      } catch (err) {
-        Logger.warn({ err, guildId, filter }, '[Music] Disable filter failed');
-        return { applied: false, replaced };
-      }
-    }
-    try {
-      await player.filters.apply();
-    } catch (err) {
-      Logger.warn({ err, guildId, filter }, '[Music] Apply filters failed');
-      return { applied: false, replaced };
-    }
-    this.queueService.saveSettings(guildId, { filters: [...player.filters.enabled] });
-    return { applied: true, replaced };
+    return this.controls.setFilter(guildId, filter, enabled);
   }
 
   public async clearFilters(guildId: string): Promise<boolean> {
-    const player = this.getPlayer(guildId);
-    if (!player) return false;
-    player.filters.clear();
-    try {
-      // Unguarded, a dead-node REST rejection here became an UNHANDLED
-      // rejection — fatal to the process on Node's default policy, from a
-      // command as ordinary as "clear the filters".
-      await player.filters.apply();
-    } catch (err) {
-      Logger.warn({ err, guildId }, '[Music] Clear filters: apply failed');
-      return false;
-    }
-    this.queueService.saveSettings(guildId, { filters: [] });
-    return true;
+    return this.controls.clearFilters(guildId);
   }
 
   public toggle247(guildId: string, enabled?: boolean): boolean {
-    const current = this.queueService.is247(guildId);
-    const nextState = enabled !== undefined ? enabled : !current;
-    this.queueService.set247(guildId, nextState);
-    return nextState;
+    return this.controls.toggle247(guildId, enabled);
   }
 
   public isKaraokeEnabled(guildId: string): boolean {
-    return this.queueService.isKaraokeEnabled(guildId);
+    return this.controls.isKaraokeEnabled(guildId);
   }
 
   public toggleKaraoke(guildId: string, enabled?: boolean): boolean {
-    const next = this.queueService.toggleKaraoke(guildId, enabled);
-    // The card is event-driven: a toggle must refresh it (show/hide lyrics)
-    // instead of waiting for the next lyric/chapter boundary.
-    try {
-      this.karaokeToggleNotifier?.(guildId);
-    } catch {
-      // A notice must never break the toggle.
-    }
-    return next;
+    return this.controls.toggleKaraoke(guildId, enabled);
   }
 
   /** Wired at startup — refreshes the card when karaoke is toggled. */
   public setKaraokeToggleNotifier(notifier: (guildId: string) => void): void {
-    this.karaokeToggleNotifier = notifier;
+    this.controls.setKaraokeToggleNotifier(notifier);
   }
 
   /** Wired at startup — repaints the event-driven card when backfill lands art. */
   public setCardRefreshNotifier(notifier: (guildId: string) => void): void {
-    this.cardRefreshNotifier = notifier;
-  }
-
-  /** Best-effort card repaint after art attaches (fingerprint dedupes no-ops). */
-  private notifyCardArt(guildId?: string): void {
-    if (!guildId) return;
-    try {
-      this.cardRefreshNotifier?.(guildId);
-    } catch {
-      // A notice must never break resolution.
-    }
+    this.artwork.setCardRefreshNotifier(notifier);
   }
 
   public setLoop(guildId: string, mode: LoopMode): LoopMode | null {
-    const player = this.getPlayer(guildId);
-    if (!player) return null;
-    player.setLoop(mode);
-    this.queueService.saveSettings(guildId, { loopMode: mode });
-    return mode;
+    return this.controls.setLoop(guildId, mode);
+  }
+
+  public cycleLoop(guildId: string): LoopMode | null {
+    return this.controls.cycleLoop(guildId);
   }
 
   public toggleAutoplay(guildId: string, enabled?: boolean): boolean | null {
-    const player = this.getPlayer(guildId);
-    if (!player) return null;
-    const nextState = enabled !== undefined ? enabled : !player.autoPlay;
-    player.setAutoPlay(nextState);
-    this.queueService.saveSettings(guildId, { autoplay: nextState });
-    return nextState;
+    return this.controls.toggleAutoplay(guildId, enabled);
+  }
+
+  public async previous(guildId: string): Promise<boolean> {
+    return this.controls.previous(guildId);
+  }
+
+  public async replay(guildId: string): Promise<boolean> {
+    return this.controls.replay(guildId);
   }
 
   public shuffle(guildId: string): boolean {
@@ -2026,29 +1171,6 @@ export class MusicService {
     return this.mapPendingEntry(entry);
   }
 
-  public async previous(guildId: string): Promise<boolean> {
-    const player = this.getPlayer(guildId);
-    if (!player) return false;
-    if (!player.previous || player.previous.length === 0) return false;
-    const prevTrack = player.previous.pop()!;
-    // Do NOT re-queue current: player.skip()/play() already pushes the old
-    // current into history, so re-adding it duplicates the queue on every
-    // toggle. Just front the previous track and advance to it.
-    player.queue.unshift(prevTrack);
-    if (await player.skip()) return true;
-    // skip() resolved false (voice not ready): the old code had already lost
-    // the history entry AND left the track duplicated in the queue, then told
-    // the user "No previous track in history". Put both back.
-    try {
-      const at = player.queue.all.indexOf(prevTrack);
-      if (at !== -1) player.queue.remove(at);
-      player.previous.push(prevTrack);
-    } catch {
-      // Best effort restore.
-    }
-    return false;
-  }
-
   public async skipto(guildId: string, position: number): Promise<boolean> {
     return this.jumpToCombined(guildId, position - 1);
   }
@@ -2090,7 +1212,7 @@ export class MusicService {
     const liveList = this.pendingSpotify.get(guildId);
     if (!found || !live || !liveList) return false;
     // The player may have been replaced entirely while we resolved.
-    if (live !== player || MusicService.isDestroyed(live)) return false;
+    if (live !== player || isDestroyedPlayer(live)) return false;
     const at = liveList.indexOf(entry);
     if (at === -1) return false;
     // Drop only what existed when the jump started. `queue.clear()` here wiped
@@ -2101,7 +1223,7 @@ export class MusicService {
     }
     liveList.splice(0, at + 1);
     if (liveList.length === 0) this.pendingSpotify.delete(guildId);
-    this.adoptMirrorTrack(
+    adoptMirrorTrack(
       found.lavalinkTrack,
       entry.spTrack,
       found.rung,
@@ -2179,7 +1301,7 @@ export class MusicService {
     if (at === -1) return false;
     liveList.splice(at, 1);
     if (liveList.length === 0) this.pendingSpotify.delete(guildId);
-    this.adoptMirrorTrack(
+    adoptMirrorTrack(
       found.lavalinkTrack,
       entry.spTrack,
       found.rung,
@@ -2196,113 +1318,13 @@ export class MusicService {
     return true;
   }
 
-  public async replay(guildId: string): Promise<boolean> {
-    const player = this.getPlayer(guildId);
-    if (!player || !player.current) return false;
-    await player.seek(0);
-    if (player.current) {
-      player.current.position = 0;
-      player.current.time = Date.now();
-    }
-    return true;
-  }
-
-  public adjustVolume(guildId: string, delta: number): number | null {
-    const player = this.getPlayer(guildId);
-    if (!player) return null;
-    const current = player.volume ?? 100;
-    const nextVol = Math.max(0, Math.min(150, current + delta));
-    player.setVolume(nextVol);
-    this.queueService.saveSettings(guildId, { volume: nextVol });
-    return nextVol;
-  }
-
-  public cycleLoop(guildId: string): LoopMode | null {
-    const player = this.getPlayer(guildId);
-    if (!player) return null;
-    let nextMode: LoopMode = 'off';
-    if (player.loop === 'off' || !player.loop) nextMode = 'track';
-    else if (player.loop === 'track') nextMode = 'queue';
-    else if (player.loop === 'queue') nextMode = 'off';
-    player.setLoop(nextMode);
-    this.queueService.saveSettings(guildId, { loopMode: nextMode });
-    return nextMode;
-  }
-
-  public async searchTracks(query: string, source: string = 'youtube', spotifyFirst: boolean = true): Promise<MusicTrack[]> {
-    const trimmed = query.trim();
-    if (!trimmed) return [];
-
-    // 1. Spotify search first (unless the caller wants pure YouTube, e.g. the
-    // +search command) so results have clean names, artists, hi-res artwork.
-    const isUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|soundcloud\.com|open\.spotify\.com|deezer\.com|link\.deezer\.com|deezer\.page\.link|music\.apple\.com|itunes\.apple\.com)\/.+/i.test(trimmed) || /^https?:\/\//i.test(trimmed);
-    if (spotifyFirst && !isUrl) {
-      try {
-        const spotifyResults = await Promise.race([
-          this.spotifyResolver.searchTracks(trimmed, 10),
-          new Promise<SpotifyResolvedTrack[]>((resolve) => setTimeout(() => resolve([]), 2500)),
-        ]);
-
-        if (spotifyResults.length > 0) {
-          return spotifyResults.map((st, idx) => ({
-            identifier: `spotify:${idx}:${st.name}`,
-            title: st.name,
-            author: st.artist,
-            uri: st.spotifyUri || `${st.artist} - ${st.name}`,
-            duration: st.durationMs,
-            isSeekable: true,
-            isStream: false,
-            artworkUrl: st.artworkUrl,
-            source: 'spotify',
-          }));
-        }
-      } catch {
-        // Fallback to Lavalink
-      }
-    }
-
-    // 2. Fallback to Lavalink (YouTube / SoundCloud) — node-aware, so a
-    // REST-dead node can't swallow the search picker's results.
-    const res = await this.searchWithTimeout({ query: trimmed, source });
-    if (!res || !res.tracks || res.tracks.length === 0) return [];
-    const mapped = (res.tracks as Array<import('moonlink.js').Track>).slice(0, 10).map((t) => mapMoonlinkTrack(t));
-    // Pure-YouTube mode (+search) would otherwise return raw upload titles
-    // with video-frame thumbs — and the pick would carry that thumb into
-    // play() as trusted art. One batched Spotify lookup upgrades each hit to
-    // the clean studio name + real cover (per-track validated; misses keep
-    // raw data). The upgraded metadata rides the select-override into play(),
-    // so the card shows the song cover from frame one.
-    if (!spotifyFirst && source === 'youtube' && mapped.length > 0) {
-      await this.upgradePickerResults(trimmed, mapped);
-    }
-    return mapped;
-  }
-
-  /**
-   * Upgrades +search picker results with Spotify-side clean names + covers.
-   * Bounded (single batched call, 2.5s race) and silent — a wrong match is
-   * worse than a raw upload title, so only isSpotifyMatchValid stamps touch
-   * a result. Failures leave the picker exactly as raw as today.
-   */
-  private async upgradePickerResults(query: string, tracks: MusicTrack[]): Promise<void> {
-    try {
-      const candidates = await Promise.race([
-        this.spotifyResolver.searchTracks(query, 10),
-        new Promise<SpotifyResolvedTrack[]>((resolve) => setTimeout(() => resolve([]), 2500)),
-      ]);
-      if (candidates.length === 0) return;
-      for (const t of tracks) {
-        const match = candidates.find((c) =>
-          isSpotifyMatchValid({ title: t.title, author: t.author, duration: t.duration }, c),
-        );
-        if (!match) continue;
-        t.title = match.name;
-        t.author = cleanArtistName(match.artist);
-        if (match.artworkUrl) t.artworkUrl = match.artworkUrl;
-      }
-    } catch {
-      // Picker stays raw — today's behavior.
-    }
+  /** Picker search for the +search select menu — see MusicSearchLadder. */
+  public async searchTracks(
+    query: string,
+    source: string = 'youtube',
+    spotifyFirst: boolean = true,
+  ): Promise<MusicTrack[]> {
+    return this.ladder.searchTracks(query, source, spotifyFirst);
   }
 
   public getHistory(guildId: string, limit: number = 10) {

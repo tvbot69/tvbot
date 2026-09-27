@@ -118,6 +118,27 @@ const stripBracketed = (s: string): string =>
   s.replace(/\s*[([{\u3010].*?[)\]}\u3011]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
 /**
+ * Leading release/import dates, as DJ-pool and compilation rips carry them:
+ * "20191009 I Like Her", "2020-08-17 Proud True Toyota", "17.08.2020 Song".
+ *
+ * This is NOT cosmetic. Measured against the live Spotify catalogue: the
+ * original single "I Like Her" by Mac DeMarco is not returned by search at
+ * all — every hit is a compilation rip titled "20191009 I Like Her" on
+ * "Cottage Core"-style albums. Same for "Proud True Toyota" (only
+ * "20200817 Proud True Toyota" exists there). The artist matched perfectly and
+ * the title did not, so strict matching rejected all of them and chapter art
+ * resolved to nothing.
+ *
+ * Only a LEADING date is stripped, and only when what remains still has real
+ * title text, so "1989" stays a title and "2001 (A Space Odyssey)" is
+ * untouched.
+ */
+const DATE_PREFIX =
+  /^\s*(?:\d{4}[-_.]?\d{2}[-_.]?\d{2}|\d{1,2}[-_.]\d{1,2}[-_.]\d{2,4}|\d{1,2}\/\d{1,2}\/\d{2,4})[\s._-]+/;
+
+const stripDatePrefix = (s: string): string => s.replace(DATE_PREFIX, '').trim();
+
+/**
  * Recording-variant tags: these identify a DIFFERENT recording (a remix, a
  * radio edit, a live cut), so a candidate carrying one must never be served
  * for a target without it — "Song (Remix)" and "Song" were one identity, so
@@ -138,12 +159,14 @@ export const matchesTrackTitle = (candidate: string, target: string): boolean =>
   // A candidate that ADDS a distinguishing edition tag is a different
   // recording; refuse before anything else can call it equal.
   if (EDITION_TAG.test(candidate) && !EDITION_TAG.test(target)) return false;
-  const c = normalizeTitleKey(candidate);
-  const t = normalizeTitleKey(target);
+  const cd = stripDatePrefix(candidate);
+  const td = stripDatePrefix(target);
+  const c = normalizeTitleKey(cd);
+  const t = normalizeTitleKey(td);
   if (!c || !t) return false;
   if (c === t) return true;
-  const cs = normalizeTitleKey(stripBracketed(candidate));
-  const ts = normalizeTitleKey(stripBracketed(target));
+  const cs = normalizeTitleKey(stripBracketed(cd));
+  const ts = normalizeTitleKey(stripBracketed(td));
   return cs.length > 0 && ts.length > 0 && (cs === ts || cs === t || c === ts);
 };
 

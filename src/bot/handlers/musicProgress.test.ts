@@ -557,6 +557,10 @@ describe('MusicHandler progress card', () => {
         is247: () => false,
         isKaraokeEnabled: () => true,
         recordTrackStart: vi.fn(),
+        // trackStart now derives the displayed chapter from the REAL position
+        // instead of a hardcoded 0 (rendering chapter 0 for a track that starts
+        // part-way through was a bug). The double must provide it.
+        calculatePosition: () => queue.position,
       } as never,
     ) as unknown as {
       progressFingerprints: Map<string, string>;
