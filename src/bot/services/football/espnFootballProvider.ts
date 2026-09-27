@@ -2,6 +2,7 @@ import { injectable } from 'tsyringe';
 import { Logger } from '@domain/logger';
 import type { FootballMatch, FootballMatchStatus, FootballTeam, LeagueOption } from '@domain/models/football/footballModels';
 import { errorMessage } from '@domain/discordErrors';
+import type { EspnScoreboardResponse } from './footballApiModels';
 
 @injectable()
 export class EspnFootballProvider {
@@ -28,15 +29,15 @@ export class EspnFootballProvider {
         return [];
       }
 
-      const data = await response.json();
-      const events: any[] = data.events || [];
+      const data = (await response.json()) as EspnScoreboardResponse;
+      const events = data.events ?? [];
       const results: FootballMatch[] = [];
 
       for (const event of events) {
         const competition = event.competitions?.[0];
         if (!competition) continue;
 
-        const competitors: any[] = competition.competitors || [];
+        const competitors = competition.competitors ?? [];
         const home = competitors.find((c) => c.homeAway === 'home');
         const away = competitors.find((c) => c.homeAway === 'away');
         if (!home || !away) continue;

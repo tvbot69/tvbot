@@ -3,6 +3,7 @@ import { Logger } from '@domain/logger';
 import { ConfigData } from '@bot/configurations/configData';
 import type { FootballDaySchedule } from '@domain/models/football/footballModels';
 import { errorMessage } from '@domain/discordErrors';
+import type { DiscordApplicationEmojisResponse } from './footballApiModels';
 
 export function normalizeTeamSlug(name: string): string {
   // Strip common club prefixes to yield cleaner, recognizable slug names
@@ -79,8 +80,8 @@ export class FootballBadgeService {
         });
 
         if (res.ok) {
-          const data = await res.json();
-          const items: any[] = data.items || [];
+          const data = (await res.json()) as DiscordApplicationEmojisResponse;
+          const items = data.items ?? [];
           for (const item of items) {
             if (item.name && item.id && item.name.startsWith('fb_')) {
               this.emojiCache.set(item.name, `<:${item.name}:${item.id}>`);

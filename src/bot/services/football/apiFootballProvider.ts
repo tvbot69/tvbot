@@ -2,6 +2,7 @@ import { injectable } from 'tsyringe';
 import { Logger } from '@domain/logger';
 import type { FootballMatch, FootballMatchStatus, FootballTeam, LeagueOption } from '@domain/models/football/footballModels';
 import { errorMessage } from '@domain/discordErrors';
+import type { ApiFootballFixturesResponse } from './footballApiModels';
 
 @injectable()
 export class ApiFootballProvider {
@@ -56,15 +57,19 @@ export class ApiFootballProvider {
         return [];
       }
 
-      const data = await response.json();
-      const fixtures: any[] = data.response || [];
+      const data = (await response.json()) as ApiFootballFixturesResponse;
+      const fixtures = data.response ?? [];
       const results: FootballMatch[] = [];
 
       for (const item of fixtures) {
         const fixture = item.fixture;
         const teams = item.teams;
         const goals = item.goals;
-        if (!fixture || !teams) continue;
+        // `goals` was guarded field-by-field below (`goals.home !== null`) but
+        // never itself. A fixture with no `goals` object - which the API omits
+        // for some pre-match states - threw a TypeError here and took down the
+        // whole schedule fetch. Typing the response made the compiler say so.
+        if (!fixture || !teams || !goals) continue;
 
         const homeTeam: FootballTeam = {
           name: teams.home?.name || 'Home',
