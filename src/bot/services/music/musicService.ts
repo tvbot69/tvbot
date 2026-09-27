@@ -33,6 +33,13 @@ export interface PlayResult {
   positionInQueue: number;
   /** True when fewer tracks resolved than the source listed (blocked/missing). */
   partial?: boolean;
+  /**
+   * Why the load was partial, when it is not the ordinary unresolvable-track
+   * case. Spotify stopped exposing playlist contents to app-only tokens, so a
+   * long playlist can only ever yield its first 100 tracks — saying so beats
+   * silently handing back a fifth of what was asked for.
+   */
+  partialReason?: string;
   errorReason?: 'no-nodes' | 'voice' | 'search' | 'empty-spotify' | 'queue-full';
 }
 
@@ -774,7 +781,20 @@ export class MusicService {
             : 'mirror_artist';
 
     // Perfect: if playlist was chunked (scraper 100/312), register lazy loader for next 100
-    if (provider === 'spotify' && resolution.type === 'playlist' && this.playlistChunkManager && resolution.totalTracks > resolution.tracks.length) {
+    //
+    // Measured 2026-09-27: that paging can no longer work. Spotify removed
+    // playlist-contents access for app-only tokens — /v1/playlists/{id}/tracks
+    // is 403, /v1/playlists/{id} returns metadata with no `tracks`, the anon
+    // web-player token endpoint returns XML, the main playlist HTML no longer
+    // ships __NEXT_DATA__, and the embed page returns the SAME first 100
+    // tracks for ?offset=0/100/200 alike. 100 is a hard ceiling without
+    // extended quota access, which Spotify now grants only to organisations
+    // with 250k+ MAU. So the chunk manager is registered (harmless, and it
+    // still drains anything a future source can provide) but the reply below
+    // tells the truth instead of quietly handing back a fraction of the ask.
+    const spotifyTruncated =
+      provider === 'spotify' && resolution.type === 'playlist' && resolution.totalTracks > resolution.tracks.length;
+    if (spotifyTruncated && this.playlistChunkManager) {
       const parsed = this.spotifyResolver.parseSpotifyUrl(sourceUrl);
       if (parsed) {
         this.playlistChunkManager.register(
@@ -795,6 +815,7 @@ export class MusicService {
     // background skips are logged in topUpPending.
     const pendingDomain = (this.pendingSpotify.get(player.guildId) ?? []).map((e) => this.mapPendingEntry(e));
 
+    const missing = resolution.totalTracks - resolution.tracks.length;
     return {
       loadType,
       playlistName: resolution.title,
@@ -802,7 +823,10 @@ export class MusicService {
       tracks: [...addedTracks, ...pendingDomain],
       totalTracksAdded: addedTracks.length + pendingDomain.length,
       positionInQueue: player.queue.size - addedTracks.length + 1,
-      partial: false,
+      partial: spotifyTruncated || undefined,
+      partialReason: spotifyTruncated
+        ? `Spotify only exposes the first ${resolution.tracks.length} of ${resolution.totalTracks} tracks to bots — ${missing} more were not loaded`
+        : undefined,
     };
   }
 

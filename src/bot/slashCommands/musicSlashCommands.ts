@@ -352,6 +352,7 @@ export class MusicSlashCommands implements ISlashCommandModule {
         accentColor,
         isSpotify ? 'spotify' : 'youtube',
         result.partial ?? false,
+        result.partialReason,
       ).setAutoDelete(10);
     }
 

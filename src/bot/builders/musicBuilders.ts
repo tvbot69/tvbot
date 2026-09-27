@@ -134,6 +134,7 @@ export class MusicBuilders {
     accentColor?: number,
     source?: string,
     partial: boolean = false,
+    partialReason?: string,
   ): ResponseModel {
     const color = accentColor ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(color);
@@ -166,7 +167,9 @@ export class MusicBuilders {
     }
     const header = `-# 📑 PLAYLIST ADDED TO QUEUE`;
     const sourceBadge = source ? ` • ${getSourceBadge(source)}` : '';
-    const partialNote = partial ? `\n-# Partial load — some tracks were unresolvable and skipped` : '';
+    const partialNote = partial
+      ? `\n-# Partial load — ${partialReason ?? 'some tracks were unresolvable and skipped'}`
+      : '';
     const mainContent = `### ${name}\n**${count} tracks** • \`${formatDuration(totalDuration)}\`${sourceBadge}${position && position > 1 ? ` • Starts at #${position}` : ''}${partialNote}`;
 
     if (artworkUrl) {

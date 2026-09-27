@@ -319,6 +319,7 @@ export class MusicCommands implements ITextCommandModule {
         accentColor,
         isSpotify ? 'spotify' : 'youtube',
         result.partial ?? false,
+        result.partialReason,
       ).setAutoDelete(10);
     }
 

@@ -1,4 +1,5 @@
 import type { Player, Track } from 'moonlink.js';
+import { USER_SEEK_INTENT_WINDOW_MS } from './musicConstants';
 import type { LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { mapMoonlinkTrack, type MusicTrack } from '@domain/models/music/musicTrack';
 import { MusicHistoryRepository } from '@persistence/repositories/musicHistoryRepository';
@@ -105,6 +106,35 @@ export class QueueService {
         ? rawTrack.position
         : (player.lastPosition ?? 0);
 
+    // A recent user seek is AUTHORITATIVE, even when the node's clock is
+    // perfectly healthy.
+    //
+    // moonlink owns `current.position`/`current.time` and rewrites them from
+    // the node, which keeps reporting the PRE-seek position for a few seconds
+    // after a seek lands. Measured 2026-09-27: after `.seek 50:00` on a
+    // 25-chapter set, this returned ~15s and climbed from there, so every
+    // consumer of the position — the chapter derivation, the chapter boundary
+    // timer, the card fingerprint — read a stale value and the card was one
+    // rejected rewind away from snapping back to chapter 0.
+    //
+    // Only ever moves the position FORWARD: a seek backwards is handled by the
+    // node's own clock once it catches up, and this must never fight it.
+    const seekAt = typeof player.get === 'function' ? player.get<number>('lastUserSeekAt') : undefined;
+    const seekPos = typeof player.get === 'function' ? player.get<number>('lastUserSeekPos') : undefined;
+    if (
+      typeof seekAt === 'number' &&
+      seekAt > 0 &&
+      typeof seekPos === 'number' &&
+      seekPos >= 0 &&
+      seekPos > basePos &&
+      Date.now() - seekAt < USER_SEEK_INTENT_WINDOW_MS
+    ) {
+      const since = player.playing && !player.paused ? Math.max(0, Date.now() - seekAt) : 0;
+      const total = player.current.duration || 0;
+      const seeked = seekPos + since;
+      return total > 0 ? Math.min(total, seeked) : seeked;
+    }
+
     if (!player.playing || player.paused) {
       return basePos;
     }
@@ -135,8 +165,6 @@ export class QueueService {
     // track began, extrapolate from the seek target instead — same "keep
     // moving" guarantee, but seek-relative.
     const now = Date.now();
-    const seekAt = typeof player.get === 'function' ? player.get<number>('lastUserSeekAt') : undefined;
-    const seekPos = typeof player.get === 'function' ? player.get<number>('lastUserSeekPos') : undefined;
     if (
       typeof seekAt === 'number' &&
       seekAt > 0 &&

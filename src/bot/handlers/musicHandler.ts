@@ -1,4 +1,4 @@
-import { Client, Events, VoiceChannel, StageChannel } from 'discord.js';
+
 import type { Manager, Player } from 'moonlink.js';
 import { Track } from 'moonlink.js';
 import { Logger } from '@domain/logger';
@@ -6,6 +6,8 @@ import { FallbackBudget } from './music/fallbackBudget';
 import { KaraokeController, type KaraokeHost } from './music/karaokeController';
 import { NowPlayingCardPublisher, type CardPublisherHost } from './music/nowPlayingCardPublisher';
 import { ChapterArtController, type ChapterArtHost } from './music/chapterArtController';
+import { AlternateTrackFinder } from './music/alternateTrackFinder';
+import { VoiceLifecycle, type VoiceLifecycleHost } from './music/voiceLifecycle';
 import { buildFallbackQuery, chapterKeyFor, clientFailuresText, fingerprintFor } from './music/cardFingerprint';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { QueueService } from '@bot/services/music/queueService';
@@ -31,8 +33,9 @@ import { getVideoChapters } from '@bot/services/music/ytResolver';
 import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTrack';
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { healthFor, ladderFor, YoutubeHealth, HOME_NODE } from '@bot/services/music/youtubeHealth';
-import { resolveViaHome } from '@bot/services/music/ytResolver';
 import { CHAPTER_ART_RETRY_MS, CHAPTER_JUMP_CONFIRM_MS, CHAPTER_REGRESSION_TOLERANCE_MS, USER_SEEK_INTENT_WINDOW_MS } from '@bot/services/music/musicConstants';
+
+import type { Client } from 'discord.js';
 
 export class MusicHandler {
   private readonly client: Client;
@@ -68,7 +71,6 @@ export class MusicHandler {
    * next trigger publishes instead of skipping.
    */
 
-  private static readonly KICK_GRACE_MS = 180000;
 
   constructor(
     client: Client,
@@ -97,6 +99,12 @@ export class MusicHandler {
       this.publishRetries,
       this.pendingPublish,
     );
+    this.voice = new VoiceLifecycle(
+      this as unknown as VoiceLifecycleHost,
+      this.kickGraceTimeouts,
+      this.emptyChannelTimeouts,
+      this.inactivityTimeouts,
+    );
     this.chapterArt = new ChapterArtController(
       this as unknown as ChapterArtHost,
       this.chapterArtRetryTimers,
@@ -111,6 +119,11 @@ export class MusicHandler {
       this.triedFallbackIds,
       this.songFailureCounts,
     );
+    this.fallbacks = new AlternateTrackFinder({
+      moonlinkManager: this.moonlinkManager,
+      queueService: this.queueService,
+      budget: this.fallbackBudget,
+    });
     this.registerMoonlinkEvents();
     this.registerDiscordEvents();
   }
@@ -289,18 +302,14 @@ export class MusicHandler {
         const regression =
           typeof committedAt === 'number' && positionMs < committedAt - CHAPTER_REGRESSION_TOLERANCE_MS;
         if (regression && !explainedBySeek) {
-          Logger.info(
-            {
-              guildId: player.guildId,
-              from: lastIdx,
-              to: idx,
-              positionMs,
-              committedAt,
-            },
-            '[Music] Stale position read — refusing to rewind the chapter',
+          // DEBUG, not INFO: every publish tick during the node's post-seek
+          // catch-up window legitimately reads stale, so this fires several
+          // times per seek by design. Nudging a re-derive lets a genuinely
+          // moved clock win as soon as the node catches up.
+          Logger.debug(
+            { guildId: player.guildId, from: lastIdx, to: idx, positionMs, committedAt },
+            '[Music] Stale position read — refused chapter rewind',
           );
-          // Nudge a re-derive so a genuinely-moved clock is picked up soon
-          // rather than being frozen out.
           this.scheduleImmediateProgress(player);
           return player.get<ChapterCard | null>('chapterCard') ?? null;
         }
@@ -681,78 +690,6 @@ export class MusicHandler {
     this.cards.scheduleImmediateProgress(player, delayMs);
   }
 
-  private clearKickGrace(guildId: string): void {
-    const grace = this.kickGraceTimeouts.get(guildId);
-    if (grace) {
-      clearTimeout(grace);
-      this.kickGraceTimeouts.delete(guildId);
-    }
-  }
-
-  private clearInactivityTimeout(guildId: string): void {
-    const timeout = this.inactivityTimeouts.get(guildId);
-    if (timeout) {
-      clearTimeout(timeout);
-      this.inactivityTimeouts.delete(guildId);
-    }
-  }
-
-  /**
-   * Builds a low-noise search query for fallback lookups.
-   * Spotify display metadata is noisy ("Rauw Alejandro, Grand Theft Auto VI" as artist,
-   * "(from GTAVI: The Album)" in the title) and full-noise queries return zero
-   * SoundCloud hits. First billed artist + bracket-stripped title matches far better.
-   */
-  private adoptFallbackMetadata(fallback: Track, failedTrack: Track, source: string): void {
-    fallback.requester = failedTrack.requester;
-    fallback.title = failedTrack.title;
-    fallback.author = failedTrack.author;
-    if (failedTrack.artworkUrl) fallback.artworkUrl = failedTrack.artworkUrl;
-    const rec = fallback as unknown as Record<string, unknown>;
-    rec.sourceName = source;
-    rec.source = source;
-  }
-
-  /** Frozen position snapshot for resume carryover; 0 when unknowable. */
-  private frozenPosition(player: Player): number {
-    try {
-      const ms = this.queueService.calculatePosition(player);
-      return typeof ms === 'number' && ms > 0 ? ms : 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  /**
-   * Resume-position carryover: when a stuck/failed track is replaced by a
-   * fallback alternate, land the replacement where the listener was (the
-   * frozen position ≈ the user's seek target after a seek-stall). Clamped
-   * to the replacement's duration; skipped for streams/unknown lengths and
-   * unless the replacement is actually current. Never throws — advancement
-   * already succeeded when this runs.
-   */
-  private async resumeFallbackAt(player: Player, fallback: Track, resumeMs: number): Promise<void> {
-    try {
-      const totalMs = fallback.duration || 0;
-      if (!resumeMs || resumeMs < 5000 || !totalMs) return;
-      const cur = player.current as unknown as { encoded?: string; uri?: string | null; identifier?: string } | null;
-      const key = (
-        t: { encoded?: string; uri?: string | null; identifier?: string } | null | undefined,
-      ): string => String(t?.encoded ?? t?.uri ?? t?.identifier ?? '');
-      if (!cur || key(cur) !== key(fallback)) return;
-      const at = Math.max(0, Math.min(resumeMs, totalMs - 1000));
-      if (at <= 0) return;
-      await player.seek(at).catch(() => undefined);
-      if (player.current) {
-        player.current.position = at;
-        player.current.time = Date.now();
-      }
-      Logger.info({ guildId: player.guildId, at }, '[Music] Fallback resumed at last-known position.');
-    } catch {
-      // Best-effort only.
-    }
-  }
-
   // Fallback budgets: every failure runs up to 2 node searches. A poison
   // playlist must never turn that into a search storm or an infinite
   // fallback-that-fails loop.
@@ -803,28 +740,27 @@ export class MusicHandler {
     return this.fallbackBudget.isFreshCandidate(failedTrack, guildId, t);
   }
 
+  /** Alternate-track ladder — see music/alternateTrackFinder.ts. */
+  private readonly fallbacks: AlternateTrackFinder;
+
+  public adoptFallbackMetadata(fallback: Track, failedTrack: Track, source: string): void {
+    this.fallbacks.adoptFallbackMetadata(fallback, failedTrack, source);
+  }
+
+  private frozenPosition(player: Player): number {
+    return this.fallbacks.frozenPosition(player);
+  }
+
+  private async resumeFallbackAt(player: Player, fallback: Track, resumeMs: number): Promise<void> {
+    return this.fallbacks.resumeFallbackAt(player, fallback, resumeMs);
+  }
+
   private async searchYoutubeAlternate(
     manager: Manager,
     failedTrack: Track,
     guildId: string,
   ): Promise<Track | null> {
-    const query = this.buildFallbackQuery(failedTrack);
-    if (!query) return null;
-    try {
-      const yt = await manager.search({ query, source: 'youtube' });
-      const alt = yt?.tracks?.find((t: Track) => this.isFreshCandidate(failedTrack, guildId, t));
-      if (alt) {
-        this.adoptFallbackMetadata(alt, failedTrack, 'youtube');
-        Logger.info(
-          { guildId, query, uri: alt.uri },
-          `[Music] Alternate YouTube upload found for "${failedTrack.title}" — retrying without the blocked upload.`,
-        );
-        return alt;
-      }
-    } catch (err) {
-      Logger.debug({ err }, '[Music] Alternate YouTube search failed');
-    }
-    return null;
+    return this.fallbacks.searchYoutubeAlternate(manager, failedTrack, guildId);
   }
 
   private async searchSoundcloudAlternate(
@@ -832,84 +768,11 @@ export class MusicHandler {
     failedTrack: Track,
     guildId: string,
   ): Promise<Track | null> {
-    const query = this.buildFallbackQuery(failedTrack);
-    if (!query) return null;
-    try {
-      const sc = await manager.search({ query, source: 'soundcloud' });
-      const alt = sc?.tracks?.find((t: Track) => this.isFreshCandidate(failedTrack, guildId, t));
-      if (alt) {
-        this.adoptFallbackMetadata(alt, failedTrack, 'soundcloud');
-        return alt;
-      }
-      if (sc?.tracks && sc.tracks.length > 0) {
-        Logger.warn(
-          { query, topHit: sc.tracks[0]?.title },
-          `[Music] SoundCloud top hit duration-mismatched — refusing to play a wrong song.`,
-        );
-      }
-    } catch (err) {
-      Logger.debug({ err }, '[Music] SoundCloud fallback search failed');
-    }
-    return null;
+    return this.fallbacks.searchSoundcloudAlternate(manager, failedTrack, guildId);
   }
 
-  /**
-   * Resolves the exact video through the home PC's yt-dlp resolver and loads
-   * it as a local file on the Home node. Only for Home players and YouTube
-   * tracks; everything else returns null so the ladder moves on.
-   */
   private async tryResolver(player: Player, src: Track): Promise<Track | null> {
-    if (player.node?.identifier !== HOME_NODE) return null;
-    // Skip fast when Home is REST-dead instead of burning a doomed loadTracks
-    // (tolerant of partial test doubles).
-    const coolingFn = this.moonlinkManager.isNodeCoolingDown;
-    if (typeof coolingFn === 'function' && coolingFn.call(this.moonlinkManager, player.node?.identifier ?? '')) {
-      return null;
-    }
-    const videoId = getSourceVideoId(src as unknown as { sourceName?: string; identifier?: string });
-    if (!videoId) return null;
-    const path = await resolveViaHome(videoId, {
-      title: src.title,
-      artist: src.author,
-    });
-    if (!path) return null;
-    let res: unknown;
-    try {
-      res = await player.node.rest.loadTracks(path);
-    } catch {
-      return null;
-    }
-    const typed = res as { loadType?: string; data?: { encoded?: string } };
-    if (typed?.loadType !== 'track' || !typed.data?.encoded) return null;
-    try {
-      const t = new Track(typed.data, src.requester);
-      // Wrong-song guard BEFORE metadata adoption (adoption would mask the
-      // probe): same ±30s rule as fallbacks. Missing durations pass through.
-      if (!this.matchesFallbackDuration(src, t.duration)) {
-        Logger.warn(
-          { guildId: player.guildId, videoId: src.identifier, fileMs: t.duration, expectedMs: src.duration },
-          '[Music] Resolver file duration-mismatched — refusing a wrong song.',
-        );
-        return null;
-      }
-      t.title = src.title;
-      t.author = src.author;
-      t.artworkUrl = src.artworkUrl;
-      t.uri = src.uri;
-      if (!t.duration || t.isStream) t.duration = src.duration;
-      const srcRec = src as unknown as Record<string, unknown>;
-      const dstRec = t as unknown as Record<string, unknown>;
-      const rawTitle = srcRec._rawVideoTitle ?? getVideoTitle(src as unknown as { title?: string }) ?? src.title;
-      if (typeof rawTitle === 'string' && rawTitle) dstRec._rawVideoTitle = rawTitle;
-      if (videoId) dstRec._sourceVideoId = videoId;
-      return t;
-    } catch (err) {
-      Logger.debug(
-        { err, keys: typed.data ? Object.keys(typed.data) : [] },
-        '[Music] Track construction from resolver data failed',
-      );
-      return null;
-    }
+    return this.fallbacks.tryResolver(player, src);
   }
 
   private async findAlternatePlayableTrack(
@@ -920,36 +783,7 @@ export class MusicHandler {
     failedKey: string,
     err?: unknown,
   ): Promise<Track | null> {
-    if (!failedTrack) return null;
-    const nodeId = player.node?.identifier ?? 'unknown';
-    const outage = !!err && YoutubeHealth.isOutage(err);
-    let rungs = ladderFor(player).filter((r) => !(outage && r === 'plugin'));
-    // A resolved local file that failed must not be re-resolved.
-    if (failedTrack.sourceName === 'local') {
-      rungs = rungs.filter((r) => r !== 'resolver');
-    }
-    Logger.info(
-      { guildId, node: nodeId, outage, rungs, track: failedTrack.title },
-      '[Music] fallback ladder',
-    );
-    for (const rung of rungs) {
-      const alt =
-        rung === 'resolver'
-          ? await this.tryResolver(player, failedTrack)
-          : rung === 'plugin'
-            ? await this.searchYoutubeAlternate(manager, failedTrack, guildId)
-            : await this.searchSoundcloudAlternate(manager, failedTrack, guildId);
-      Logger.info(
-        { guildId, node: nodeId, rung, ok: !!alt, track: failedTrack.title },
-        '[Music] fallback rung',
-      );
-      if (alt) {
-        this.recordFallbackAttempt(guildId, failedKey, alt.identifier);
-        return alt;
-      }
-    }
-    this.recordFallbackAttempt(guildId, failedKey);
-    return null;
+    return this.fallbacks.findAlternatePlayableTrack(manager, player, failedTrack, guildId, failedKey, err);
   }
 
   private registerMoonlinkEvents(): void {
@@ -1564,185 +1398,20 @@ export class MusicHandler {
     });
   }
 
+  /** Discord voice/channel/guild lifecycle — see music/voiceLifecycle.ts.
+   * The three timer Maps stay owned here and are passed in by reference. */
+  private readonly voice: VoiceLifecycle;
+
+  private clearKickGrace(guildId: string): void {
+    this.voice.clearKickGrace(guildId);
+  }
+
+  private clearInactivityTimeout(guildId: string): void {
+    this.voice.clearInactivityTimeout(guildId);
+  }
+
   private registerDiscordEvents(): void {
-    this.client.on(Events.VoiceStateUpdate, (oldState, newState) => {
-      const botId = this.client.user?.id;
-      if (!botId) return;
-
-      const guildId = newState.guild.id;
-      const manager = this.moonlinkManager.getManager();
-      const player = manager.players.get(guildId);
-      if (!player) return;
-
-      // 1. Bot voice state changed
-      if (newState.id === botId) {
-        // Bot disconnected from voice (kick or manual disconnect). Grace period:
-        // keep the player + queue for 3 minutes — a rejoin resumes playback
-        // instead of wiping the queue. Only the voice link drops here.
-        if (!newState.channelId) {
-          Logger.info(`[Music] Bot was disconnected from voice in guild ${guildId} — starting 3-min rejoin grace`);
-          if (oldState.channelId && this.voiceChannelStatusService) {
-            void this.voiceChannelStatusService.clearStatus(oldState.channelId);
-          }
-          player.set('kickedWhilePlaying', player.playing && !player.paused);
-          if (player.current) {
-            player.set('kickedPosition', this.queueService.calculatePosition(player));
-          }
-          void player.disconnect().catch(() => undefined);
-          this.clearKickGrace(guildId);
-          const timeout = setTimeout(() => {
-            this.kickGraceTimeouts.delete(guildId);
-            Logger.info(`[Music] Rejoin grace expired in guild ${guildId} — destroying player`);
-            player.destroy('Rejoin grace expired after disconnect').catch(() => undefined);
-          }, MusicHandler.KICK_GRACE_MS);
-          this.kickGraceTimeouts.set(guildId, timeout);
-          return;
-        }
-
-        // Bot (re)joined a voice channel — resume if returning inside the grace window
-        if (!oldState.channelId && newState.channelId) {
-          const grace = this.kickGraceTimeouts.get(guildId);
-          if (grace) {
-            this.clearKickGrace(guildId);
-            Logger.info(`[Music] Bot rejoined voice in guild ${guildId} within grace — resuming`);
-            player.setVoiceChannelId(newState.channelId);
-            void (async () => {
-              try {
-                await player.connect({ selfDeaf: true });
-                if (player.current && player.get<boolean>('kickedWhilePlaying')) {
-                  player.set('kickedWhilePlaying', false);
-                  // Never player.restart() here: Moonlink v5's restart()
-                  // re-sends a voice payload WITHOUT channelId, which
-                  // Lavalink 4.2.2 rejects with 400 (stock and fork alike),
-                  // aborting the resume and replaying from zero. connect()
-                  // above already re-established voice WITH channelId, so
-                  // resume() (paused:false only, never 400s) plus an
-                  // explicit seek-back is the correct, deterministic resume.
-                  await player.resume().catch(() => undefined);
-                  const saved = player.get<number>('kickedPosition') ?? 0;
-                  const duration = player.current.duration || 0;
-                  if (saved > 5000 && !player.current.isStream && (!duration || saved < duration)) {
-                    await player.seek(Math.min(saved, duration ? duration - 1000 : saved)).catch(() => undefined);
-                  }
-                }
-              } catch (err) {
-                Logger.warn({ err, guildId }, '[Music] Failed to resume after rejoin');
-              }
-            })();
-            return;
-          }
-        }
-
-        // Bot moved to another voice channel
-        if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
-          Logger.info(
-            `[Music] Bot moved to voice channel ${newState.channelId} in guild ${guildId}`,
-          );
-          if (this.voiceChannelStatusService) {
-            void this.voiceChannelStatusService.clearStatus(oldState.channelId);
-            if (player.current) {
-              const currentTrack = mapMoonlinkTrack(player.current);
-              void this.voiceChannelStatusService.setStatus(
-                newState.channelId,
-                currentTrack.title,
-                currentTrack.author,
-              );
-            }
-          }
-          player.setVoiceChannelId(newState.channelId);
-        }
-      }
-
-      // 2. Member left/joined voice channel where bot is playing
-      const botVoiceChannelId = player.voiceChannelId;
-      if (!botVoiceChannelId) return;
-
-      const voiceChannel = newState.guild.channels.cache.get(botVoiceChannelId);
-      if (
-        voiceChannel &&
-        (voiceChannel instanceof VoiceChannel || voiceChannel instanceof StageChannel)
-      ) {
-        const humanMembers = voiceChannel.members.filter((m) => !m.user.bot);
-        const is247 = this.queueService.is247(guildId);
-
-        if (humanMembers.size === 0 && !is247) {
-          // Auto-pause and start 2-minute leave timer
-          if (!player.paused) {
-            player.pause().catch(() => undefined);
-            player.set('pausedByEmptyChannel', true);
-          }
-
-          if (!this.emptyChannelTimeouts.has(guildId)) {
-            Logger.info(`[Music] Voice channel is empty in guild ${guildId}. Starting 2-min leave timer...`);
-            const timeout = setTimeout(() => {
-              const currentChannel = newState.guild.channels.cache.get(player.voiceChannelId);
-              if (
-                currentChannel &&
-                (currentChannel instanceof VoiceChannel || currentChannel instanceof StageChannel)
-              ) {
-                const currentHumans = currentChannel.members.filter((m) => !m.user.bot);
-                if (currentHumans.size === 0 && !this.queueService.is247(guildId)) {
-                  Logger.info(`[Music] Leaving empty voice channel in guild ${guildId}`);
-                  player.destroy('Voice channel empty').catch(() => undefined);
-                }
-              }
-              this.emptyChannelTimeouts.delete(guildId);
-            }, 120000);
-            this.emptyChannelTimeouts.set(guildId, timeout);
-          }
-        } else {
-          // Humans in the channel: cancel leave timer & resume if auto-paused
-          const timeout = this.emptyChannelTimeouts.get(guildId);
-          if (timeout) {
-            clearTimeout(timeout);
-            this.emptyChannelTimeouts.delete(guildId);
-          }
-
-          if (player.paused && player.get<boolean>('pausedByEmptyChannel')) {
-            player.set('pausedByEmptyChannel', false);
-            player.resume().catch(() => undefined);
-          }
-        }
-      }
-    });
-
-    this.client.on(Events.ChannelDelete, (channel) => {
-      if ('guild' in channel && channel.guild) {
-        const guildId = channel.guild.id;
-        const manager = this.moonlinkManager.getManager();
-        const player = manager.players.get(guildId);
-        if (player && player.voiceChannelId === channel.id) {
-          Logger.info(`[Music] Voice channel was deleted in guild ${guildId}`);
-          player.destroy('Voice channel deleted').catch(() => undefined);
-        }
-        // Text channel gone: stop the progress updater hammering a dead fetch.
-        if (player && player.textChannelId === channel.id) {
-          Logger.info(`[Music] Text channel was deleted in guild ${guildId} — detaching updater`);
-          this.clearCardTimers(guildId);
-          player.setTextChannelId('');
-        }
-      }
-    });
-
-    this.client.on(Events.GuildDelete, (guild) => {
-      const guildId = guild.id;
-      Logger.info(`[Music] Left/kicked from guild ${guildId} — cleaning player state`);
-      this.clearCardTimers(guildId);
-      this.clearFallbackState(guildId);
-      this.clearKickGrace(guildId);
-      const timeout = this.emptyChannelTimeouts.get(guildId);
-      if (timeout) {
-        clearTimeout(timeout);
-        this.emptyChannelTimeouts.delete(guildId);
-      }
-      this.clearInactivityTimeout(guildId);
-      this.forgetGuild(guildId);
-      const manager = this.moonlinkManager.getManager();
-      const player = manager.players.get(guildId);
-      if (player) {
-        player.destroy('Guild removed').catch(() => undefined);
-      }
-    });
+    this.voice.register();
   }
 
   /**
