@@ -15,6 +15,10 @@ import { UserService } from '@bot/services/userService';
 
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { DeezerApi } from '@deezer/apis/deezerApi';
+import type { DeezerAlbum } from '@deezer/models/deezerModels';
+import { DeezerCoverIndexer } from '@bot/services/deezerCoverIndexer';
+import { ArtistRepository } from '@persistence/repositories/artistRepository';
+import { AlbumRepository } from '@persistence/repositories/albumRepository';
 import { Logger } from '@domain/logger';
 
 
@@ -35,18 +39,62 @@ import { Logger } from '@domain/logger';
  * Public entry point: `buildWhoKnowsImageResponse`. The signature of
  * `WhoKnowsBuilders.buildWhoKnowsResponse` is unchanged, so all 12 call sites
  * (6 slash, 6 text) keep working.
+ *
+ * KNOWN DIFFERENCE FROM THE EMBED, deliberately left alone
+ * -------------------------------------------------------
+ * The caller composes a multi-line footer that includes a "N others are
+ * playing this" line (`guildAlsoPlaying`) and passes it in. The image card does
+ * NOT render that line, while the embed and pagination modes do. The plays and
+ * listeners figures are NOT lost - `WhoKnowsGenerator` formats those itself from
+ * `globalPlays`/`globalListeners` (see whoKnowsGenerator.ts), which is why the
+ * composed `fullFooter` string was always redundant here.
+ *
+ * So `fullFooter`, `guildAlsoPlaying` and `closeFriendUserIds` used to arrive on
+ * this signature and were never read. They are removed rather than left lying:
+ * the type was demanding values the function discarded, which forced every
+ * caller to compute something meaningless. If the image card should also show
+ * the "others are playing" line, that is a FEATURE - it needs a new generator
+ * argument and a template change - not a bug fix, so it is recorded here
+ * instead of being silently guessed at.
+ *
+ * Behaviour is unchanged by that removal, and whoKnowsImageBuilder.test.ts pins
+ * the observable behaviour so the claim is checkable rather than asserted.
  */
+/**
+ * Fire-and-forget cover indexing, kept module-level because the exported entry
+ * point is a plain arrow function with no `this`.
+ *
+ * `isRegistered` is still used to decide whether the write path exists, which is
+ * the same coupling the rest of this file has. Narrowing it is the next step
+ * once the behaviour is pinned; what matters here is that the builder no longer
+ * performs writes itself.
+ */
+const indexDiscoveredCovers = async (
+  artistName: string,
+  albums: DeezerAlbum[],
+): Promise<void> => {
+  if (!container.isRegistered(ArtistRepository) || !container.isRegistered(AlbumRepository)) return;
+  try {
+    const indexer = new DeezerCoverIndexer(
+      container.resolve(ArtistRepository),
+      container.resolve(AlbumRepository),
+    );
+    await indexer.indexCovers(artistName, albums);
+  } catch (err) {
+    // Constructing the indexer should not throw, but a builder must never let a
+    // background write escape into the process.
+    Logger.debug({ err, artistName }, 'Could not start Deezer cover indexing');
+  }
+};
+
 export const buildWhoKnowsImageResponse = async (args: {
   context: ContextModel;
   title: string;
   url: string;
   thumbnailUrl: string | null | undefined;
   users: WhoKnowsUser[];
-  guildAlsoPlaying?: string | null;
   genres?: string[];
-  closeFriendUserIds?: Set<number>;
   resolvedAccent: number;
-  fullFooter: string;
   /** Media type inferred by the caller from the URL ('Artist' | 'Track' | 'Album'). */
   type: 'Artist' | 'Track' | 'Album';
   requestedUserId: number;
@@ -309,29 +357,13 @@ export const buildWhoKnowsImageResponse = async (args: {
                     }
                   }
 
-                  // Index discovered covers into PostgreSQL database in the background
+                  // Index discovered covers into PostgreSQL in the background.
+                  // The write lives in DeezerCoverIndexer, not here: a
+                  // presentation factory with write access to the data layer
+                  // could not be unit-tested and failed silently.
                   if (verifiedAlbums.length > 0) {
-                    setImmediate(async () => {
-                      try {
-                        const { ArtistRepository } = await import('@persistence/repositories/artistRepository');
-                        const { AlbumRepository } = await import('@persistence/repositories/albumRepository');
-                        if (container.isRegistered(ArtistRepository) && container.isRegistered(AlbumRepository)) {
-                          const artistRepo = container.resolve(ArtistRepository);
-                          const albumRepo = container.resolve(AlbumRepository);
-                          const artist = await artistRepo.getOrCreateArtist(resolvedArtistName);
-                          for (const da of verifiedAlbums) {
-                            const cover = da.cover_xl ?? da.cover_big ?? da.cover_medium;
-                            if (cover && da.title) {
-                              const alb = await albumRepo.getOrCreateAlbum(da.title, artist.artistId, cover);
-                              if (!alb.deezerImageUrl) {
-                                await albumRepo.setDeezerImage(alb.albumId, da.id, cover);
-                              }
-                            }
-                          }
-                        }
-                      } catch (err) {
-                        Logger.debug({ err }, 'Background indexing of Deezer covers failed');
-                      }
+                    setImmediate(() => {
+                      void indexDiscoveredCovers(resolvedArtistName, verifiedAlbums);
                     });
                   }
                 } catch {

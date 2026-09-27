@@ -104,7 +104,6 @@ export class WhoKnowsBuilders {
     const fullFooter = footerLines.join('\n');
 
     // === Image Mode ===
-    // === Image Mode ===
     if (mode === WhoKnowsMode.Image) {
       const image = await buildWhoKnowsImageResponse({
         context,
@@ -112,11 +111,8 @@ export class WhoKnowsBuilders {
         url,
         thumbnailUrl,
         users,
-        guildAlsoPlaying,
         genres,
-        closeFriendUserIds,
         resolvedAccent,
-        fullFooter,
         type,
         requestedUserId,
         footerExtra,

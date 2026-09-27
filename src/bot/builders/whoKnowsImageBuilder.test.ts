@@ -76,12 +76,6 @@ const call = (overrides: Overrides = {}) =>
     url: 'https://www.last.fm/music/Radiohead',
     thumbnailUrl: overrides.thumbnailUrl === undefined ? 'https://img.test/rh.jpg' : overrides.thumbnailUrl,
     users: USERS,
-    // `fullFooter` is REQUIRED by the signature and never read. That is itself a
-    // finding: the type demands a value the function discards, so every caller
-    // is forced to supply something meaningless. Passing it here keeps this a
-    // faithful characterisation; relaxing the signature is a separate step that
-    // this test then proves harmless.
-    fullFooter: '1-5 of 40',
     resolvedAccent: 0x00ff00,
     type: overrides.type ?? 'Artist',
     requestedUserId: 1,
