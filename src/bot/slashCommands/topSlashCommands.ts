@@ -6,6 +6,7 @@ import { UserService } from '@bot/services/userService';
 import { SettingService } from '@bot/services/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { TopBuilders } from '@bot/builders/topBuilders';
+import { resolveTopBuildersDeps } from '@bot/builders/topBuildersDeps';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/updateService';
@@ -84,7 +85,7 @@ export class TopSlashCommands implements ISlashCommandModule {
     if (!topArtists || topArtists.length === 0) return GenericEmbedService.buildNotFoundResponse('No top artists found for this time period.');
     const topImg = (await this.artworkService?.getArtistImageUrl(topArtists[0]?.name)) ?? (topArtists[0]?.imageUrl && !isPlaceholderImageUrl(topArtists[0]?.imageUrl) ? topArtists[0]?.imageUrl : undefined);
     const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;
-    return await TopBuilders.buildTopArtistsResponse(userNameLastFm, displayName, topArtists, timeSettings, 0, accentColor, userObj?.mode);
+    return await TopBuilders.buildTopArtistsResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, topArtists, timeSettings, 0, accentColor, userObj?.mode);
   }
 
   private async topAlbumsAsync(context: ContextModel): Promise<ResponseModel> {
@@ -102,7 +103,7 @@ export class TopSlashCommands implements ISlashCommandModule {
     if (!topAlbums || topAlbums.length === 0) return GenericEmbedService.buildNotFoundResponse('No top albums found for this time period.');
     const topImg = (await this.artworkService?.getAlbumCoverUrl(topAlbums[0]?.name, topAlbums[0]?.artistName)) ?? (topAlbums[0]?.imageUrl && !isPlaceholderImageUrl(topAlbums[0]?.imageUrl) ? topAlbums[0]?.imageUrl : undefined);
     const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;
-    return await TopBuilders.buildTopAlbumsResponse(userNameLastFm, displayName, topAlbums, timeSettings, 0, accentColor, userObj?.mode);
+    return await TopBuilders.buildTopAlbumsResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, topAlbums, timeSettings, 0, accentColor, userObj?.mode);
   }
 
   private async topTracksAsync(context: ContextModel): Promise<ResponseModel> {
@@ -120,6 +121,6 @@ export class TopSlashCommands implements ISlashCommandModule {
     if (!topTracks || topTracks.length === 0) return GenericEmbedService.buildNotFoundResponse('No top tracks found for this time period.');
     const topImg = (await this.artworkService?.getTrackCoverUrl(topTracks[0]?.name, topTracks[0]?.artistName)) ?? (topTracks[0]?.imageUrl && !isPlaceholderImageUrl(topTracks[0]?.imageUrl) ? topTracks[0]?.imageUrl : undefined);
     const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;
-    return await TopBuilders.buildTopTracksResponse(userNameLastFm, displayName, topTracks, timeSettings, 0, accentColor, userObj?.mode);
+    return await TopBuilders.buildTopTracksResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, topTracks, timeSettings, 0, accentColor, userObj?.mode);
   }
 }

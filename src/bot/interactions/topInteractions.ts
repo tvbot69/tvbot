@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonInteraction, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { TopBuilders } from '@bot/builders/topBuilders';
+import { resolveTopBuildersDeps } from '@bot/builders/topBuildersDeps';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { SettingService } from '@bot/services/settingService';
 import { ColorService } from '@bot/services/colorService';
@@ -35,13 +36,13 @@ export class TopInteractions {
         let response: any;
         if (prefix === 'topartists') {
           const items = await this.lastfmRepository.getTopArtists(displayName, timeSettings.timePeriod as any, 1000);
-          response = await TopBuilders.buildTopArtistsResponse(displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
+          response = await TopBuilders.buildTopArtistsResponse(resolveTopBuildersDeps(), displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
         } else if (prefix === 'topalbums') {
           const items = await this.lastfmRepository.getTopAlbums(displayName, timeSettings.timePeriod as any, 1000);
-          response = await TopBuilders.buildTopAlbumsResponse(displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
+          response = await TopBuilders.buildTopAlbumsResponse(resolveTopBuildersDeps(), displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
         } else {
           const items = await this.lastfmRepository.getTopTracks(displayName, timeSettings.timePeriod as any, 1000);
-          response = await TopBuilders.buildTopTracksResponse(displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
+          response = await TopBuilders.buildTopTracksResponse(resolveTopBuildersDeps(), displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
         }
         await (interaction as any).update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
       } catch (err) {
@@ -124,7 +125,7 @@ export class TopInteractions {
           else if (action === 'prev') targetPage = Math.max(0, currentPage - 1);
           else if (action === 'next') targetPage = Math.min(totalPages - 1, currentPage + 1);
           else if (action === 'last') targetPage = totalPages - 1;
-          response = await TopBuilders.buildTopArtistsResponse(userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
+          response = await TopBuilders.buildTopArtistsResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
         } else if (prefix === 'topalbums') {
           const items = await this.lastfmRepository.getTopAlbums(userNameLastFm, timeSettings.timePeriod as any, 1000);
           const perPage = 10;
@@ -134,7 +135,7 @@ export class TopInteractions {
           else if (action === 'prev') targetPage = Math.max(0, currentPage - 1);
           else if (action === 'next') targetPage = Math.min(totalPages - 1, currentPage + 1);
           else if (action === 'last') targetPage = totalPages - 1;
-          response = await TopBuilders.buildTopAlbumsResponse(userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
+          response = await TopBuilders.buildTopAlbumsResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
         } else {
           const items = await this.lastfmRepository.getTopTracks(userNameLastFm, timeSettings.timePeriod as any, 1000);
           const perPage = 10;
@@ -144,7 +145,7 @@ export class TopInteractions {
           else if (action === 'prev') targetPage = Math.max(0, currentPage - 1);
           else if (action === 'next') targetPage = Math.min(totalPages - 1, currentPage + 1);
           else if (action === 'last') targetPage = totalPages - 1;
-          response = await TopBuilders.buildTopTracksResponse(userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
+          response = await TopBuilders.buildTopTracksResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
         }
         await interaction.update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         return;

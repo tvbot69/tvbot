@@ -5,9 +5,8 @@ import type { TopAlbum, TopArtist, TopTrack } from '@domain/models/topLists';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import { ResponseMode } from '@domain/enums/responseMode';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { container } from 'tsyringe';
-import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import { ArtworkService, matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
+import type { TopBuildersDeps } from './topBuildersDeps';
+import { matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { Logger } from '@domain/logger';
 
@@ -33,6 +32,7 @@ function buildPaginatorRow(page: number, totalPages: number, prefix: string, use
 const MOSAIC_COVER_TARGET = 10;
 
 async function resolveBackgroundCovers(
+  deps: TopBuildersDeps,
   userNameLastFm: string,
   timeSettings: TimeSettingsModel,
   preferredCovers: string[],
@@ -55,16 +55,14 @@ async function resolveBackgroundCovers(
   // the right entity (bare name search picks the most popular namesake).
   if (covers.length < MOSAIC_COVER_TARGET && artistNames && artistNames.length > 0) {
     try {
-      const { SpotifySearchApi } = await import('@spotify/api/spotifySearchApi');
-      const { ArtistsService } = await import('@bot/services/artistsService');
-      if (container.isRegistered(SpotifySearchApi)) {
-        const spotifyApi = container.resolve(SpotifySearchApi);
+      if (deps.spotifyApi) {
+        const spotifyApi = deps.spotifyApi;
         const topArtist = artistNames[0];
         if (topArtist) {
           let hint = sampleTrackHint;
-          if (!hint && container.isRegistered(ArtistsService)) {
+          if (!hint && deps.artistsService) {
             try {
-              const artistsService = container.resolve(ArtistsService);
+              const artistsService = deps.artistsService;
               const globalTop = await artistsService.getTopTracksForArtistGlobal(topArtist, 1);
               hint = globalTop[0]?.name;
             } catch {
@@ -89,9 +87,8 @@ async function resolveBackgroundCovers(
   // 2. Supplement from database indexed album covers for top artists (0 HTTP calls)
   if (covers.length < MOSAIC_COVER_TARGET && artistNames && artistNames.length > 0) {
     try {
-      const { ArtistsService } = await import('@bot/services/artistsService');
-      if (container.isRegistered(ArtistsService)) {
-        const artistsService = container.resolve(ArtistsService);
+      if (deps.artistsService) {
+        const artistsService = deps.artistsService;
         for (const name of artistNames) {
           if (covers.length >= MOSAIC_COVER_TARGET) break;
           const dbCovers = await artistsService.getIndexedAlbumCoversForArtist(name, 5);
@@ -114,9 +111,8 @@ async function resolveBackgroundCovers(
   // otherwise same-name/wrong-artist covers leak into the mosaic.
   if (covers.length < MOSAIC_COVER_TARGET && artistNames && artistNames.length > 0) {
     try {
-      const { DeezerApi } = await import('@deezer/apis/deezerApi');
-      if (container.isRegistered(DeezerApi)) {
-        const deezerApi = container.resolve(DeezerApi);
+      if (deps.deezerApi) {
+        const deezerApi = deps.deezerApi;
         for (const name of artistNames.slice(0, 5)) {
           if (covers.length >= MOSAIC_COVER_TARGET) break;
           const deezerAlbums = await deezerApi.searchAlbums(name, 5).catch(() => []);
@@ -139,9 +135,8 @@ async function resolveBackgroundCovers(
   // 4. Emergency Last Resort Fallback ONLY: Last.fm user top albums
   if (covers.length < MOSAIC_COVER_TARGET) {
     try {
-      const { LastFmRepository } = await import('@lastfm/repositories/lastFmRepository');
-      if (container.isRegistered(LastFmRepository)) {
-        const lastfmRepo = container.resolve(LastFmRepository);
+      if (deps.lastfmRepo) {
+        const lastfmRepo = deps.lastfmRepo;
         const albums = await lastfmRepo.getTopAlbums(
           userNameLastFm,
           timeSettings.timePeriod as any,
@@ -166,6 +161,7 @@ async function resolveBackgroundCovers(
 }
 
 async function resolveArtistImages(
+  deps: TopBuildersDeps,
   topArtists: TopArtist[],
   seedImage?: string,
 ): Promise<string[]> {
@@ -188,9 +184,8 @@ async function resolveArtistImages(
 
   // 2. Query ArtistsService.fillArtistImages (batch queries DB and ArtworkService)
   try {
-    const { ArtistsService } = await import('@bot/services/artistsService');
-    if (container.isRegistered(ArtistsService)) {
-      const artistsService = container.resolve(ArtistsService);
+    if (deps.artistsService) {
+      const artistsService = deps.artistsService;
       const hydrated = await artistsService.fillArtistImages(topArtists.slice(0, MOSAIC_COVER_TARGET));
       for (const a of hydrated) {
         if (a.imageUrl && !isPlaceholderImageUrl(a.imageUrl) && !seen.has(a.imageUrl)) {
@@ -205,9 +200,9 @@ async function resolveArtistImages(
   }
 
   // 3. Fallback: resolve missing artist images directly via ArtworkService
-  if (images.length < MOSAIC_COVER_TARGET && container.isRegistered(ArtworkService)) {
+  if (images.length < MOSAIC_COVER_TARGET && deps.artworkService) {
     try {
-      const artworkService = container.resolve(ArtworkService);
+      const artworkService = deps.artworkService;
       for (const a of topArtists.slice(0, MOSAIC_COVER_TARGET)) {
         if (images.length >= MOSAIC_COVER_TARGET) break;
         if (a.imageUrl && seen.has(a.imageUrl)) continue;
@@ -228,6 +223,7 @@ async function resolveArtistImages(
 
 export class TopBuilders {
   public static async buildTopArtistsResponse(
+    deps: TopBuildersDeps,
     userNameLastFm: string,
     displayName: string,
     topArtists: TopArtist[],
@@ -236,13 +232,13 @@ export class TopBuilders {
     accentColor?: number,
     mode?: ResponseMode,
   ): Promise<ResponseModel> {
-    if (mode === ResponseMode.Image && topArtists.length > 0 && container.isRegistered(WhoKnowsGenerator)) {
+    if (mode === ResponseMode.Image && topArtists.length > 0 && deps.generator) {
       try {
-        const generator = container.resolve(WhoKnowsGenerator);
+        const generator = deps.generator;
         const topItem = topArtists[0]!;
         let targetImage: string | undefined = undefined;
-        if (container.isRegistered(ArtworkService)) {
-          targetImage = (await container.resolve(ArtworkService).getArtistImageUrl(topItem.name)) ?? undefined;
+        if (deps.artworkService) {
+          targetImage = (await deps.artworkService.getArtistImageUrl(topItem.name)) ?? undefined;
         }
         if (!targetImage || isPlaceholderImageUrl(targetImage)) {
           targetImage = topItem.imageUrl && !isPlaceholderImageUrl(topItem.imageUrl) ? topItem.imageUrl : undefined;
@@ -258,6 +254,7 @@ export class TopBuilders {
         }));
 
         const backgroundCovers = await resolveArtistImages(
+      deps,
           topArtists.slice(0, 10),
           targetImage,
         );
@@ -323,6 +320,7 @@ export class TopBuilders {
   }
 
   public static async buildTopAlbumsResponse(
+    deps: TopBuildersDeps,
     userNameLastFm: string,
     displayName: string,
     topAlbums: TopAlbum[],
@@ -331,13 +329,13 @@ export class TopBuilders {
     accentColor?: number,
     mode?: ResponseMode,
   ): Promise<ResponseModel> {
-    if (mode === ResponseMode.Image && topAlbums.length > 0 && container.isRegistered(WhoKnowsGenerator)) {
+    if (mode === ResponseMode.Image && topAlbums.length > 0 && deps.generator) {
       try {
-        const generator = container.resolve(WhoKnowsGenerator);
+        const generator = deps.generator;
         const topItem = topAlbums[0]!;
         let targetImage: string | undefined = undefined;
-        if (container.isRegistered(ArtworkService)) {
-          targetImage = (await container.resolve(ArtworkService).getAlbumCoverUrl(topItem.name, topItem.artistName)) ?? undefined;
+        if (deps.artworkService) {
+          targetImage = (await deps.artworkService.getAlbumCoverUrl(topItem.name, topItem.artistName)) ?? undefined;
         }
         if (!targetImage || isPlaceholderImageUrl(targetImage)) {
           targetImage = topItem.imageUrl && !isPlaceholderImageUrl(topItem.imageUrl) ? topItem.imageUrl : undefined;
@@ -353,6 +351,7 @@ export class TopBuilders {
         }));
 
         const backgroundCovers = await resolveBackgroundCovers(
+      deps,
           userNameLastFm,
           timeSettings,
           targetImage ? [targetImage] : [],
@@ -421,6 +420,7 @@ export class TopBuilders {
   }
 
   public static async buildTopTracksResponse(
+    deps: TopBuildersDeps,
     userNameLastFm: string,
     displayName: string,
     topTracks: TopTrack[],
@@ -429,13 +429,13 @@ export class TopBuilders {
     accentColor?: number,
     mode?: ResponseMode,
   ): Promise<ResponseModel> {
-    if (mode === ResponseMode.Image && topTracks.length > 0 && container.isRegistered(WhoKnowsGenerator)) {
+    if (mode === ResponseMode.Image && topTracks.length > 0 && deps.generator) {
       try {
-        const generator = container.resolve(WhoKnowsGenerator);
+        const generator = deps.generator;
         const topItem = topTracks[0]!;
         let targetImage: string | undefined = undefined;
-        if (container.isRegistered(ArtworkService)) {
-          targetImage = (await container.resolve(ArtworkService).getTrackCoverUrl(topItem.name, topItem.artistName)) ?? undefined;
+        if (deps.artworkService) {
+          targetImage = (await deps.artworkService.getTrackCoverUrl(topItem.name, topItem.artistName)) ?? undefined;
         }
         if (!targetImage || isPlaceholderImageUrl(targetImage)) {
           targetImage = topItem.imageUrl && !isPlaceholderImageUrl(topItem.imageUrl) ? topItem.imageUrl : undefined;
@@ -451,6 +451,7 @@ export class TopBuilders {
         }));
 
         const backgroundCovers = await resolveBackgroundCovers(
+      deps,
           userNameLastFm,
           timeSettings,
           targetImage ? [targetImage] : [],

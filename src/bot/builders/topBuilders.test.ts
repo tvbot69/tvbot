@@ -2,8 +2,23 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { TopBuilders } from './topBuilders';
 import { ResponseMode } from '@domain/enums/responseMode';
-import { container } from 'tsyringe';
-import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
+import type { TopBuildersDeps } from './topBuildersDeps';
+
+/** Nothing registered: the shape of a partially built container. */
+const NO_DEPS: TopBuildersDeps = {
+  generator: null,
+  artistsService: null,
+  artworkService: null,
+  deezerApi: null,
+  lastfmRepo: null,
+  spotifyApi: null,
+};
+
+/** NO_DEPS plus a stub generator, for the Image-mode cases. */
+const depsWithGenerator = (mockGenerator: unknown): TopBuildersDeps => ({
+  ...NO_DEPS,
+  generator: mockGenerator as never,
+});
 
 describe('TopBuilders', () => {
   const dummyArtists = [
@@ -29,6 +44,7 @@ describe('TopBuilders', () => {
 
   it('builds standard embed when mode is Embed', async () => {
     const res = await TopBuilders.buildTopArtistsResponse(
+      NO_DEPS,
       'moha',
       'moha',
       dummyArtists,
@@ -48,9 +64,9 @@ describe('TopBuilders', () => {
       generateWhoKnowsImage: vi.fn().mockResolvedValue(Buffer.from('fake_image_bytes')),
     };
 
-    container.registerInstance(WhoKnowsGenerator, mockGenerator as any);
-
+    
     const res = await TopBuilders.buildTopArtistsResponse(
+      depsWithGenerator(mockGenerator),
       'moha',
       'moha',
       dummyArtists,
@@ -72,9 +88,9 @@ describe('TopBuilders', () => {
       generateWhoKnowsImage: vi.fn().mockResolvedValue(Buffer.from('fake_album_image')),
     };
 
-    container.registerInstance(WhoKnowsGenerator, mockGenerator as any);
-
+    
     const res = await TopBuilders.buildTopAlbumsResponse(
+      depsWithGenerator(mockGenerator),
       'moha',
       'moha',
       dummyAlbums,
@@ -95,9 +111,9 @@ describe('TopBuilders', () => {
       generateWhoKnowsImage: vi.fn().mockResolvedValue(Buffer.from('fake_track_image')),
     };
 
-    container.registerInstance(WhoKnowsGenerator, mockGenerator as any);
-
+    
     const res = await TopBuilders.buildTopTracksResponse(
+      depsWithGenerator(mockGenerator),
       'moha',
       'moha',
       dummyTracks,
