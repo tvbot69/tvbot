@@ -10,6 +10,7 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { RecentTrackList } from '@domain/models/recentTrack';
+import { EMOJI } from '@bot/resources/emojis';
 
 const lastfmTrackUrl = (artist: string, track: string): string =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}/_/${encodeURIComponent(track).replace(/%20/g, '+')}`;
@@ -68,12 +69,12 @@ export class RecentBuilders {
         .setCustomId(`recent:prev:${page}:${targetDiscordId}:${encodeURIComponent(userNameLastFm)}`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(page <= 1)
-        .setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any),
+        .setEmoji(EMOJI.pagePrevious),
       new ButtonBuilder()
         .setCustomId(`recent:next:${page}:${targetDiscordId}:${encodeURIComponent(userNameLastFm)}`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(page >= totalPages)
-        .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any),
+        .setEmoji(EMOJI.pageNext),
     );
 
     container.addActionRowComponents(row);

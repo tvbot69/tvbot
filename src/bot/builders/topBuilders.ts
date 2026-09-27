@@ -9,6 +9,7 @@ import type { TopBuildersDeps } from './topBuildersDeps';
 import { matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { Logger } from '@domain/logger';
+import { EMOJI } from '@bot/resources/emojis';
 
 const lastfmArtistUrl = (artist: string) => `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
 const lastfmAlbumUrl = (artist: string, album: string) => `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}/${encodeURIComponent(album).replace(/%20/g, '+')}`;
@@ -19,11 +20,11 @@ function buildPaginatorRow(page: number, totalPages: number, prefix: string, use
   const safeTime = timeKey ? encodeURIComponent(timeKey) : 'weekly';
   const row = new ActionRowBuilder<ButtonBuilder>();
   row.addComponents(
-    new ButtonBuilder().setCustomId(`${prefix}:first:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '883825508633182208', name: 'pages_first' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-    new ButtonBuilder().setCustomId(`${prefix}:prev:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-    new ButtonBuilder().setCustomId(`${prefix}:next:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '883825508087922739', name: 'pages_next' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-    new ButtonBuilder().setCustomId(`${prefix}:last:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '883825508482183258', name: 'pages_last' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-    new ButtonBuilder().setCustomId(`${prefix}:jump:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '1138849626234036264', name: 'pages_goto' } as any).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`${prefix}:first:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageFirst).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+    new ButtonBuilder().setCustomId(`${prefix}:prev:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+    new ButtonBuilder().setCustomId(`${prefix}:next:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+    new ButtonBuilder().setCustomId(`${prefix}:last:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+    new ButtonBuilder().setCustomId(`${prefix}:jump:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageGoto).setStyle(ButtonStyle.Secondary),
   );
   return row;
 }

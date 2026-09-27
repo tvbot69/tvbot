@@ -16,6 +16,7 @@ import type { User } from '@domain/interfaces/iuserRepository';
 import type { TrackSearchResult } from '@bot/services/trackService';
 import { PlaycountBuilders } from './playcountBuilders';
 import { TrackDetailsBuilders } from './trackDetailsBuilders';
+import { EMOJI } from '@bot/resources/emojis';
 
 export interface TrackMediaDetails {
   uniqueId: string;
@@ -172,11 +173,11 @@ export class TrackBuilders {
         };
 
         if (source === 'apple' || storeUrl?.includes('apple.com') || storeUrl?.includes('itunes')) {
-          link(storeUrl, { id: '1218182727149420544', name: 'services_apple_music' });
+          link(storeUrl, EMOJI.appleMusicServices);
         } else if (source === 'spotify' || spotifyUrl || storeUrl?.includes('spotify.com')) {
-          link(spotifyUrl ?? storeUrl, { id: '1496297132381048995', name: 'sp' });
+          link(spotifyUrl ?? storeUrl, EMOJI.serviceSpotify);
         } else if (source === 'deezer' || storeUrl?.includes('deezer.com')) {
-          link(storeUrl, { id: '1496297153717473311', name: 'dez' });
+          link(storeUrl, EMOJI.serviceDeezer);
         }
 
       if (mediaDetails.uniqueId) {
@@ -185,7 +186,7 @@ export class TrackBuilders {
             .setCustomId(`track-preview:${mediaDetails.uniqueId}:`)
             .setStyle(ButtonStyle.Secondary)
             .setLabel('Preview')
-            .setEmoji({ id: '1305607890941378672', name: 'fmbot_playpreview' } as any)
+            .setEmoji(EMOJI.playPreview)
             .setDisabled(!mediaDetails.previewUrl),
         );
       }
@@ -264,8 +265,8 @@ export class TrackBuilders {
 
     if (totalPages > 1) {
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`loved:prev:${page}:${encodeURIComponent(userNameLastFm)}`).setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
-        new ButtonBuilder().setCustomId(`loved:next:${page}:${encodeURIComponent(userNameLastFm)}`).setEmoji({ id: '883825508087922739', name: 'pages_next' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+        new ButtonBuilder().setCustomId(`loved:prev:${page}:${encodeURIComponent(userNameLastFm)}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+        new ButtonBuilder().setCustomId(`loved:next:${page}:${encodeURIComponent(userNameLastFm)}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
       );
       container.addActionRowComponents(row);
     }

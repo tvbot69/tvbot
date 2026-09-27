@@ -16,6 +16,7 @@ import { PlaycountBuilders } from './playcountBuilders';
 import { StreakBuilders } from './streakBuilders';
 import { OverviewBuilders } from './overviewBuilders';
 import { RecentBuilders } from './recentBuilders';
+import { EMOJI } from '@bot/resources/emojis';
 
 const lastfmTrackUrl = (artist: string, track: string): string =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}/_/${encodeURIComponent(track).replace(/%20/g, '+')}`;
@@ -75,11 +76,11 @@ export function buildNowPlayingButtons(
     const spotifyUrl = extra?.spotifyId
       ? `https://open.spotify.com/track/${extra.spotifyId}`
       : `https://open.spotify.com/search/${encodeURIComponent(track.artistName + ' ' + track.name)}`;
-    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Spotify').setURL(spotifyUrl).setEmoji({ id: '1496297132381048995', name: 'sp' } as any));
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Spotify').setURL(spotifyUrl).setEmoji(EMOJI.serviceSpotify));
   }
   if (has(FmButton.AppleMusicLink)) {
     const appleUrl = extra?.appleMusicUrl ?? `https://music.apple.com/us/search?term=${encodeURIComponent(track.artistName + ' ' + track.name)}`;
-    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Apple Music').setURL(appleUrl).setEmoji({ id: '1496297174869479548', name: 'am' } as any));
+    buttons.push(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Apple Music').setURL(appleUrl).setEmoji(EMOJI.serviceAppleMusic));
   }
   if (has(FmButton.RymLink) && track.albumName) {
     const rymUrl = `https://rateyourmusic.com/search?searchterm=${encodeURIComponent(track.albumName + ' ' + track.artistName)}&searchtype=l`;
@@ -99,7 +100,7 @@ export function buildNowPlayingButtons(
     // name produced `track-preview:<name>:fm`, which is never a map key, so
     // every click answered "Preview expired" — a button that can only fail.
     // Render it only when a real id exists (the /track path supplies one).
-    buttons.push(new ButtonBuilder().setCustomId(`track-preview:${extra.previewId}:`).setLabel('Preview').setEmoji({ id: '1305607890941378672', name: 'fmbot_playpreview' } as any).setStyle(ButtonStyle.Secondary));
+    buttons.push(new ButtonBuilder().setCustomId(`track-preview:${extra.previewId}:`).setLabel('Preview').setEmoji(EMOJI.playPreview).setStyle(ButtonStyle.Secondary));
   }
   if (has(FmButton.TrackLyrics)) {
     buttons.push(new ButtonBuilder().setCustomId(`track-lyrics:${encodeURIComponent(track.artistName)}:${encodeURIComponent(track.name)}:fm`).setLabel('Lyrics').setEmoji('📜').setStyle(ButtonStyle.Secondary));

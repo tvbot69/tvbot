@@ -3,6 +3,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 import { TasteData, formatTasteTable } from '@bot/services/tasteService';
+import { EMOJI } from '@bot/resources/emojis';
 
 export class TasteBuilders {
   public static buildTasteResponse(
@@ -64,7 +65,7 @@ export class TasteBuilders {
       new ButtonBuilder()
         .setCustomId(`taste-tab:${data.cacheKey}:${tabIndex}:${data.user1DiscordId}:${data.user2DiscordId}:${data.timePeriodDescription}:${nextAmount}`)
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji({ id: '1483232894318149692', name: 'plus' } as any),
+        .setEmoji(EMOJI.add),
     );
 
     const container = new ContainerBuilder();

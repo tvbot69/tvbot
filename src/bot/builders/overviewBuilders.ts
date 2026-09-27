@@ -2,6 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, Separat
 import { ResponseModel } from '@bot/models/responseModel';
 
 import type { OverviewResult } from '@bot/services/overviewService';
+import { EMOJI } from '@bot/resources/emojis';
 
 function formatDuration(ms: number): string {
   const totalMins = Math.floor(ms / 60000);
@@ -15,11 +16,11 @@ function buildPaginatorRow(page: number, totalPages: number, userNameLastFm?: st
   const safeUser = userNameLastFm ? encodeURIComponent(userNameLastFm) : 'self';
   const safeTime = timeKey ? encodeURIComponent(timeKey) : 'weekly';
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`overview:first:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '883825508633182208', name: 'pages_first' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-    new ButtonBuilder().setCustomId(`overview:prev:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-    new ButtonBuilder().setCustomId(`overview:next:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '883825508087922739', name: 'pages_next' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-    new ButtonBuilder().setCustomId(`overview:last:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '883825508482183258', name: 'pages_last' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-    new ButtonBuilder().setCustomId(`overview:jump:${page}:${safeUser}:${safeTime}`).setEmoji({ id: '1138849626234036264', name: 'pages_goto' } as any).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`overview:first:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageFirst).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+    new ButtonBuilder().setCustomId(`overview:prev:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+    new ButtonBuilder().setCustomId(`overview:next:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+    new ButtonBuilder().setCustomId(`overview:last:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+    new ButtonBuilder().setCustomId(`overview:jump:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageGoto).setStyle(ButtonStyle.Secondary),
   );
 }
 

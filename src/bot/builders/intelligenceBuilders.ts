@@ -13,6 +13,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { TopTrack } from '@domain/models/topLists';
+import { EMOJI } from '@bot/resources/emojis';
 import type {
   ListeningGapItem,
   GapEntityType,
@@ -88,22 +89,22 @@ export class IntelligenceBuilders {
             .setCustomId(`gaps-page:first:${callerId}:${targetId}:${params.entityType}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page <= 1)
-            .setEmoji({ id: '883825508633182208', name: 'pages_first' } as any),
+            .setEmoji(EMOJI.pageFirst),
           new ButtonBuilder()
             .setCustomId(`gaps-page:prev:${callerId}:${targetId}:${params.entityType}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page <= 1)
-            .setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any),
+            .setEmoji(EMOJI.pagePrevious),
           new ButtonBuilder()
             .setCustomId(`gaps-page:next:${callerId}:${targetId}:${params.entityType}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page >= totalPages)
-            .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any),
+            .setEmoji(EMOJI.pageNext),
           new ButtonBuilder()
             .setCustomId(`gaps-page:last:${callerId}:${targetId}:${params.entityType}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page >= totalPages)
-            .setEmoji({ id: '883825508482183258', name: 'pages_last' } as any),
+            .setEmoji(EMOJI.pageLast),
         );
         container.addActionRowComponents(paginatorRow);
       }
@@ -173,22 +174,22 @@ export class IntelligenceBuilders {
             .setCustomId(`discoveries-page:first:${callerId}:${targetId}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page <= 1)
-            .setEmoji({ id: '883825508633182208', name: 'pages_first' } as any),
+            .setEmoji(EMOJI.pageFirst),
           new ButtonBuilder()
             .setCustomId(`discoveries-page:prev:${callerId}:${targetId}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page <= 1)
-            .setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any),
+            .setEmoji(EMOJI.pagePrevious),
           new ButtonBuilder()
             .setCustomId(`discoveries-page:next:${callerId}:${targetId}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page >= totalPages)
-            .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any),
+            .setEmoji(EMOJI.pageNext),
           new ButtonBuilder()
             .setCustomId(`discoveries-page:last:${callerId}:${targetId}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page >= totalPages)
-            .setEmoji({ id: '883825508482183258', name: 'pages_last' } as any),
+            .setEmoji(EMOJI.pageLast),
         );
         container.addActionRowComponents(paginatorRow);
       }
@@ -307,22 +308,22 @@ export class IntelligenceBuilders {
             .setCustomId(`affinity-page:first:${callerId}:${targetId}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page <= 1)
-            .setEmoji({ id: '883825508633182208', name: 'pages_first' } as any),
+            .setEmoji(EMOJI.pageFirst),
           new ButtonBuilder()
             .setCustomId(`affinity-page:prev:${callerId}:${targetId}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page <= 1)
-            .setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any),
+            .setEmoji(EMOJI.pagePrevious),
           new ButtonBuilder()
             .setCustomId(`affinity-page:next:${callerId}:${targetId}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page >= totalPages)
-            .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any),
+            .setEmoji(EMOJI.pageNext),
           new ButtonBuilder()
             .setCustomId(`affinity-page:last:${callerId}:${targetId}:${page}:${totalPages}`)
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(page >= totalPages)
-            .setEmoji({ id: '883825508482183258', name: 'pages_last' } as any),
+            .setEmoji(EMOJI.pageLast),
         );
         container.addActionRowComponents(paginatorRow);
       }

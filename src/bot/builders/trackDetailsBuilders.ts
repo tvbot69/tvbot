@@ -3,6 +3,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 
 import { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
 import { setPreview } from '@bot/services/audio/voiceMessageService';
+import { EMOJI } from '@bot/resources/emojis';
 
 // Must match final JSON exactly: "**TRACK** by **ARTIST** has `140.0` bpm, is in key `G#` and lasts `3:18`"
 export class TrackDetailsBuilders {
@@ -32,7 +33,7 @@ export class TrackDetailsBuilders {
       .setCustomId(`track-preview:${uniqueId}:`)
       .setLabel('Preview')
       .setStyle(ButtonStyle.Secondary)
-      .setEmoji({ id: '1305607890941378672', name: 'fmbot_playpreview' } as any)
+      .setEmoji(EMOJI.playPreview)
       .setDisabled(!details.previewUrl);
     row.addComponents(previewButton);
 
@@ -44,13 +45,13 @@ export class TrackDetailsBuilders {
         .setStyle(ButtonStyle.Link)
         .setURL(url)
         .setLabel('Open on Spotify')
-        .setEmoji({ id: '1496297132381048995', name: 'sp' } as any));
+        .setEmoji(EMOJI.serviceSpotify));
     } else if (source === 'deezer' || details.storeUrl?.includes('deezer.com')) {
       row.addComponents(new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
         .setURL(details.storeUrl!)
         .setLabel('Open on Deezer')
-        .setEmoji({ id: '1496297153717473311', name: 'dez' } as any));
+        .setEmoji(EMOJI.serviceDeezer));
     } else if (details.storeUrl) {
       // Apple or generic
       const isApple = source === 'apple' || details.storeUrl.includes('apple.com') || details.storeUrl.includes('itunes');
@@ -58,7 +59,7 @@ export class TrackDetailsBuilders {
         .setStyle(ButtonStyle.Link)
         .setURL(details.storeUrl)
         .setLabel(isApple ? 'Open on Apple Music' : 'Open on Spotify')
-        .setEmoji({ id: isApple ? '1496297174869479548' : '1496297132381048995', name: isApple ? 'am' : 'sp' } as any));
+        .setEmoji(isApple ? EMOJI.serviceAppleMusic : EMOJI.serviceSpotify));
     }
 
     response.addButtonRow(0, row);

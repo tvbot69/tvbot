@@ -13,6 +13,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 import type { UserCrownDto, CrownViewType, CrownLeaderboardEntry } from '@domain/models/crownModels';
+import { EMOJI } from '@bot/resources/emojis';
 
 const lastfmArtistUrl = (artist: string): string =>
   `https://last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -120,26 +121,26 @@ export class CrownBuilders {
         .setCustomId(`crowns-page:first:${callerDiscordId}:${targetDiscordId}:${viewType}:${clampedPage}`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(clampedPage <= 1)
-        .setEmoji({ id: '883825508633182208', name: 'pages_first' } as any),
+        .setEmoji(EMOJI.pageFirst),
       new ButtonBuilder()
         .setCustomId(`crowns-page:prev:${callerDiscordId}:${targetDiscordId}:${viewType}:${clampedPage}`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(clampedPage <= 1)
-        .setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any),
+        .setEmoji(EMOJI.pagePrevious),
       new ButtonBuilder()
         .setCustomId(`crowns-page:next:${callerDiscordId}:${targetDiscordId}:${viewType}:${clampedPage}`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(clampedPage >= totalPages)
-        .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any),
+        .setEmoji(EMOJI.pageNext),
       new ButtonBuilder()
         .setCustomId(`crowns-page:last:${callerDiscordId}:${targetDiscordId}:${viewType}:${clampedPage}`)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(clampedPage >= totalPages)
-        .setEmoji({ id: '883825508482183258', name: 'pages_last' } as any),
+        .setEmoji(EMOJI.pageLast),
       new ButtonBuilder()
         .setCustomId(`crowns-page:jump:${callerDiscordId}:${targetDiscordId}:${viewType}:${clampedPage}`)
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji({ id: '1138849626234036264', name: 'pages_goto' } as any),
+        .setEmoji(EMOJI.pageGoto),
     );
 
     container.addActionRowComponents(paginatorRow);

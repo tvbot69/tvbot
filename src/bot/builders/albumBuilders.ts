@@ -15,6 +15,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { AlbumSearchResult } from '@bot/services/albumService';
 import { PlaycountBuilders } from './playcountBuilders';
+import { EMOJI } from '@bot/resources/emojis';
 
 const TRACKS_PER_PAGE = 12;
 
@@ -197,7 +198,7 @@ export class AlbumBuilders {
           .setStyle(ButtonStyle.Link)
           .setLabel('Last.fm')
           .setURL(album.albumUrl)
-          .setEmoji({ id: '1496297104434270290', name: 'las' } as any),
+          .setEmoji(EMOJI.serviceLastFm),
       );
     }
     if (album.spotifyUrl) {
@@ -206,7 +207,7 @@ export class AlbumBuilders {
           .setStyle(ButtonStyle.Link)
           .setLabel('Spotify')
           .setURL(album.spotifyUrl)
-          .setEmoji({ id: '1496297132381048995', name: 'sp' } as any),
+          .setEmoji(EMOJI.serviceSpotify),
       );
     }
 

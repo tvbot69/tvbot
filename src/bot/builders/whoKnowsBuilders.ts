@@ -27,6 +27,7 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 
 import { buildWhoKnowsImageResponse } from './whoKnowsImageBuilder';
 import { resolveWhoKnowsImageDeps } from './whoKnowsImageDeps';
+import { EMOJI } from '@bot/resources/emojis';
 
 export class WhoKnowsBuilders {
   public static async buildWhoKnowsResponse(
@@ -210,31 +211,31 @@ export class WhoKnowsBuilders {
         const firstBtn = new ButtonBuilder()
           .setCustomId('component_paginator_first')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji({ id: '883825508633182208', name: 'pages_first' })
+          .setEmoji(EMOJI.pageFirst)
           .setDisabled(isFirst);
 
         const prevBtn = new ButtonBuilder()
           .setCustomId('component_paginator_previous')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji({ id: '883825508507336704', name: 'pages_previous' })
+          .setEmoji(EMOJI.pagePrevious)
           .setDisabled(isFirst);
 
         const nextBtn = new ButtonBuilder()
           .setCustomId('component_paginator_next')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji({ id: '883825508087922739', name: 'pages_next' })
+          .setEmoji(EMOJI.pageNext)
           .setDisabled(isLast);
 
         const lastBtn = new ButtonBuilder()
           .setCustomId('component_paginator_last')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji({ id: '883825508482183258', name: 'pages_last' })
+          .setEmoji(EMOJI.pageLast)
           .setDisabled(isLast);
 
         const jumpBtn = new ButtonBuilder()
           .setCustomId('component_paginator_jump')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji({ id: '1138849626234036264', name: 'pages_goto' })
+          .setEmoji(EMOJI.pageGoto)
           .setDisabled(isOnePage);
 
         container.addActionRowComponents(

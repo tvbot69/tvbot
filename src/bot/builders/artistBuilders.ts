@@ -13,6 +13,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import type { MusicBrainzArtistData } from '@bot/services/musicBrainzService';
 import { PlaycountBuilders } from './playcountBuilders';
 import { ArtistTrackBuilders } from './artistTrackBuilders';
+import { EMOJI } from '@bot/resources/emojis';
 
 const lastfmArtistUrl = (artist: string) =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -300,10 +301,10 @@ export class ArtistBuilders {
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`aab:first:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji({ id: '883825508633182208', name: 'pages_first' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-      new ButtonBuilder().setCustomId(`aab:prev:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji({ id: '883825508507336704', name: 'pages_previous' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-      new ButtonBuilder().setCustomId(`aab:next:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji({ id: '883825508087922739', name: 'pages_next' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-      new ButtonBuilder().setCustomId(`aab:last:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji({ id: '883825508482183258', name: 'pages_last' } as any).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+      new ButtonBuilder().setCustomId(`aab:first:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageFirst).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+      new ButtonBuilder().setCustomId(`aab:prev:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+      new ButtonBuilder().setCustomId(`aab:next:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+      new ButtonBuilder().setCustomId(`aab:last:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
       new ButtonBuilder().setCustomId(`artist-overview:${artistId}:${targetUserId}:${authorUserId}`).setEmoji({ name: '📊' } as any).setStyle(ButtonStyle.Secondary),
     );
     container.addActionRowComponents(row);
