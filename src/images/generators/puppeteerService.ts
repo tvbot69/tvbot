@@ -1,7 +1,7 @@
 import puppeteer, { type Browser, type Page } from 'puppeteer';
 import type { ChildProcess } from 'child_process';
 import { createHash } from 'crypto';
-import { mkdirSync } from 'fs';
+import { mkdirSync, rmSync } from 'fs';
 import path from 'path';
 import { Logger } from '@domain/logger';
 
@@ -10,6 +10,12 @@ export class PuppeteerService {
   private launching: Promise<Browser> | null = null;
   private readonly userDataDir: string | null;
   private ProcessListenersRegistered = false;
+
+  /**
+   * The fallback profile in use, so it can be deleted when the browser that
+   * owns it goes away. See `launchFallbackBrowser`.
+   */
+  private fallbackProfileDir: string | null = null;
 
   // Render backpressure: one Chromium serves the whole process. Unbounded
   // concurrent screenshots OOM the 384MB container; extras wait or fail fast
@@ -155,13 +161,7 @@ export class PuppeteerService {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('already running') || msg.includes('userDataDir')) {
           if (!this.userDataDir) throw err; // ephemeral should never hit lock — rethrow
-          const fallbackDir = path.join(this.userDataDir, `worker-${process.pid}-${Date.now()}`);
-          try { mkdirSync(fallbackDir, { recursive: true }); } catch { /* ignore */ }
-          Logger.info('Puppeteer browser fallback to worker profile');
-          const browser = await this.launchBrowser(fallbackDir);
-          this.browser = browser;
-          browser.on('disconnected', () => { if (this.browser === browser) this.browser = null; });
-          return browser;
+          return this.launchFallbackBrowser();
         }
         this.browser = null;
         throw err;
@@ -171,6 +171,63 @@ export class PuppeteerService {
     });
 
     return this.launching;
+  }
+
+  /**
+   * The main profile is locked by another Chrome, so launch against a private
+   * one.
+   *
+   * This used to name the directory `worker-${pid}-${Date.now()}` and never
+   * remove it. On a dev machine that accumulated 186 orphaned profiles and
+   * 1.36 GB, because every tsx-watch restart hit the lock, created a fresh
+   * timestamped directory, and left it behind. The existing comment blamed
+   * "the .puppeteer lock", which described the trigger rather than the defect.
+   *
+   * Two changes, both about making the directory's lifetime match the browser's
+   * lifetime rather than the process's:
+   *   - one path per process, so a restart reuses the previous directory
+   *     instead of adding a new one on every launch
+   *   - removed when the browser that owns it disconnects, or on process exit
+   *
+   * Only the fallback is ever deleted. The primary `userDataDir` holds the real
+   * profile and must survive.
+   */
+  private async launchFallbackBrowser(): Promise<Browser> {
+    const dir = this.fallbackProfileDir ?? path.join(this.userDataDir as string, `worker-${process.pid}`);
+    this.fallbackProfileDir = dir;
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      /* a pre-existing directory is exactly what we want to reuse */
+    }
+
+    Logger.info('Puppeteer browser fallback to worker profile');
+    const browser = await this.launchBrowser(dir);
+    this.browser = browser;
+    const discard = () => {
+      if (this.browser === browser) this.browser = null;
+      this.discardFallbackProfile();
+    };
+    browser.on('disconnected', discard);
+    process.once('exit', this.discardFallbackProfile);
+    return browser;
+  }
+
+  private discardFallbackProfile(): void {
+    const dir = this.fallbackProfileDir;
+    this.fallbackProfileDir = null;
+    if (!dir) return;
+    process.removeListener('exit', this.discardFallbackProfile);
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      Logger.debug(`Removed Puppeteer fallback profile ${dir}`);
+    } catch (err: unknown) {
+      // Never throw from cleanup: a locked file here must not take down a
+      // screenshot or the exit path.
+      Logger.debug(
+        `Could not remove Puppeteer fallback profile ${dir}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private renderCacheKey(html: string, width: number, height: number): string {
