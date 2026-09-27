@@ -50,7 +50,7 @@ export class ArtistTrackBuilders {
       new ButtonBuilder().setCustomId(`at:prev:${page}:${aId}:${tUser}:${aUser}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
       new ButtonBuilder().setCustomId(`at:next:${page}:${aId}:${tUser}:${aUser}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
       new ButtonBuilder().setCustomId(`at:last:${page}:${aId}:${tUser}:${aUser}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-      new ButtonBuilder().setCustomId(`artist-overview:${aId}:${tUser}:${aUser}`).setEmoji({ name: '📊' } as any).setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`artist-overview:${aId}:${tUser}:${aUser}`).setEmoji({ name: '📊' }).setStyle(ButtonStyle.Secondary),
     );
     container.addActionRowComponents(row);
 

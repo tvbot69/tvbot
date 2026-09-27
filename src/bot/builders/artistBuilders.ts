@@ -124,7 +124,7 @@ export class ArtistBuilders {
       new ButtonBuilder()
         .setCustomId(`artist-info:${artistId}:${targetUserId}:${authorUserId}`)
         .setLabel('Artist')
-        .setEmoji(ARTIST_SOCIAL_EMOJIS.info as any)
+        .setEmoji(ARTIST_SOCIAL_EMOJIS.info)
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId(`artist-tracks:${artistId}:${targetUserId}:${authorUserId}:`)
@@ -249,14 +249,14 @@ export class ArtistBuilders {
     const links = mbData?.links ?? {};
     const socialRow = new ActionRowBuilder<ButtonBuilder>();
 
-    if (links.spotify) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.spotify).setEmoji(ARTIST_SOCIAL_EMOJIS.spotify as any));
-    if (links.appleMusic) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.appleMusic).setEmoji(ARTIST_SOCIAL_EMOJIS.appleMusic as any));
-    if (links.instagram) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.instagram).setEmoji(ARTIST_SOCIAL_EMOJIS.instagram as any));
-    if (links.twitter) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.twitter).setEmoji(ARTIST_SOCIAL_EMOJIS.twitter as any));
-    if (links.bandcamp && socialRow.components.length < 5) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.bandcamp).setEmoji(ARTIST_SOCIAL_EMOJIS.bandcamp as any));
-    if (links.deezer && socialRow.components.length < 5) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.deezer).setEmoji(ARTIST_SOCIAL_EMOJIS.deezer as any));
-    if (links.youtube && socialRow.components.length < 5) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.youtube).setEmoji(ARTIST_SOCIAL_EMOJIS.youtube as any));
-    if (links.lastfm && socialRow.components.length < 5) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.lastfm).setEmoji(ARTIST_SOCIAL_EMOJIS.lastfm as any));
+    if (links.spotify) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.spotify).setEmoji(ARTIST_SOCIAL_EMOJIS.spotify));
+    if (links.appleMusic) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.appleMusic).setEmoji(ARTIST_SOCIAL_EMOJIS.appleMusic));
+    if (links.instagram) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.instagram).setEmoji(ARTIST_SOCIAL_EMOJIS.instagram));
+    if (links.twitter) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.twitter).setEmoji(ARTIST_SOCIAL_EMOJIS.twitter));
+    if (links.bandcamp && socialRow.components.length < 5) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.bandcamp).setEmoji(ARTIST_SOCIAL_EMOJIS.bandcamp));
+    if (links.deezer && socialRow.components.length < 5) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.deezer).setEmoji(ARTIST_SOCIAL_EMOJIS.deezer));
+    if (links.youtube && socialRow.components.length < 5) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.youtube).setEmoji(ARTIST_SOCIAL_EMOJIS.youtube));
+    if (links.lastfm && socialRow.components.length < 5) socialRow.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(links.lastfm).setEmoji(ARTIST_SOCIAL_EMOJIS.lastfm));
 
     if (socialRow.components.length > 0) {
       container.addActionRowComponents(socialRow);
@@ -306,7 +306,7 @@ export class ArtistBuilders {
       new ButtonBuilder().setCustomId(`aab:prev:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
       new ButtonBuilder().setCustomId(`aab:next:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
       new ButtonBuilder().setCustomId(`aab:last:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-      new ButtonBuilder().setCustomId(`artist-overview:${artistId}:${targetUserId}:${authorUserId}`).setEmoji({ name: '📊' } as any).setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`artist-overview:${artistId}:${targetUserId}:${authorUserId}`).setEmoji({ name: '📊' }).setStyle(ButtonStyle.Secondary),
     );
     container.addActionRowComponents(row);
 

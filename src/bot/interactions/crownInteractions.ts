@@ -66,7 +66,7 @@ export class CrownInteractions {
         await interaction.update({
           components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
-        } as any).catch(async () => {
+        }).catch(async () => {
           await interaction.deferUpdate().catch(() => undefined);
         });
       }
@@ -103,7 +103,7 @@ export class CrownInteractions {
           await interaction.update({
             components: [response.componentsV2Container],
             flags: MessageFlags.IsComponentsV2,
-          } as any).catch(async () => {
+          }).catch(async () => {
             await interaction.deferUpdate().catch(() => undefined);
           });
         }
@@ -132,7 +132,13 @@ export class CrownInteractions {
       await interaction.deferUpdate().catch(() => undefined);
 
       const context = new ContextModel();
-      (context as any).interaction = interaction;
+      // componentInteraction, not interaction. interaction is typed
+      // ChatInputCommandInteraction because every read of it goes through
+      // .options, which a ButtonInteraction does not have - so assigning
+      // one there typechecked only because of the cast, and any consumer that
+      // reached for .options would have thrown at runtime. ContextModel
+      // already has the right field, and anyInteraction prefers it.
+      context.componentInteraction = interaction;
       context.discordUserId = interaction.user.id;
       context.guildId = interaction.guildId ?? undefined;
       context.accentColor = await this.colorService.getAccentColorAsync(interaction.guildId);
@@ -145,14 +151,14 @@ export class CrownInteractions {
         .setCustomId(`artist-crown:${encodeURIComponent(artistName)}`)
         .setStyle(ButtonStyle.Secondary)
         .setLabel('Crown')
-        .setEmoji({ name: '👑' } as any);
+        .setEmoji({ name: '👑' });
       response.addButtonRow(0, new ActionRowBuilder<ButtonBuilder>().addComponents(crownBtn));
 
       if (response.isComponentsV2 && response.componentsV2Container) {
         await interaction.editReply({
           components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
-        } as any).catch(() => undefined);
+        }).catch(() => undefined);
       } else {
         const hasEmbed = response.hasEmbed();
         await interaction.editReply({
@@ -181,7 +187,13 @@ export class CrownInteractions {
       await interaction.deferUpdate().catch(() => undefined);
 
       const context = new ContextModel();
-      (context as any).interaction = interaction;
+      // componentInteraction, not interaction. interaction is typed
+      // ChatInputCommandInteraction because every read of it goes through
+      // .options, which a ButtonInteraction does not have - so assigning
+      // one there typechecked only because of the cast, and any consumer that
+      // reached for .options would have thrown at runtime. ContextModel
+      // already has the right field, and anyInteraction prefers it.
+      context.componentInteraction = interaction;
       context.discordUserId = interaction.user.id;
       context.guildId = interaction.guildId ?? undefined;
       context.accentColor = await this.colorService.getAccentColorAsync(interaction.guildId);
@@ -193,7 +205,7 @@ export class CrownInteractions {
         await interaction.editReply({
           components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
-        } as any).catch(() => undefined);
+        }).catch(() => undefined);
       } else {
         const hasEmbed = response.hasEmbed();
         await interaction.editReply({
@@ -254,7 +266,7 @@ export class CrownInteractions {
       await interaction.update({
         components: [response.componentsV2Container],
         flags: MessageFlags.IsComponentsV2,
-      } as any).catch(async () => {
+      }).catch(async () => {
         await interaction.deferUpdate().catch(() => undefined);
       });
     }

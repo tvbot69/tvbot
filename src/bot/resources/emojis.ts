@@ -5,7 +5,7 @@
  * --------------------
  * The same literal was pasted at up to ELEVEN call sites:
  *
- *   .setEmoji({ id: '883825508087922739', name: 'pages_next' } as any)
+ *   .setEmoji({ id: '883825508087922739', name: 'pages_next' })
  *
  * 62 such casts existed across the codebase. Three problems, in order of
  * severity:
