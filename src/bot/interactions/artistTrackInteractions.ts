@@ -73,6 +73,6 @@ export class ArtistTrackInteractions {
       authorUserId,
       isArtistIndexPartial(tracks, totalPlays),
     );
-    await interaction.update({ components: [response.componentsV2Container as any], flags: MessageFlags.IsComponentsV2 } as any).catch(() => undefined);
+    await interaction.update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 } as any).catch(() => undefined);
   }
 }

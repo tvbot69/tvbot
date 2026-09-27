@@ -58,7 +58,7 @@ export class UserHubInteractions {
 
       if (response.componentsV2Container) {
         await interaction.editReply({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
         });
       }
       return;
@@ -94,7 +94,7 @@ export class UserHubInteractions {
 
       if (response.componentsV2Container) {
         await interaction.editReply({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
         });
       }
     }

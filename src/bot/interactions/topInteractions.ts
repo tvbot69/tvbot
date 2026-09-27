@@ -35,13 +35,13 @@ export class TopInteractions {
       try {
         let response: any;
         if (prefix === 'topartists') {
-          const items = await this.lastfmRepository.getTopArtists(displayName, timeSettings.timePeriod as any, 1000);
+          const items = await this.lastfmRepository.getTopArtists(displayName, timeSettings.timePeriod, 1000);
           response = await TopBuilders.buildTopArtistsResponse(resolveTopBuildersDeps(), displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
         } else if (prefix === 'topalbums') {
-          const items = await this.lastfmRepository.getTopAlbums(displayName, timeSettings.timePeriod as any, 1000);
+          const items = await this.lastfmRepository.getTopAlbums(displayName, timeSettings.timePeriod, 1000);
           response = await TopBuilders.buildTopAlbumsResponse(resolveTopBuildersDeps(), displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
         } else {
-          const items = await this.lastfmRepository.getTopTracks(displayName, timeSettings.timePeriod as any, 1000);
+          const items = await this.lastfmRepository.getTopTracks(displayName, timeSettings.timePeriod, 1000);
           response = await TopBuilders.buildTopTracksResponse(resolveTopBuildersDeps(), displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
         }
         await (interaction as any).update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
@@ -69,7 +69,7 @@ export class TopInteractions {
         const { OverviewBuilders } = await import('@bot/builders/overviewBuilders');
         const response = OverviewBuilders.buildOverviewResponse(decodeURIComponent(userNameLastFm ?? ''), decodeURIComponent(userNameLastFm ?? ''), timeSettings.description, overview, Math.min(targetPage, Math.max(0, Math.ceil(overview.dailyBlocks.length / 4) - 1)), accentColor);
         if (response.isComponentsV2) {
-          await (interaction as any).update({ components: [response.componentsV2Container as any], flags: MessageFlags.IsComponentsV2 } as any).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
+          await (interaction as any).update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 } as any).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         } else {
           await (interaction as any).update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         }
@@ -117,7 +117,7 @@ export class TopInteractions {
         const displayName = userNameLastFm;
         let response;
         if (prefix === 'topartists') {
-          const items = await this.lastfmRepository.getTopArtists(userNameLastFm, timeSettings.timePeriod as any, 1000);
+          const items = await this.lastfmRepository.getTopArtists(userNameLastFm, timeSettings.timePeriod, 1000);
           const perPage = 10;
           const totalPages = Math.max(1, Math.ceil(items.length / perPage));
           let targetPage = currentPage;
@@ -127,7 +127,7 @@ export class TopInteractions {
           else if (action === 'last') targetPage = totalPages - 1;
           response = await TopBuilders.buildTopArtistsResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
         } else if (prefix === 'topalbums') {
-          const items = await this.lastfmRepository.getTopAlbums(userNameLastFm, timeSettings.timePeriod as any, 1000);
+          const items = await this.lastfmRepository.getTopAlbums(userNameLastFm, timeSettings.timePeriod, 1000);
           const perPage = 10;
           const totalPages = Math.max(1, Math.ceil(items.length / perPage));
           let targetPage = currentPage;
@@ -137,7 +137,7 @@ export class TopInteractions {
           else if (action === 'last') targetPage = totalPages - 1;
           response = await TopBuilders.buildTopAlbumsResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
         } else {
-          const items = await this.lastfmRepository.getTopTracks(userNameLastFm, timeSettings.timePeriod as any, 1000);
+          const items = await this.lastfmRepository.getTopTracks(userNameLastFm, timeSettings.timePeriod, 1000);
           const perPage = 10;
           const totalPages = Math.max(1, Math.ceil(items.length / perPage));
           let targetPage = currentPage;
@@ -166,7 +166,7 @@ export class TopInteractions {
         const { OverviewBuilders } = await import('@bot/builders/overviewBuilders');
         const response = OverviewBuilders.buildOverviewResponse(userNameLastFm, userNameLastFm, timeSettings.description, overview, targetPage, accentColor);
         if (response.isComponentsV2) {
-          await interaction.update({ components: [response.componentsV2Container as any], flags: MessageFlags.IsComponentsV2 } as any).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
+          await interaction.update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 } as any).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         } else {
           await interaction.update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         }

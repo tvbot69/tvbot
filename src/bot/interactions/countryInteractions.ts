@@ -116,7 +116,7 @@ export class CountryInteractions {
 
         if (response.componentsV2Container) {
           await interaction.update({
-            components: [response.componentsV2Container as any],
+            components: [response.componentsV2Container],
           });
         }
         return;
@@ -148,7 +148,7 @@ export class CountryInteractions {
 
         if (response.componentsV2Container) {
           await interaction.update({
-            components: [response.componentsV2Container as any],
+            components: [response.componentsV2Container],
           });
         }
         return;
@@ -205,7 +205,7 @@ export class CountryInteractions {
 
         if (response.componentsV2Container) {
           await interaction.update({
-            components: [response.componentsV2Container as any],
+            components: [response.componentsV2Container],
           });
         }
       } else if (queryType === 'info' && cached.country) {
@@ -229,7 +229,7 @@ export class CountryInteractions {
 
         if (response.componentsV2Container) {
           await interaction.update({
-            components: [response.componentsV2Container as any],
+            components: [response.componentsV2Container],
           });
         }
       } else if (queryType === 'wkc' && cached.country) {
@@ -251,7 +251,7 @@ export class CountryInteractions {
 
         if (response.componentsV2Container) {
           await interaction.update({
-            components: [response.componentsV2Container as any],
+            components: [response.componentsV2Container],
           });
         }
       }
@@ -307,7 +307,7 @@ export class CountryInteractions {
     if (response.componentsV2Container) {
       await interaction.editReply({
         files: [{ attachment: imageBuffer, name: 'artist-map.png' }],
-        components: [response.componentsV2Container as any],
+        components: [response.componentsV2Container],
       });
     }
   }

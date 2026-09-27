@@ -96,7 +96,7 @@ export class ArtistInteractions {
         );
 
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
         return;
@@ -149,7 +149,7 @@ export class ArtistInteractions {
         );
 
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
         return;
@@ -193,7 +193,7 @@ export class ArtistInteractions {
         );
 
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
         return;
@@ -219,7 +219,7 @@ export class ArtistInteractions {
         );
 
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
         return;
@@ -245,7 +245,7 @@ export class ArtistInteractions {
         );
 
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
         return;

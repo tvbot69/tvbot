@@ -64,7 +64,7 @@ export class CrownInteractions {
 
       if (response.componentsV2Container) {
         await (interaction as any).update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(async () => {
           await interaction.deferUpdate().catch(() => undefined);
@@ -101,7 +101,7 @@ export class CrownInteractions {
 
         if (response.componentsV2Container) {
           await (interaction as any).update({
-            components: [response.componentsV2Container as any],
+            components: [response.componentsV2Container],
             flags: MessageFlags.IsComponentsV2,
           } as any).catch(async () => {
             await interaction.deferUpdate().catch(() => undefined);
@@ -150,7 +150,7 @@ export class CrownInteractions {
 
       if (response.isComponentsV2 && response.componentsV2Container) {
         await (interaction as any).editReply({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
       } else {
@@ -191,7 +191,7 @@ export class CrownInteractions {
 
       if (response.isComponentsV2 && response.componentsV2Container) {
         await (interaction as any).editReply({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
       } else {
@@ -252,7 +252,7 @@ export class CrownInteractions {
 
     if (response.componentsV2Container) {
       await (interaction as any).update({
-        components: [response.componentsV2Container as any],
+        components: [response.componentsV2Container],
         flags: MessageFlags.IsComponentsV2,
       } as any).catch(async () => {
         await interaction.deferUpdate().catch(() => undefined);

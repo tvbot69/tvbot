@@ -81,7 +81,7 @@ export class TopCommands implements ITextCommandModule {
     const timeSettings = this.settingService.getTimePeriod(period);
     const from = timeSettings.startDateTime ? Math.floor(timeSettings.startDateTime.getTime() / 1000) : undefined;
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
-    const topArtists = await this.lastfmRepository.getTopArtists(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
+    const topArtists = await this.lastfmRepository.getTopArtists(userNameLastFm, timeSettings.timePeriod, 1000, 1, undefined, from, to);
     if (!topArtists || topArtists.length === 0) return GenericEmbedService.buildNotFoundResponse('No top artists found for this time period.');
     const topImg = (await this.artworkService?.getArtistImageUrl(topArtists[0]?.name)) ?? (topArtists[0]?.imageUrl && !isPlaceholderImageUrl(topArtists[0]?.imageUrl) ? topArtists[0]?.imageUrl : undefined);
     const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;
@@ -99,7 +99,7 @@ export class TopCommands implements ITextCommandModule {
     const timeSettings = this.settingService.getTimePeriod(period);
     const from = timeSettings.startDateTime ? Math.floor(timeSettings.startDateTime.getTime() / 1000) : undefined;
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
-    const topAlbums = await this.lastfmRepository.getTopAlbums(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
+    const topAlbums = await this.lastfmRepository.getTopAlbums(userNameLastFm, timeSettings.timePeriod, 1000, 1, undefined, from, to);
     if (!topAlbums || topAlbums.length === 0) return GenericEmbedService.buildNotFoundResponse('No top albums found for this time period.');
     const topImg = (await this.artworkService?.getAlbumCoverUrl(topAlbums[0]?.name, topAlbums[0]?.artistName)) ?? (topAlbums[0]?.imageUrl && !isPlaceholderImageUrl(topAlbums[0]?.imageUrl) ? topAlbums[0]?.imageUrl : undefined);
     const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;
@@ -117,7 +117,7 @@ export class TopCommands implements ITextCommandModule {
     const timeSettings = this.settingService.getTimePeriod(period);
     const from = timeSettings.startDateTime ? Math.floor(timeSettings.startDateTime.getTime() / 1000) : undefined;
     const to = timeSettings.endDateTime ? Math.floor(timeSettings.endDateTime.getTime() / 1000) : undefined;
-    const topTracks = await this.lastfmRepository.getTopTracks(userNameLastFm, timeSettings.timePeriod as any, 1000, 1, undefined, from, to);
+    const topTracks = await this.lastfmRepository.getTopTracks(userNameLastFm, timeSettings.timePeriod, 1000, 1, undefined, from, to);
     if (!topTracks || topTracks.length === 0) return GenericEmbedService.buildNotFoundResponse('No top tracks found for this time period.');
     const topImg = (await this.artworkService?.getTrackCoverUrl(topTracks[0]?.name, topTracks[0]?.artistName)) ?? (topTracks[0]?.imageUrl && !isPlaceholderImageUrl(topTracks[0]?.imageUrl) ? topTracks[0]?.imageUrl : undefined);
     const accentColor = topImg ? await this.colorService?.getColorFromImageUrl(topImg) : undefined;

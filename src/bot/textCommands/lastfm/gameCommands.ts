@@ -125,7 +125,7 @@ export class GameCommands implements ITextCommandModule {
           const expiredResp = GameBuilders.buildGameExpiredResponse(session, accentColor);
           if (expiredResp.componentsV2Container) {
             await (channel as any).send({
-              components: [expiredResp.componentsV2Container as any],
+              components: [expiredResp.componentsV2Container],
               flags: MessageFlags.IsComponentsV2,
             });
           }
@@ -266,7 +266,7 @@ export class GameCommands implements ITextCommandModule {
           const expiredResp = GameBuilders.buildGameExpiredResponse(session, accentColor);
           if (expiredResp.componentsV2Container) {
             await (channel as any).send({
-              components: [expiredResp.componentsV2Container as any],
+              components: [expiredResp.componentsV2Container],
               flags: MessageFlags.IsComponentsV2,
             });
           }

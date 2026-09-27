@@ -46,7 +46,7 @@ export class GameInteractions {
       const response = GameBuilders.buildGameGiveUpResponse(endedSession, accentColor);
       if (response.componentsV2Container) {
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
           files: [],
         });
@@ -67,7 +67,7 @@ export class GameInteractions {
       const response = GameBuilders.buildJumbleStartResponse(session, accentColor);
       if (response.componentsV2Container) {
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         });
       }
@@ -94,7 +94,7 @@ export class GameInteractions {
         if (response.componentsV2Container) {
           await interaction.editReply({
             files: [{ attachment: enhancedBuffer, name: 'pixel-cover.png' }],
-            components: [response.componentsV2Container as any],
+            components: [response.componentsV2Container],
             flags: MessageFlags.IsComponentsV2,
           });
         }
@@ -104,7 +104,7 @@ export class GameInteractions {
       const response = GameBuilders.buildJumbleStartResponse(session, accentColor);
       if (response.componentsV2Container) {
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         });
       }

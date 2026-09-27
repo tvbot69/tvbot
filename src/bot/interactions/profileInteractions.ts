@@ -70,9 +70,14 @@ export class ProfileInteractions {
       historyStats.accentColor = await this.colorService.getColorFromImageUrl(historyStats.lastFmUser.imageUrl);
 
       const response = ProfileBuilders.buildProfileHistoryResponse(historyStats, callerDiscordId);
-      if (response.isComponentsV2) {
+      // Capture the container into a local so the undefined case is handled by the
+      // compiler. `isComponentsV2` already checks the same thing, but a getter
+      // cannot narrow the property it is derived from, which is why 35 call
+      // sites carried an `as any` on this field. The local is the guard.
+      const historyContainer = response.componentsV2Container;
+      if (historyContainer) {
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [historyContainer],
           flags: MessageFlags.IsComponentsV2,
         });
       } else {
@@ -94,9 +99,10 @@ export class ProfileInteractions {
       profileStats.accentColor = await this.colorService.getColorFromImageUrl(profileStats.lastFmUser.imageUrl);
 
       const response = ProfileBuilders.buildProfileResponse(profileStats, callerDiscordId);
-      if (response.isComponentsV2) {
+      const profileContainer = response.componentsV2Container;
+      if (profileContainer) {
         await interaction.update({
-          components: [response.componentsV2Container as any],
+          components: [profileContainer],
           flags: MessageFlags.IsComponentsV2,
         });
       } else {

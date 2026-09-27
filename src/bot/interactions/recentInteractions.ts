@@ -61,7 +61,7 @@ export class RecentInteractions {
 
       if (response.componentsV2Container) {
         await (interaction as any).update({
-          components: [response.componentsV2Container as any],
+          components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(async () => {
           await interaction.deferUpdate().catch(() => undefined);

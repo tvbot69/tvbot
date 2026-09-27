@@ -85,7 +85,7 @@ export class NowPlayingInteractions {
       const res = TrackBuilders.buildScrobbleResponse(track, artist, user.userNameLastFm);
       await interaction.editReply({
         content: res.componentsV2Container ? undefined : `✅ Scrobbled **${track}** by **${artist}** to your Last.fm!`,
-        components: res.componentsV2Container ? [res.componentsV2Container as any] : [],
+        components: res.componentsV2Container ? [res.componentsV2Container] : [],
       });
     } catch (err: any) {
       Logger.warn({ err: err?.message }, `[NowPlayingInteractions] Scrobble failed for ${user.userNameLastFm}`);
@@ -185,7 +185,7 @@ export class NowPlayingInteractions {
       );
 
       await interaction.editReply({
-        components: res.componentsV2Container ? [res.componentsV2Container as any] : [],
+        components: res.componentsV2Container ? [res.componentsV2Container] : [],
         content: res.componentsV2Container ? undefined : `### Lyrics for **${result.title}** by **${result.artist}**\n\n${result.plainLyrics.slice(0, 1900)}`,
       });
     } catch (err: any) {
@@ -230,7 +230,7 @@ export class NowPlayingInteractions {
 
       if (res.componentsV2Container) {
         await interaction.editReply({
-          components: [res.componentsV2Container as any],
+          components: [res.componentsV2Container],
         });
       }
     } catch (err: any) {

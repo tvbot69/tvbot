@@ -140,7 +140,7 @@ async function resolveBackgroundCovers(
         const lastfmRepo = deps.lastfmRepo;
         const albums = await lastfmRepo.getTopAlbums(
           userNameLastFm,
-          timeSettings.timePeriod as any,
+          timeSettings.timePeriod,
           25,
           1,
         ).catch(() => []);
