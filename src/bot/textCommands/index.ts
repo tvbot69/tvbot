@@ -123,3 +123,22 @@ export const getTextCommand = (name: string): TextCommandDefinition | undefined 
   }
   return commandCache.get(name.toLowerCase());
 };
+
+/**
+ * The whole resolved registry, keyed by lowercased name.
+ *
+ * Exists for the same reason `getSlashCommandPayloads()` exists on the slash
+ * side: the registry is built by a private two-pass function whose collision
+ * behaviour is the thing most worth testing, and a single-name lookup cannot
+ * express "no two of these collide". Without this, the collision invariants can
+ * only be checked by re-parsing command definitions out of source, which tests
+ * the source rather than the objects the bot actually ships.
+ *
+ * Returns the live map, so callers must not mutate it.
+ */
+export const getTextCommands = (): ReadonlyMap<string, TextCommandDefinition> => {
+  if (!commandCache) {
+    commandCache = buildCommands();
+  }
+  return commandCache;
+};

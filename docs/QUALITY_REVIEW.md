@@ -1,6 +1,6 @@
 # Code quality review — tvbot
 
-Date: 2026-09-27 · baseline `main` · 123 test files / 961 tests · 376 production `.ts` files / 66,709 lines
+Date: 2026-09-27 · baseline `main` · 124 test files / 970 tests · 376 production `.ts` files / 66,709 lines
 
 ## Verdict
 
