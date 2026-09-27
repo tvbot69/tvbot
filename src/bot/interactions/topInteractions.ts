@@ -7,6 +7,7 @@ import { ColorService } from '@bot/services/colorService';
 import { container } from 'tsyringe';
 import { registerModalHandler } from '@bot/interactions';
 import { Logger } from '@domain/logger';
+import { respondToModalWithPage } from './modalPageResponse';
 
 export class TopInteractions {
   private readonly lastfmRepository: LastFmRepository;
@@ -19,7 +20,7 @@ export class TopInteractions {
     this.colorService = container.resolve(ColorService);
 
     // Jump modals — "Enter a page number (1-31)" as in fmbot (Fergun AddJumpButton)
-    registerModalHandler('top-jump', async (interaction: any) => {
+    registerModalHandler('top-jump', async (interaction) => {
       const raw = interaction.fields.getTextInputValue('page')?.trim();
       const pageNum = Number(raw);
       const [ , prefix, userNameLastFm, timeKey ] = interaction.customId.split(':');
@@ -32,6 +33,9 @@ export class TopInteractions {
       const timeSettings = this.settingService.getTimePeriod(decodeURIComponent(timeKey ?? 'weekly'));
       const displayName = decodeURIComponent(userNameLastFm ?? '');
       const accentColor = await this.colorService.getAccentColorAsync(interaction.guildId);
+      // Ack before the Last.fm lookups below, not after. Discord gives a modal
+      // submit 3 seconds; a slow upstream would otherwise surface as 10062.
+      await interaction.deferReply().catch(() => undefined);
       try {
         let response: any;
         if (prefix === 'topartists') {
@@ -44,14 +48,16 @@ export class TopInteractions {
           const items = await this.lastfmRepository.getTopTracks(displayName, timeSettings.timePeriod, 1000);
           response = await TopBuilders.buildTopTracksResponse(resolveTopBuildersDeps(), displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
         }
-        await (interaction as any).update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
+        await respondToModalWithPage(interaction, response);
       } catch (err) {
         Logger.error({ err }, 'Top jump modal failed');
-        await interaction.reply({ content: 'Failed to jump to page.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+        // Already deferred, so this edits the existing response rather than
+        // replying a second time.
+        await interaction.editReply({ content: 'Failed to jump to page.' }).catch(() => undefined);
       }
     });
 
-    registerModalHandler('overview-jump', async (interaction: any) => {
+    registerModalHandler('overview-jump', async (interaction) => {
       const raw = interaction.fields.getTextInputValue('page')?.trim();
       const pageNum = Number(raw);
       const [ , userNameLastFm, timeKey ] = interaction.customId.split(':');
@@ -61,6 +67,8 @@ export class TopInteractions {
       }
       const targetPage = Math.max(0, pageNum - 1);
       const accentColor = await this.colorService.getAccentColorAsync(interaction.guildId);
+      // Same reasoning as the top-jump handler: ack first, look up second.
+      await interaction.deferReply().catch(() => undefined);
       try {
         const { OverviewService } = await import('@bot/services/overviewService');
         const ovService = container.resolve(OverviewService) as any;
@@ -68,14 +76,10 @@ export class TopInteractions {
         const timeSettings = this.settingService.getTimePeriod(decodeURIComponent(timeKey ?? 'weekly'));
         const { OverviewBuilders } = await import('@bot/builders/overviewBuilders');
         const response = OverviewBuilders.buildOverviewResponse(decodeURIComponent(userNameLastFm ?? ''), decodeURIComponent(userNameLastFm ?? ''), timeSettings.description, overview, Math.min(targetPage, Math.max(0, Math.ceil(overview.dailyBlocks.length / 4) - 1)), accentColor);
-        if (response.isComponentsV2) {
-          await (interaction as any).update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 } as any).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
-        } else {
-          await (interaction as any).update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
-        }
+        await respondToModalWithPage(interaction, response);
       } catch (err) {
         Logger.error({ err }, 'Overview jump modal failed');
-        await interaction.reply({ content: 'Failed to jump to page.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+        await interaction.editReply({ content: 'Failed to jump to page.' }).catch(() => undefined);
       }
     });
   }
