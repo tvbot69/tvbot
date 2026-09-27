@@ -34,11 +34,21 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   Added `CacheService.setNX`. 12 tests, 3 mutations caught.
   *I introduced a bug writing it* (deleted the lock on exists, not expires) — the real-code
   test caught it; a stub would not have.
-- **1.2** 🔄 **Step 1 DONE.** `scripts/count-duplicate-plays.ts` (`npm run db:count-duplicates`),
-  read-only. **Measured against production 2026-09-28: 303,424 plays, 0 duplicate keys,
-  0 extra rows, 0 users affected.** So no cleanup data fix is needed and the unique index
-  can go in directly.
-  *Step 2 (migration + `CREATE UNIQUE INDEX CONCURRENTLY`) is NEXT and is safe to write now.*
+- **1.2** 🔄 **Step 1 DONE, step 2 WRITTEN (not applied).**
+  *Step 1:* `scripts/count-duplicate-plays.ts` (`npm run db:count-duplicates`), read-only.
+  **Measured against production 2026-09-28: 303,424 plays, 0 duplicate keys, 0 extra rows,
+  0 users affected.** So no cleanup data fix is needed and the unique index can go in directly.
+  *Step 2:* two migration files, ready but **NOT applied** — apply deliberately:
+  - `20260928000000_user_plays_dedup_cleanup` — the DELETE. A no-op on current data; kept so a
+    drifted copy can be repaired by the same file.
+  - `20260928010000_user_plays_dedup_index` — `CREATE UNIQUE INDEX CONCURRENTLY ... NULLS NOT DISTINCT`
+  - `** THAT FILE MUST HOLD EXACTLY ONE STATEMENT. Prisma decides transaction-wrapping by statement
+    arity: one statement runs outside a transaction so `CONCURRENTLY` works; two statements get
+    wrapped and it fails with 25001 "cannot run inside a transaction block". The DELETE is in its own
+    file for exactly this reason, and the index file says so at the top.
+  - `NULLS NOT DISTINCT` is load-bearing, not decorative: without it NULLs are distinct, so a null
+    `track_name` or `play_source` would slip past and the guarantee would be partial in exactly the
+    cases most likely to be real. Host is PostgreSQL 18.6.
 
   Two things the script had to get right, both found by running it rather than reading it:
   - a plain string interpolated into a `$queryRaw` tagged template is bound as a **parameter**,
