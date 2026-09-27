@@ -73,6 +73,13 @@ export class ArtistTrackInteractions {
       authorUserId,
       isArtistIndexPartial(tracks, totalPlays),
     );
-    await interaction.update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 } as any).catch(() => undefined);
+        // Guarded, matching the sibling handlers. The builder always sets a
+        // container, so this is a no-op today - but ResponseModel types the
+        // field optional, and unguarded this posts `[undefined]` with the
+        // Components V2 flag, which is the failure already fixed in
+        // profileInteractions. The `as any` was hiding the missing guard.
+        if (response.componentsV2Container) {
+          await interaction.update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 }).catch(() => undefined);
+        }
   }
 }

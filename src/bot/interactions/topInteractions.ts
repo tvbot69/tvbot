@@ -169,8 +169,8 @@ export class TopInteractions {
         else if (action === 'last') targetPage = totalPages - 1;
         const { OverviewBuilders } = await import('@bot/builders/overviewBuilders');
         const response = OverviewBuilders.buildOverviewResponse(userNameLastFm, userNameLastFm, timeSettings.description, overview, targetPage, accentColor);
-        if (response.isComponentsV2) {
-          await interaction.update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 } as any).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
+        if (response.componentsV2Container) {
+          await interaction.update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         } else {
           await interaction.update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         }

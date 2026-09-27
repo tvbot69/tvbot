@@ -95,10 +95,21 @@ export class ArtistInteractions {
           accentColor,
         );
 
-        await interaction.update({
-          components: [response.componentsV2Container],
-          flags: MessageFlags.IsComponentsV2,
-        } as any).catch(() => undefined);
+        // Guarded exactly like albumInteractions, countryInteractions and
+        // crownInteractions, which all test this first. Every builder behind
+        // these calls ends with response.setComponentsV2Container(...), which
+        // returns `this`, so the container IS always set today and the guard
+        // is a no-op. But ResponseModel types the field optional, so the
+        // compiler cannot know that - and if a builder ever stopped setting it,
+        // this posted `[undefined]` with the Components V2 flag, which is the
+        // exact failure already fixed in profileInteractions. The `as any` was
+        // hiding the missing guard, not working around a type problem.
+        if (response.componentsV2Container) {
+          await interaction.update({
+            components: [response.componentsV2Container],
+            flags: MessageFlags.IsComponentsV2,
+          }).catch(() => undefined);
+        }
         return;
       }
 
@@ -148,10 +159,21 @@ export class ArtistInteractions {
           accentColor,
         );
 
-        await interaction.update({
-          components: [response.componentsV2Container],
-          flags: MessageFlags.IsComponentsV2,
-        } as any).catch(() => undefined);
+        // Guarded exactly like albumInteractions, countryInteractions and
+        // crownInteractions, which all test this first. Every builder behind
+        // these calls ends with response.setComponentsV2Container(...), which
+        // returns `this`, so the container IS always set today and the guard
+        // is a no-op. But ResponseModel types the field optional, so the
+        // compiler cannot know that - and if a builder ever stopped setting it,
+        // this posted `[undefined]` with the Components V2 flag, which is the
+        // exact failure already fixed in profileInteractions. The `as any` was
+        // hiding the missing guard, not working around a type problem.
+        if (response.componentsV2Container) {
+          await interaction.update({
+            components: [response.componentsV2Container],
+            flags: MessageFlags.IsComponentsV2,
+          }).catch(() => undefined);
+        }
         return;
       }
 
@@ -192,10 +214,21 @@ export class ArtistInteractions {
           accentColor,
         );
 
-        await interaction.update({
-          components: [response.componentsV2Container],
-          flags: MessageFlags.IsComponentsV2,
-        } as any).catch(() => undefined);
+        // Guarded exactly like albumInteractions, countryInteractions and
+        // crownInteractions, which all test this first. Every builder behind
+        // these calls ends with response.setComponentsV2Container(...), which
+        // returns `this`, so the container IS always set today and the guard
+        // is a no-op. But ResponseModel types the field optional, so the
+        // compiler cannot know that - and if a builder ever stopped setting it,
+        // this posted `[undefined]` with the Components V2 flag, which is the
+        // exact failure already fixed in profileInteractions. The `as any` was
+        // hiding the missing guard, not working around a type problem.
+        if (response.componentsV2Container) {
+          await interaction.update({
+            components: [response.componentsV2Container],
+            flags: MessageFlags.IsComponentsV2,
+          }).catch(() => undefined);
+        }
         return;
       }
 
@@ -218,10 +251,21 @@ export class ArtistInteractions {
           authorUserId,
         );
 
-        await interaction.update({
-          components: [response.componentsV2Container],
-          flags: MessageFlags.IsComponentsV2,
-        } as any).catch(() => undefined);
+        // Guarded exactly like albumInteractions, countryInteractions and
+        // crownInteractions, which all test this first. Every builder behind
+        // these calls ends with response.setComponentsV2Container(...), which
+        // returns `this`, so the container IS always set today and the guard
+        // is a no-op. But ResponseModel types the field optional, so the
+        // compiler cannot know that - and if a builder ever stopped setting it,
+        // this posted `[undefined]` with the Components V2 flag, which is the
+        // exact failure already fixed in profileInteractions. The `as any` was
+        // hiding the missing guard, not working around a type problem.
+        if (response.componentsV2Container) {
+          await interaction.update({
+            components: [response.componentsV2Container],
+            flags: MessageFlags.IsComponentsV2,
+          }).catch(() => undefined);
+        }
         return;
       }
 
@@ -244,10 +288,21 @@ export class ArtistInteractions {
           accentColor,
         );
 
-        await interaction.update({
-          components: [response.componentsV2Container],
-          flags: MessageFlags.IsComponentsV2,
-        } as any).catch(() => undefined);
+        // Guarded exactly like albumInteractions, countryInteractions and
+        // crownInteractions, which all test this first. Every builder behind
+        // these calls ends with response.setComponentsV2Container(...), which
+        // returns `this`, so the container IS always set today and the guard
+        // is a no-op. But ResponseModel types the field optional, so the
+        // compiler cannot know that - and if a builder ever stopped setting it,
+        // this posted `[undefined]` with the Components V2 flag, which is the
+        // exact failure already fixed in profileInteractions. The `as any` was
+        // hiding the missing guard, not working around a type problem.
+        if (response.componentsV2Container) {
+          await interaction.update({
+            components: [response.componentsV2Container],
+            flags: MessageFlags.IsComponentsV2,
+          }).catch(() => undefined);
+        }
         return;
       }
     } catch (err) {
