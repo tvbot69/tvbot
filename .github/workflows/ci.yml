@@ -13,6 +13,18 @@
 
 name: CI
 
+# No secrets anywhere, and deliberately so. Nothing in this pipeline contacts
+# Discord, Last.fm, Spotify or a Lavalink node: the build is tsc, the tests mock
+# the network, and the only socket that is never opened is the one DATABASE_URL
+# points at.
+#
+# The suite used to need a real DISCORD_TOKEN because `prismaClient` reaches
+# `assertValidEnvironment()` through `configData`'s lazy getter at import time,
+# and validation happened against the developer's local `.env`. That meant a
+# fresh clone could not run `npm test` at all. `src/tests/setupEnv.ts` now
+# supplies shape-valid fake fallbacks, so CI needs no credentials and neither
+# does a new contributor.
+
 on:
   push:
     branches: [main]
@@ -41,13 +53,14 @@ jobs:
 
       # tsc is the real gate. Kept separate from the test job so a type error
       # is reported as a type error, not as 900 test failures.
+      #
+      # DATABASE_URL is genuinely needed here: `prisma generate` reads the
+      # datasource from the schema and refuses to run without it. It is never
+      # connected to - no test or build step opens a socket.
       - name: Build
         run: npm run build
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
-          DISCORD_TOKEN: ci-not-a-real-token
-          LASTFM_API_KEY: ci
-          LASTFM_API_SECRET: ci
 
   test:
     name: tests (vitest)
@@ -72,16 +85,6 @@ jobs:
         run: npm test
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
-          DISCORD_TOKEN: ci-not-a-real-token
-          LASTFM_API_KEY: ci
-          LASTFM_API_SECRET: ci
-          SPOTIFY_CLIENT_ID: ci
-          SPOTIFY_CLIENT_SECRET: ci
-          GENIUS_CLIENT_ID: ci
-          GENIUS_CLIENT_SECRET: ci
-          YOUTUBE_API_KEY: ci
-          ENVIRONMENT: local
-          ENABLE_LAVALINK: 'false'
 
   lint:
     name: lint

@@ -56,6 +56,13 @@ const makeService = (userDataDir: string | null) => {
     if (dir) mkdirSync(dir, { recursive: true });
     return {
       connected: true,
+      // `kill()` is wired to process 'exit' and calls `browser.process()` and
+      // `browser.close()`. Without both, that handler throws at process exit and
+      // vitest reports it as an unhandled error attributed to whichever test
+      // happened to be running - which is exactly the confusing failure this
+      // double must not create.
+      process: () => null,
+      close: async () => undefined,
       on: (evt: string, cb: () => void) => {
         if (evt === 'disconnected') disconnect = cb;
       },

@@ -5,6 +5,11 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     passWithNoTests: true,
+    // Runs before any test module is imported, which is the only point that
+    // works: `configData`'s lazy `Data` getter calls assertValidEnvironment()
+    // and `prismaClient` touches it at module scope, so the check fires during
+    // the import graph rather than when a test runs.
+    setupFiles: ['./src/tests/setupEnv.ts'],
   },
   resolve: {
     alias: {
