@@ -145,25 +145,37 @@ export class ComponentPaginatorService {
     }
 
     const targetPage = Math.max(0, Math.min(session.totalPages - 1, pageNum - 1));
-    session.currentPage = targetPage;
-    session.expiresAt = Date.now() + 15 * 60 * 1000;
+
+    // Ack before rendering the page. Discord allows a modal submit 3 seconds to
+    // be answered, and renderPage is not free - it rebuilds the whole card.
+    // Deferring first makes this handler's latency irrelevant.
+    await interaction.deferReply().catch(() => undefined);
 
     try {
       const updatedContainer = await session.renderPage(targetPage);
-      if (interaction.isFromMessage()) {
-        await interaction.update({
-          components: [updatedContainer as any],
-          flags: MessageFlags.IsComponentsV2,
-        });
-      } else {
-        await (interaction as any).update({
-          components: [updatedContainer as any],
-          flags: MessageFlags.IsComponentsV2,
-        });
-      }
+      session.currentPage = targetPage;
+      session.expiresAt = Date.now() + 15 * 60 * 1000;
+      // Documented API only.
+      //
+      // This used to be `if (interaction.isFromMessage()) { interaction.update(...) }
+      // else { (interaction as any).update(...) }` - two branches whose bodies
+      // were byte-identical apart from a cast, so the branch decided nothing.
+      //
+      // It compiled in the first arm because `isFromMessage()` is a TYPE GUARD,
+      // which narrowed a ModalSubmitInteraction to a type that has update().
+      // That is false confidence: `update()` is not declared on a modal in the
+      // v14 typings at all. It exists on the runtime prototype (a v13
+      // carry-over discord.js never typed), so this worked - but it worked by
+      // accident, reachable only through a cast, and a minor release could have
+      // removed it with no compile error anywhere.
+      await interaction.editReply({
+        components: [updatedContainer as any],
+        flags: MessageFlags.IsComponentsV2,
+      });
     } catch (err) {
       Logger.error({ err, messageId, targetPage }, 'Failed to update jump page');
-      await interaction.reply({ content: 'Failed to update page.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      // Already deferred, so edit the existing response rather than replying twice.
+      await interaction.editReply({ content: 'Failed to update page.' }).catch(() => undefined);
     }
   }
 

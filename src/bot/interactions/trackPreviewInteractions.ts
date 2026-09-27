@@ -53,9 +53,9 @@ export class TrackPreviewInteractions {
       const appId = ConfigData.Data.discord.applicationId;
 
       // Prefer webhook if we have interaction token (slash), fallback to channel attachments
-      if (interaction.isButton() && (interaction as any).token && appId && appId !== '0') {
+      if (interaction.isButton() && interaction.token && appId && appId !== '0') {
         try {
-          await this.voiceService.sendViaWebhook(appId, (interaction as any).token, oggPath, token);
+          await this.voiceService.sendViaWebhook(appId, interaction.token, oggPath, token);
           // Webhook send already posted the voice message, we just ack
           return;
         } catch (err) {

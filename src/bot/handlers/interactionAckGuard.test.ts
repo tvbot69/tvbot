@@ -13,7 +13,7 @@ describe('InteractionHandler slow-button safety net (Phase 1.4)', () => {
 
   const makeHandler = (blockMs: number) => {
     const handler = Object.create(InteractionHandler.prototype);
-    handler.userSettingsInteractions = { isUserSettingsInteraction: () => false };
+    handler.userSettingsInteractions = { asUserSettingsInteraction: () => null };
     handler.componentTracker = {
       handle: async () => {
         await new Promise((r) => setTimeout(r, blockMs));

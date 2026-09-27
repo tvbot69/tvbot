@@ -90,7 +90,7 @@ export class IntelligenceInteractions {
     });
 
     if (response.componentsV2Container) {
-      await (interaction as any).update({
+      await interaction.update({
         components: [response.componentsV2Container],
         flags: MessageFlags.IsComponentsV2,
       } as any).catch(async () => {
@@ -152,7 +152,7 @@ export class IntelligenceInteractions {
     });
 
     if (response.componentsV2Container) {
-      await (interaction as any).update({
+      await interaction.update({
         components: [response.componentsV2Container],
         flags: MessageFlags.IsComponentsV2,
       } as any).catch(async () => {
@@ -221,7 +221,7 @@ export class IntelligenceInteractions {
     });
 
     if (response.componentsV2Container) {
-      await (interaction as any).update({
+      await interaction.update({
         components: [response.componentsV2Container],
         flags: MessageFlags.IsComponentsV2,
       } as any).catch(async () => {

@@ -36,7 +36,7 @@ export class TasteInteractions {
 
     const response = TasteBuilders.buildTasteResponse(tasteData, tabIndex, amount, accentColor);
     if (response.componentsV2Container) {
-      await (interaction as any).update({
+      await interaction.update({
         components: [response.componentsV2Container],
         flags: MessageFlags.IsComponentsV2,
       } as any).catch(async () => {

@@ -63,7 +63,7 @@ export class CrownInteractions {
       );
 
       if (response.componentsV2Container) {
-        await (interaction as any).update({
+        await interaction.update({
           components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(async () => {
@@ -100,7 +100,7 @@ export class CrownInteractions {
         );
 
         if (response.componentsV2Container) {
-          await (interaction as any).update({
+          await interaction.update({
             components: [response.componentsV2Container],
             flags: MessageFlags.IsComponentsV2,
           } as any).catch(async () => {
@@ -149,7 +149,7 @@ export class CrownInteractions {
       response.addButtonRow(0, new ActionRowBuilder<ButtonBuilder>().addComponents(crownBtn));
 
       if (response.isComponentsV2 && response.componentsV2Container) {
-        await (interaction as any).editReply({
+        await interaction.editReply({
           components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
@@ -190,7 +190,7 @@ export class CrownInteractions {
       const response = await crownCommands.crownAsync(context, [artistName]);
 
       if (response.isComponentsV2 && response.componentsV2Container) {
-        await (interaction as any).editReply({
+        await interaction.editReply({
           components: [response.componentsV2Container],
           flags: MessageFlags.IsComponentsV2,
         } as any).catch(() => undefined);
@@ -251,7 +251,7 @@ export class CrownInteractions {
     );
 
     if (response.componentsV2Container) {
-      await (interaction as any).update({
+      await interaction.update({
         components: [response.componentsV2Container],
         flags: MessageFlags.IsComponentsV2,
       } as any).catch(async () => {

@@ -158,8 +158,9 @@ export class InteractionHandler {
           void interaction.deferUpdate().catch(() => undefined);
         }
       }, 2500);
-      if (this.userSettingsInteractions.isUserSettingsInteraction(interaction)) {
-        await this.userSettingsInteractions.handle(interaction as any);
+      const settingsInteraction = this.userSettingsInteractions.asUserSettingsInteraction(interaction);
+      if (settingsInteraction) {
+        await this.userSettingsInteractions.handle(settingsInteraction);
         return;
       }
       if (interaction.isStringSelectMenu()) {

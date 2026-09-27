@@ -26,15 +26,33 @@ export class UserSettingsInteractions {
     @inject(PrefixService) private readonly prefixService: PrefixService,
   ) {}
 
-  public isUserSettingsInteraction(interaction: Interaction): boolean {
+  /**
+   * The interaction as a type handle accepts, or null if it is not ours.
+   *
+   * This was a `boolean` predicate, which meant the caller's
+   * `if (isUserSettingsInteraction(i)) handle(i)` could not typecheck without
+   * `handle(i as any)` - the cast existed purely because the check did not
+   * narrow.
+   *
+   * Returning the narrowed value rather than declaring a type predicate is
+   * deliberate. A `interaction is ButtonInteraction | StringSelectMenuInteraction`
+   * predicate compiles, but it poisons the rest of the caller's block: the
+   * dispatch chain is already inside `if (i.isButton() || i.isAnySelectMenu())`,
+   * so subtracting that same union leaves `never` and every later
+   * `interaction.customId` becomes an error. Handing back the value keeps the
+   * dispatch chain narrowing exactly as it did before.
+   */
+  public asUserSettingsInteraction(
+    interaction: Interaction,
+  ): ButtonInteraction | StringSelectMenuInteraction | null {
     if (interaction.isButton() || interaction.isStringSelectMenu()) {
-      return (
+      const isOurs =
         interaction.customId.startsWith(USER_SETTINGS_PREFIX) ||
         interaction.customId === 'response-mode-pick' ||
-        interaction.customId === 'cover-type-pick'
-      );
+        interaction.customId === 'cover-type-pick';
+      return isOurs ? interaction : null;
     }
-    return false;
+    return null;
   }
 
   public async handle(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<void> {
