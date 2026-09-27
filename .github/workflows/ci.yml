@@ -75,6 +75,26 @@ jobs:
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
 
+      - name: Coverage ratchet
+        # Runs the suite again with --coverage, which is a real cost, so it is
+        # a separate step rather than replacing `npm test`: a plain test failure
+        # is reported in seconds, and only a green run pays for the coverage pass.
+        #
+        # Fails if coverage drops below the thresholds in vitest.config.ts. Those
+        # are set with `all: true`, so a file gaining or losing tests cannot move
+        # the number by changing which files are counted.
+        run: npm run test:coverage
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+
   lint:
     name: lint
     runs-on: ubuntu-latest
