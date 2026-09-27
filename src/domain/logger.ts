@@ -84,6 +84,14 @@ function padBoxLine(content: string, innerWidth: number = 58): string {
   return `  ${ansi.brightCyan}│${ansi.reset} ${content}${' '.repeat(padding)} ${ansi.brightCyan}│${ansi.reset}`;
 }
 
+/**
+ * Anything a log line can carry: a message, an Error, or a structured object.
+ *
+ * This was 'any' before, which meant the logger accepted anything AND told the
+ * compiler nothing. Typing it makes every log call site in the bot checked.
+ */
+export type Loggable = string | number | boolean | bigint | symbol | null | undefined | Error | object;
+
 export class CustomLogger {
   /**
    * Debug logging is opt-in. It used to include `NODE_ENV !== 'production'`,
@@ -197,23 +205,23 @@ export class CustomLogger {
     console.log(lines.join('\n'));
   }
 
-  public info(msgOrObj: any, ...args: any[]): void {
+  public info(msgOrObj: Loggable, ...args: unknown[]): void {
     this.print('INFO', `${ansi.brightCyan}${ansi.bold} INFO  ${ansi.reset}`, ansi.brightWhite, msgOrObj, args);
   }
 
-  public warn(msgOrObj: any, ...args: any[]): void {
+  public warn(msgOrObj: Loggable, ...args: unknown[]): void {
     this.print('WARN', `${ansi.bgYellow}${ansi.black}${ansi.bold} WARN  ${ansi.reset}`, ansi.brightYellow, msgOrObj, args);
   }
 
-  public error(msgOrObj: any, ...args: any[]): void {
+  public error(msgOrObj: Loggable, ...args: unknown[]): void {
     this.print('ERROR', `${ansi.bgRed}${ansi.brightWhite}${ansi.bold} ERROR ${ansi.reset}`, ansi.brightRed, msgOrObj, args);
   }
 
-  public fatal(msgOrObj: any, ...args: any[]): void {
+  public fatal(msgOrObj: Loggable, ...args: unknown[]): void {
     this.print('FATAL', `${ansi.bgRed}${ansi.brightWhite}${ansi.bold} FATAL ${ansi.reset}`, ansi.brightRed, msgOrObj, args);
   }
 
-  public debug(msgOrObj: any, ...args: any[]): void {
+  public debug(msgOrObj: Loggable, ...args: unknown[]): void {
     if (!this.isDebugEnabled) return;
     this.print('DEBUG', `${ansi.gray}${ansi.bold} DEBUG ${ansi.reset}`, ansi.gray, msgOrObj, args);
   }
@@ -366,10 +374,10 @@ export class CustomLogger {
     };
   }
 
-  private print(level: string, badge: string, textColor: string, msgOrObj: any, extraArgs: any[]): void {
+  private print(level: string, badge: string, textColor: string, msgOrObj: Loggable, extraArgs: any[]): void {
     const time = formatTimestamp();
     let message = '';
-    let errObject: any = null;
+    let errObject: Error | undefined = undefined;
 
     if (typeof msgOrObj === 'string') {
       message = msgOrObj;
@@ -384,10 +392,14 @@ export class CustomLogger {
       // fields (guildId, severity, reason, ...) are the actual diagnostics.
       const { err: errField, msg: msgField, ...contextRest } = msgOrObj as Record<string, unknown>;
       if (errField) {
-        errObject = errField as any;
+        // `err` is conventionally an Error, but callers sometimes attach a plain
+        // object. Accept both and read the two fields this function needs, rather
+        // than casting to Error and hoping.
+        const errLike = errField as { message?: unknown; stack?: unknown };
+        errObject = errField instanceof Error ? errField : undefined;
         message =
           extraArgs[0] ??
-          ((errObject as Error)?.message || 'Error occurred');
+          ((typeof errLike.message === 'string' && errLike.message) || 'Error occurred');
       } else if (msgField) {
         message = msgField as string;
       } else if (extraArgs[0] && typeof extraArgs[0] === 'string') {
@@ -407,9 +419,13 @@ export class CustomLogger {
 
     this.writeLogToFile(level, message, errObject);
 
-    if (errObject && (level === 'ERROR' || level === 'FATAL')) {
-      if (errObject.stack) {
-        const stackLines = errObject.stack.split('\n').map((l: string) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
+    // A stack may be present even when `err` was a plain object with a `stack`
+    // string, which is why this reads errLike rather than only Error instances.
+    const stackLike = errObject ?? ((msgOrObj as { err?: { stack?: unknown } } | undefined)?.err);
+    if (level === 'ERROR' || level === 'FATAL') {
+      const stack = (stackLike as { stack?: unknown } | undefined)?.stack;
+      if (typeof stack === 'string' && stack.length > 0) {
+        const stackLines = stack.split('\n').map((l) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
         console.log(stackLines.join('\n'));
       }
     }
