@@ -156,12 +156,15 @@ export class UpdateService {
       return { newPlays: 0, removedPlays: 0 };
     }
 
-    // Dedup guard: prevent concurrent delta syncs for same user
+    // Dedup guard: prevent concurrent delta syncs for same user.
+    // setNX, not get-then-set: the previous `if (await get(k)) return;
+    // await set(k, true, ttl)` was two round trips, and every command fires
+    // `void updateUser(...)` concurrently with the cron sweep, so two callers
+    // could both see the key missing and both insert the same plays.
     const dedupKey = `user-${userId}-update-in-progress`;
-    if (await this.cache.get<boolean>(dedupKey)) {
+    if (!(await this.cache.setNX(dedupKey, true, UPDATE_DEDUP_TTL_SECONDS))) {
       return { newPlays: 0, removedPlays: 0 };
     }
-    await this.cache.set(dedupKey, true, UPDATE_DEDUP_TTL_SECONDS);
 
     try {
       return await this.performDeltaSync(user, opts);

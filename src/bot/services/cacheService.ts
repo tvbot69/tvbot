@@ -115,6 +115,41 @@ export class CacheService {
     }
   }
 
+  /**
+   * Set a key only if it does not already exist. Returns true if it was set.
+   *
+   * This exists for locks, and it is NOT the same as `get` followed by `set`:
+   * that is two round trips, so two concurrent callers can both observe the key
+   * missing and both proceed. `updateService` used exactly that pattern to guard
+   * delta syncs, while every command fires `void updateUser(...)` alongside the
+   * cron queue - so duplicate plays were reachable, not theoretical.
+   *
+   * On Redis this is a single `SET key 1 NX EX ttl`, which is atomic server-side.
+   * The in-memory path is also atomic, because `Map.has` plus `Map.set` run
+   * synchronously with no await between them, so no other JS task can interleave.
+   */
+  public async setNX<T>(key: string, value: T, ttlSeconds: number): Promise<boolean> {
+    // Memory is the deciding path here, and the check-then-write below is
+    // atomic because both Map operations are synchronous with no await between
+    // them, so no other task can interleave.
+    const entry = this.memory.get(key);
+    if (entry && (entry.expiresAt === null || entry.expiresAt > Date.now())) {
+      return false; // still held
+    }
+    // Absent or expired, so the lock is free to take.
+    this.setMemory(key, value, ttlSeconds);
+
+    if (this.redis && this.redis.status === 'ready') {
+      try {
+        const ok = await this.redis.set(key, JSON.stringify(value), 'EX', ttlSeconds, 'NX');
+        return ok === 'OK';
+      } catch {
+        // Redis is unreachable; trust the memory answer rather than guessing.
+      }
+    }
+    return true;
+  }
+
   public async delete(key: string): Promise<void> {
     this.memory.delete(key);
     if (this.redis && this.redis.status === 'ready') {

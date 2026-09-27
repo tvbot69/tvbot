@@ -56,6 +56,8 @@ const makeService = (overrides: {
     {
       get: vi.fn(async () => undefined),
       set: vi.fn(async () => undefined),
+      // Mirrors CacheService.setNX: succeeds when the key is free, so the sync proceeds.
+      setNX: vi.fn(async () => true),
       delete: vi.fn(async () => undefined),
     } as never,
     vi.fn(async () => undefined),
@@ -190,6 +192,8 @@ describe('UpdateService chunked top-list maintenance', () => {
       {
         get: vi.fn(async () => undefined),
         set: vi.fn(async () => undefined),
+        // Mirrors CacheService.setNX: succeeds when the key is free, so the sync proceeds.
+        setNX: vi.fn(async () => true),
         delete: vi.fn(async () => undefined),
       } as never,
       recalc,

@@ -88,11 +88,13 @@ export class IndexService {
 
   public async indexUser(userId: number): Promise<void> {
     const cacheKey = this.concurrencyKey(userId);
-    if (await this.cache.get<boolean>(cacheKey)) {
+    // setNX, not get-then-set: two round trips meant two index runs could both
+    // see the key missing and both start, which is the duplicate-play race the
+    // delta-sync guard has the same shape of.
+    if (!(await this.cache.setNX(cacheKey, true, 180))) {
       Logger.info(`Index already in progress for user ${userId}, skipping`);
       return;
     }
-    await this.cache.set(cacheKey, true, 180);
     try {
       const user = await this.userRepository.getUserById(userId);
       if (!user) {
