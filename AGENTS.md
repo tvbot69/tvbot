@@ -28,7 +28,7 @@ Paths below are **repo-relative**. Do not write absolute `file://` URLs — they
 3. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 4. Push **only** when asked.
 
-Current baseline: **120 test files / 933 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
+Current baseline: **121 test files / 948 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
 
 `npm test` does not typecheck. Always run `npm run build` too — otherwise a bad constructor arity passes vitest and breaks the build.
 
@@ -182,6 +182,27 @@ The user runs locally and reads Railway. Ask for the log rather than guessing. U
 - `fallback rung` — one line per rung of the alternate-upload ladder
 - `Text command name collision` — printed once at startup; check it every time
 - `[art-timing]` — artwork resolve-vs-render correlation, deliberately retained
+
+### Let the log assert on itself
+Grepping is a manual loop, and the manual loop is what failed for hours. `src/bot/diagnostics/logInvariants.ts` turns a log into findings:
+
+```
+npm run check:log -- bot.log
+railway logs 2>&1 | npm run check:log -- -
+```
+
+It exits non-zero on any high-severity violation, so it can be dropped into an alias. Six rules, each named after an observed symptom:
+
+| Rule | Severity | Meaning |
+|---|---|---|
+| `INV-1 chapter jump never settled` | high | A jump was held to confirm and never committed. The settle re-derive is dead, so the card is frozen. |
+| `INV-2 position reader persistently stale` | high | ≥5 consecutive refused rewinds from one chapter. Not the catch-up window — a persistently wrong reader. |
+| `INV-3 chapter committed backwards without a seek` | high | A confirmed jump moved *backwards*. The guard should make this unreachable; if it appears, the guard failed. |
+| `INV-4 chapter artwork never resolves` | medium | One chapter's cover failed ≥3 times. A catalogue miss, so fix the matcher — not the hold. |
+| `INV-5 stuck track produced no fallback activity` | high | A stuck track with no fallback rung and no "no alternate" line. The dead-air class: no error, just silence. |
+| `INV-6 card edit failing repeatedly` | medium | Sustained same-code edit failure. The card is frozen on its last render. |
+
+The burst thresholds are deliberately above the noise floor. One or two refused rewinds during a seek's catch-up window are **expected by design** and must not be reported — a monitor that cries wolf gets switched off, which is worse than having none.
 
 ### Probe the real API before theorising
 When the cause looks like "the provider is wrong", **it usually is**. Write a throwaway `.mjs`, read keys from `.env`, never print them, and hit the real endpoint. Two of the biggest bugs this session were confirmed that way in under a minute:

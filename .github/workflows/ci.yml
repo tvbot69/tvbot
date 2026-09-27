@@ -1,0 +1,107 @@
+# Continuous integration gate.
+#
+# Why this exists: `npm test` does NOT typecheck, and the local rule is
+# `npm run build` THEN `npm test`. Without CI those two are gated on one
+# person's machine remembering to run them. A green suite plus a red build is
+# exactly how a bad constructor arity reaches production while every test
+# passes, so the build is the gate that matters most and it runs first.
+#
+# Secrets are deliberately absent. Nothing here touches a real Discord token,
+# a real database or a real Lavalink node: the build is tsc, and the suite
+# mocks the network. Dummy values below only satisfy prisma generate and the
+# env validator, which is why they are obviously fake.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Never let two runs of the same ref compete; cancel the older one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (tsc typecheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # tsc is the real gate. Kept separate from the test job so a type error
+      # is reported as a type error, not as 900 test failures.
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          DISCORD_TOKEN: ci-not-a-real-token
+          LASTFM_API_KEY: ci
+          LASTFM_API_SECRET: ci
+
+  test:
+    name: tests (vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      - name: Test
+        run: npm test
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          DISCORD_TOKEN: ci-not-a-real-token
+          LASTFM_API_KEY: ci
+          LASTFM_API_SECRET: ci
+          SPOTIFY_CLIENT_ID: ci
+          SPOTIFY_CLIENT_SECRET: ci
+          GENIUS_CLIENT_ID: ci
+          GENIUS_CLIENT_SECRET: ci
+          YOUTUBE_API_KEY: ci
+          ENVIRONMENT: local
+          ENABLE_LAVALINK: 'false'
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Allowed to fail for now: `npm run lint` is not yet clean on main, and a
+      # permanently red job gets ignored, which is worse than no job. Remove
+      # continue-on-error once the outstanding errors are fixed, so lint starts
+      # blocking instead of merely reporting.
+      - name: Lint
+        continue-on-error: true
+        run: npm run lint

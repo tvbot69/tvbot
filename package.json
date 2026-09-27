@@ -13,6 +13,7 @@
     "start": "prisma migrate deploy --schema src/persistence/prisma/schema.prisma && node --max-old-space-size=384 dist/bot/index.js",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
+    "check:log": "tsx scripts/check-log-invariants.ts",
     "lint": "eslint src",
     "format": "prettier --write \"src/**/*.{ts,json}\"",
     "db:generate": "prisma generate --schema src/persistence/prisma/schema.prisma",
