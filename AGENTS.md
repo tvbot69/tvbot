@@ -28,9 +28,9 @@ Paths below are **repo-relative**. Do not write absolute `file://` URLs — they
 3. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 4. Push **only** when asked.
 
-Current baseline: **138 test files / 1127 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
+Current baseline: **139 test files / 1149 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
 
-`npm test` does not typecheck. Always run `npm run build` too — otherwise a bad constructor arity passes vitest and breaks the build. It is not a hypothetical: writing the log monitor, the suite reported 1127/1127 green while `tsc` rejected three lines. CI (`.github/workflows/ci.yml`) runs the build first and blocking for exactly this reason, and the lint job is now blocking too — `npm run lint` must stay at **0 errors** (731 warnings is the accepted baseline; warnings do not fail a build).
+`npm test` does not typecheck. Always run `npm run build` too — otherwise a bad constructor arity passes vitest and breaks the build. It is not a hypothetical: writing the log monitor, the suite reported 1149/1149 green while `tsc` rejected three lines. CI (`.github/workflows/ci.yml`) runs the build first and blocking for exactly this reason, and the lint job is now blocking too — `npm run lint` must stay at **0 errors** (731 warnings is the accepted baseline; warnings do not fail a build).
 
 **Run it**: `npm install` → `npm run db:generate` → `npm run dev` (tsx watch, ephemeral Puppeteer, Lavalink off). Production is `npm run build` then `npm start`.
 
