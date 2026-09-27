@@ -16,7 +16,13 @@ fmbot-dev/
 # Local cache, browser data, and scratch scripts
 scratch/
 .gemini/
-.opencode/
+# Ignore .opencode contents (node_modules, local tooling state) but keep the
+# tracked skill. A trailing slash here would exclude the directory itself and
+# git would never descend to re-include the file.
+.opencode/*
+!.opencode/skills/
+!.opencode/skills/tvbot/
+!.opencode/skills/tvbot/SKILL.md
 .moonlink/
 .puppeteer/
 .run/
