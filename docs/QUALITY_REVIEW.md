@@ -95,15 +95,34 @@ two false-positive shapes.
 
 Two live findings are **pinned, not silently fixed**, because both are behaviour decisions:
 
-- **`np` and `rm` are each an alias of two commands** � the Last.fm `fm` command and the
+- **`np` and `rm` are each an alias of two commands** — the Last.fm `fm` command and the
   music `nowplaying` / `remove`. Which wins is decided by module order in
-  `textCommands/index.ts`, not by intent, so `.rm` may currently be answering as the Last.fm
-  `fm` command. Worth the maintainer's decision.
+  `textCommands/index.ts`, not by intent. `PlayCommands` is 3rd in the array and
+  `MusicCommands` is much later, and aliases only fill names the name-pass did not claim, so
+  **`.rm` and `.np` currently answer as the Last.fm `fm` command**. Verified from the
+  registry's own resolution order; worth the maintainer's decision.
 - **`countryInteractions:66` and `genreInteractions:61` parse a `pageIndex` out of the
-  button customId and never use it.** If those buttons are meant to paginate, they always
-  show page 0.
-- **`topSlashCommands:79` reads the `user` option into `rawUser` and never uses it.** That
-  option may be doing nothing.
+  button customId and never use it.** The first version of this review claimed this meant
+  "those buttons always show page 0". **That was wrong, and the check disproved it:** the
+  `page` branch does read `parts[5]` and computes `newPage`, so pagination works. The unused
+  read is only in the `toggle` branch, where the page is not needed because the cache already
+  holds the position.
+
+### Corrections to the first version of this review
+
+Both of the linter's "unused variable" production findings were overstated on first report,
+and both were overturned by reading the surrounding code — the third time a surface-level
+finding failed to survive investigation. Recorded here rather than quietly edited, because the
+pattern is the lesson:
+
+| First claim | What the code actually shows |
+|---|---|
+| `countryInteractions`/`genreInteractions` ignore a `pageIndex`, so buttons always show page 0 | Pagination works. `page` branch reads `parts[5]` and computes `newPage`. Only the `toggle` branch's read is dead. |
+| `topSlashCommands` reads a `user` option and never uses it, so the option may do nothing | The option works, via `resolveUser` at line 53. The deleted line was a dead *duplicate* read in a second method. |
+
+**Rule this suggests: an unused variable is a claim about intent, not a finding about
+behaviour.** Two of the three were harmless. Always read the surrounding code before
+reporting a linter hit as a bug.
 
 ### 3. Builders reach into the DI container - 45 call sites, NOT DONE
 `src/bot/builders/topBuilders.ts` (13), `src/bot/builders/whoKnowsImageBuilder.ts` (11)

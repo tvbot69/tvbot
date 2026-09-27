@@ -169,14 +169,16 @@ describe('text command registry invariants', () => {
 
   it('the two known alias overlaps are pinned, not drifting', () => {
     // `np` and `rm` are each an alias of TWO different commands: the Last.fm
-    // `fm` command and the music `nowplaying` / `remove` commands. The registry
-    // resolves this by registration order, not by intent, so which command wins
-    // depends on where each module sits in the array in textCommands/index.ts.
-    // That is a live ambiguity, not a cosmetic one - see the quality review.
+    // `fm` command and the music `nowplaying` / `remove` commands.
     //
-    // Pinned exactly so the set cannot grow unnoticed. Resolving it is a
-    // behaviour decision for the maintainer, not something a test should
-    // silently choose.
+    // Resolution is by registration order, not intent: names are registered in
+    // pass 1, and pass 2 only fills names nobody claimed. PlayCommands is 3rd in
+    // the module array and MusicCommands is far later, so PLAY COMMANDS claims
+    // `np` and `rm` first. That means `.rm` and `.np` currently answer as the
+    // Last.fm `fm` command, not as queue-remove and now-playing.
+    //
+    // Pinned so the set cannot grow unnoticed. Resolving it is a behaviour
+    // decision for the maintainer, not something a test should silently choose.
     const byAlias = new Map<string, CommandNames[]>();
     for (const c of commands) {
       for (const alias of c.aliases) {
