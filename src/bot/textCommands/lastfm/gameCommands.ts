@@ -124,7 +124,7 @@ export class GameCommands implements ITextCommandModule {
         if (channel && 'send' in channel) {
           const expiredResp = GameBuilders.buildGameExpiredResponse(session, accentColor);
           if (expiredResp.componentsV2Container) {
-            await (channel as any).send({
+            await channel.send({
               components: [expiredResp.componentsV2Container],
               flags: MessageFlags.IsComponentsV2,
             });
@@ -147,12 +147,12 @@ export class GameCommands implements ITextCommandModule {
     });
 
     if (context.channel && 'createMessageCollector' in context.channel) {
-      const collector = (context.channel as any).createMessageCollector({
-        filter: (m: any) => !m.author?.bot,
+      const collector = context.channel.createMessageCollector({
+        filter: (m) => !m.author?.bot,
         time: GameService.JumbleSecondsToGuess * 1000,
       });
 
-      collector.on('collect', async (msg: any) => {
+      collector.on('collect', async (msg) => {
         const text = msg.content?.trim();
         if (!text) return;
         if (text.toLowerCase() === 'give up' || text.toLowerCase() === 'giveup' || text.toLowerCase() === 'quit') {
@@ -265,7 +265,7 @@ export class GameCommands implements ITextCommandModule {
         if (channel && 'send' in channel) {
           const expiredResp = GameBuilders.buildGameExpiredResponse(session, accentColor);
           if (expiredResp.componentsV2Container) {
-            await (channel as any).send({
+            await channel.send({
               components: [expiredResp.componentsV2Container],
               flags: MessageFlags.IsComponentsV2,
             });
@@ -290,12 +290,12 @@ export class GameCommands implements ITextCommandModule {
     });
 
     if (context.channel && 'createMessageCollector' in context.channel) {
-      const collector = (context.channel as any).createMessageCollector({
-        filter: (m: any) => !m.author?.bot,
+      const collector = context.channel.createMessageCollector({
+        filter: (m) => !m.author?.bot,
         time: GameService.PixelationSecondsToGuess * 1000,
       });
 
-      collector.on('collect', async (msg: any) => {
+      collector.on('collect', async (msg) => {
         const text = msg.content?.trim();
         if (!text) return;
         if (text.toLowerCase() === 'give up' || text.toLowerCase() === 'giveup' || text.toLowerCase() === 'quit') {
