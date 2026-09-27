@@ -2,6 +2,7 @@ import { injectable } from 'tsyringe';
 import { Logger } from '@domain/logger';
 import { ConfigData } from '@bot/configurations/configData';
 import type { FootballDaySchedule } from '@domain/models/football/footballModels';
+import { errorMessage } from '@domain/discordErrors';
 
 export function normalizeTeamSlug(name: string): string {
   // Strip common club prefixes to yield cleaner, recognizable slug names
@@ -89,8 +90,8 @@ export class FootballBadgeService {
         } else {
           Logger.warn(`[FootballBadgeService] HTTP ${res.status} preloading application emojis.`);
         }
-      } catch (err: any) {
-        Logger.warn(`[FootballBadgeService] Failed to preload application emojis: ${err.message}`);
+      } catch (err) {
+        Logger.warn(`[FootballBadgeService] Failed to preload application emojis: ${errorMessage(err)}`);
       } finally {
         this.initialized = true;
       }
@@ -200,8 +201,8 @@ export class FootballBadgeService {
         Logger.warn(`[FootballBadgeService] Upload failed for ${teamName} (${slug}) HTTP ${uploadRes.status}: ${errText}`);
         this.failedCooldown.set(slug, Date.now() + 15 * 60 * 1000);
         return '';
-      } catch (err: any) {
-        Logger.warn(`[FootballBadgeService] Failed to upload badge for ${teamName}: ${err.message}`);
+      } catch (err) {
+        Logger.warn(`[FootballBadgeService] Failed to upload badge for ${teamName}: ${errorMessage(err)}`);
         this.failedCooldown.set(slug, Date.now() + 15 * 60 * 1000);
         return '';
       } finally {

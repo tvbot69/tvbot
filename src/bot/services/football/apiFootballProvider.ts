@@ -1,6 +1,7 @@
 import { injectable } from 'tsyringe';
 import { Logger } from '@domain/logger';
 import type { FootballMatch, FootballMatchStatus, FootballTeam, LeagueOption } from '@domain/models/football/footballModels';
+import { errorMessage } from '@domain/discordErrors';
 
 @injectable()
 export class ApiFootballProvider {
@@ -119,8 +120,8 @@ export class ApiFootballProvider {
       }
 
       return results;
-    } catch (err: any) {
-      Logger.error(`[ApiFootballProvider] Error fetching fixtures: ${err.message}`);
+    } catch (err) {
+      Logger.error(`[ApiFootballProvider] Error fetching fixtures: ${errorMessage(err)}`);
       return [];
     }
   }

@@ -7,6 +7,13 @@ import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { chapterKeyFor, fingerprintFor } from './cardFingerprint';
 import type { LyricWindow } from '@bot/services/music/syncedLyrics';
 
+import {
+  discordRetryAfterMs,
+  errorMessage,
+  isTerminalDiscordError,
+  isUnrecoverableMessageFetch,
+} from '@domain/discordErrors';
+
 /** A hung edit settles nothing and would wedge the in-flight guard. */
 const EDIT_TIMEOUT_MS = 10000;
 /** Bounded retries so a chapter attach isn't lost to one bad call. */
@@ -124,8 +131,8 @@ export class NowPlayingCardPublisher {
 
       let unknownMessage = false;
       const msg = (msgManager.cache.get(msgId) ??
-        (await msgManager.fetch(msgId).catch((err: { code?: number }) => {
-          if (err?.code === 10008) unknownMessage = true;
+        (await msgManager.fetch(msgId).catch((err: unknown) => {
+          if (isUnrecoverableMessageFetch(err)) unknownMessage = true;
           return null;
         }))) as {
         edit: (data: unknown) => Promise<unknown>;
@@ -164,15 +171,10 @@ export class NowPlayingCardPublisher {
             // the edit failed (no tick retries it anymore).
             this.host.updateChapterStatus(player);
           })
-          .catch((err: {
-            code?: number;
-            status?: number;
-            message?: string;
-            retryAfter?: number;
-            rawError?: { retry_after?: number };
-            retry_after?: number;
-          }) => {
-            if (err?.code === 10008) {
+          .catch((err: unknown) => {
+            // 10008 = the card was deleted. Retrying cannot help, so forget it
+            // rather than burning the retry budget on a message that is gone.
+            if (isTerminalDiscordError(err)) {
               this.publishRetries.delete(guildId);
               this.host.forgetNowPlaying(player);
               return;
@@ -180,19 +182,17 @@ export class NowPlayingCardPublisher {
             // The card still exists but the edit failed. Log the cause —
             // blind catches hid escalating Discord throttling here before —
             // and honor 429 retry_after instead of hammering a fixed delay.
-            const retryAfterSec =
-              (typeof err?.retryAfter === 'number' && err.retryAfter > 0 && err.retryAfter) ||
-              (typeof err?.rawError?.retry_after === 'number' && err.rawError.retry_after > 0 &&
-                err.rawError.retry_after) ||
-              (typeof err?.retry_after === 'number' && err.retry_after > 0 && err.retry_after) ||
-              0;
+            // The three-way ladder this replaces had the unit trap built in:
+            // rawError.retry_after is SECONDS while retryAfter is MILLISECONDS.
+            // Reading either as the other gives a 1000x-wrong backoff, which
+            // either hammers Discord or stalls the card for minutes.
+            const retryAfterMs = discordRetryAfterMs(err);
+            const retryAfterSec = Math.ceil(retryAfterMs / 1000);
             Logger.warn(
               {
                 guildId,
-                code: err?.code,
-                status: err?.status,
                 retryAfterSec,
-                message: String(err?.message ?? err).slice(0, 160),
+                message: errorMessage(err, 160),
               },
               '[Music] Card edit failed',
             );

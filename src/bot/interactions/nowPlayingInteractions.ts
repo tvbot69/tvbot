@@ -7,6 +7,7 @@ import { LyricsService } from '@bot/services/music/lyricsService';
 import { UserRepository } from '@persistence/repositories/userRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { deferReplySafe, deferUpdateSafe } from './interactionAck';
+import { errorMessage } from '@domain/discordErrors';
 
 @injectable()
 export class NowPlayingInteractions {
@@ -87,8 +88,8 @@ export class NowPlayingInteractions {
         content: res.componentsV2Container ? undefined : `✅ Scrobbled **${track}** by **${artist}** to your Last.fm!`,
         components: res.componentsV2Container ? [res.componentsV2Container] : [],
       });
-    } catch (err: any) {
-      Logger.warn({ err: err?.message }, `[NowPlayingInteractions] Scrobble failed for ${user.userNameLastFm}`);
+    } catch (err) {
+      Logger.warn({ err: errorMessage(err) }, `[NowPlayingInteractions] Scrobble failed for ${user.userNameLastFm}`);
       await interaction.editReply({
         content: '❌ Could not reach Last.fm. Please try again in a moment.',
       });
@@ -140,8 +141,8 @@ export class NowPlayingInteractions {
           ? `💔 Unloved **${track}** by **${artist}** on Last.fm.`
           : `❤️ Loved **${track}** by **${artist}** on Last.fm.`,
       });
-    } catch (err: any) {
-      Logger.warn({ err: err?.message }, `[NowPlayingInteractions] Love/Unlove failed for ${user.userNameLastFm}`);
+    } catch (err) {
+      Logger.warn({ err: errorMessage(err) }, `[NowPlayingInteractions] Love/Unlove failed for ${user.userNameLastFm}`);
       // Fixed copy: raw provider messages ("Last.fm returned HTTP 403") read
       // as internal plumbing leaking at the user.
       await interaction.editReply({
@@ -188,8 +189,8 @@ export class NowPlayingInteractions {
         components: res.componentsV2Container ? [res.componentsV2Container] : [],
         content: res.componentsV2Container ? undefined : `### Lyrics for **${result.title}** by **${result.artist}**\n\n${result.plainLyrics.slice(0, 1900)}`,
       });
-    } catch (err: any) {
-      Logger.warn({ err: err?.message }, '[NowPlayingInteractions] Lyrics lookup failed');
+    } catch (err) {
+      Logger.warn({ err: errorMessage(err) }, '[NowPlayingInteractions] Lyrics lookup failed');
       // Fixed copy: a raw provider message ("HTTP 403 from lyrics provider")
       // reads as internal plumbing leaking at the user.
       await interaction.editReply({
@@ -233,8 +234,8 @@ export class NowPlayingInteractions {
           components: [res.componentsV2Container],
         });
       }
-    } catch (err: any) {
-      Logger.warn({ err: err?.message }, `[NowPlayingInteractions] handleLovedPagination error for ${userNameLastFm}`);
+    } catch (err) {
+      Logger.warn({ err: errorMessage(err) }, `[NowPlayingInteractions] handleLovedPagination error for ${userNameLastFm}`);
     }
   }
 }

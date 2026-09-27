@@ -2,6 +2,8 @@ import { Routes, type Client } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { cleanArtistName, cleanTrackTitle } from '@domain/models/music/musicTrack';
 
+import { discordRetryAfterMs, isDiscordRateLimit } from '@domain/discordErrors';
+
 export class VoiceChannelStatusService {
   private readonly client: Client;
   private readonly channelStatuses = new Map<string, string>();
@@ -55,11 +57,9 @@ export class VoiceChannelStatusService {
       return true;
     } catch (err: unknown) {
       // Missing permissions (50013), rate limited (429), or not a voice channel (400)
-      const status = (err as { status?: number })?.status;
-      const retryAfterSec = (err as { rawError?: { retry_after?: number }; retryAfter?: number })?.rawError?.retry_after
-        ?? (err as { retryAfter?: number })?.retryAfter
-        ?? 60;
-      if (status === 429) {
+      const retryAfterMs = discordRetryAfterMs(err);
+      const retryAfterSec = Math.ceil(retryAfterMs / 1000) || 60;
+      if (isDiscordRateLimit(err)) {
         this.rateLimitCooldownUntil.set(channelId, Date.now() + Math.max(1, retryAfterSec) * 1000);
       }
       Logger.debug({ err, channelId }, '[VoiceStatus] Could not set voice channel status (missing permission or rate-limited)');

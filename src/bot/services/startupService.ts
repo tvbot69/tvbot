@@ -17,6 +17,8 @@ import { LyricStatusService } from './lyricStatusService';
 import { QueueService } from './music/queueService';
 import { BotScrobblingService } from './music/botScrobblingService';
 
+import { errorMessage } from '@domain/discordErrors';
+
 export class StartupService {
   private readonly client: Client;
   private readonly timerService: TimerService;
@@ -71,9 +73,16 @@ export class StartupService {
 
       try {
         await this.registerSlashCommands();
-      } catch (err: any) {
-        const details = err?.rawError ? JSON.stringify(err.rawError) : err?.message;
-        Logger.error({ err, details }, `Failed to register slash commands: ${details || err}`);
+      } catch (err: unknown) {
+        // A failed slash-command registration is survivable: the bot still
+        // serves every text command, so log the real cause and keep booting
+        // rather than taking the whole process down.
+        //
+        // `details` used to be `err.rawError ? JSON.stringify(...) :
+        // err.message`, which rendered as "[object Object]" for a plain thrown
+        // object and dropped the body for anything that was not
+        // discord.js-shaped. errorMessage reads all three shapes.
+        Logger.error({ err, details: errorMessage(err) }, 'Failed to register slash commands');
       }
 
       // Restore durable music state (247/prefs/opt-ins survive restarts now)

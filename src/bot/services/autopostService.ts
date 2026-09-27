@@ -13,6 +13,7 @@ import { IGuildRepository } from '@domain/interfaces/iguildRepository';
 import { AutopostRepository } from '@persistence/repositories/autopostRepository';
 import { EmbedBuilder } from 'discord.js';
 import { DiscordConstants } from '@bot/resources/discordConstants';
+import { errorMessage } from '@domain/discordErrors';
 
 export type AutopostSchedule = 'Daily' | 'Weekly' | 'Monthly';
 export type AutopostContentType = 'TopArtists' | 'TopAlbums' | 'TopTracks' | 'ServerCrowns';
@@ -203,8 +204,8 @@ export class AutopostService {
 
         await (channel as TextChannel).send({ embeds: [embed] });
       }
-    } catch (err: any) {
-      Logger.warn({ err: err?.message }, `[Autopost] Failed to send message to channel ${autopost.channelId}`);
+    } catch (err) {
+      Logger.warn({ err: errorMessage(err) }, `[Autopost] Failed to send message to channel ${autopost.channelId}`);
       return false;
     }
 
@@ -272,14 +273,14 @@ export class AutopostService {
             await this.autopostRepository.releaseClaim(numId, previousLastPosted);
           }
         }
-      } catch (err: any) {
+      } catch (err) {
         failed++;
         if (this.autopostRepository && !isNaN(numId)) {
           await this.autopostRepository.releaseClaim(numId, previousLastPosted).catch(() => undefined);
         }
         const duration = Date.now() - start;
         this.telemetryService.recordCommandExecution(`autopost:${autopost.contentType.toLowerCase()}`, duration, false);
-        Logger.error({ err: err?.message }, `[Autopost] Failed to post ${autopost.contentType} for guild ${autopost.guildId}`);
+        Logger.error({ err: errorMessage(err) }, `[Autopost] Failed to post ${autopost.contentType} for guild ${autopost.guildId}`);
       }
     }
 

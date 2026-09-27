@@ -11,6 +11,7 @@ import { AppleMusicService } from '@bot/services/appleMusicService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { errorMessage } from '@domain/discordErrors';
 
 @injectable()
 export class StreamingSlashCommands implements ISlashCommandModule {
@@ -130,11 +131,11 @@ export class StreamingSlashCommands implements ISlashCommandModule {
         };
       }
       return { query };
-    } catch (err: any) {
+    } catch (err) {
       return {
         errorResponse: GenericEmbedService.buildCommandErrorResponse(
           CommandResponse.Error,
-          `Failed to fetch your recent tracks from Last.fm: ${err?.message || 'Unknown error'}.`,
+          `Failed to fetch your recent tracks from Last.fm: ${errorMessage(err) || 'Unknown error'}.`,
         ),
       };
     }
@@ -187,11 +188,11 @@ export class StreamingSlashCommands implements ISlashCommandModule {
         };
       }
       return { query };
-    } catch (err: any) {
+    } catch (err) {
       return {
         errorResponse: GenericEmbedService.buildCommandErrorResponse(
           CommandResponse.Error,
-          `Failed to fetch your recent tracks from Last.fm: ${err?.message || 'Unknown error'}.`,
+          `Failed to fetch your recent tracks from Last.fm: ${errorMessage(err) || 'Unknown error'}.`,
         ),
       };
     }
@@ -242,11 +243,11 @@ export class StreamingSlashCommands implements ISlashCommandModule {
         };
       }
       return { query: artist };
-    } catch (err: any) {
+    } catch (err) {
       return {
         errorResponse: GenericEmbedService.buildCommandErrorResponse(
           CommandResponse.Error,
-          `Failed to fetch your recent tracks from Last.fm: ${err?.message || 'Unknown error'}.`,
+          `Failed to fetch your recent tracks from Last.fm: ${errorMessage(err) || 'Unknown error'}.`,
         ),
       };
     }
@@ -281,10 +282,10 @@ export class StreamingSlashCommands implements ISlashCommandModule {
         CommandResponse.NotFound,
         `No Spotify link found for **"${query}"**.`,
       );
-    } catch (err: any) {
+    } catch (err) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
-        `Spotify search failed: ${err?.message || 'Unknown error'}`,
+        `Spotify search failed: ${errorMessage(err) || 'Unknown error'}`,
       );
     }
   }
@@ -309,10 +310,10 @@ export class StreamingSlashCommands implements ISlashCommandModule {
         CommandResponse.NotFound,
         `No Spotify album link found for **"${query}"**.`,
       );
-    } catch (err: any) {
+    } catch (err) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
-        `Spotify album search failed: ${err?.message || 'Unknown error'}`,
+        `Spotify album search failed: ${errorMessage(err) || 'Unknown error'}`,
       );
     }
   }
@@ -337,10 +338,10 @@ export class StreamingSlashCommands implements ISlashCommandModule {
         CommandResponse.NotFound,
         `No Spotify artist link found for **"${query}"**.`,
       );
-    } catch (err: any) {
+    } catch (err) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
-        `Spotify artist search failed: ${err?.message || 'Unknown error'}`,
+        `Spotify artist search failed: ${errorMessage(err) || 'Unknown error'}`,
       );
     }
   }

@@ -8,6 +8,7 @@ import { FootballService } from '@bot/services/football/footballService';
 import { FootballBuilders, FOOTBALL_INTERACTION_PREFIX } from '@bot/builders/footballBuilders';
 import { ColorService } from '@bot/services/colorService';
 import { Logger } from '@domain/logger';
+import { errorMessage } from '@domain/discordErrors';
 
 export const FOOTBALL_INTERACTION_PREFIXES = [
   `${FOOTBALL_INTERACTION_PREFIX}date:`,
@@ -35,7 +36,7 @@ export class FootballInteractions {
 
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferUpdate().catch((err) => {
-          Logger.debug(`[FootballInteractions] Button deferUpdate skipped/failed: ${err.message}`);
+          Logger.debug(`[FootballInteractions] Button deferUpdate skipped/failed: ${errorMessage(err)}`);
         });
       }
 
@@ -45,15 +46,15 @@ export class FootballInteractions {
 
       if (interaction.deferred) {
         await interaction.editReply(response.toMessagePayload()).catch((err) => {
-          Logger.debug(`[FootballInteractions] Failed to edit reply (interaction likely superseded): ${err.message}`);
+          Logger.debug(`[FootballInteractions] Failed to edit reply (interaction likely superseded): ${errorMessage(err)}`);
         });
       } else if (!interaction.replied) {
         await interaction.update(response.toMessagePayload()).catch((err) => {
-          Logger.debug(`[FootballInteractions] Failed to update reply: ${err.message}`);
+          Logger.debug(`[FootballInteractions] Failed to update reply: ${errorMessage(err)}`);
         });
       }
-    } catch (err: any) {
-      Logger.error(`[FootballInteractions] Button handler error: ${err.message}`);
+    } catch (err) {
+      Logger.error(`[FootballInteractions] Button handler error: ${errorMessage(err)}`);
       if (!interaction.replied && !interaction.deferred) {
         await interaction
           .reply({ content: '⚠️ Failed to update match dashboard.', flags: MessageFlags.Ephemeral })
@@ -74,7 +75,7 @@ export class FootballInteractions {
 
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferUpdate().catch((err) => {
-          Logger.debug(`[FootballInteractions] Select menu deferUpdate skipped/failed: ${err.message}`);
+          Logger.debug(`[FootballInteractions] Select menu deferUpdate skipped/failed: ${errorMessage(err)}`);
         });
       }
 
@@ -84,15 +85,15 @@ export class FootballInteractions {
 
       if (interaction.deferred) {
         await interaction.editReply(response.toMessagePayload()).catch((err) => {
-          Logger.debug(`[FootballInteractions] Failed to edit select menu reply (interaction likely superseded): ${err.message}`);
+          Logger.debug(`[FootballInteractions] Failed to edit select menu reply (interaction likely superseded): ${errorMessage(err)}`);
         });
       } else if (!interaction.replied) {
         await interaction.update(response.toMessagePayload()).catch((err) => {
-          Logger.debug(`[FootballInteractions] Failed to update select menu reply: ${err.message}`);
+          Logger.debug(`[FootballInteractions] Failed to update select menu reply: ${errorMessage(err)}`);
         });
       }
-    } catch (err: any) {
-      Logger.error(`[FootballInteractions] Select menu handler error: ${err.message}`);
+    } catch (err) {
+      Logger.error(`[FootballInteractions] Select menu handler error: ${errorMessage(err)}`);
       if (!interaction.replied && !interaction.deferred) {
         await interaction
           .reply({ content: '⚠️ Failed to switch league.', flags: MessageFlags.Ephemeral })

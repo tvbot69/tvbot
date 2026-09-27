@@ -13,6 +13,7 @@ import { UserService } from '@bot/services/userService';
 import { ComponentInteractionTracker } from '@bot/services/componentInteractionTracker';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { isUnknownInteraction } from '@domain/discordErrors';
 
 const linkRow = (
   url: string,
@@ -87,9 +88,9 @@ export class LoginCommands implements ITextCommandModule {
         // Defer immediately — must ack within 3s or Discord returns 10062 Unknown interaction
         try {
           await interaction.deferReply({ ephemeral: true });
-        } catch (err: any) {
+        } catch (err) {
           // 10062 = Unknown interaction (expired / already acked) — don't spam ERROR
-          if (err?.code === 10062 || String(err?.message).includes('Unknown interaction')) return;
+          if (isUnknownInteraction(err)) return;
           throw err;
         }
 
@@ -115,8 +116,8 @@ export class LoginCommands implements ITextCommandModule {
           await interaction.editReply(
             'Last.fm does not show an authorized session yet. Did you click **Allow access** on their page? Wait a few seconds and try Confirm again.',
           );
-        } catch (err: any) {
-          if (err?.code === 10062 || String(err?.message).includes('Unknown interaction')) return;
+        } catch (err) {
+          if (isUnknownInteraction(err)) return;
           throw err;
         }
       },

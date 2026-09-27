@@ -11,6 +11,7 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { errorMessage } from '@domain/discordErrors';
 
 @injectable()
 export class ImportCommands implements ITextCommandModule {
@@ -87,12 +88,12 @@ export class ImportCommands implements ITextCommandModule {
           summary,
           accentColor,
         });
-      } catch (err: any) {
+      } catch (err) {
         const errorContainer = new ContainerBuilder();
         errorContainer.setAccentColor(DiscordConstants.ErrorColorRed);
         errorContainer.addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            `### ❌ Import Error\n${err?.message || 'Could not process imported file.'}`,
+            `### ❌ Import Error\n${errorMessage(err) || 'Could not process imported file.'}`,
           ),
         );
         const res = new ResponseModel(DiscordConstants.ErrorColorRed);

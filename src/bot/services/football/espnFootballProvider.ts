@@ -1,6 +1,7 @@
 import { injectable } from 'tsyringe';
 import { Logger } from '@domain/logger';
 import type { FootballMatch, FootballMatchStatus, FootballTeam, LeagueOption } from '@domain/models/football/footballModels';
+import { errorMessage } from '@domain/discordErrors';
 
 @injectable()
 export class EspnFootballProvider {
@@ -98,8 +99,8 @@ export class EspnFootballProvider {
       }
 
       return results;
-    } catch (err: any) {
-      Logger.error(`[EspnFootballProvider] Failed to fetch matches for ${league.name}: ${err.message}`);
+    } catch (err) {
+      Logger.error(`[EspnFootballProvider] Failed to fetch matches for ${league.name}: ${errorMessage(err)}`);
       return [];
     }
   }

@@ -11,6 +11,7 @@ import { EspnFootballProvider } from './espnFootballProvider';
 import { EgyptianFootballProvider } from './egyptianFootballProvider';
 import { ApiFootballProvider } from './apiFootballProvider';
 import { FootballBadgeService } from './footballBadgeService';
+import { errorMessage } from '@domain/discordErrors';
 
 interface CacheEntry {
   schedule: FootballDaySchedule;
@@ -59,16 +60,16 @@ export class FootballService {
       // 1. Primary for Egyptian league: EgyptianFootballProvider (YallaKora)
       try {
         matches = await this.egyptianProvider.getMatchesAsync(league, targetDate);
-      } catch (err: any) {
-        Logger.warn(`[FootballService] EgyptianProvider failed for ${league.name}: ${err.message}`);
+      } catch (err) {
+        Logger.warn(`[FootballService] EgyptianProvider failed for ${league.name}: ${errorMessage(err)}`);
       }
 
       // 2. Fallback: API-Football if configured
       if (matches.length === 0 && this.apiFootballProvider.isConfigured()) {
         try {
           matches = await this.apiFootballProvider.getMatchesAsync(league, dateStringYYYYMMDD);
-        } catch (err: any) {
-          Logger.warn(`[FootballService] ApiFootballProvider failed: ${err.message}`);
+        } catch (err) {
+          Logger.warn(`[FootballService] ApiFootballProvider failed: ${errorMessage(err)}`);
         }
       }
     } else if (league.id === 'caf.champions') {
@@ -76,8 +77,8 @@ export class FootballService {
       if (league.espnCode) {
         try {
           matches = await this.espnProvider.getMatchesAsync(league, dateStringYYYYMMDD);
-        } catch (err: any) {
-          Logger.warn(`[FootballService] EspnProvider failed for ${league.name}: ${err.message}`);
+        } catch (err) {
+          Logger.warn(`[FootballService] EspnProvider failed for ${league.name}: ${errorMessage(err)}`);
         }
       }
 
@@ -85,8 +86,8 @@ export class FootballService {
       if (matches.length === 0) {
         try {
           matches = await this.egyptianProvider.getMatchesAsync(league, targetDate);
-        } catch (err: any) {
-          Logger.warn(`[FootballService] EgyptianProvider fallback failed for ${league.name}: ${err.message}`);
+        } catch (err) {
+          Logger.warn(`[FootballService] EgyptianProvider fallback failed for ${league.name}: ${errorMessage(err)}`);
         }
       }
     } else {
@@ -95,8 +96,8 @@ export class FootballService {
       if (league.espnCode) {
         try {
           matches = await this.espnProvider.getMatchesAsync(league, dateStringYYYYMMDD);
-        } catch (err: any) {
-          Logger.warn(`[FootballService] EspnProvider failed for ${league.name}: ${err.message}`);
+        } catch (err) {
+          Logger.warn(`[FootballService] EspnProvider failed for ${league.name}: ${errorMessage(err)}`);
         }
       }
     }
@@ -134,8 +135,8 @@ export class FootballService {
     // Enrich teams with Discord application emoji club badges
     try {
       await this.badgeService.resolveScheduleBadgesAsync(schedule);
-    } catch (err: any) {
-      Logger.warn(`[FootballService] Error resolving team badges: ${err.message}`);
+    } catch (err) {
+      Logger.warn(`[FootballService] Error resolving team badges: ${errorMessage(err)}`);
     }
 
     // Cache TTL: 2 minutes if any match is LIVE, otherwise 15 minutes

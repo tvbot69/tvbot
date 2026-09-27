@@ -4,6 +4,7 @@ import {
   type Interaction,
 } from 'discord.js';
 import { Logger } from '@domain/logger';
+import { errorMessage, isUnknownInteraction } from '@domain/discordErrors';
 
 export type ComponentInteraction = ButtonInteraction | AnySelectMenuInteraction;
 export type ComponentHandler = (interaction: ComponentInteraction) => Promise<void>;
@@ -36,10 +37,10 @@ export class ComponentInteractionTracker {
     }
     try {
       await tracked.handler(interaction);
-    } catch (err: any) {
+    } catch (err) {
       // 10062 Unknown interaction is expected when user clicks after 3s or bot lagged — don't spam ERROR
-      if (err?.code === 10062 || String(err?.message).includes('Unknown interaction')) {
-        Logger.debug({ err: String(err).slice(0, 120), customId: interaction.customId }, 'Component interaction expired');
+      if (isUnknownInteraction(err)) {
+        Logger.debug({ err: errorMessage(err, 120), customId: interaction.customId }, 'Component interaction expired');
         return true;
       }
       Logger.error({ err }, 'Component interaction handler failed');

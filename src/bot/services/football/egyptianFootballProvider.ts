@@ -1,6 +1,7 @@
 import { injectable } from 'tsyringe';
 import { Logger } from '@domain/logger';
 import type { FootballMatch, FootballMatchStatus, FootballTeam, LeagueOption } from '@domain/models/football/footballModels';
+import { errorMessage } from '@domain/discordErrors';
 
 @injectable()
 export class EgyptianFootballProvider {
@@ -159,8 +160,8 @@ export class EgyptianFootballProvider {
       }
 
       return matches;
-    } catch (err: any) {
-      Logger.error(`[EgyptianFootballProvider] Error scraping Egyptian matches: ${err.message}`);
+    } catch (err) {
+      Logger.error(`[EgyptianFootballProvider] Error scraping Egyptian matches: ${errorMessage(err)}`);
       return [];
     }
   }
