@@ -1,3 +1,4 @@
+import { SeparatorSpacingSize } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, SeparatorBuilder, TextDisplayBuilder } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 
@@ -51,7 +52,7 @@ export class OverviewBuilders {
       container.setAccentColor(accentColor);
     }
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### Daily overview for [${displayName}](https://last.fm/user/${encodeURIComponent(userNameLastFm)}/library?date_preset=LAST_7_DAYS)`));
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
     for (const block of slice) {
       const unix = block.epochSeconds;
@@ -67,7 +68,7 @@ export class OverviewBuilders {
       ].filter(Boolean).join('\n');
 
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines));
-      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
     }
 
     const footer = `-# ${page + 1}/${totalPages} - Top genres, artist, album and track\n-# ${pageUniqueTracks.size} unique tracks - ${pagePlays} total plays - ${pageAvg} avg`;

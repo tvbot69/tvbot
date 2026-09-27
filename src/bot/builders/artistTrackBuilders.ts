@@ -1,3 +1,4 @@
+import { SeparatorSpacingSize } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, SeparatorBuilder, TextDisplayBuilder } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { EMOJI } from '@bot/resources/emojis';
@@ -27,7 +28,7 @@ export class ArtistTrackBuilders {
     }
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### Your top tracks for '${artistName}'`));
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
     const lines = slice.map((t, idx) => {
       const rank = page * perPage + idx + 1;
@@ -35,7 +36,7 @@ export class ArtistTrackBuilders {
     }).join('\n') || 'No tracks found.';
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines));
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
     const footer = `-# Page ${page + 1}/${totalPages} — ${distinctCount} different tracks\n-# ${displayName} has ${totalArtistPlays} total artist ${totalArtistPlays === 1 ? 'play' : 'plays'}\n-# Some tracks outside of top 6000 might not be visible${partialIndexNotice ? '\n-# Library still indexing — showing partial results, run this again in a bit' : ''}`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));

@@ -1,3 +1,4 @@
+import { SeparatorSpacingSize } from 'discord.js';
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -94,7 +95,7 @@ export class ArtistBuilders {
 
     // 2) Top Tracks Section (up to 8)
     if (topTracks.length > 0) {
-      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
       const trackLines = ['**Your top tracks**'];
       topTracks.slice(0, 8).forEach((t, i) => {
         trackLines.push(`\`${i + 1}\`  **${t.name}** - *${t.playcount}x*`);
@@ -104,7 +105,7 @@ export class ArtistBuilders {
 
     // 3) Top Albums Section (up to 8)
     if (topAlbums.length > 0) {
-      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
       const albumLines = ['**Your top albums**'];
       topAlbums.slice(0, 8).forEach((a, i) => {
         albumLines.push(`\`${i + 1}\`  **${a.name}** - *${a.playcount}x*`);
@@ -114,7 +115,7 @@ export class ArtistBuilders {
 
     // 4) Genres line
     if (genres.length > 0) {
-      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${genres.join(' - ')}`));
     }
 
@@ -195,12 +196,12 @@ export class ArtistBuilders {
     // 2) Bio section
     const cleaned = cleanBio(bio);
     if (cleaned) {
-      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(cleaned));
     }
 
     // 3) Server & Global Stats section
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
     const statsLines: string[] = [];
     if (serverStats.serverPlays > 0) {
       statsLines.push(`**${serverStats.serverPlays}** plays in this server by **${serverStats.serverListeners}** ${serverStats.serverListeners === 1 ? 'listener' : 'listeners'}`);
@@ -210,7 +211,7 @@ export class ArtistBuilders {
 
     // 4) User Stats section
     if (userStats.userPlays > 0) {
-      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
       const userLines = [
         `**${userStats.userPlays}** plays by **${displayName}**${userStats.lastMonthPlays > 0 ? ` — **${userStats.lastMonthPlays}** last month` : ''}`,
       ];
@@ -222,7 +223,7 @@ export class ArtistBuilders {
 
     // 5) Genres line
     if (genres.length > 0) {
-      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${genres.join(' - ')}`));
     }
 
@@ -287,7 +288,7 @@ export class ArtistBuilders {
     }
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### Your top albums for '${artistName}'`));
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
     const lines = slice.map((a, idx) => {
       const rank = page * perPage + idx + 1;
@@ -295,7 +296,7 @@ export class ArtistBuilders {
     }).join('\n') || 'No albums found.';
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines));
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(1 as any));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
     const footer = `-# Page ${page + 1}/${totalPages} — ${distinctCount} different albums\n-# ${displayName} has ${totalArtistPlays} total artist ${totalArtistPlays === 1 ? 'play' : 'plays'}\n-# Some albums outside of top 6000 might not be visible`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));

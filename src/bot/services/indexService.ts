@@ -140,7 +140,7 @@ export class IndexService {
     // 2) Top Artists
     if ((updateType & (UpdateType.Artists | UpdateType.Full)) !== 0) {
       try {
-        const topArtists = await this.lastfmRepository.getTopArtists(user.userNameLastFm, TimePeriod.AllTime as any, 1000);
+        const topArtists = await this.lastfmRepository.getTopArtists(user.userNameLastFm, TimePeriod.AllTime, 1000);
         if (topArtists && topArtists.length > 0) {
           const artistMap = await this.artistRepository.getOrCreateArtistsBulk(topArtists.map(a => a.name));
           const rows = sumEntriesById(
@@ -169,7 +169,7 @@ export class IndexService {
     // 3) Top Albums
     if ((updateType & (UpdateType.Albums | UpdateType.Full)) !== 0) {
       try {
-        const topAlbums = await this.lastfmRepository.getTopAlbums(user.userNameLastFm, TimePeriod.AllTime as any, 1000);
+        const topAlbums = await this.lastfmRepository.getTopAlbums(user.userNameLastFm, TimePeriod.AllTime, 1000);
         if (topAlbums && topAlbums.length > 0) {
           const artistMap = await this.artistRepository.getOrCreateArtistsBulk(topAlbums.map(a => a.artistName));
           const albumMap = await this.albumRepository.getOrCreateAlbumsBulk(
@@ -204,7 +204,7 @@ export class IndexService {
     // 4) Top Tracks
     if ((updateType & (UpdateType.Tracks | UpdateType.Full)) !== 0) {
       try {
-        const topTracks = await this.lastfmRepository.getTopTracks(user.userNameLastFm, TimePeriod.AllTime as any, 1000);
+        const topTracks = await this.lastfmRepository.getTopTracks(user.userNameLastFm, TimePeriod.AllTime, 1000);
         if (topTracks && topTracks.length > 0) {
           const artistMap = await this.artistRepository.getOrCreateArtistsBulk(topTracks.map(t => t.artistName));
           const trackMap = await this.trackRepository.getOrCreateTracksBulk(
