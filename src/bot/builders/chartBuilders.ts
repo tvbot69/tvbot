@@ -9,7 +9,7 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import { TimePeriod } from '@domain/enums/timePeriod';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { ChartSettings } from '@bot/models/chartModels';

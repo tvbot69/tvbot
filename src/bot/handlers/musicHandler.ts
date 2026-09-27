@@ -22,13 +22,11 @@ import type { LyricWindow } from '@bot/services/music/syncedLyrics';
 import {
   extractArtistFromTitle,
   getVideoTitle,
-  isLiveVideo,
-
   type ChapterCard,
   type VideoChapter,
 } from '@bot/services/music/videoChapters';
-import {  cleanTrackTitle  } from '@domain/models/music/musicTrack';
-import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
+import { cleanTrackTitle } from '@domain/models/music/musicTrack';
+
 
 import type { Client } from 'discord.js';
 

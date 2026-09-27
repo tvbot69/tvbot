@@ -3,7 +3,6 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ContainerBuilder,
-  EmbedBuilder,
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
   SectionBuilder,

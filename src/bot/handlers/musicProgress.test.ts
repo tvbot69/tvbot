@@ -127,8 +127,6 @@ describe('MusicHandler progress card', () => {
       json: async () => ({ items: [{ snippet: { description: 'Full Set\n\n0:00 - A\n1:00 - B' } }] }),
     } as Response);
     try {
-      const manager = { on: vi.fn(), players: { get: () => undefined } };
-      const client = { on: vi.fn(), channels: { cache: new Map() } };
       const handler = buildHandler() as unknown as {
         resolveVideoChapters: (player: unknown, track: unknown) => void;
         publishProgress: (player: unknown) => Promise<void>;
@@ -478,8 +476,6 @@ describe('MusicHandler progress card', () => {
   });
 
   it('keeps chapters across a same-video restart but resets the presentation', () => {
-    const manager = { on: vi.fn(), players: { get: () => undefined } };
-    const client = { on: vi.fn(), channels: { cache: new Map() } };
     const handler = buildHandler() as unknown as {
       resolveVideoChapters: (player: unknown, track: unknown) => void;
     };
@@ -615,7 +611,8 @@ describe('MusicHandler progress card', () => {
       players: { get: () => undefined },
     };
     const { MusicHandler: Handler } = await import('./musicHandler');
-    const handler = new Handler(
+    // Constructed for its event registrations; the instance is never read.
+    new Handler(
       client as never,
       { getManager: () => manager } as never,
       { getQueueInfo: () => null, is247: () => false, isKaraokeEnabled: () => true } as never,

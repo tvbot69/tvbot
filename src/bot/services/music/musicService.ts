@@ -1,27 +1,26 @@
 import type { Player, Track } from 'moonlink.js';
-import { Track as MoonlinkTrack } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import type { FilterName, LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
-import { cleanArtistName, cleanTrackTitle, isSpotifyMatchValid, isYoutubeThumbUrl, mapMoonlinkTrack, spotifyUriToUrl, type MirrorResolution, type MirrorTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
+import { cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, spotifyUriToUrl, type MirrorResolution, type MirrorTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
 import { MoonlinkManager, type LavalinkNodeStats } from './moonlinkManager';
-import { SpotifyResolver, type SpotifyResolvedTrack } from './spotifyResolver';
+import { SpotifyResolver } from './spotifyResolver';
 import type { DeezerResolver } from './deezerResolver';
 import type { AppleMusicResolver } from './appleMusicResolver';
 import { QueueService } from './queueService';
 import type { PlaylistChunkManager } from './playlistChunkManager';
-import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
-import { resolveViaHome, resolverEnabled, type ResolverMeta } from './ytResolver';
-import { LOAD_TRACKS_TIMEOUT_MS, MAX_QUEUE_TRACKS, SEEK_REST_TIMEOUT_MS } from './musicConstants';
-import { extractArtistFromTitle } from './videoChapters';
+import { ladderFor, type Rung } from './youtubeHealth';
+import { type ResolverMeta } from './ytResolver';
+import { MAX_QUEUE_TRACKS, SEEK_REST_TIMEOUT_MS } from './musicConstants';
+
 import type { ArtworkService } from '@bot/services/artworkService';
 import { MusicSearchLadder } from './musicSearchLadder';
-import { MusicTrackArtwork, isYoutubeThumb, preCleanArtwork, sanitizeOverride, leadArtist, ARTWORK_TIMEOUT_MS, BACKGROUND_ARTWORK_TIMEOUT_MS } from './musicTrackArtwork';
+import { MusicTrackArtwork, isYoutubeThumb, preCleanArtwork, sanitizeOverride, ARTWORK_TIMEOUT_MS, BACKGROUND_ARTWORK_TIMEOUT_MS } from './musicTrackArtwork';
 import { adoptMirrorTrack } from './musicTrackAdoption';
-import { hasHealthyNode, isNodeCooling } from './musicNodeHealth';
+import { hasHealthyNode } from './musicNodeHealth';
 import { PlayerRegistry, isDestroyedPlayer } from './musicPlayerRegistry';
 import { MusicPlaybackControls } from './musicPlaybackControls';
-import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import type { PendingEntry, PendingQueueView } from './musicTypes';
+
+import type { PendingQueueView } from './musicTypes';
 
 export interface PlayResult {
   loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'mirror_album' | 'mirror_playlist' | 'mirror_artist' | 'empty' | 'error';
@@ -272,7 +271,6 @@ export class MusicService {
       source?: string;
     },
   ): Promise<PlayResult> {
-    const manager = this.moonlinkManager.getManager();
 
     // Good error handling for public node rate-limit (4000)
     if (!this.moonlinkManager.hasHealthyNode()) {
@@ -337,7 +335,6 @@ export class MusicService {
     // 2. Lavalink search (query or URL - YouTube / SoundCloud)
     const isSoundcloud = /^(https?:\/\/)?(www\.)?soundcloud\.com\/.+$/i.test(trimmedQuery);
     const isYoutubeUrl = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/i.test(trimmedQuery);
-    const isDirectUrl = isYoutubeUrl || isSoundcloud || /^https?:\/\//i.test(trimmedQuery);
 
     // Direct SoundCloud URLs always go straight there; everything else runs
     // the health ladder (resolver → plugin → soundcloud, SoundCloud-first

@@ -9,7 +9,7 @@ import {
 import type { ContextModel } from '@bot/models/contextModel';
 import { type ISlashCommandModule } from '@bot/models/commandModels';
 import { ResponseModel } from '@bot/models/responseModel';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import { LoginService, LoginStatus } from '@bot/services/loginService';
 import { UserService } from '@bot/services/userService';
 import { ComponentInteractionTracker } from '@bot/services/componentInteractionTracker';

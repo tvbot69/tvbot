@@ -3,7 +3,7 @@ import { injectable, inject } from 'tsyringe';
 import { GameService } from '@bot/services/gameService';
 import { GameBuilders } from '@bot/builders/gameBuilders';
 import { ColorService } from '@bot/services/colorService';
-import { deferReplySafe, deferUpdateSafe } from './interactionAck';
+import { deferUpdateSafe } from './interactionAck';
 
 @injectable()
 export class GameInteractions {

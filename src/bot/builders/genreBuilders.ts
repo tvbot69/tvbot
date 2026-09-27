@@ -9,7 +9,7 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import { TopGenreItem, WhoKnowsGenreItem } from '@bot/services/genreService';
 
 function toTitleCase(str: string): string {

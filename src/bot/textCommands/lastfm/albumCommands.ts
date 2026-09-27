@@ -7,7 +7,7 @@ import { UserService } from '@bot/services/userService';
 import { AlbumService } from '@bot/services/albumService';
 import { UpdateService } from '@bot/services/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 
 export class AlbumCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];

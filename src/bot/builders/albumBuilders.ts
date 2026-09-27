@@ -11,7 +11,7 @@ import {
   ThumbnailBuilder,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { AlbumSearchResult } from '@bot/services/albumService';
 import { PlaycountBuilders } from './playcountBuilders';
@@ -97,7 +97,7 @@ export class AlbumBuilders {
   public static buildAlbumInfoResponse(
     album: AlbumSearchResult,
     targetUser: User,
-    requesterName: string,
+    _requesterName: string,
     accentColor?: number,
   ): ResponseModel {
     const container = new ContainerBuilder();
@@ -220,7 +220,7 @@ export class AlbumBuilders {
   public static buildAlbumTracksResponse(
     album: AlbumSearchResult,
     targetUser: User,
-    requesterName: string,
+    _requesterName: string,
     page: number = 1,
     accentColor?: number,
   ): ResponseModel {

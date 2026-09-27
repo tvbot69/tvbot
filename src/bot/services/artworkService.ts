@@ -722,8 +722,8 @@ export class ArtworkService {
   private async resolveTrackCover(
     cleanTrack: string,
     cleanArtist: string,
-    trackName: string,
-    artistName: string,
+    _trackName: string,
+    _artistName: string,
   ): Promise<string | null> {
     const key = `art:track:${keyPart(cleanArtist)}|${keyPart(cleanTrack)}`;
 

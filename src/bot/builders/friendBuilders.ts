@@ -13,7 +13,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { Friend, User } from '@persistence/domain/models/user';
 import { FriendType, FriendTypeNames } from '@domain/enums/friendType';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 
 const lastfmUserUrl = (userName: string): string =>
   `https://last.fm/user/${encodeURIComponent(userName)}`;

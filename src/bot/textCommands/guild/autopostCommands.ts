@@ -1,5 +1,5 @@
 import { inject, injectable } from 'tsyringe';
-import { Client, PermissionsBitField, type TextChannel } from 'discord.js';
+import { Client } from 'discord.js';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';

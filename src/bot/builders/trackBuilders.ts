@@ -11,7 +11,7 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { TrackSearchResult } from '@bot/services/trackService';
 import { PlaycountBuilders } from './playcountBuilders';
@@ -59,7 +59,7 @@ const formatSeconds = (totalSeconds: number): string => {
 export class TrackBuilders {
   public static buildTrackInfoResponse(
     track: TrackSearchResult,
-    targetUser: User,
+    _targetUser: User,
     displayName: string,
     accentColor?: number,
     mediaDetails?: TrackMediaDetails | null,

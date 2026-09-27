@@ -4,7 +4,7 @@ import { AlbumService } from '@bot/services/albumService';
 import { UserService } from '@bot/services/userService';
 import { ColorService } from '@bot/services/colorService';
 import { AlbumBuilders } from '@bot/builders/albumBuilders';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import { Logger } from '@domain/logger';
 
 export const ALBUM_BUTTON_PREFIXES = ['album-info:', 'album-tracks:', 'album-cover:'];

@@ -259,7 +259,7 @@ export class MusicSearchLadder {
    * so fall through to the title search instead of playing a wrong song.
    */
   private async searchIsrcFirst(
-    player: Player,
+    _player: Player,
     rungs: Rung[],
     meta?: ResolverMeta,
   ): Promise<Track | null> {

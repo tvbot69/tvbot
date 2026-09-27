@@ -190,7 +190,7 @@ export class ArtistCommands implements ITextCommandModule {
     );
   }
 
-  private async resolveArtistAndUser(context: ContextModel, selfUser: any, raw: string): Promise<{ artistName: string; targetUser: any }> {
+  private async resolveArtistAndUser(_context: ContextModel, selfUser: any, raw: string): Promise<{ artistName: string; targetUser: any }> {
     let artistName = raw.trim();
     const targetUser = selfUser;
 

@@ -314,10 +314,9 @@ describe('getTrackCoverBySpotifyId', () => {
   });
 
   it('caches definitive no-art briefly, never caches throws', async () => {
-    const { service, cache, getTrack } = makeById(async () => ({ album: { images: [] } }));
+    const { service, cache } = makeById(async () => ({ album: { images: [] } }));
     await expect(service.getTrackCoverBySpotifyId('0000000000000000000000')).resolves.toBeNull();
     expect([...cache.store.values()]).toContain('none');
-
     const throwing = makeById(async () => {
       throw new Error('boom');
     });

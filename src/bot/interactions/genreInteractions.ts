@@ -58,7 +58,6 @@ export class GenreInteractions {
     if (parts[1] === 'toggle') {
       const targetView = parts[2]; // 'user' or 'server'
       const cacheKey = parts[3]!;
-      const pageIndex = parseInt(parts[4]!, 10) || 0;
       const callerDiscordUserId = parts[5]!;
 
       if (interaction.user.id !== callerDiscordUserId) {

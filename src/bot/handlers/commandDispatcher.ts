@@ -62,8 +62,8 @@ export class CommandDispatcher {
     response: ResponseModel,
     startTime: number,
     commandName: string,
-    args?: string[],
-    userService?: UserService
+    _args?: string[],
+    _userService?: UserService
   ): Promise<void> {
     const durationMs = Date.now() - startTime;
     const channel = message.channel;

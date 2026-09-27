@@ -105,7 +105,7 @@ export class MusicEventListeners {
     manager.on('playerDestroy', (player: Player) => this.onPlayerDestroy(player));
   }
 
-  public async onTrackStart(manager: Manager, player: Player, track: Track): Promise<void> {
+  public async onTrackStart(_manager: Manager, player: Player, track: Track): Promise<void> {
     // New activity cancels any pending idle disconnect.
     this.host.clearInactivityTimeout(player.guildId);
     // Prioritize player.current which retains clean Spotify / custom metadata and artwork

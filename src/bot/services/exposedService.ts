@@ -212,7 +212,7 @@ export class ExposedService {
     user: User,
     guildId: string | null | undefined,
     currentArtist: string,
-    currentTrack: string,
+    _currentTrack: string,
   ): Promise<{ isAnomaly: boolean; roast: string; matchedGenre: string } | null> {
     if (!currentArtist || !guildId) return null;
 

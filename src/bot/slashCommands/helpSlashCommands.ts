@@ -3,7 +3,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { HelpBuilders, type HelpCategory } from '@bot/builders/helpBuilders';
+import { HelpBuilders } from '@bot/builders/helpBuilders';
 
 @injectable()
 export class HelpSlashCommands implements ISlashCommandModule {

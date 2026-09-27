@@ -7,7 +7,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { ColorService } from '@bot/services/colorService';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import type { FilterName, LoopMode } from '@domain/models/music/musicQueue';
 import { ALL_FILTERS } from '@domain/models/music/musicQueue';
 import type { LyricsService } from '@bot/services/music/lyricsService';

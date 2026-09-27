@@ -179,7 +179,7 @@ describe('PlaylistChunkManager queueEnd drain & integrity', () => {
 
   it('retries a failed chunk fetch with backoff during the drain', async () => {
     let attempts = 0;
-    const { chunk, player, added, play } = makeDrainChunk({
+    const { chunk, added, play } = makeDrainChunk({
       fetchPage: async () => {
         attempts++;
         if (attempts === 1) throw new Error('scraper down');

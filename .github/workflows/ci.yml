@@ -98,10 +98,13 @@ jobs:
 
       - run: npm ci
 
-      # Allowed to fail for now: `npm run lint` is not yet clean on main, and a
-      # permanently red job gets ignored, which is worse than no job. Remove
-      # continue-on-error once the outstanding errors are fixed, so lint starts
-      # blocking instead of merely reporting.
+      # Blocking. The error count was driven to zero before this flag was
+      # removed, and it must stay that way: 730 warnings remain (mostly
+      # no-explicit-any at the moonlink boundary) but warnings do not fail a
+      # build, so this job is now a real gate rather than a report.
+      #
+      # If this starts failing, do NOT add --quiet, --fix or a blanket disable
+      # to make it green. Fix the code, or add a narrowly scoped inline
+      # justification.
       - name: Lint
-        continue-on-error: true
         run: npm run lint

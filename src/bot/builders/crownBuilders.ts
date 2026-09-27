@@ -11,7 +11,7 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import type { UserCrownDto, CrownViewType, CrownLeaderboardEntry } from '@domain/models/crownModels';
 
 const lastfmArtistUrl = (artist: string): string =>

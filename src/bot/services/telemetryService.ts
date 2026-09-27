@@ -94,7 +94,7 @@ export class TelemetryService {
   public recordApiCall(
     service: 'lastfm' | 'spotify' | 'discord' | 'musicbrainz',
     endpoint: string,
-    durationMs: number,
+    _durationMs: number,
     statusCode: number,
     errorMessage?: string,
   ): void {

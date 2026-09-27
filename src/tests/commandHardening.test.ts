@@ -8,7 +8,7 @@ import { MusicCommands } from '@bot/textCommands/music/musicCommands';
 import { ContainerBuilder, MessageFlags } from 'discord.js';
 import type { ContextModel } from '@bot/models/contextModel';
 import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
-import { IntelligenceCommands } from '@bot/textCommands/lastfm/intelligenceCommands';
+
 import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
 import { UserSettingsInteractions } from '@bot/interactions/userSettingsInteractions';
 

@@ -42,7 +42,7 @@ export class GameCommands implements ITextCommandModule {
     ];
   }
 
-  public async gameStatsAsync(context: ContextModel, extraOptions: string): Promise<ResponseModel> {
+  public async gameStatsAsync(context: ContextModel, _extraOptions: string): Promise<ResponseModel> {
     const caller = await this.userService.getUserByDiscordId(context.discordUserId);
     const accentColor = context.guild?.id && this.colorService
       ? await this.colorService.getAccentColorAsync(context.guild.id)
@@ -94,7 +94,7 @@ export class GameCommands implements ITextCommandModule {
     }
 
     // Fetch user top artists to pick a target
-    let topArtists = await this.lastfmRepository.getTopArtists(caller.userNameLastFm, undefined, 250);
+    const topArtists = await this.lastfmRepository.getTopArtists(caller.userNameLastFm, undefined, 250);
     if (!topArtists || topArtists.length === 0) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NotFound,

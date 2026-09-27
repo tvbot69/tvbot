@@ -6,13 +6,15 @@ import type { PrismaClient } from '@prisma/client';
 
 describe('MusicIntelligenceService', () => {
   let service: MusicIntelligenceService;
-  let mockLastfmRepo: Partial<ILastfmRepository>;
   let mockPrisma: any;
-  let mockGenreService: any;
   let mockCountryService: any;
+  // Built but never injected - see the note in the quality review.
+  let _mockLastfmRepo: Partial<ILastfmRepository>;
+  // Built but never injected - see the note in the quality review.
+  let _mockGenreService: any;
 
   beforeEach(() => {
-    mockLastfmRepo = {
+    _mockLastfmRepo = {
       loveTrack: vi.fn().mockResolvedValue(true),
       unloveTrack: vi.fn().mockResolvedValue(true),
       getLovedTracks: vi.fn().mockResolvedValue({
@@ -38,7 +40,7 @@ describe('MusicIntelligenceService', () => {
       },
     };
 
-    mockGenreService = {
+    _mockGenreService = {
       getTopGenresForTopArtists: vi.fn().mockResolvedValue([
         { genreName: 'rock', userPlaycount: 100 },
         { genreName: 'alternative', userPlaycount: 80 },

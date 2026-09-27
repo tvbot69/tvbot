@@ -3,12 +3,10 @@ import {
   TextDisplayBuilder,
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 
 export class ReceiptBuilders {
   public static buildReceiptResponse(params: {

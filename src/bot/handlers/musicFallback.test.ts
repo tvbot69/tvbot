@@ -1085,7 +1085,7 @@ describe('JIT pending Spotify entries', () => {
   });
 
   it('warms artwork for upcoming entries beyond the eager fill', async () => {
-    const artImpl = vi.fn(async (title: string) => 'https://img.test/w.jpg');
+    const artImpl = vi.fn(async (_title: string) => 'https://img.test/w.jpg');
     const { svc } = makeJit(undefined, artImpl);
     // Artless entries: the realistic gap case (API tracks with art need nothing).
     const bare = Array.from({ length: 6 }, (_, i) => ({
@@ -1102,7 +1102,7 @@ describe('JIT pending Spotify entries', () => {
   });
 
   it('skips warmup while Spotify is rate-limited', async () => {
-    const artImpl = vi.fn(async (title: string) => 'https://img.test/w.jpg');
+    const artImpl = vi.fn(async (_title: string) => 'https://img.test/w.jpg');
     const { svc } = makeJit(undefined, artImpl);
     const bare = Array.from({ length: 6 }, (_, i) => ({
       spTrack: { ...sp(i), artworkUrl: undefined },
@@ -1643,7 +1643,7 @@ describe('seek chapter swap (instant card on seek)', () => {
   });
 
   it('backward seek swaps back to the earlier chapter and warms its neighbors', async () => {
-    const { handler, getTrackCoverUrl, onSeek } = makeSeekHandler(async () => 'https://img.test/x.jpg');
+    const { getTrackCoverUrl, onSeek } = makeSeekHandler(async () => 'https://img.test/x.jpg');
     const store: Record<string, unknown> = {
       chapters: SHOW,
       chapterIdx: 2,
@@ -1888,7 +1888,7 @@ describe('audio-first art backfill (play path)', () => {
       ) => Promise<{ loadType: string }>;
     };
     const enqueue = vi.fn(
-      async (_player: unknown, tracks: unknown[]) => ({ loadType: 'track', totalTracksAdded: 1, positionInQueue: 0 }),
+      async (_player: unknown, _tracks: unknown[]) => ({ loadType: 'track', totalTracksAdded: 1, positionInQueue: 0 }),
     );
     (svc as unknown as { enqueueLavalinkTracks: unknown }).enqueueLavalinkTracks = enqueue;
     return { svc, enqueue, getTrackCoverUrl: art.getTrackCoverUrl, resolveArt: () => resolveArt };

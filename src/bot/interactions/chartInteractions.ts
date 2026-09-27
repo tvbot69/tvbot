@@ -19,7 +19,7 @@ import { UserService } from '@bot/services/userService';
 import { ColorService } from '@bot/services/colorService';
 import { registerModalHandler } from './index';
 import { Logger } from '@domain/logger';
-import { deferReplySafe, deferUpdateSafe } from './interactionAck';
+import { deferUpdateSafe } from './interactionAck';
 
 const MODAL_PREFIX = 'chart-edit-modal:';
 

@@ -5,7 +5,7 @@ import { CountryBuilders } from '@bot/builders/countryBuilders';
 import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
 import { UserService } from '@bot/services/userService';
 import { TtlStore } from '@bot/services/ttlStore';
-import { deferReplySafe, deferUpdateSafe } from './interactionAck';
+import { deferUpdateSafe } from './interactionAck';
 
 export type CountryInteractionType = 'top' | 'info' | 'wkc' | 'chart';
 
@@ -63,7 +63,6 @@ export class CountryInteractions {
     if (parts[1] === 'toggle') {
       const targetView = parts[2]; // 'user' or 'server'
       const cacheKey = parts[3]!;
-      const pageIndex = parseInt(parts[4]!, 10) || 0;
       const callerDiscordUserId = parts[5]!;
 
       if (interaction.user.id !== callerDiscordUserId) {

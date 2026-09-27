@@ -1,5 +1,5 @@
 import { ResponseModel } from '@bot/models/responseModel';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import { formatNumber } from '@domain/extensions/stringExtensions';
 
 export class StaticBuilders {

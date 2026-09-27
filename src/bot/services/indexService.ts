@@ -370,7 +370,7 @@ export class IndexService {
   ): Promise<number> {
     if (pendingPlays.length === 0) return 0;
 
-    let times = pendingPlays.map((p) => p.timePlayed.getTime());
+    const times = pendingPlays.map((p) => p.timePlayed.getTime());
     const existing = await this.playRepository.findExistingPlayKeys(
       userId,
       new Date(Math.min(...times)),

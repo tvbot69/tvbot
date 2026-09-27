@@ -15,7 +15,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CountryInfo, TopCountryItem, WhoKnowsCountryItem } from '@bot/services/countryService';
-import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
+import { CountryChartTheme } from '@images/generators/worldMapGenerator';
 
 export interface BuildTopCountriesOptions {
   displayName: string;

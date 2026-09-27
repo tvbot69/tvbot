@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GameService, JumbleSession } from './gameService';
+import { GameService } from './gameService';
 
 describe('GameService', () => {
   describe('normalizeAnswer', () => {

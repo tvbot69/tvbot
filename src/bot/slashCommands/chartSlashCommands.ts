@@ -14,7 +14,7 @@ import { SettingService } from '@bot/services/settingService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { UpdateService } from '@bot/services/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import { ColorService } from '@bot/services/colorService';
 
 const notRegisteredResponse = (): ResponseModel =>

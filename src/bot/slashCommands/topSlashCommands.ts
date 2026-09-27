@@ -76,7 +76,6 @@ export class TopSlashCommands implements ISlashCommandModule {
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
-    const rawUser = context.interaction?.options.getString('user') ?? null;
     const period = context.interaction?.options.getString('period') ?? 'weekly';
     const timeSettings = this.settingService.getTimePeriod(period);
     const from = timeSettings.startDateTime ? Math.floor(timeSettings.startDateTime.getTime() / 1000) : undefined;

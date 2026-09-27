@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { describe, it, expect, vi } from 'vitest';
 import { WhoKnowsService } from './whoKnowsService';
 import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
@@ -128,8 +129,8 @@ describe('WhoKnows Pagination Mode & Parity', () => {
   it('ComponentPaginatorService handles button interaction correctly', async () => {
     const service = new ComponentPaginatorService();
     const renderPage = vi.fn().mockImplementation((idx: number) => {
-      const c = new (require('discord.js').ContainerBuilder)();
-      c.addTextDisplayComponents(new (require('discord.js').TextDisplayBuilder)().setContent(`Page ${idx}`));
+      const c = new ContainerBuilder();
+      c.addTextDisplayComponents(new TextDisplayBuilder().setContent(`Page ${idx}`));
       return c;
     });
 

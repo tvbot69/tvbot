@@ -1,5 +1,5 @@
 import { Events, StageChannel, VoiceChannel, type Client } from 'discord.js';
-import type { Player } from 'moonlink.js';
+
 import { Logger } from '@domain/logger';
 import { mapMoonlinkTrack } from '@domain/models/music/musicTrack';
 import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';

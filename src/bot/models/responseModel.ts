@@ -10,7 +10,7 @@ import {
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ResponseType } from '@domain/enums/responseType';
 import type { ReferencedMusic } from '@domain/models/referencedMusic';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 
 export class ResponseModel {
   public commandResponse: CommandResponse = CommandResponse.Ok;

@@ -4,7 +4,7 @@ import { Logger } from '@domain/logger';
 import { TelemetryService } from '@bot/services/telemetryService';
 import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
 import { AutopostService, type AutopostConfig } from '@bot/services/autopostService';
-import type { ButtonInteraction, TextChannel, Client } from 'discord.js';
+import type { ButtonInteraction, Client } from 'discord.js';
 
 describe('Phase 3: Logging & Telemetry System', () => {
   it('creates scoped loggers with context and traceId', () => {

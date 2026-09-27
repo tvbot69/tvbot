@@ -84,7 +84,7 @@ export class UserHubCommands implements ITextCommandModule {
 
   private async judgeAsync(
     context: ContextModel,
-    args: string[],
+    _args: string[],
     mode: JudgeMode,
   ): Promise<ResponseModel> {
     const user = await this.userService.getUserByDiscordId(context.discordUserId);

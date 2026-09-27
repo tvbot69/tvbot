@@ -2,8 +2,8 @@ import { singleton, inject } from 'tsyringe';
 import type { Client, TextChannel } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { TelemetryService } from './telemetryService';
-import { TimeSettingsModel } from '@domain/models/timeSettings';
-import { TimePeriod } from '@domain/enums/timePeriod';
+
+
 import { ArtistsService } from './artistsService';
 import { AlbumService } from './albumService';
 import { TrackService } from './trackService';

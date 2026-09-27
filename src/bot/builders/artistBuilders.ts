@@ -9,7 +9,7 @@ import {
   ThumbnailBuilder,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import type { MusicBrainzArtistData } from '@bot/services/musicBrainzService';
 import { PlaycountBuilders } from './playcountBuilders';
 import { ArtistTrackBuilders } from './artistTrackBuilders';

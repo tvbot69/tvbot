@@ -1,22 +1,10 @@
-import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ContainerBuilder,
-  EmbedBuilder,
-  SectionBuilder,
-  SeparatorBuilder,
-  SeparatorSpacingSize,
-  TextDisplayBuilder,
-  ThumbnailBuilder,
-} from 'discord.js';
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
-import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
-import type { WhoKnowsUser, FilterStats } from '@bot/models/whoKnowsModels';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
+
+import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
+
 
 import { container } from 'tsyringe';
 import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
@@ -24,7 +12,7 @@ import { ArtistsService } from '@bot/services/artistsService';
 import { AlbumService } from '@bot/services/albumService';
 import { ArtworkService, matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
 import { UserService } from '@bot/services/userService';
-import { LastfmApi } from '@lastfm/api/lastfmApi';
+
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { DeezerApi } from '@deezer/apis/deezerApi';
 import { Logger } from '@domain/logger';
@@ -78,11 +66,8 @@ export const buildWhoKnowsImageResponse = async (args: {
     url,
     thumbnailUrl,
     users,
-    guildAlsoPlaying,
     genres,
-    closeFriendUserIds,
     resolvedAccent,
-    fullFooter,
     type,
     requestedUserId,
     footerExtra,
@@ -186,7 +171,6 @@ export const buildWhoKnowsImageResponse = async (args: {
           if (resolvedArtistName && container.isRegistered(ArtistsService) && container.isRegistered(ArtworkService)) {
             try {
               const artistsService = container.resolve(ArtistsService);
-              const artworkService = container.resolve(ArtworkService);
 
               const candidateAlbums: Array<{ name: string; artistName: string; directImage?: string; isTrack?: boolean }> = [];
               const existing = new Set<string>();

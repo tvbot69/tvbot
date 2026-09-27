@@ -5,7 +5,7 @@ import { UserService } from '@bot/services/userService';
 import { SettingService } from '@bot/services/settingService';
 import { Logger } from '@domain/logger';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
+import type { IUserRepository } from '@domain/interfaces/iuserRepository';
 import type { IUserUpdateQueue } from '@domain/interfaces/iuserUpdateQueue';
 import { CacheService } from '@bot/services/cacheService';
 

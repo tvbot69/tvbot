@@ -4,11 +4,9 @@ import {
   ButtonStyle,
   ContainerBuilder,
   EmbedBuilder,
-  SectionBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
-  ThumbnailBuilder,
 } from 'discord.js';
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
@@ -18,16 +16,15 @@ import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import type { WhoKnowsUser, FilterStats } from '@bot/models/whoKnowsModels';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
-import { container } from 'tsyringe';
-import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import { ArtistsService } from '@bot/services/artistsService';
-import { AlbumService } from '@bot/services/albumService';
-import { ArtworkService, matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
-import { UserService } from '@bot/services/userService';
-import { LastfmApi } from '@lastfm/api/lastfmApi';
-import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import { DeezerApi } from '@deezer/apis/deezerApi';
-import { Logger } from '@domain/logger';
+
+
+
+
+
+
+
+
+
 import { buildWhoKnowsImageResponse } from './whoKnowsImageBuilder';
 
 export class WhoKnowsBuilders {

@@ -85,9 +85,9 @@ export class AiJudgeService {
     const topTrack = tracks[0]?.name ?? 'Unknown Track';
 
     if (mode === 'roast') {
-      let ratingNum = 2 + Math.floor(Math.random() * 4); // 2-5
+      const ratingNum = 2 + Math.floor(Math.random() * 4); // 2-5
       let headline = `Addicted to ${topArtist} & In Serious Denial`;
-      let paragraphs: string[] = [];
+      const paragraphs: string[] = [];
 
       if (skewRatio > 0.45) {
         headline = `Single-Artist Obsession Syndrome: ${topArtist}`;
@@ -118,9 +118,9 @@ export class AiJudgeService {
     }
 
     if (mode === 'compliment') {
-      let ratingNum = 8 + Math.floor(Math.random() * 2); // 8-9
-      let headline = `Impeccable Taste with Deep Sonic Depth`;
-      let paragraphs: string[] = [];
+      const ratingNum = 8 + Math.floor(Math.random() * 2); // 8-9
+      const headline = `Impeccable Taste with Deep Sonic Depth`;
+      const paragraphs: string[] = [];
 
       paragraphs.push(
         `Leading with **${topArtist}** (**${topArtistPlays.toLocaleString()} plays**) followed by **${secondArtist}** shows a listener who actually commits to artist discographies rather than casually skimming radio hits. You clearly appreciate cohesive albums and intentional songwriting.`,
@@ -144,9 +144,9 @@ export class AiJudgeService {
     }
 
     // Balanced 'judge' mode
-    let ratingNum = 6 + Math.floor(Math.random() * 3); // 6-8
-    let headline = `The Cautious Eclectic: High Potential, Distinct Habits`;
-    let paragraphs: string[] = [];
+    const ratingNum = 6 + Math.floor(Math.random() * 3); // 6-8
+    const headline = `The Cautious Eclectic: High Potential, Distinct Habits`;
+    const paragraphs: string[] = [];
 
     paragraphs.push(
       `Your library displays strong foundational taste anchored by **${topArtist}** (**${topArtistPlays.toLocaleString()} plays**) and **${secondArtist}**. There's genuine musical substance here, avoiding superficial viral trends in favor of established artistic identities.`,

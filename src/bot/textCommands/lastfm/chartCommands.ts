@@ -3,7 +3,7 @@ import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { ChartSettings, TitleSetting } from '@bot/models/chartModels';
 import type { User } from '@persistence/domain/models/user';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import { ChartService, TooManyImagesError } from '@bot/services/chartService';
 import { NotEnoughAlbumsError } from '@bot/services/chartService';
 import { ChartBuilders } from '@bot/builders/chartBuilders';

@@ -11,7 +11,7 @@ import {
   ThumbnailBuilder,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import {
   type FootballDaySchedule,
   type FootballMatch,

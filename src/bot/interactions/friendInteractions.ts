@@ -14,7 +14,7 @@ import { FriendsService } from '@bot/services/friendsService';
 import { UserService } from '@bot/services/userService';
 import { FriendBuilders } from '@bot/builders/friendBuilders';
 import { FriendType, FriendTypeDescriptions, FriendTypeNames } from '@domain/enums/friendType';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import { Logger } from '@domain/logger';
 import { ContextModel } from '@bot/models/contextModel';
 

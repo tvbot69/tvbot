@@ -6,7 +6,7 @@ import { ApiFootballProvider } from '@bot/services/football/apiFootballProvider'
 import { FootballBadgeService, normalizeTeamSlug } from '@bot/services/football/footballBadgeService';
 import { FootballService } from '@bot/services/football/footballService';
 import { FootballBuilders } from '@bot/builders/footballBuilders';
-import { SUPPORTED_LEAGUES, getLeagueById, findLeagueByQuery } from '@domain/models/football/footballModels';
+import { findLeagueByQuery } from '@domain/models/football/footballModels';
 
 describe('Football System Tests', () => {
   const espn = new EspnFootballProvider();

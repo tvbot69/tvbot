@@ -13,7 +13,7 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/colorService';
 import { storeCountryQuery } from '@bot/interactions/countryInteractions';
-import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
+import { WorldMapGenerator } from '@images/generators/worldMapGenerator';
 
 const periodChoices = [
   { name: 'Weekly (7 days)', value: 'weekly' },

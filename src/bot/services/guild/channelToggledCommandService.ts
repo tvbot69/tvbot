@@ -35,7 +35,7 @@ export class ChannelToggledCommandService {
     return nowToggled;
   }
 
-  public async isCommandToggled(guildId: string, channelId?: string | null, commandName?: string): Promise<boolean> {
+  public async isCommandToggled(_guildId: string, channelId?: string | null, commandName?: string): Promise<boolean> {
     if (!channelId || !commandName) {
       return false;
     }

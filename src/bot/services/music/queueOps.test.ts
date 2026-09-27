@@ -220,7 +220,7 @@ describe('MusicService combined queue (resolved + pending)', () => {
   });
 
   it('remove() drops pending entries beyond the resolved queue', () => {
-    const { svc, player, titles } = makeCombined(['a', 'b'], 2);
+    const { svc, titles } = makeCombined(['a', 'b'], 2);
     const removed = svc.remove('g', 3);
     expect(removed?.title).toBe('Title1');
     expect(titles()).toEqual(['a', 'b']);

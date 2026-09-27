@@ -3,11 +3,12 @@ import { Logger } from './logger';
 
 describe('CustomLogger context preservation', () => {
   let lines: string[];
-  let spy: ReturnType<typeof vi.spyOn>;
+  // Side-effect only: the spy swallows console output for the whole suite. Never read.
+  let _spy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     lines = [];
-    spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+    _spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
       lines.push(args.map(String).join(' '));
     });
   });

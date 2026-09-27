@@ -76,7 +76,7 @@ export class ProfileBuilders {
     const albumCount = stats.differentAlbumsCount ?? lastFmUser.albumCount;
     const artistCount = stats.differentArtistsCount ?? lastFmUser.artistCount;
 
-    let varietyLines: string[] = [];
+    const varietyLines: string[] = [];
     if (trackCount && trackCount > 0) {
       varietyLines.push(`**${trackCount.toLocaleString('en-US')}** different tracks`);
     }
@@ -88,7 +88,7 @@ export class ProfileBuilders {
     }
 
     // Averages and stats section
-    let statLines: string[] = [];
+    const statLines: string[] = [];
     if (registeredUnix > 0 && lastFmUser.playCount > 0) {
       const days = Math.max(0.1, (Date.now() - registeredUnix * 1000) / (1000 * 86400));
       const avgPerDay = (Math.round((lastFmUser.playCount / days) * 10) / 10).toLocaleString('en-US', {

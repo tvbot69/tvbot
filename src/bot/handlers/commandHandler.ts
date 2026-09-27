@@ -2,7 +2,7 @@ import { container } from 'tsyringe';
 import { Client, Events, MessageFlags, type Message } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { Statistics } from '@domain/statistics';
-import { CommandResponse } from '@domain/enums/commandResponse';
+
 import { ContextModel } from '@bot/models/contextModel';
 import { PrefixService } from '@bot/services/prefixService';
 import { GuildService } from '@bot/services/guild/guildService';

@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
-import { DiscordConstants } from '@bot/resources/discordConstants';
+
 import type { TopAlbum, TopArtist, TopTrack } from '@domain/models/topLists';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import { ResponseMode } from '@domain/enums/responseMode';
