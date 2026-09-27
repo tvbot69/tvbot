@@ -144,3 +144,76 @@ musicTypes.ts          leaf interfaces + ports (PendingEntry, PlayerProvider,
 
 **Before reporting success**
 State what was *verified* and what was *not*. A green suite is necessary, not sufficient: voice connection, audio throughput, FFmpeg and real Discord behaviour are not covered by any test. Say so plainly rather than implying everything works.
+
+---
+
+## 9. Symptom → log line → cause
+
+**This section is the highest-value thing in this file. Read it before changing playback code.**
+
+On 2026-09-27 four separate multi-hour bugs were found by reading logs, and **every one of them passed a fully green test suite first**. A green suite is not evidence that playback works; it is evidence that the code matches the doubles. Grep first, theorise second.
+
+| What the user sees | Grep for | Usual cause |
+|---|---|---|
+| Chapter title changes, artwork never does | `[Music] Chapter art` with `ok: false` | The artwork cascade returned nothing. Usually a provider title shape the matcher rejects. Check the real provider response before touching the matcher. |
+| Card silently snaps back to an earlier song | `Stale position read — refused chapter rewind` (DEBUG) | A position read moved backwards. Either a genuinely stale reader (see §10) or a real bug. Repeated lines every tick = the position reader is persistently wrong, not briefly stale. |
+| Card frozen on one chapter for a whole show | `Implausible chapter jump` repeating with **no** `Chapter jump confirmed after settle` | The settle re-derive is not firing, so the guard never resolves. |
+| A seek takes ~17s to commit | `Implausible chapter jump` twice, then `confirmed after settle` | The guard treated a user seek as clock drift. Should be instant. |
+| Buttons stop responding | `DiscordAPIError[10008]: Unknown Message` from an interactions file | The card was deleted while the press was in flight. `interaction.update` threw instead of degrading. |
+| A command silently does the wrong thing | `Text command name collision — later registration wins` | Two commands share a name; one is unreachable. Seen on `.remove` and `.lyrics`. |
+| Playlist adds fewer tracks than it has | `Scraper returned no more tracks` | Spotify caps playlist contents at 100 for app-only tokens (§10). The user is told via `partialReason`. |
+| Dead air, no error at all | **absence** of `[Music] fallback rung` after `[Music] Track stuck` | The fallback ladder is not firing. This is the scariest class: no error, just silence. |
+| Card edit keeps failing | `[Music] Card edit failed` with a `code`/`status` | Discord throttling or a deleted message. `retry_after` is honoured; a fixed 5s backoff is not. |
+| No card appears at track start | `Failed to dispatch trackStart Now Playing card` | Channel resolution or post failed. |
+| Right song, wrong art, only sometimes | `[art-timing] ... art at render: no` | Cover race: the card rendered before the lookup resolved. Benign if a later `Artwork backfilled` follows. |
+| Lyrics/karaoke not advancing | absence of any lyric-line publish | The self-re-arming timer chain died. `clearCardTimers` should stop it; if not, the card is frozen too. |
+
+### How to read the logs
+The user runs locally and reads Railway. Ask for the log rather than guessing. Useful greps:
+- `Chapter art` — every chapter cover attempt, with `ok` and `artMs`
+- `Stale position read` — the rewind guard
+- `fallback rung` — one line per rung of the alternate-upload ladder
+- `Text command name collision` — printed once at startup; check it every time
+- `[art-timing]` — artwork resolve-vs-render correlation, deliberately retained
+
+### Probe the real API before theorising
+When the cause looks like "the provider is wrong", **it usually is**. Write a throwaway `.mjs`, read keys from `.env`, never print them, and hit the real endpoint. Two of the biggest bugs this session were confirmed that way in under a minute:
+```
+node -e "…fetch('https://api.spotify.com/v1/search?q=…')…"   # keys from .env
+```
+Do not reason about a third party's response shape from memory. Measure it.
+
+---
+
+## 10. Known failure modes (scar tissue)
+
+Each of these cost real time. Re-deriving them is pure waste.
+
+- **`current.position` / `current.time` are moonlink's, not ours.** The node rewrites them from the *pre-seek* position for several seconds after a seek lands. Never trust them alone; `queueService.calculatePosition` treats a recent `lastUserSeekAt`/`lastUserSeekPos` as authoritative, forward-only. This was the true cause of a chapter rewind that took two days to find.
+- **Spotify playlist contents are 403 for app-only tokens.** `/v1/playlists/{id}/tracks` is forbidden; `/v1/playlists/{id}` returns metadata with no `tracks`; the anonymous `open.spotify.com/get_access_token` endpoint now returns XML; the main playlist HTML no longer ships `__NEXT_DATA__`; the embed page returns the same first 100 tracks regardless of `?offset`. 100 is a hard ceiling. Extended quota — the only route past it — is granted solely to organisations with 250k+ MAU, so it is not available here. Do not build a chunker that pages past 100.
+- **Catalogue title shapes break strict matching.** DJ-pool and compilation rips prefix a date (`20191009 I Like Her`, `20200817 Proud True Toyota`) and are often the *only* rows a provider returns. Matching must strip a LEADING date, while staying strict: `"Song"` must never match `"Song 2"`, and `1989` is a title, not a date.
+- **The Redis FIFO warning is expected.** Write-then-trim ordering is consistent and failure replay is intentional. Do not "fix" it.
+- **A search timeout must keep cooling the node.** That came from a real uplink-stall incident. Only the collateral migration damage was softened.
+- **TrackStart swallows errors behind a `try/catch`.** It logs a warning, but a missing method on a test double once failed silently for a full test run. When a card mysteriously does not appear, check the log for that warning before anything else.
+- **Moonlink can raise `trackStuck` and `trackException` for the same track.** Both handlers claim `inFlightFallbacks` before acting; without that claim the same alternate gets enqueued twice and the track is skipped twice.
+- **`Moonlink v5 restart()` re-sends a voice payload without `channelId`**, which Lavalink 4.2.2 rejects with a 400. Resume after a rejoin uses `connect()` + `resume()` + explicit seek instead. Do not "simplify" it back.
+
+---
+
+## 11. The test-gap problem, stated honestly
+
+This session found four multi-hour bugs. The suite was green for all four. The reason is consistent and worth remembering:
+
+> **Every bug lived in the gap between our abstraction and reality, and our tests are written against our abstraction.**
+
+- The date-prefix bug: `matchesTrackTitle` had tests, but every fixture title was invented. None had seen a real provider response.
+- The seek-position bug: no test existed, and every player double set `current.position` *correctly* — our double agreed with our code's assumption, modelling away the exact thing that broke.
+- The chapter rewind: the tests were single-step; the bug needed a sequence (seek, then a stale read).
+- The listener-wrapper regression: **caught**, because that test drives the real Moonlink interface and awaits it rather than testing our abstraction of it.
+
+Three fixes, in priority order:
+1. **Fixtures captured from real provider responses**, replayed in tests. A recorded Spotify/Last.fm/YouTube payload kills this whole class.
+2. **Invariant tests over event sequences**, not examples. "For any sequence of seeks, stalls and track changes, the displayed chapter never moves backwards without a recorded seek" covers the rewind, the stall path, and whatever is next. Examples cannot express this; properties can.
+3. **Doubles that are deliberately uncooperative** — a double whose `current.position` *disagrees* with the recorded seek intent. Cooperation between double and code is what hid the bug.
+
+And the honest limit: **no test can catch "Spotify changed their API"**, because that is a fact about the world. Only watching the real thing catches it — which is why §9 exists, and why reading the log is part of the job rather than a fallback.
