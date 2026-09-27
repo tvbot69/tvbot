@@ -2,6 +2,9 @@ import type {
   TopAlbumsResponseLfm,
   TopArtistsResponseLfm,
   TopTracksResponseLfm,
+  WeeklyAlbumChartResponseLfm,
+  WeeklyArtistChartResponseLfm,
+  WeeklyTrackChartResponseLfm,
 } from '@lastfm/models/topListsLfm';
 import type { LfmImage } from '@lastfm/models/recentTracksLfm';
 import type { TopAlbum, TopArtist, TopTrack } from '@domain/models/topLists';
@@ -29,6 +32,18 @@ const extractArtistName = (
 const pickCover = (images?: LfmImage[]): string | undefined =>
   TrackConverter.pickLargestImage(images);
 
+/**
+ * Last.fm sends `playcount` as a string, so it needs coercing. But a bare
+ * `Number(x)` returns NaN for a non-numeric string, and NaN renders in an
+ * embed as "NaN plays" - a visible glitch that no type checker can catch,
+ * since the field is genuinely typed `string`. `?? 0` does not help either:
+ * it only catches null/undefined, not a string that simply isn't a number.
+ */
+const toPlaycount = (raw: string | undefined): number => {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+};
+
 export class TopListConverter {
   public static convertTopArtists(response: TopArtistsResponseLfm): TopArtist[] {
     const artists = Array.isArray(response.topartists.artist)
@@ -36,7 +51,7 @@ export class TopListConverter {
       : [];
     return artists.map((a) => ({
       name: a.name,
-      playcount: Number(a.playcount),
+      playcount: toPlaycount(a.playcount),
       mbid: a.mbid || undefined,
       url: a.url || undefined,
     }));
@@ -49,7 +64,7 @@ export class TopListConverter {
     return albums.map((a) => ({
       name: a.name,
       artistName: extractArtistName(a.artist),
-      playcount: Number(a.playcount),
+      playcount: toPlaycount(a.playcount),
       mbid: a.mbid || undefined,
       url: a.url || undefined,
       imageUrl: pickCover(a.image),
@@ -63,44 +78,46 @@ export class TopListConverter {
     return tracks.map((t) => ({
       name: t.name,
       artistName: extractArtistName(t.artist),
-      playcount: Number(t.playcount),
+      playcount: toPlaycount(t.playcount),
       mbid: t.mbid || undefined,
       url: t.url || undefined,
       imageUrl: pickCover(t.image),
     }));
   }
 
-  public static convertWeeklyArtistChart(response: any): TopArtist[] {
+  public static convertWeeklyArtistChart(response: WeeklyArtistChartResponseLfm): TopArtist[] {
     const raw = response?.weeklyartistchart?.artist;
+    // `raw ? [raw] : []` is not a typo: a single-entry chart arrives as a bare
+    // object, so it is normalized here. See the type's comment.
     const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
-    return list.map((a: any) => ({
+    return list.map((a) => ({
       name: a.name,
-      playcount: Number(a.playcount ?? 0),
+      playcount: toPlaycount(a.playcount),
       mbid: a.mbid || undefined,
       url: a.url || undefined,
     }));
   }
 
-  public static convertWeeklyAlbumChart(response: any): TopAlbum[] {
+  public static convertWeeklyAlbumChart(response: WeeklyAlbumChartResponseLfm): TopAlbum[] {
     const raw = response?.weeklyalbumchart?.album;
     const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
-    return list.map((a: any) => ({
+    return list.map((a) => ({
       name: a.name,
       artistName: extractArtistName(a.artist),
-      playcount: Number(a.playcount ?? 0),
+      playcount: toPlaycount(a.playcount),
       mbid: a.mbid || undefined,
       url: a.url || undefined,
       imageUrl: pickCover(a.image),
     }));
   }
 
-  public static convertWeeklyTrackChart(response: any): TopTrack[] {
+  public static convertWeeklyTrackChart(response: WeeklyTrackChartResponseLfm): TopTrack[] {
     const raw = response?.weeklytrackchart?.track;
     const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
-    return list.map((t: any) => ({
+    return list.map((t) => ({
       name: t.name,
       artistName: extractArtistName(t.artist),
-      playcount: Number(t.playcount ?? 0),
+      playcount: toPlaycount(t.playcount),
       mbid: t.mbid || undefined,
       url: t.url || undefined,
       imageUrl: pickCover(t.image),

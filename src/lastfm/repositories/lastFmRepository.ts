@@ -25,6 +25,9 @@ import type {
   TopAlbumsResponseLfm,
   TopArtistsResponseLfm,
   TopTracksResponseLfm,
+  WeeklyAlbumChartResponseLfm,
+  WeeklyArtistChartResponseLfm,
+  WeeklyTrackChartResponseLfm,
 } from '@lastfm/models/topListsLfm';
 import type {
   AlbumInfoResponseLfm,
@@ -360,8 +363,8 @@ export class LastFmRepository implements ILastfmRepository {
           ...(sessionKey ? { sk: sessionKey } : {}),
         };
         const response = sessionKey
-          ? await this.api.callSigned<any>('user.getweeklyartistchart', params, 'GET')
-          : await this.api.call<any>('user.getweeklyartistchart', params);
+          ? await this.api.callSigned<WeeklyArtistChartResponseLfm>('user.getweeklyartistchart', params, 'GET')
+          : await this.api.call<WeeklyArtistChartResponseLfm>('user.getweeklyartistchart', params);
         let result = TopListConverter.convertWeeklyArtistChart(response);
         if (count && count > 0 && result.length > count) {
           result = result.slice(0, count);
@@ -436,8 +439,8 @@ export class LastFmRepository implements ILastfmRepository {
           ...(sessionKey ? { sk: sessionKey } : {}),
         };
         const response = sessionKey
-          ? await this.api.callSigned<any>('user.getweeklyalbumchart', params, 'GET')
-          : await this.api.call<any>('user.getweeklyalbumchart', params);
+          ? await this.api.callSigned<WeeklyAlbumChartResponseLfm>('user.getweeklyalbumchart', params, 'GET')
+          : await this.api.call<WeeklyAlbumChartResponseLfm>('user.getweeklyalbumchart', params);
         let result = TopListConverter.convertWeeklyAlbumChart(response);
         if (count && count > 0 && result.length > count) {
           result = result.slice(0, count);
@@ -512,8 +515,8 @@ export class LastFmRepository implements ILastfmRepository {
           ...(sessionKey ? { sk: sessionKey } : {}),
         };
         const response = sessionKey
-          ? await this.api.callSigned<any>('user.getweeklytrackchart', params, 'GET')
-          : await this.api.call<any>('user.getweeklytrackchart', params);
+          ? await this.api.callSigned<WeeklyTrackChartResponseLfm>('user.getweeklytrackchart', params, 'GET')
+          : await this.api.call<WeeklyTrackChartResponseLfm>('user.getweeklytrackchart', params);
         let result = TopListConverter.convertWeeklyTrackChart(response);
         if (count && count > 0 && result.length > count) {
           result = result.slice(0, count);
