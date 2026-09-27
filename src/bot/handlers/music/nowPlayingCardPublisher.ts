@@ -1,0 +1,249 @@
+import type { Client } from 'discord.js';
+import type { Player } from 'moonlink.js';
+import { Logger } from '@domain/logger';
+import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { resolveDisplayedChapter } from '@bot/services/music/videoChapters';
+import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
+import { chapterKeyFor, fingerprintFor } from './cardFingerprint';
+import type { LyricWindow } from '@bot/services/music/syncedLyrics';
+
+/** A hung edit settles nothing and would wedge the in-flight guard. */
+const EDIT_TIMEOUT_MS = 10000;
+/** Bounded retries so a chapter attach isn't lost to one bad call. */
+const MAX_PUBLISH_RETRIES = 3;
+/** In-flight guard window: a slower edit than this is treated as stalled. */
+const PUBLISH_STALL_MS = 30_000;
+
+/**
+ * The now-playing card publisher: fingerprint dirty-check, in-flight
+ * coalescing, the `msg.edit` itself, 10008 recovery and bounded 429-aware
+ * retries.
+ *
+ * Extracted from MusicHandler. The five Maps are passed in BY REFERENCE and
+ * stay owned by the handler — the test suite reads `progressPublishing`,
+ * `progressFingerprints`, `publishRetries` and `progressNudgeTimers` directly,
+ * and `clearCardTimers`/`forgetGuild` sweep them.
+ *
+ * EVERY call back into the handler goes through `host`, never through this
+ * object. `publishProgress` is spied at several sites in the suite and
+ * `clearCardTimers` is replaced wholesale by an own property; a sibling call
+ * would leave both un-intercepted and the card would silently freeze rather
+ * than fail.
+ */
+export interface CardPublisherHost {
+  readonly client: Client;
+  readonly queueService: import('@bot/services/music/queueService').QueueService;
+  /** Read live, never captured: tests reassign it after construction. */
+  readonly colorService?: import('@bot/services/colorService').ColorService;
+  lyricWindowFor(player: Player, positionMs: number): LyricWindow | null;
+  chapterCardFor(player: Player, positionMs: number): { title: string; artworkUrl?: string | null } | null;
+  updateChapterStatus(player: Player): void;
+  forgetNowPlaying(player: Player): void;
+  scheduleImmediateProgress(player: Player, delayMs?: number): void;
+  publishProgress(player: Player): Promise<void>;
+}
+
+export class NowPlayingCardPublisher {
+  public constructor(
+    private readonly host: CardPublisherHost,
+    private readonly progressNudgeTimers: Map<string, NodeJS.Timeout>,
+    private readonly progressPublishing: Map<string, number>,
+    private readonly progressFingerprints: Map<string, string>,
+    private readonly publishRetries: Map<string, number>,
+    private readonly pendingPublish: Set<string>,
+  ) {}
+
+  /**
+   * Publishes the now-playing card when its visible fingerprint changed.
+   * Purely on-demand (track start, boundary timers, seeks, nudges) — there
+   * is no polling loop. The fingerprint admits an edit only on real change.
+   *
+   * Overlapping publishes COALESCE (they never drop): a chapter cover that
+   * lands while an edit is in flight used to be discarded by the in-flight
+   * guard, so the card kept the previous song's artwork until the next
+   * chapter boundary — or forever on the last chapter of a set. Arriving
+   * mid-edit now queues exactly one follow-up pass, which re-derives the
+   * (new) state and publishes it if it is still visibly different.
+   */
+  public async publishProgress(player: Player): Promise<void> {
+    const guildId = player.guildId;
+    const guardSince = this.progressPublishing.get(guildId);
+    if (guardSince !== undefined && Date.now() - guardSince < PUBLISH_STALL_MS) {
+      this.pendingPublish.add(guildId);
+      return;
+    }
+    this.progressPublishing.set(guildId, Date.now());
+    try {
+      if (!player.playing || !player.textChannelId) return;
+
+      const msgId = player.get<string>('nowPlayingMessageId');
+      if (!msgId) return;
+
+      const queue = this.host.queueService.getQueueInfo(player);
+      if (!queue) return;
+      // Dirty check: skip the edit when nothing visible changed (same track,
+      // pause state, queue size, loop, volume, karaoke window, chapter card).
+      // There is no position bucket anymore — position is never displayed,
+      // so movement alone must not cost an edit.
+      const lyricWindow = this.host.lyricWindowFor(player, queue.position);
+      const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
+      const chapter = this.host.chapterCardFor(player, queue.position);
+      // Borrowed-cover expiry: holding the previous chapter's art avoids a
+      // flash, but a chapter that never resolves must not sit on the wrong
+      // song's cover. Short window, then fall through to the track's own art.
+      let holdCover = player.get<string | null>('lastCoverUrl') ?? null;
+      if (chapter && !chapter.artworkUrl) {
+        const startedAt = player.get<number | null>('chapterStartedAt') ?? null;
+        if (typeof startedAt === 'number' && Date.now() - startedAt > BORROWED_COVER_MS) {
+          holdCover = null;
+        }
+      }
+      const { card: displayChapter, shownCover } = resolveDisplayedChapter(
+        chapter,
+        holdCover,
+        queue.current?.artworkUrl,
+      );
+      if (shownCover) player.set('lastCoverUrl', shownCover);
+      const chapterKey = chapterKeyFor(displayChapter, shownCover);
+      const fingerprint = fingerprintFor(queue, lyricKey, chapterKey);
+      if (this.progressFingerprints.get(guildId) === fingerprint) return;
+
+      const channel =
+        this.host.client.channels.cache.get(player.textChannelId) ??
+        (await this.host.client.channels.fetch(player.textChannelId).catch(() => null));
+      if (!channel || !channel.isTextBased() || !('messages' in channel)) return;
+
+      const msgManager = (
+        channel as unknown as {
+          messages: {
+            cache: { get: (id: string) => unknown };
+            fetch: (id: string) => Promise<unknown>;
+          };
+        }
+      ).messages;
+
+      let unknownMessage = false;
+      const msg = (msgManager.cache.get(msgId) ??
+        (await msgManager.fetch(msgId).catch((err: { code?: number }) => {
+          if (err?.code === 10008) unknownMessage = true;
+          return null;
+        }))) as {
+        edit: (data: unknown) => Promise<unknown>;
+      } | null;
+
+      if (!msg) {
+        if (unknownMessage) this.host.forgetNowPlaying(player);
+        return;
+      }
+
+      // Accent follows the DISPLAYED cover (chapter art when present),
+      // not just top-level track art — long-form tracks pin track art
+      // to the video thumbnail while the card image follows chapters.
+      const colorService = this.host.colorService;
+      const accentColor = colorService
+        ? await colorService.getAccentColorAsync(player.guildId, shownCover ?? queue.current?.artworkUrl)
+        : undefined;
+      const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, displayChapter);
+
+      // A hung edit settles nothing and would wedge the guard above: race
+      // it so the publish always settles and the next trigger retries.
+      // Successful publishes stay silent by design (no per-edit INFO spam).
+      let editTimer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([
+          msg.edit(response.toMessagePayload() as unknown as Record<string, unknown>),
+          new Promise<never>((_, reject) => {
+            editTimer = setTimeout(() => reject(new Error('Now-playing edit timed out')), EDIT_TIMEOUT_MS);
+          }),
+        ])
+          .then(() => {
+            this.progressFingerprints.set(guildId, fingerprint);
+            this.publishRetries.delete(guildId);
+            // Status follows successful edits only — updating it before the
+            // edit permanently diverged room status from the card whenever
+            // the edit failed (no tick retries it anymore).
+            this.host.updateChapterStatus(player);
+          })
+          .catch((err: {
+            code?: number;
+            status?: number;
+            message?: string;
+            retryAfter?: number;
+            rawError?: { retry_after?: number };
+            retry_after?: number;
+          }) => {
+            if (err?.code === 10008) {
+              this.publishRetries.delete(guildId);
+              this.host.forgetNowPlaying(player);
+              return;
+            }
+            // The card still exists but the edit failed. Log the cause —
+            // blind catches hid escalating Discord throttling here before —
+            // and honor 429 retry_after instead of hammering a fixed delay.
+            const retryAfterSec =
+              (typeof err?.retryAfter === 'number' && err.retryAfter > 0 && err.retryAfter) ||
+              (typeof err?.rawError?.retry_after === 'number' && err.rawError.retry_after > 0 &&
+                err.rawError.retry_after) ||
+              (typeof err?.retry_after === 'number' && err.retry_after > 0 && err.retry_after) ||
+              0;
+            Logger.warn(
+              {
+                guildId,
+                code: err?.code,
+                status: err?.status,
+                retryAfterSec,
+                message: String(err?.message ?? err).slice(0, 160),
+              },
+              '[Music] Card edit failed',
+            );
+            // Bounded retries so a chapter attach isn't lost to one bad
+            // call. Boundary timers remain the steady-state retry path.
+            const retries = (this.publishRetries.get(guildId) ?? 0) + 1;
+            if (retries <= MAX_PUBLISH_RETRIES) {
+              this.publishRetries.set(guildId, retries);
+              const backoffMs = retryAfterSec > 0 ? Math.min(Math.ceil(retryAfterSec * 1000) + 1000, 60000) : 5000;
+              this.host.scheduleImmediateProgress(player, backoffMs);
+            } else {
+              this.publishRetries.delete(guildId);
+            }
+          });
+      } finally {
+        if (editTimer) clearTimeout(editTimer);
+      }
+    } catch {
+      // Silently skip if rate limited or network hiccup
+    } finally {
+      this.progressPublishing.delete(guildId);
+    }
+    // Drain the coalesced follow-up AFTER releasing the guard, so it can
+    // actually run. Bounded by the fingerprint: a burst of chapter/art
+    // updates collapses into at most one extra edit per settle.
+    if (this.pendingPublish.delete(guildId)) {
+      void this.host.publishProgress(player).catch(() => undefined);
+    }
+  }
+
+  /** The card was deleted out-of-band (user or channel cleanup) — stop ticking on a dead message id. */
+  public forgetNowPlaying(player: Player): void {
+    player.set('nowPlayingMessageId', null);
+    this.progressFingerprints.delete(player.guildId);
+    this.publishRetries.delete(player.guildId);
+    Logger.debug({ guildId: player.guildId }, '[Music] Now-playing card gone — cleared card state');
+  }
+
+  /**
+   * Runs the card publish shortly after a state change (chapters attached,
+   * chapter art resolved). Debounced per guild so bursts collapse into one
+   * edit. The only deferred publish path — everything else is instant.
+   */
+  public scheduleImmediateProgress(player: Player, delayMs = 300): void {
+    const guildId = player.guildId;
+    const existing = this.progressNudgeTimers.get(guildId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.progressNudgeTimers.delete(guildId);
+      void this.host.publishProgress(player);
+    }, delayMs);
+    this.progressNudgeTimers.set(guildId, timer);
+  }
+}

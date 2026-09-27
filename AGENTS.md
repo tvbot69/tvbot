@@ -1,72 +1,146 @@
 # tvbot — AI Assistant Instructions & Workspace Rules
 
-> **MANDATORY CONTEXT: This file is automatically loaded on every turn.**
-> You are the dedicated core engineer on **tvbot**, a private, unlimited Discord bot mirroring `fmbot` for Last.fm stats and Lavalink music.
-> You do not need to ask the user what the bot is or how it works. Read this document and [tvbot.md](file:///home/moha/Desktop/tvbot/tvbot.md) for full context.
+> **MANDATORY CONTEXT: this file is loaded on every turn.**
+> You are the dedicated core engineer on **tvbot**, a private unlimited Discord bot mirroring `fmbot` for Last.fm stats and Lavalink music. You do not need to ask what the bot is. Read this file, then `tvbot.md` for the long-form handbook.
+
+Paths below are **repo-relative**. Do not write absolute `file://` URLs — they break on any machine that isn't the author's.
 
 ---
 
 ## 1. Project Overview & Technology Stack
 - **Name**: `tvbot`
-- **Purpose**: Full-featured Discord music statistics and audio bot mirroring `fmbot-dev` without rate-limits.
+- **Purpose**: Full-featured Discord music + Last.fm statistics bot mirroring `fmbot-dev`, without rate limits.
 - **Stack**:
-  - **Runtime**: Node.js 22 LTS (managed via `fnm` on Arch Linux) + TypeScript 5.7
+  - **Runtime**: Node.js 22 LTS + TypeScript 5.7 (ES2022 target, `useDefineForClassFields: true`)
   - **Discord**: `discord.js` v14.18 (Gateway Intents, Interactions, Voice Message Flags `8192`)
-  - **Persistence**: Prisma ORM 6.5 + PostgreSQL (Hosted on Railway)
-  - **DI Container**: `tsyringe` manual singleton registration in [startup.ts](file:///home/moha/Desktop/tvbot/src/bot/startup.ts)
-  - **Cache**: `ioredis` with automatic in-memory LRU fallback in [cacheService.ts](file:///home/moha/Desktop/tvbot/src/bot/services/cacheService.ts)
-  - **Music & Audio**: `moonlink.js` v5 (Lavalink v4 nodes with auto-failover) + `fluent-ffmpeg` / `/usr/bin/ffmpeg` + `essentia.js` WASM DSP (BPM & Key detection)
-  - **Graphics**: `puppeteer` 25.9 (ephemeral headless Chrome in dev, persistent in prod) for chart collages (`3x3`, `5x5`, etc.)
+  - **Persistence**: Prisma 6.5 + PostgreSQL (Railway)
+  - **DI**: `tsyringe`, **manual singleton registration** in `src/bot/startup.ts`
+  - **Cache**: `ioredis` with automatic in-memory LRU fallback (`src/bot/services/cacheService.ts`)
+  - **Music**: `moonlink.js` v5 (Lavalink v4, auto-failover) + `fluent-ffmpeg` + `essentia.js` WASM (BPM/key)
+  - **Graphics**: `puppeteer` 25.9 (ephemeral in dev, persistent in prod) for chart collages
+- **Scale**: ~470 TypeScript files, ~82k lines. Commands are dual-mode: ~146 slash entries and ~570 text triggers over shared builders.
 
 ---
 
-## 2. Golden Architectural Rules
-1. **Dependency Injection**:
-   - Every service, repository, command handler, and interaction listener is manually instantiated and registered in `src/bot/startup.ts:configureContainer()`.
-   - Never rely on hidden reflection decorators or implicit bindings.
-2. **Artwork Resolution**:
-   - **Never trust Last.fm's `imageUrl` directly** — it frequently returns the `2a96cbd8b46e442fc41c2b86b821562f` missing image placeholder.
-   - Always resolve covers through `ArtworkService` (`Spotify Search API → Deezer API → Apple Music API → Last.fm API`, cached 3600s).
-3. **Dual-Mode Commands**:
-   - Every command exists both as a Slash command (`src/bot/slashCommands/`) and a text command with prefix `.` (`src/bot/textCommands/`).
-   - Both delegate to a common `src/bot/builders/*Builders.ts` which returns a unified `ResponseModel`.
-4. **Environment & Lavalink**:
-   - In dev (`ENVIRONMENT=local`), `ENABLE_LAVALINK=false` by default to avoid burning public node rate-limits on rapid code reloads.
-   - Puppeteer runs in ephemeral mode in dev (no `.puppeteer` directory lock conflicts).
-5. **Verification**:
-   - Always run `npm run build` and `npm test` after modifying code. All 58 test suites (398 tests) must pass.
+## 2. Verification Gates (non-negotiable, in this order)
+1. `npm run build` — must be clean. A failed build means the task is **not** done.
+2. `npm test` — all suites green. Never weaken or delete a test to make something pass unless the user approves it.
+3. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
+4. Push **only** when asked.
+
+Current baseline: **117 test files / 919 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
 
 ---
 
-## 3. Key Directory Map
-- `src/bot/startup.ts`: Main application dependency graph and bootstrap.
-- `src/bot/configurations/`: Environment validation (`configData.ts`, `envValidator.ts`).
-- `src/bot/handlers/`: Discord event dispatchers (`interactionHandler.ts`, `commandHandler.ts`, `musicHandler.ts`).
-- `src/bot/services/`: Core logic:
-  - `updateService.ts` & `indexService.ts`: Last.fm library synchronization and 1000-page historical indexing.
-  - `artworkService.ts`: Multi-source artwork cascade.
-  - `whoKnows/`: Guild listener leaderboards (`whoKnowsArtistService.ts`, `whoKnowsAlbumService.ts`, `whoKnowsTrackService.ts`).
-  - `crown/crownService.ts`: Crown claiming, stealing, guild seeding, and moderation.
-  - `autopostService.ts`: Scheduled recurring leaderboard postings.
-  - `audio/`: `essentiaService.ts` (BPM/Key), `previewResolverService.ts` (previews), `voiceMessageService.ts` (Discord voice notes).
-  - `music/`: `moonlinkManager.ts` (Lavalink node failover) and `musicService.ts`.
-- `src/bot/builders/`: Factory classes constructing embeds, action rows, and interactive buttons (`playBuilders.ts`, `whoKnowsBuilders.ts`, `topBuilders.ts`, `chartBuilders.ts`, etc.).
-- `src/bot/interactions/`: Handlers for Discord buttons, select menus, and modals (`nowPlayingInteractions.ts`, `userSettingsInteractions.ts`, `topInteractions.ts`, etc.).
-- `src/persistence/`: Prisma schema (`prisma/schema.prisma`) and repository classes (`userRepository.ts`, `playRepository.ts`, `crownRepository.ts`, `autopostRepository.ts`, etc.).
-- `src/domain/`: Pure domain interfaces, enums (`commandResponse.ts`, `fmEmbedType.ts`, `coverType.ts`, `responseMode.ts`), and logger.
+## 3. Golden Architectural Rules
+
+1. **Dependency injection is manual.** Every service, repository, command handler and interaction listener is constructed by hand and registered in `src/bot/startup.ts`. Never rely on reflection or implicit bindings. Positional constructor calls in `startup.ts` are load-bearing — reordering a constructor is a breaking change.
+
+2. **Never trust Last.fm's `imageUrl`.** It frequently returns the placeholder `2a96cbd8b46e442fc41c2b86b821562f`. All artwork goes through `ArtworkService` (Spotify → Deezer → Apple → Last.fm). The placeholder check lives in exactly one exported predicate, `isPlaceholderImageUrl` — call it, never re-inline the hash.
+
+3. **Artwork title matching must survive real catalogue shapes.** Matching is deliberately strict (never substring — `"Song"` must not match `"Song 2"`), and it must tolerate a **leading date prefix**, because DJ-pool and compilation rips are often the *only* thing a provider returns: Mac DeMarco's "I Like Her" comes back as `20191009 I Like Her` on "Cottage Core"-style albums. Without the prefix strip, correct-artist/right-recording rows get rejected and the card holds the previous cover forever. See `matchesTrackTitle` in `artworkService.ts` and `artworkService.datePrefix.test.ts`.
+
+4. **Dual-mode commands.** Every command exists as a slash command (`src/bot/slashCommands/`) *and* a text command (`src/bot/textCommands/`, prefix `.`). Both delegate to a shared `src/bot/builders/*Builders.ts` returning a `ResponseModel`. **Command names must be globally unique across both families** — the registry logs a collision and silently lets the later registration win, making the other unreachable. This has already bitten `.remove` (account unlink vs queue remove) and `.lyrics`.
+
+5. **YouTube ids are exactly 11 chars.** Gate every outbound id with `/^[\w-]{11}$/`.
+
+6. **Chapter/artwork state is only decoration.** Chapter logic must never break playback, and must never trip the audio resolver's pause/alert machinery.
+
+7. **Environment**: in dev (`ENVIRONMENT=local`) `ENABLE_LAVALINK=false` by default, to avoid burning public node rate limits on reload.
 
 ---
 
-## 4. Workflows & Runbooks
-- **Adding a Command (1:1 from fmbot)**:
-  1. Check `fmbot-dev` reference implementation.
-  2. Implement service method in `src/bot/services/`.
-  3. Create response in `src/bot/builders/*Builders.ts`.
-  4. Create slash command in `src/bot/slashCommands/` and text command in `src/bot/textCommands/`.
-  5. If interactive, add handler in `src/bot/interactions/` and route in `src/bot/handlers/interactionHandler.ts`.
-  6. Register in `src/bot/startup.ts` and exports.
-  7. Run `npm run build && npm test`.
-- **Database Migrations**:
-  - Edit `src/persistence/prisma/schema.prisma`.
-  - Run `npm run db:generate`.
-  - For Railway PostgreSQL, verify with `npx prisma migrate status`.
+## 4. Playback Architecture
+
+The music module is a **strict DAG**. Nothing below imports `MusicService` back.
+
+```
+musicTypes.ts          leaf interfaces + ports (PendingEntry, PlayerProvider,
+                       QueueInfoProvider, PendingQueueView) — imports NOTHING
+                       from the music module, which is what keeps the DAG acyclic
+  ├── musicNodeHealth.ts    isNodeCooling / hasHealthyNode (tolerant of test doubles)
+  ├── musicTrackArtwork.ts  isYoutubeThumb, preCleanArtwork, sanitizeOverride,
+  │                         leadArtist, MusicTrackArtwork (backfill + warmup)
+  ├── musicTrackAdoption.ts adoptMirrorTrack (pure function)
+  ├── musicPlayerRegistry.ts PlayerRegistry + FILTER_DEFINITIONS
+  ├── musicSearchLadder.ts   ISRC-first, title, plugin/resolver/soundcloud rungs
+  ├── musicPlaybackControls.ts pause/resume/seek/previous/volume/filters/loop/24-7
+  └── musicService.ts        composition root — the ONLY registered token
+```
+
+**Play path**: `play()` routes by input kind → `MusicSearchLadder` (Home yt-dlp resolver → SoundCloud) → `MoonlinkManager` (node failover) → `enqueueLavalinkTracks` (the single enqueue choke point). Unresolved playlist entries sit in a **just-in-time pending queue** resolved 2 tracks ahead.
+
+**Chapters** (`>20 min` videos only): description timestamps via one Data API call (`descriptionChapters.ts`), parsed and cached. `chapterCardFor` derives the displayed card; `resolveChapterArt` races an 8s cascade with a 30s retry; `swapChapterOnSeek` handles explicit seeks.
+
+**Card publishing**: `musicHandler.publishProgress` on a 5s tick with a fingerprint dirty-check, plus `scheduleImmediateProgress` (300ms debounce) for event-driven edits.
+
+### 4.1 Invariants that broke in production — do not regress these
+- **`shuffle` and `remove` mutate the pending array in place.** The pending store must hand back the **live** array, never a copy. A copying port silently turns both into no-ops while every assertion still passes. `pendingStoreIdentity.test.ts` locks this.
+- **A position that moves BACKWARDS is stale data, not a rewind.** There is a guard for implausible forward jumps (drifting node clock); a backward read with no recorded seek intent must be refused, or the card snaps back to chapter 0. A real backward seek carries `lastUserSeekAt`/`lastUserSeekPos`, recorded by `seek()` *before* it awaits the node.
+- **Deliberate seeks must not pay the settle window.** The implausible-jump guard exists for clock drift, not for listeners.
+- **`trackStart` must derive the chapter from the real position**, never a hardcoded `0`.
+- **A chapter whose art genuinely cannot be found holds the previous cover.** That is intentional (it beats flashing the wrong image), but it is why a catalogue miss reads as "art is broken". Fix the matching, not the hold.
+- **Timeout→node-cooldown is load-bearing.** A search timeout must keep cooling the node; that behaviour came from a real uplink-stall incident. Only the collateral migration damage was softened.
+- **The Redis FIFO warning is expected.** Write-then-trim ordering is consistent and failure replay is intentional. Do not "fix" it.
+
+---
+
+## 5. Testing Contracts (violating these breaks the suite)
+
+- **Never add constructor parameters to `MusicHandler`.** Tests build it positionally with 3 args: `new MusicHandler(client, {getManager}, {getQueueInfo, is247})`. Extract collaborators by constructing them *inside* the existing constructor body, or as free functions taking deps as arguments.
+- **Never add constructor parameters to `MusicService`** either — 20 test call sites build it positionally with 3–5 args. Keep the signature and add collaborators internally.
+- **Tests reach privates via `as unknown as {...}` casts and replace methods/spies on the instance.** Therefore:
+  - Any extracted member must still be reachable on the original object (delegate, not removal).
+  - Every cross-cluster call must go **through the host instance** (`this.publishProgress(...)`), never a sibling collaborator, or `vi.spyOn` / own-property shadowing stops working.
+  - Services that tests **reassign after construction** (`artworkService`, `colorService`) must be read **live through the host**, never captured by value into a collaborator.
+- **State Maps that tests read must stay owned by the host and be passed in by reference.** A copied Map breaks both the tests and `forgetGuild` sweeps.
+- `musicHandler` static helpers are read off the *class* in tests; keep static delegates.
+- Network: `vi.spyOn(globalThis, 'fetch')`. Module-level Maps persist within a test file — use a distinct 11-char id per test.
+- `reflect-metadata` must be the first import in any test that touches a `tsyringe` module.
+
+---
+
+## 6. Refactoring This Codebase
+
+**The facade pattern is the tool that works here.** Extract behaviour, keep the public surface as one-line delegates on the original class, and the registered token plus every existing call site keep compiling. This is how `musicService` went 2317 → ~1240 lines with **zero changes to any pre-existing test**.
+
+- Prefer **pure function modules** (no state, no timers) — those are free to move.
+- Prefer **collaborators constructed inside an existing constructor** over new DI wiring.
+- Introduce a **port interface in a leaf module** when two modules need the same capability; that is what prevents import cycles.
+- **Do not split for the sake of line count.** `moonlinkManager` (679 lines), `interactionHandler` (a routing table), `musicBuilders` (independent cards) and `playRepository` (one per-user aggregate) are all long *and* cohesive; splitting them raises fan-in and makes the code harder to work in, not easier.
+- **Do not deduplicate the slash/text command layer wholesale.** The shared response layer (`src/bot/builders/`) is already single-copy and tested. What remains duplicated is argument parsing, and the two argument models are genuinely different (typed Discord options vs hand-written string grammars like `seek 1:40`, `lfm:user`, `filters clear`). 13 of 33 pairs are under 50% overlap and would need bespoke specs. Fix concrete drift instead.
+- **Verify dead code before deleting it**: grep for both production *and* test references, and check whether the "caller" is itself reachable (a stub returning `null` makes its caller's branch dead code).
+
+---
+
+## 7. Key Directory Map
+- `src/bot/startup.ts` — the dependency graph. Read it first when tracing wiring.
+- `src/bot/handlers/` — event dispatchers (`interactionHandler.ts`, `commandHandler.ts`, `musicHandler.ts`).
+- `src/bot/services/music/` — playback (see §4).
+- `src/bot/services/artworkService.ts` — the artwork cascade and title/artist matching rules.
+- `src/bot/services/whoKnows/`, `crown/`, `audio/` — leaderboards, crowns, audio analysis.
+- `src/bot/builders/` — embed/action-row factories returning `ResponseModel`.
+- `src/bot/interactions/` — buttons, select menus, modals.
+- `src/persistence/` — Prisma schema and repositories.
+- `src/domain/` — pure interfaces, enums, logger.
+
+---
+
+## 8. Workflows
+
+**Adding a command (1:1 from fmbot)**
+1. Check the `fmbot-dev` reference implementation.
+2. Service method in `src/bot/services/`.
+3. Response in `src/bot/builders/*Builders.ts`.
+4. Slash **and** text command (check the name is unique across both — §3.4).
+5. If interactive: handler in `src/bot/interactions/` + route in `handlers/interactionHandler.ts`.
+6. Register in `src/bot/startup.ts`.
+7. `npm run build && npm test`.
+
+**Database migrations**
+1. Edit `src/persistence/prisma/schema.prisma`.
+2. `npm run db:generate`.
+3. Verify with `npx prisma migrate status`.
+
+**Before reporting success**
+State what was *verified* and what was *not*. A green suite is necessary, not sufficient: voice connection, audio throughput, FFmpeg and real Discord behaviour are not covered by any test. Say so plainly rather than implying everything works.

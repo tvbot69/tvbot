@@ -1,0 +1,118 @@
+import type { Player } from 'moonlink.js';
+import { lyricWindowAt, type SyncedLine, type LyricWindow } from '@bot/services/music/syncedLyrics';
+import type { LyricsService } from '@bot/services/music/lyricsService';
+import type { QueueService } from '@bot/services/music/queueService';
+
+/**
+ * Karaoke: the lyric window for the card, the one-per-track synced-line
+ * lookup, and the boundary timer that republishes on each line.
+ *
+ * Extracted from MusicHandler. The timer Map is passed in BY REFERENCE and
+ * stays owned by the handler, because the test suite reads
+ * `handler.karaokeTimers` directly and `clearCardTimers`/`forgetGuild` sweep
+ * it — a copy would silently break both.
+ */
+export interface KaraokeHost {
+  /** Read live, never captured: tests reassign this after construction. */
+  readonly lyricsService?: LyricsService;
+  readonly queueService: QueueService;
+  /** Must route through the host so `vi.spyOn(handler, 'publishProgress')` fires. */
+  publishProgress(player: Player): Promise<void>;
+  /** Must route through the host so own-property shadows still take effect. */
+  armKaraokeTimer(player: Player): void;
+}
+
+export class KaraokeController {
+  public constructor(
+    private readonly host: KaraokeHost,
+    private readonly karaokeTimers: Map<string, NodeJS.Timeout>,
+  ) {}
+
+  /**
+   * Lyric window for a position, or null when lyrics are off, unsynced or
+   * nothing singable (card renders unchanged).
+   */
+  public lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
+    try {
+      if (!this.host.lyricsService) return null;
+      if (!this.host.queueService.isKaraokeEnabled(player.guildId)) return null;
+      const lines = player.get<SyncedLine[] | null>('karaokeLines');
+      if (!lines || lines.length === 0) return null;
+      return lyricWindowAt(lines, Math.max(0, positionMs));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resolves synced lines once per track start (bounded, never stalls the
+   * card) and stores them on the player for the karaoke boundary timer.
+   */
+  public async resolveKaraokeLines(
+    player: Player,
+    title: string,
+    artist: string,
+    durationMs: number,
+  ): Promise<void> {
+    player.set('karaokeLines', null);
+    const svc = this.host.lyricsService;
+    if (!svc) return;
+    if (!this.host.queueService.isKaraokeEnabled(player.guildId)) return;
+    if (!title || !artist) return;
+    try {
+      const lines = await Promise.race([
+        svc.getSyncedLyrics(title, artist, durationMs).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+      ]);
+      if (lines && lines.length > 0) player.set('karaokeLines', lines);
+    } catch {
+      // No synced lyrics — standard card without the section.
+    }
+  }
+
+  public clearKaraokeTimer(guildId: string): void {
+    const timer = this.karaokeTimers.get(guildId);
+    if (timer) {
+      clearTimeout(timer);
+      this.karaokeTimers.delete(guildId);
+    }
+  }
+
+  /**
+   * Arms a one-shot to the next lyric-line boundary. Fires -> publish (the
+   * fingerprint admits the edit only when the window actually changed) ->
+   * re-arm. Paused/frozen clocks get a cheap 15s recheck instead of a hot
+   * loop; the silence between lines costs zero edits and zero work.
+   *
+   * Both callbacks go through the HOST, not through this object. A sibling
+   * call would leave the handler's own methods un-spied, and a frozen card
+   * fails silently rather than loudly.
+   */
+  public armKaraokeTimer(player: Player): void {
+    this.clearKaraokeTimer(player.guildId);
+    try {
+      if (!this.host.lyricsService) return;
+      if (!this.host.queueService.isKaraokeEnabled(player.guildId)) return;
+      const lines = player.get<SyncedLine[] | null>('karaokeLines');
+      if (!lines || lines.length === 0) return;
+      const position = this.host.queueService.calculatePosition(player);
+      const next = lines.find((l) => l.ms > position);
+      if (!next) return;
+      let delay = next.ms - position;
+      if (player.paused || delay < 0) delay = 15000;
+      const timer = setTimeout(() => {
+        this.karaokeTimers.delete(player.guildId);
+        try {
+          void this.host.publishProgress(player);
+        } catch {
+          // Timer errors must never break the chain below.
+        }
+        this.host.armKaraokeTimer(player);
+      }, Math.max(delay, 1500));
+      timer.unref?.();
+      this.karaokeTimers.set(player.guildId, timer);
+    } catch {
+      // Karaoke is decoration — never break playback.
+    }
+  }
+}

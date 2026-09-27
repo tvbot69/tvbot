@@ -3,6 +3,9 @@ import type { Manager, Player } from 'moonlink.js';
 import { Track } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import { FallbackBudget } from './music/fallbackBudget';
+import { KaraokeController, type KaraokeHost } from './music/karaokeController';
+import { NowPlayingCardPublisher, type CardPublisherHost } from './music/nowPlayingCardPublisher';
+import { ChapterArtController, type ChapterArtHost } from './music/chapterArtController';
 import { buildFallbackQuery, chapterKeyFor, clientFailuresText, fingerprintFor } from './music/cardFingerprint';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { QueueService } from '@bot/services/music/queueService';
@@ -12,7 +15,7 @@ import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannel
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import type { LyricsService } from '@bot/services/music/lyricsService';
 import type { ArtworkService } from '@bot/services/artworkService';
-import { lyricWindowAt, type LyricWindow, type SyncedLine } from '@bot/services/music/syncedLyrics';
+import type { LyricWindow } from '@bot/services/music/syncedLyrics';
 import {
   chapterIndexAt,
   extractArtistFromTitle,
@@ -20,9 +23,7 @@ import {
   getVideoTitle,
   isLiveVideo,
   isGenericChapterTitle,
-  resolveDisplayedChapter,
-  splitChapterTitle,
-  transitionLeadSong,
+
   type ChapterCard,
   type VideoChapter,
 } from '@bot/services/music/videoChapters';
@@ -31,7 +32,7 @@ import { cleanTrackTitle, mapMoonlinkTrack } from '@domain/models/music/musicTra
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { healthFor, ladderFor, YoutubeHealth, HOME_NODE } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome } from '@bot/services/music/ytResolver';
-import { BORROWED_COVER_MS, CHAPTER_ART_RETRY_MS, CHAPTER_JUMP_CONFIRM_MS, CHAPTER_REGRESSION_TOLERANCE_MS, USER_SEEK_INTENT_WINDOW_MS } from '@bot/services/music/musicConstants';
+import { CHAPTER_ART_RETRY_MS, CHAPTER_JUMP_CONFIRM_MS, CHAPTER_REGRESSION_TOLERANCE_MS, USER_SEEK_INTENT_WINDOW_MS } from '@bot/services/music/musicConstants';
 
 export class MusicHandler {
   private readonly client: Client;
@@ -60,13 +61,13 @@ export class MusicHandler {
   private readonly progressPublishing = new Map<string, number>();
   /** Consecutive failed publishes per guild (bounded retry budget). */
   private readonly publishRetries = new Map<string, number>();
-  private static readonly MAX_PUBLISH_RETRIES = 3;
+
   /**
    * A publish whose awaited work hangs (REST stall) must never wedge the card
    * forever: a guard older than this is treated as dead and retaken, so the
    * next trigger publishes instead of skipping.
    */
-  private static readonly PUBLISH_STALL_MS = 30000;
+
   private static readonly KICK_GRACE_MS = 180000;
 
   constructor(
@@ -88,6 +89,22 @@ export class MusicHandler {
     this.lyricsService = lyricsService;
     this.artworkService = artworkService;
 
+    this.cards = new NowPlayingCardPublisher(
+      this as unknown as CardPublisherHost,
+      this.progressNudgeTimers,
+      this.progressPublishing,
+      this.progressFingerprints,
+      this.publishRetries,
+      this.pendingPublish,
+    );
+    this.chapterArt = new ChapterArtController(
+      this as unknown as ChapterArtHost,
+      this.chapterArtRetryTimers,
+    );
+    this.karaoke = new KaraokeController(
+      this as unknown as KaraokeHost,
+      this.karaokeTimers,
+    );
     this.fallbackBudget = new FallbackBudget(
       this.fallbackAttempts,
       this.guildFallbackBudget,
@@ -102,39 +119,6 @@ export class MusicHandler {
    * Karaoke window for the card at a playback position. Reads the synced
    * lines stored at track start; honors the per-guild toggle. Lyrics follow
    * the real clock with no startup offset. Null when disabled, missing, or
-   * nothing singable (card renders unchanged).
-   */
-  private lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {    try {
-      if (!this.lyricsService) return null;
-      if (!this.queueService.isKaraokeEnabled(player.guildId)) return null;
-      const lines = player.get<SyncedLine[] | null>('karaokeLines');
-      if (!lines || lines.length === 0) return null;
-      return lyricWindowAt(lines, Math.max(0, positionMs));
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Resolves synced lines once per track start (bounded, never stalls the
-   * card) and stores them on the player for the karaoke boundary timer.
-   */
-  private async resolveKaraokeLines(player: Player, title: string, artist: string, durationMs: number): Promise<void> {
-    player.set('karaokeLines', null);
-    if (!this.lyricsService) return;
-    if (!this.queueService.isKaraokeEnabled(player.guildId)) return;
-    if (!title || !artist) return;
-    try {
-      const lines = await Promise.race([
-        this.lyricsService.getSyncedLyrics(title, artist, durationMs).catch(() => null),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
-      ]);
-      if (lines && lines.length > 0) player.set('karaokeLines', lines);
-    } catch {
-      // No synced lyrics — standard card without the section.
-    }
-  }
-
   /**
    * Kicks off a chapter probe for a YouTube track (fire-and-forget: the card
    * goes out immediately and upgrades when chapters land). Only videos with
@@ -217,56 +201,40 @@ export class MusicHandler {
     }
   }
 
-  /**
-   * Cover lookup for a chapter with the transition fallback: medley
-   * chapters ("BACKR00MS TO KICK OUT" — A fading into B) have no Spotify
-   * track under the full title, so when it misses, retry with the
-   * transition's lead song — its cover matches the chapter start. Real
-   * songs ("Back To December", "NO BYSTANDERS") hit on the first attempt
-   * and never reach the fallback.
-   */
-  private async getChapterCover(chapterTitle: string, song: string, artist: string | undefined): Promise<string | null> {
-    const svc = this.artworkService;
-    if (!svc) return null;
-    const art = await svc.getTrackCoverUrl(song, artist).catch(() => null);
-    if (art) return art;
-    const lead = transitionLeadSong(chapterTitle);
-    if (!lead || lead.toLowerCase() === song.trim().toLowerCase()) return null;
-    Logger.debug({ chapter: chapterTitle, lead }, '[Music] Transition chapter — retrying art with lead song');
-    return svc.getTrackCoverUrl(lead, artist).catch(() => null);
+
+
+  /** Chapter artwork — see music/chapterArtController.ts.
+   * `chapterArtRetryTimers` stays owned here and is passed in by reference, so
+   * clearChapterTimer/clearCardTimers/forgetGuild still sweep it. */
+  private readonly chapterArt: ChapterArtController;
+
+  private async getChapterCover(
+    chapterTitle: string,
+    song: string,
+    artist: string | undefined,
+  ): Promise<string | null> {
+    return this.chapterArt.getChapterCover(chapterTitle, song, artist);
   }
 
-  /**
-   * Warms the shared artwork cache for upcoming chapters so their covers
-   * are usually ready before the chapter starts. Results are discarded —
-   * the cache (not player state) carries them to resolveChapterArt.
-   * Bounded to a couple of chapters per call; misses stay cheap via the
-   * cascade's own negative caching.
-   */
   private prefetchChapterArts(player: Player, chapters: VideoChapter[], indices: number[]): void {
-    try {
-      const svc = this.artworkService;
-      if (!svc) return;
-      const cur = player.current as unknown as { title?: string } | null;
-      const videoArtist = extractArtistFromTitle(getVideoTitle(cur)) ?? undefined;
-      for (const i of indices) {
-        const ch = chapters[i];
-        if (!ch || isGenericChapterTitle(ch.title)) continue;
-        const { artist, song } = splitChapterTitle(ch.title);
-        if (!song) continue;
-        // Warm the accent color alongside the cover: the art edit extracts
-        // color from this exact URL, and downloading+quantizing serially
-        // inside the publish path used to add seconds to every swap.
-        void (async () => {
-          const art = await this.getChapterCover(ch.title, song, artist ?? videoArtist);
-          if (art && this.colorService) {
-            await this.colorService.getAccentColorAsync(player.guildId, art).catch(() => undefined);
-          }
-        })();
-      }
-    } catch {
-      // Prefetch is best-effort by definition.
-    }
+    this.chapterArt.prefetchChapterArts(player, chapters, indices);
+  }
+
+  private scheduleChapterArtRetry(player: Player, idx: number, chapters: VideoChapter[]): void {
+    this.chapterArt.scheduleChapterArtRetry(player, idx, chapters);
+  }
+
+  private clearChapterArtRetryTimer(guildId: string): void {
+    this.chapterArt.clearChapterArtRetryTimer(guildId);
+  }
+
+  private async resolveChapterArt(
+    player: Player,
+    idx: number,
+    chapters: VideoChapter[],
+    coverOnly = false,
+  ): Promise<void> {
+    return this.chapterArt.resolveChapterArt(player, idx, chapters, coverOnly);
   }
 
   /**
@@ -278,42 +246,6 @@ export class MusicHandler {
    * cascade). Generic container titles (Intro/Outro/...) suppress the card
    * but still warm the first real song's cover so shows open on music art.
    */
-  /**
-   * Retry a chapter's cover on a DEDICATED timer rather than whenever a
-   * publish happens to occur. The retry used to be gated on publish triggers,
-   * and a paused player produces one every 15s via the chapter timer's
-   * re-arm — so a show left paused for hours re-swept all four artwork
-   * providers every 30 seconds, per chapter, burning quota for a cover that
-   * was genuinely missing. Publishing now costs nothing extra, and the retry
-   * cadence is explicit.
-   */
-  private scheduleChapterArtRetry(
-    player: Player,
-    idx: number,
-    chapters: VideoChapter[],
-  ): void {
-    const retry = player.get<{ idx: number; at: number } | null>('chapterArtRetry');
-    if (retry && retry.idx === idx && Date.now() - retry.at < CHAPTER_ART_RETRY_MS) return;
-    player.set('chapterArtRetry', { idx, at: Date.now() });
-    this.clearChapterArtRetryTimer(player.guildId);
-    const timer = setTimeout(() => {
-      this.chapterArtRetryTimers.delete(player.guildId);
-      // Only retry while this chapter is still the one on screen.
-      if ((player.get<number>('chapterIdx') ?? -2) !== idx) return;
-      if (player.get<ChapterCard | null>('chapterCard')?.artworkUrl) return;
-      void this.resolveChapterArt(player, idx, chapters);
-    }, CHAPTER_ART_RETRY_MS);
-    timer.unref?.();
-    this.chapterArtRetryTimers.set(player.guildId, timer);
-  }
-
-  private clearChapterArtRetryTimer(guildId: string): void {
-    const timer = this.chapterArtRetryTimers.get(guildId);
-    if (timer) {
-      clearTimeout(timer);
-      this.chapterArtRetryTimers.delete(guildId);
-    }
-  }
 
   private chapterCardFor(player: Player, positionMs: number): ChapterCard | null {
     try {
@@ -467,61 +399,6 @@ export class MusicHandler {
     }
   }
 
-  private async resolveChapterArt(
-    player: Player,
-    idx: number,
-    chapters: VideoChapter[],
-    coverOnly = false,
-  ): Promise<void> {
-    // Generation captured before the cascade: a track change mid-resolve
-    // must not paint this cover onto the next track's card.
-    const chapterToken = player.get<number>('chapterToken');
-    try {
-      const ch = chapters[idx];
-      if (!ch) return;
-      const { artist, song } = splitChapterTitle(ch.title);
-      if (!song) return;
-      // Song-only chapters ("Rottweiler") carry no artist; fall back to the
-      // performer named in the VIDEO title ("EsDeeKid - Live..."), since the
-      // uploader channel often differs (or is useless) for lives.
-      let useArtist = artist;
-      if (!useArtist) {
-        const cur = player.current as unknown as { title?: string } | null;
-        useArtist = extractArtistFromTitle(getVideoTitle(cur)) ?? undefined;
-      }
-      const svc = this.artworkService;
-      if (!svc) return;
-      const artStartedAt = Date.now();
-      const art = await Promise.race([
-        this.getChapterCover(ch.title, song, useArtist),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
-      ]);
-      Logger.info(
-        { guildId: player.guildId, idx, song, artMs: Date.now() - artStartedAt, ok: Boolean(art) },
-        '[Music] Chapter art',
-      );
-      if (!art) return;
-      // Only publish if the listener hasn't moved on meanwhile (track
-      // generation AND chapter index — a list swap mid-resolve must not
-      // paint the wrong cover).
-      if (player.get<number>('chapterToken') !== chapterToken) return;
-      if (coverOnly) {
-        // Opening hype: show the first real song's cover WITHOUT naming it
-        // (the card stays on the show until its chapter starts). The hold
-        // rule picks it up on the next publish.
-        player.set('lastCoverUrl', art);
-        this.scheduleImmediateProgress(player);
-        return;
-      }
-      if ((player.get<number>('chapterIdx') ?? -2) !== idx) return;
-      player.set('chapterCard', { title: ch.title, artworkUrl: art });
-      // Art landed with no publish scheduled — push the swap immediately.
-      this.scheduleImmediateProgress(player);
-    } catch {
-      // Card keeps the track art.
-    }
-  }
-
   /**
    * Seek = instant chapter swap. Natural chapter transitions are caught by
    * the chapter boundary timer; a user seek that crosses a boundary used to
@@ -637,12 +514,30 @@ export class MusicHandler {
     this.publishRetries.delete(guildId);
   }
 
+  /** Karaoke controller — see music/karaokeController.ts.
+   * `karaokeTimers` stays owned here and is passed in by reference, so the
+   * tests can still read it and forgetGuild still sweeps it. */
+  private readonly karaoke: KaraokeController;
+
+  private lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
+    return this.karaoke.lyricWindowFor(player, positionMs);
+  }
+
+  private async resolveKaraokeLines(
+    player: Player,
+    title: string,
+    artist: string,
+    durationMs: number,
+  ): Promise<void> {
+    return this.karaoke.resolveKaraokeLines(player, title, artist, durationMs);
+  }
+
   private clearKaraokeTimer(guildId: string): void {
-    const timer = this.karaokeTimers.get(guildId);
-    if (timer) {
-      clearTimeout(timer);
-      this.karaokeTimers.delete(guildId);
-    }
+    this.karaoke.clearKaraokeTimer(guildId);
+  }
+
+  private armKaraokeTimer(player: Player): void {
+    this.karaoke.armKaraokeTimer(player);
   }
 
   private clearChapterTimer(guildId: string): void {
@@ -652,40 +547,6 @@ export class MusicHandler {
       this.chapterTimers.delete(guildId);
     }
     this.clearChapterArtRetryTimer(guildId);
-  }
-
-  /**
-   * Arms a one-shot to the next lyric-line boundary. Fires -> publish (the
-   * fingerprint admits the edit only when the window actually changed) ->
-   * re-arm. Paused/frozen clocks get a cheap 15s recheck instead of a hot
-   * loop; the silence between lines costs zero edits and zero work.
-   */
-  private armKaraokeTimer(player: Player): void {
-    this.clearKaraokeTimer(player.guildId);
-    try {
-      if (!this.lyricsService) return;
-      if (!this.queueService.isKaraokeEnabled(player.guildId)) return;
-      const lines = player.get<SyncedLine[] | null>('karaokeLines');
-      if (!lines || lines.length === 0) return;
-      const position = this.queueService.calculatePosition(player);
-      const next = lines.find((l) => l.ms > position);
-      if (!next) return;
-      let delay = next.ms - position;
-      if (player.paused || delay < 0) delay = 15000;
-      const timer = setTimeout(() => {
-        this.karaokeTimers.delete(player.guildId);
-        try {
-          void this.publishProgress(player);
-        } catch {
-          // Timer errors must never break the chain below.
-        }
-        this.armKaraokeTimer(player);
-      }, Math.max(delay, 1500));
-      timer.unref?.();
-      this.karaokeTimers.set(player.guildId, timer);
-    } catch {
-      // Karaoke is decoration — never break playback.
-    }
   }
 
   /**
@@ -786,181 +647,6 @@ export class MusicHandler {
   }
 
   /**
-   * Publishes the now-playing card when its visible fingerprint changed.
-   * Purely on-demand (track start, boundary timers, seeks, nudges) — there
-   * is no polling loop. The fingerprint admits an edit only on real change.
-   *
-   * Overlapping publishes COALESCE (they never drop): a chapter cover that
-   * lands while an edit is in flight used to be discarded by the in-flight
-   * guard, so the card kept the previous song's artwork until the next
-   * chapter boundary — or forever on the last chapter of a set. Arriving
-   * mid-edit now queues exactly one follow-up pass, which re-derives the
-   * (new) state and publishes it if it is still visibly different.
-   */
-  private async publishProgress(player: Player): Promise<void> {
-    const guildId = player.guildId;
-    const guardSince = this.progressPublishing.get(guildId);
-    if (guardSince !== undefined && Date.now() - guardSince < MusicHandler.PUBLISH_STALL_MS) {
-      this.pendingPublish.add(guildId);
-      return;
-    }
-    this.progressPublishing.set(guildId, Date.now());
-    try {
-      if (!player.playing || !player.textChannelId) return;
-
-      const msgId = player.get<string>('nowPlayingMessageId');
-      if (!msgId) return;
-
-      const queue = this.queueService.getQueueInfo(player);
-      // Dirty check: skip the edit when nothing visible changed (same track,
-      // pause state, queue size, loop, volume, karaoke window, chapter card).
-      // There is no position bucket anymore — position is never displayed,
-      // so movement alone must not cost an edit.
-      const lyricWindow = this.lyricWindowFor(player, queue.position);
-      const lyricKey = lyricWindow ? `${lyricWindow.current ?? ''}~${lyricWindow.next ?? ''}` : 'none';
-      const chapter = this.chapterCardFor(player, queue.position);
-      // Borrowed-cover expiry: holding the previous chapter's art avoids a
-      // flash, but a chapter that never resolves must not sit on the wrong
-      // song's cover. Short window, then fall through to the track's own art.
-      let holdCover = player.get<string | null>('lastCoverUrl') ?? null;
-      if (chapter && !chapter.artworkUrl) {
-        const startedAt = player.get<number | null>('chapterStartedAt') ?? null;
-        if (typeof startedAt === 'number' && Date.now() - startedAt > BORROWED_COVER_MS) {
-          holdCover = null;
-        }
-      }
-      const { card: displayChapter, shownCover } = resolveDisplayedChapter(
-        chapter,
-        holdCover,
-        queue.current?.artworkUrl,
-      );
-      if (shownCover) player.set('lastCoverUrl', shownCover);
-      const chapterKey = MusicHandler.chapterKeyFor(displayChapter, shownCover);
-      const fingerprint = MusicHandler.fingerprintFor(queue, lyricKey, chapterKey);
-      if (this.progressFingerprints.get(guildId) === fingerprint) return;
-
-      const channel =
-        this.client.channels.cache.get(player.textChannelId) ??
-        (await this.client.channels.fetch(player.textChannelId).catch(() => null));
-      if (!channel || !channel.isTextBased() || !('messages' in channel)) return;
-
-      const msgManager = (
-        channel as unknown as {
-          messages: {
-            cache: { get: (id: string) => unknown };
-            fetch: (id: string) => Promise<unknown>;
-          };
-        }
-      ).messages;
-
-      let unknownMessage = false;
-      const msg = (msgManager.cache.get(msgId) ??
-        (await msgManager.fetch(msgId).catch((err: { code?: number }) => {
-          if (err?.code === 10008) unknownMessage = true;
-          return null;
-        }))) as {
-        edit: (data: unknown) => Promise<unknown>;
-      } | null;
-
-      if (!msg) {
-        if (unknownMessage) this.forgetNowPlaying(player);
-        return;
-      }
-
-      // Accent follows the DISPLAYED cover (chapter art when present),
-      // not just top-level track art — long-form tracks pin track art
-      // to the video thumbnail while the card image follows chapters.
-      const accentColor = this.colorService
-        ? await this.colorService.getAccentColorAsync(player.guildId, shownCover ?? queue.current?.artworkUrl)
-        : undefined;
-      const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, lyricWindow, displayChapter);
-
-      // A hung edit settles nothing and would wedge the guard above: race
-      // it so the publish always settles and the next trigger retries.
-      // Successful publishes stay silent by design (no per-edit INFO spam).
-      let editTimer: NodeJS.Timeout | undefined;
-      try {
-        await Promise.race([
-          msg.edit(response.toMessagePayload() as unknown as Record<string, unknown>),
-          new Promise<never>((_, reject) => {
-            editTimer = setTimeout(() => reject(new Error('Now-playing edit timed out')), 10000);
-          }),
-        ])
-          .then(() => {
-            this.progressFingerprints.set(guildId, fingerprint);
-            this.publishRetries.delete(guildId);
-            // Status follows successful edits only — updating it before the
-            // edit permanently diverged room status from the card whenever
-            // the edit failed (no tick retries it anymore).
-            this.updateChapterStatus(player);
-          })
-          .catch((err: {
-            code?: number;
-            status?: number;
-            message?: string;
-            retryAfter?: number;
-            rawError?: { retry_after?: number };
-            retry_after?: number;
-          }) => {
-            if (err?.code === 10008) {
-              this.publishRetries.delete(guildId);
-              this.forgetNowPlaying(player);
-              return;
-            }
-            // The card still exists but the edit failed. Log the cause —
-            // blind catches hid escalating Discord throttling here before —
-            // and honor 429 retry_after instead of hammering a fixed delay.
-            const retryAfterSec =
-              (typeof err?.retryAfter === 'number' && err.retryAfter > 0 && err.retryAfter) ||
-              (typeof err?.rawError?.retry_after === 'number' && err.rawError.retry_after > 0 && err.rawError.retry_after) ||
-              (typeof err?.retry_after === 'number' && err.retry_after > 0 && err.retry_after) ||
-              0;
-            Logger.warn(
-              {
-                guildId,
-                code: err?.code,
-                status: err?.status,
-                retryAfterSec,
-                message: String(err?.message ?? err).slice(0, 160),
-              },
-              '[Music] Card edit failed',
-            );
-            // Bounded retries so a chapter attach isn't lost to one bad
-            // call. Boundary timers remain the steady-state retry path.
-            const retries = (this.publishRetries.get(guildId) ?? 0) + 1;
-            if (retries <= MusicHandler.MAX_PUBLISH_RETRIES) {
-              this.publishRetries.set(guildId, retries);
-              const backoffMs = retryAfterSec > 0 ? Math.min(Math.ceil(retryAfterSec * 1000) + 1000, 60000) : 5000;
-              this.scheduleImmediateProgress(player, backoffMs);
-            } else {
-              this.publishRetries.delete(guildId);
-            }
-          });
-      } finally {
-        if (editTimer) clearTimeout(editTimer);
-      }
-    } catch {
-      // Silently skip if rate limited or network hiccup
-    } finally {
-      this.progressPublishing.delete(guildId);
-    }
-    // Drain the coalesced follow-up AFTER releasing the guard, so it can
-    // actually run. Bounded by the fingerprint: a burst of chapter/art
-    // updates collapses into at most one extra edit per settle.
-    if (this.pendingPublish.delete(guildId)) {
-      void this.publishProgress(player).catch(() => undefined);
-    }
-  }
-
-  /** The card was deleted out-of-band (user or channel cleanup) — stop ticking on a dead message id. */
-  private forgetNowPlaying(player: Player): void {
-    player.set('nowPlayingMessageId', null);
-    this.progressFingerprints.delete(player.guildId);
-    this.publishRetries.delete(player.guildId);
-    Logger.debug({ guildId: player.guildId }, '[Music] Now-playing card gone — cleared card state');
-  }
-
-  /**
    * One-line system notice in the guild's now-playing channel (skipped
    * tracks, queue cap). Best-effort: never throws, never awaits a caller.
    */
@@ -978,20 +664,21 @@ export class MusicHandler {
     }
   }
 
-  /**
-   * Runs the card publish shortly after a state change (chapters attached,
-   * chapter art resolved). Debounced per guild so bursts collapse into one
-   * edit. The only deferred publish path — everything else is instant.
-   */
+  /** Card publisher — see music/nowPlayingCardPublisher.ts.
+   * The five Maps stay owned here and are passed in BY REFERENCE, so the tests
+   * can still read them and clearCardTimers/forgetGuild still sweep them. */
+  private readonly cards: NowPlayingCardPublisher;
+
+  private async publishProgress(player: Player): Promise<void> {
+    return this.cards.publishProgress(player);
+  }
+
+  private forgetNowPlaying(player: Player): void {
+    this.cards.forgetNowPlaying(player);
+  }
+
   private scheduleImmediateProgress(player: Player, delayMs = 300): void {
-    const guildId = player.guildId;
-    const existing = this.progressNudgeTimers.get(guildId);
-    if (existing) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      this.progressNudgeTimers.delete(guildId);
-      void this.publishProgress(player);
-    }, delayMs);
-    this.progressNudgeTimers.set(guildId, timer);
+    this.cards.scheduleImmediateProgress(player, delayMs);
   }
 
   private clearKickGrace(guildId: string): void {

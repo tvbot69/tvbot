@@ -10,6 +10,35 @@ const INSERT_CHUNK_SIZE = 500;
 const CHUNK_RETRY_DELAYS_MS = [1000, 2500, 5000, 10000];
 
 /**
+ * The three per-user rollup tables (user_artists / user_albums /
+ * user_tracks) have identical shapes and identical compound primary keys
+ * `@@id([userId, <id>])`. Prisma types each delegate separately and none of
+ * them share a structural type, so the shapes actually used are described
+ * here and each helper takes the delegate as a parameter — that is what lets
+ * one implementation serve all three without a `any` in the middle.
+ */
+type TxLike = Prisma.TransactionClient | PrismaClient;
+
+type ReplaceDelegate = (tx: TxLike) => {
+  deleteMany(args: { where: Record<string, unknown> }): Promise<unknown>;
+  createMany(args: Record<string, unknown>): Promise<unknown>;
+};
+
+type DeltaDelegate = (client: PrismaClient) => {
+  findMany(args: Record<string, unknown>): Promise<unknown>;
+  delete(args: { where: Record<string, unknown> }): Prisma.PrismaPromise<unknown>;
+  update(args: { where: Record<string, unknown>; data: Record<string, unknown> }): Prisma.PrismaPromise<unknown>;
+  create(args: { data: Record<string, unknown> }): Prisma.PrismaPromise<unknown>;
+};
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const userArtistDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as any).userArtist) as never;
+const userAlbumDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as any).userAlbum) as never;
+const userTrackDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as any).userTrack) as never;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+
+/**
  * Collapse raw entries sharing one entity id into a single row, SUMMING
  * playcounts and keeping the top entry's display name. Raw spellings vary
  * in case ("Mac DeMarco" vs "mac demarco") while mapping to one id — and
@@ -204,17 +233,31 @@ export class PlayRepository implements IPlayRepository {
     }));
   }
 
-  public async replaceUserArtists(
+  /**
+   * One body for `replaceUserArtists` / `replaceUserAlbums` / `replaceUserTracks`.
+   *
+   * Those three were byte-identical apart from the delegate and the id field —
+   * ~21 lines each, applied three times. A bugfix landing in two of the three
+   * was a matter of time, and only one of the three is exercised by any
+   * playlist of real activity, so the other two would have rotted silently.
+   *
+   * Prisma types each model delegate separately and none of them share a
+   * structural type, so the delegate is described by the narrow shape actually
+   * used here and each call site casts once.
+   */
+  private async replaceUserEntities(
     userId: number,
-    entries: Array<{ artistId: number; name: string; playcount: number }>,
+    delegate: ReplaceDelegate,
+    idField: 'artistId' | 'albumId' | 'trackId',
+    entries: Array<{ name: string; playcount: number } & Record<string, unknown>>,
   ): Promise<void> {
     await this.prisma.$transaction(
       async (tx) => {
-        await tx.userArtist.deleteMany({ where: { userId: userId } });
-        await tx.userArtist.createMany({
+        await delegate(tx).deleteMany({ where: { userId } });
+        await delegate(tx).createMany({
           data: entries.map((e) => ({
-            userId: userId,
-            artistId: e.artistId,
+            userId,
+            [idField]: e[idField],
             name: e.name.toLowerCase(),
             playcount: e.playcount,
           })),
@@ -223,48 +266,27 @@ export class PlayRepository implements IPlayRepository {
       },
       { timeout: 60000, maxWait: 15000 },
     );
+  }
+
+  public async replaceUserArtists(
+    userId: number,
+    entries: Array<{ artistId: number; name: string; playcount: number }>,
+  ): Promise<void> {
+    return this.replaceUserEntities(userId, userArtistDelegate, 'artistId', entries);
   }
 
   public async replaceUserAlbums(
     userId: number,
     entries: Array<{ albumId: number; name: string; playcount: number }>,
   ): Promise<void> {
-    await this.prisma.$transaction(
-      async (tx) => {
-        await tx.userAlbum.deleteMany({ where: { userId: userId } });
-        await tx.userAlbum.createMany({
-          data: entries.map((e) => ({
-            userId: userId,
-            albumId: e.albumId,
-            name: e.name.toLowerCase(),
-            playcount: e.playcount,
-          })),
-          skipDuplicates: true,
-        });
-      },
-      { timeout: 60000, maxWait: 15000 },
-    );
+    return this.replaceUserEntities(userId, userAlbumDelegate, 'albumId', entries);
   }
 
   public async replaceUserTracks(
     userId: number,
     entries: Array<{ trackId: number; name: string; playcount: number }>,
   ): Promise<void> {
-    await this.prisma.$transaction(
-      async (tx) => {
-        await tx.userTrack.deleteMany({ where: { userId: userId } });
-        await tx.userTrack.createMany({
-          data: entries.map((e) => ({
-            userId: userId,
-            trackId: e.trackId,
-            name: e.name.toLowerCase(),
-            playcount: e.playcount,
-          })),
-          skipDuplicates: true,
-        });
-      },
-      { timeout: 60000, maxWait: 15000 },
-    );
+    return this.replaceUserEntities(userId, userTrackDelegate, 'trackId', entries);
   }
 
   public async getLastStoredPlayTime(userId: number): Promise<Date | null> {
@@ -374,97 +396,74 @@ export class PlayRepository implements IPlayRepository {
 
   // Incremental counters — mirrors fmbot UpdateArtists/Albums/TracksForUser batched deltas.
   // Batched: one read + one transaction per call instead of 2 round-trips per delta row.
-  public async applyArtistDeltas(userId: number, deltas: Array<{ name: string; artistId: number; delta: number }>): Promise<void> {
+  /**
+   * One body for `applyArtistDeltas` / `applyAlbumDeltas` / `applyTrackDeltas`.
+   *
+   * Merge by id (summing deltas, keeping the first name), drop zero deltas,
+   * then per id: update when the row exists and the result stays positive,
+   * delete when it would go to zero or below, create when it does not exist yet
+   * and the delta is positive. All of it in one transaction.
+   *
+   * Note the album variant used to carry an `artistId` through the merge that
+   * nothing ever read — the create writes only userId/albumId/name/playcount —
+   * so it is not part of the shared shape.
+   */
+  private async applyEntityDeltas(
+    userId: number,
+    delegate: DeltaDelegate,
+    idField: 'artistId' | 'albumId' | 'trackId',
+    deltas: Array<{ name: string; delta: number } & Record<string, unknown>>,
+  ): Promise<void> {
     const merged = new Map<number, { name: string; delta: number }>();
     for (const d of deltas) {
       if (d.delta === 0) continue;
-      const cur = merged.get(d.artistId);
-      merged.set(d.artistId, { name: cur?.name ?? d.name, delta: (cur?.delta ?? 0) + d.delta });
+      const id = d[idField] as number;
+      const cur = merged.get(id);
+      merged.set(id, { name: cur?.name ?? d.name, delta: (cur?.delta ?? 0) + d.delta });
     }
     if (merged.size === 0) return;
-    const existing = await this.prisma.userArtist.findMany({
-      where: { userId, artistId: { in: [...merged.keys()] } },
-      select: { artistId: true, playcount: true },
-    });
-    const byId = new Map(existing.map((e) => [e.artistId, e.playcount]));
+    const model = delegate(this.prisma);
+    const existing = (await model.findMany({
+      where: { userId, [idField]: { in: [...merged.keys()] } },
+      select: { [idField]: true, playcount: true },
+    })) as Array<Record<string, unknown>>;
+    const byId = new Map<number, number>();
+    for (const e of existing) byId.set(e[idField] as number, e.playcount as number);
     const ops: Prisma.PrismaPromise<unknown>[] = [];
-    for (const [artistId, { name, delta }] of merged) {
+    // The compound unique key name is `userId_<idField>` for all three tables
+    // (e.g. userId_artistId). It MUST be used as written: a flat
+    // `{ userId, artistId }` filter is not reliably resolved to the compound
+    // unique by update/delete, and getting this wrong on the scrobble path
+    // would throw or, worse, touch the wrong row.
+    const uniqueKey = `userId_${idField}` as 'userId_artistId';
+    for (const [id, { name, delta }] of merged) {
       if (delta === 0) continue;
-      const cur = byId.get(artistId);
+      const where = { [uniqueKey]: { userId, [idField]: id } };
+      const cur = byId.get(id);
       if (cur !== undefined) {
         const next = cur + delta;
         if (next <= 0) {
-          ops.push(this.prisma.userArtist.delete({ where: { userId_artistId: { userId, artistId } } }));
+          ops.push(model.delete({ where }));
         } else {
-          ops.push(this.prisma.userArtist.update({ where: { userId_artistId: { userId, artistId } }, data: { playcount: next } }));
+          ops.push(model.update({ where, data: { playcount: next } }));
         }
       } else if (delta > 0) {
-        ops.push(this.prisma.userArtist.create({ data: { userId, artistId, name: name.toLowerCase(), playcount: delta } }));
+        ops.push(model.create({ data: { userId, [idField]: id, name: name.toLowerCase(), playcount: delta } }));
       }
     }
     if (ops.length > 0) await this.prisma.$transaction(ops);
+  }
+
+  public async applyArtistDeltas(userId: number, deltas: Array<{ name: string; artistId: number; delta: number }>): Promise<void> {
+    return this.applyEntityDeltas(userId, userArtistDelegate, 'artistId', deltas);
   }
 
   public async applyAlbumDeltas(userId: number, deltas: Array<{ name: string; artistId: number; albumId: number; delta: number }>): Promise<void> {
-    const merged = new Map<number, { name: string; artistId: number; delta: number }>();
-    for (const d of deltas) {
-      if (d.delta === 0) continue;
-      const cur = merged.get(d.albumId);
-      merged.set(d.albumId, { name: cur?.name ?? d.name, artistId: d.artistId, delta: (cur?.delta ?? 0) + d.delta });
-    }
-    if (merged.size === 0) return;
-    const existing = await this.prisma.userAlbum.findMany({
-      where: { userId, albumId: { in: [...merged.keys()] } },
-      select: { albumId: true, playcount: true },
-    });
-    const byId = new Map(existing.map((e) => [e.albumId, e.playcount]));
-    const ops: Prisma.PrismaPromise<unknown>[] = [];
-    for (const [albumId, { name, artistId, delta }] of merged) {
-      if (delta === 0) continue;
-      const cur = byId.get(albumId);
-      if (cur !== undefined) {
-        const next = cur + delta;
-        if (next <= 0) {
-          ops.push(this.prisma.userAlbum.delete({ where: { userId_albumId: { userId, albumId } } }));
-        } else {
-          ops.push(this.prisma.userAlbum.update({ where: { userId_albumId: { userId, albumId } }, data: { playcount: next } }));
-        }
-      } else if (delta > 0) {
-        ops.push(this.prisma.userAlbum.create({ data: { userId, albumId, name: name.toLowerCase(), playcount: delta } }));
-      }
-    }
-    if (ops.length > 0) await this.prisma.$transaction(ops);
+    return this.applyEntityDeltas(userId, userAlbumDelegate, 'albumId', deltas);
   }
 
   public async applyTrackDeltas(userId: number, deltas: Array<{ name: string; artistId: number; trackId: number; delta: number }>): Promise<void> {
-    const merged = new Map<number, { name: string; trackId: number; delta: number }>();
-    for (const d of deltas) {
-      if (d.delta === 0) continue;
-      const cur = merged.get(d.trackId);
-      merged.set(d.trackId, { name: cur?.name ?? d.name, trackId: d.trackId, delta: (cur?.delta ?? 0) + d.delta });
-    }
-    if (merged.size === 0) return;
-    const existing = await this.prisma.userTrack.findMany({
-      where: { userId, trackId: { in: [...merged.keys()] } },
-      select: { trackId: true, playcount: true },
-    });
-    const byId = new Map(existing.map((e) => [e.trackId, e.playcount]));
-    const ops: Prisma.PrismaPromise<unknown>[] = [];
-    for (const [trackId, { name, delta }] of merged) {
-      if (delta === 0) continue;
-      const cur = byId.get(trackId);
-      if (cur !== undefined) {
-        const next = cur + delta;
-        if (next <= 0) {
-          ops.push(this.prisma.userTrack.delete({ where: { userId_trackId: { userId, trackId } } }));
-        } else {
-          ops.push(this.prisma.userTrack.update({ where: { userId_trackId: { userId, trackId } }, data: { playcount: next } }));
-        }
-      } else if (delta > 0) {
-        ops.push(this.prisma.userTrack.create({ data: { userId, trackId, name: name.toLowerCase(), playcount: delta } }));
-      }
-    }
-    if (ops.length > 0) await this.prisma.$transaction(ops);
+    return this.applyEntityDeltas(userId, userTrackDelegate, 'trackId', deltas);
   }
 
   public async getRecentEntityPlaycounts(
