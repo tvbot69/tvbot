@@ -142,18 +142,27 @@ describe('pending queue store identity (refactor guard)', () => {
    * here so a refactor cannot change it by accident, and so the fix is a
    * deliberate, separately-reviewed change rather than a side effect.
    */
-  it('KNOWN GAP: shuffle refuses when only pending entries exist', () => {
+  it('shuffle reorders the live pending array even when the resolved queue is empty', () => {
     const svc = makeService(makePlayer('now', []));
     const pending = pendingOf(svc);
     const seeded = [entry('p1'), entry('p2'), entry('p3')];
     pending.set('g1', seeded);
 
-    expect(svc.shuffle('g1')).toBe(false);
-    expect(seeded.map((e) => (e as { spTrack: { name: string } }).spTrack.name)).toEqual([
+    // Previously this asserted `false` and was named "KNOWN GAP: shuffle
+    // refuses when only pending entries exist". The gap is closed: shuffle now
+    // works whenever there is anything to shuffle, pending or resolved.
+    expect(svc.shuffle('g1')).toBe(true);
+    expect(pending.get('g1')).toBe(seeded);
+    expect(seeded.map((e) => (e as { spTrack: { name: string } }).spTrack.name).sort()).toEqual([
       'p1',
       'p2',
       'p3',
     ]);
+  });
+
+  it('shuffle still refuses when neither the queue nor pending has anything', () => {
+    const svc = makeService(makePlayer('now', []));
+    expect(svc.shuffle('g1')).toBe(false);
   });
 
   it('remove() past the resolved queue splices the live pending array', () => {

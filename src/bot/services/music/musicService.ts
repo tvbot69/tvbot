@@ -1149,11 +1149,22 @@ export class MusicService {
 
   public shuffle(guildId: string): boolean {
     const player = this.getPlayer(guildId);
-    if (!player || player.queue.isEmpty) return false;
-    player.queue.shuffle();
-    // Pending entries are the queue's tail — shuffle them too so the order
-    // stays uniformly random once they resolve.
     const pending = this.pendingSpotify.get(guildId);
+    const hasPending = !!pending && pending.length > 0;
+    const hasQueue = !!player && !player.queue.isEmpty;
+
+    // Both sides have to be checked. Returning early on an empty Moonlink queue
+    // looked right but was wrong for the common case: a large playlist resolves
+    // two tracks ahead, so for most of the load the queue is EMPTY while the
+    // pending store holds almost everything. Shuffle therefore did nothing at
+    // all, and reported "nothing to shuffle", for the exact moment a listener is
+    // most likely to press it.
+    if (!hasQueue && !hasPending) return false;
+
+    if (hasQueue) player.queue.shuffle();
+    // Pending entries are the queue's tail - shuffle them in place too so the
+    // order stays uniformly random once they resolve. The array must be the
+    // live one: see pendingStoreIdentity.test.ts.
     if (pending && pending.length > 1) {
       for (let i = pending.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));

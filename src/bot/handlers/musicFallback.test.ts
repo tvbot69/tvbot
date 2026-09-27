@@ -1070,6 +1070,34 @@ describe('JIT pending Spotify entries', () => {
     expect(names).toEqual(['Title0', 'Title1', 'Title2', 'Title3', 'Title4']);
   });
 
+  it('shuffles pending entries even when the resolved queue is empty', async () => {
+    // THE LOADING CASE, and the one the old mock made unreachable: makeJit
+    // hardcoded isEmpty: false, so every existing shuffle test ran against a
+    // populated queue. In reality a large playlist resolves two tracks ahead,
+    // so for most of the load the queue is EMPTY while pending holds nearly
+    // everything - and shuffle used to bail out, reporting nothing to shuffle
+    // at exactly the moment a listener is most likely to press it.
+    const { svc, player } = makeJit();
+    player.queue.isEmpty = true;
+
+    seed(svc, 6);
+    expect(svc.shuffle('g-jit')).toBe(true);
+
+    const pending = svc.pendingSpotify.get('g-jit') ?? [];
+    expect(pending).toHaveLength(6);
+    expect(pending.map((e) => (e.spTrack as { name: string }).name).sort()).toEqual([
+      'Title0', 'Title1', 'Title2', 'Title3', 'Title4', 'Title5',
+    ]);
+  });
+
+  it('shuffle reports false only when there is nothing at all to shuffle', async () => {
+    const { svc, player } = makeJit();
+    player.queue.isEmpty = true;
+
+    // No pending entries either: there is genuinely nothing to shuffle.
+    expect(svc.shuffle('g-jit')).toBe(false);
+  });
+
   it('maps pending entries to truthful display tracks', () => {
     const { svc } = makeJit();
     const track = svc.mapPendingEntry({

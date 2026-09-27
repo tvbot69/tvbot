@@ -1,6 +1,6 @@
 # Code quality review — tvbot
 
-Date: 2026-09-27 · baseline `main` · 126 test files / 984 tests · 376 production `.ts` files / 66,709 lines
+Date: 2026-09-27 · baseline `main` · 126 test files / 987 tests · 376 production `.ts` files / 66,709 lines
 
 ## Verdict
 
@@ -223,7 +223,18 @@ single `tryResolve(X)` helper into a leaf module changes no behaviour, makes the
 usage one file instead of 45 call sites, and turns the eventual real refactor into a mechanical
 one. That is worth doing. The refactor itself needs a live run to verify.
 
-## Where this leaves the grade
+## User-facing bugs found and fixed during this pass
+
+- **.shuffle did nothing while a playlist was still loading.** The queue is
+  filled two tracks ahead, so during a large load the Moonlink queue is EMPTY
+  while the pending store holds nearly everything - and shuffle bailed out on
+  an empty queue, reporting "nothing to shuffle" at exactly the moment a
+  listener is most likely to press it. It now shuffles whenever there is
+  anything to shuffle, pending or resolved.
+  This was a *known* gap: pendingStoreIdentity.test.ts carried a test literally
+  named KNOWN GAP: shuffle refuses when only pending entries exist. The gap is
+  closed and that test now asserts the fixed behaviour.
+
 
 **A−, and the remaining gap is a single well-understood architectural item plus a judgement
 call on three findings that need the maintainer, not a coder.** None of the remaining work is
