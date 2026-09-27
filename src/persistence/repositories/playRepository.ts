@@ -71,13 +71,23 @@ export class PlayRepository implements IPlayRepository {
   }
 
   private isTransientDbError(err: unknown): boolean {
-    const message = String(err);
+    // Lowercased before matching. This was case-SENSITIVE, and Prisma's own
+    // pool timeout is "Timed out fetching a new connection from the connection
+    // pool" - capital T - so `includes('timed out')` never matched it. A pool
+    // timeout is precisely the transient condition this retry exists to
+    // recover, and it was being rethrown on the first attempt. Caught by a test
+    // using the real Prisma wording rather than a lowercased paraphrase.
+    const message = String(err).toLowerCase();
     return (
       message.includes('closed the connection') ||
-      message.includes('Server has closed') ||
+      message.includes('server has closed') ||
       message.includes('timed out') ||
-      message.includes('P1017') ||
-      message.includes('P1001')
+      message.includes('p1017') ||
+      message.includes('p1001') ||
+      // P2024: Timed out fetching a new connection from the connection pool.
+      // Named explicitly as well as matched by text, so the intent survives a
+      // wording change upstream.
+      message.includes('p2024')
     );
   }
 
