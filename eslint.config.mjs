@@ -38,6 +38,26 @@ export default tseslint.config(
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
       'no-console': 'warn',
+
+      /**
+       * An empty catch is a swallowed failure with no trace. A `warn` rather
+       * than `error` because the existing ~178 are comment-only blocks, which
+       * ESLint correctly treats as deliberate and which are mostly justified
+       * degradation paths. The point is to stop NEW ones appearing silently.
+       *
+       * Measured 2026-09-27 across 589 catch clauses in production code:
+       *   225 bind an error, and every one of them inspects it - zero silent
+       *       bound-and-unused, which is better than the earlier review assumed
+       *   364 bind nothing; of those only 2 log, the rest degrade quietly by
+       *       design (a missing cover falls back, a failed lookup returns null)
+       *
+       * Do NOT "fix" these by logging everything. AGENTS.md golden rule 10 is
+       * explicit that INFO-level noise hides the lines that matter; hundreds of
+       * DEBUG lines on a normal request would drown exactly the greps in
+       * AGENTS.md section 9. An expected outcome is DEBUG, a lost capability is
+       * WARN, and most of these are neither - they are the designed fallback.
+       */
+      'no-empty': ['warn', { allowEmptyCatch: false }],
     },
   },
 );

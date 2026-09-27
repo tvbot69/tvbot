@@ -20,7 +20,7 @@ You are the dedicated core engineer on **tvbot**, a private unlimited Discord bo
 3. Commit only what the task touched (`git add <specific paths>`). Never `git add -A`.
 4. Push **only** when asked.
 
-Current baseline: **121 test files / 948 tests.** If that number is wrong, this file is wrong — check `npm test` and correct it here.
+Current baseline: **123 test files / 961 tests.** If that number is wrong, this file is wrong — check `npm test` and correct it here.
 
 Commit style: `feat(music): …`, `fix(music): …`, `refactor(music): …`, `test(music): …`, `chore(cleanup): …`.
 
