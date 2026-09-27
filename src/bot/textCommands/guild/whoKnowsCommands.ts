@@ -132,7 +132,52 @@ export class WhoKnowsCommands implements ITextCommandModule {
 
     const defaultMode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
     const settings = this.settingService.setWhoKnowsSettings(rawArgs, defaultMode);
-    let artistName = settings.newSearchValue;
+    return this.buildWhoKnowsArtist(context, user, settings.newSearchValue, {
+      responseMode: settings.responseMode,
+      qualityFilterDisabled: settings.qualityFilterDisabled,
+    });
+  }
+
+  /**
+   * Typed entry point for callers that already know exactly which artist they
+   * mean and have no free text to parse.
+   *
+   * This exists because the crown button used to call whoKnowsArtistAsync
+   * directly, which runs the value through setWhoKnowsSettings — a TEXT
+   * grammar that strips `img|image`, `embed|text|txt`, `pages|page|p|pp`,
+   * `nf|nofilter` and `nr|noredirect` from the search value. A band whose
+   * name is one of those words ("Page", "Text", "Image", "Nf") therefore came
+   * out of a crown button as a mangled, different artist. The button now calls
+   * this method and the artist name is used verbatim.
+   */
+  public async whoKnowsArtistForName(context: ContextModel, artistName: string): Promise<ResponseModel> {
+    if (!context.guild) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+    const user = await this.userService.getUserByDiscordId(context.discordUserId);
+    if (!user) {
+      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
+    }
+    this.checkSync(user);
+    const mode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
+    return this.buildWhoKnowsArtist(context, user, artistName, {
+      responseMode: mode,
+      qualityFilterDisabled: false,
+    });
+  }
+
+  /** Shared body: resolve the artist, then build the guild leaderboard. */
+  private async buildWhoKnowsArtist(
+    context: ContextModel,
+    user: User,
+    searchValue: string,
+    opts: { responseMode: WhoKnowsMode; qualityFilterDisabled: boolean },
+  ): Promise<ResponseModel> {
+    // Both entry points guard, but the shared body must be safe on its own.
+    if (!context.guild) {
+      return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
+    }
+    let artistName = searchValue;
     let livePlaycount: number | undefined;
 
     if (!artistName) {
@@ -163,7 +208,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
       user,
       resolvedName,
       livePlaycount,
-      settings.qualityFilterDisabled,
+      opts.qualityFilterDisabled,
       callerSampleTrack,
     );
 
@@ -217,7 +262,7 @@ export class WhoKnowsCommands implements ITextCommandModule {
       alsoPlaying,
       result.genres,
       closeFriends,
-      settings.responseMode,
+      opts.responseMode,
       crownMessage,
       'Artist',
       accentColor,

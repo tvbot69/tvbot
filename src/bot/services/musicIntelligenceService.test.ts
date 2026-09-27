@@ -51,12 +51,7 @@ describe('MusicIntelligenceService', () => {
       ]),
     };
 
-    service = new MusicIntelligenceService(
-      mockLastfmRepo as ILastfmRepository,
-      mockPrisma as PrismaClient,
-      mockGenreService,
-      mockCountryService,
-    );
+    service = new MusicIntelligenceService(mockPrisma as PrismaClient, mockCountryService);
   });
 
   describe('getListeningGaps', () => {
@@ -212,39 +207,6 @@ describe('MusicIntelligenceService', () => {
       expect(affinity.neighbors[0]!.totalPercentage).toBeGreaterThan(0);
       expect(affinity.neighbors[0]!.sharedArtists).toContain('Radiohead');
       expect(affinity.neighbors[0]!.sharedArtists).toContain('Slowdive');
-    });
-  });
-
-  describe('Last.fm actions', () => {
-    it('loves a track', async () => {
-      const result = await service.loveTrack('test_sk', 'Radiohead', 'Creep');
-      expect(result).toBe(true);
-      expect(mockLastfmRepo.loveTrack).toHaveBeenCalledWith('Radiohead', 'Creep', 'test_sk');
-    });
-
-    it('unloves a track', async () => {
-      const result = await service.unloveTrack('test_sk', 'Radiohead', 'Creep');
-      expect(result).toBe(true);
-      expect(mockLastfmRepo.unloveTrack).toHaveBeenCalledWith('Radiohead', 'Creep', 'test_sk');
-    });
-
-    it('gets loved tracks', async () => {
-      const result = await service.getLovedTracks('alex_lfm', 20, 1, 'test_sk');
-      expect(result.tracks).toHaveLength(2);
-      expect(result.total).toBe(2);
-      expect(mockLastfmRepo.getLovedTracks).toHaveBeenCalledWith('alex_lfm', 20, 1, 'test_sk');
-    });
-
-    it('scrobbles a track', async () => {
-      const result = await service.scrobbleTrack('test_sk', 'Radiohead', 'Karma Police', 'OK Computer', 1700000000);
-      expect(result).toBe(true);
-      expect(mockLastfmRepo.scrobbleTrack).toHaveBeenCalledWith(
-        'Radiohead',
-        'Karma Police',
-        1700000000,
-        'test_sk',
-        'OK Computer',
-      );
     });
   });
 });

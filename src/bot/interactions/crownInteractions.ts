@@ -138,7 +138,7 @@ export class CrownInteractions {
       context.accentColor = await this.colorService.getAccentColorAsync(interaction.guildId);
 
       const whoKnowsCommands = container.resolve(WhoKnowsCommands);
-      const response = await whoKnowsCommands.whoKnowsArtistAsync(context, artistName);
+      const response = await whoKnowsCommands.whoKnowsArtistForName(context, artistName);
 
       // Add a "Crown" button to allow switching back to the crown embed
       const crownBtn = new ButtonBuilder()

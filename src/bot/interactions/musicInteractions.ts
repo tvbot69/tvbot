@@ -199,6 +199,59 @@ export class MusicInteractions {
     this.activeSearches.set(key, tracks);
   }
 
+  /**
+   * Edit the card a button press belongs to, tolerating a card the handler has
+   * already replaced.
+   *
+   * A skip deletes the outgoing now-playing card and posts a new one, so a
+   * button press racing that teardown used to throw
+   * `DiscordAPIError[10008] Unknown Message` straight out of handleButton —
+   * logged as an unhandled exception and the user got NO response at all,
+   * which reads as "the buttons stopped working". Local test 2026-09-27 caught
+   * three of these in a minute of skipping.
+   *
+   * 10008 is unrecoverable for the edit, so fall through to a defer (still
+   * acknowledging the interaction within the 3s window) and let the fresh card
+   * carry the new state.
+   */
+  private async updateCardOrDefer(
+    interaction: ButtonInteraction | StringSelectMenuInteraction,
+    payload: unknown,
+  ): Promise<void> {
+    try {
+      await interaction.update(payload as InteractionUpdateOptions);
+    } catch (err) {
+      const code = (err as { code?: number }).code;
+      if (code !== 10008) throw err;
+      await deferUpdateSafe(interaction);
+    }
+  }
+
+  /**
+   * Rebuild the response for a card after a playback control changed
+   * (pause/skip/shuffle/volume/loop).
+   *
+   * This block was copy-pasted into six button branches, which meant one
+   * card-rebuild bug had six fix sites and they had already started to differ
+   * in their else-branch handling. The "is the user looking at the queue?"
+   * decision now exists exactly once.
+   */
+  private rebuildAfterControl(
+    interaction: ButtonInteraction,
+    updatedQueue: NonNullable<ReturnType<MusicService['getQueueInfo']>>,
+    accentColor: number | undefined,
+  ) {
+    const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
+    return isQueueView
+      ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
+      : MusicBuilders.buildNowPlayingResponse(
+          updatedQueue,
+          accentColor,
+          this.lyricWindowFor(interaction.guildId ?? ''),
+          this.chapterCardFor(interaction.guildId ?? ''),
+        );
+  }
+
   public async handleButton(interaction: ButtonInteraction): Promise<void> {
     const customId = interaction.customId;
     const guildId = interaction.guildId;
@@ -253,7 +306,7 @@ export class MusicInteractions {
       }
       const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
       if (MusicInteractions.isV2Message(interaction.message)) {
-        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
       } else {
         // Legacy message (filters panel, queue view) cannot morph into a
         // Components V2 card via update — Discord rejects the mixed format.
@@ -273,7 +326,7 @@ export class MusicInteractions {
         return;
       }
       const response = MusicBuilders.buildQueueResponse(queue, 1, 10, accentColor);
-      await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+      await this.updateCardOrDefer(interaction, response.toMessagePayload());
       return;
     }
 
@@ -324,7 +377,7 @@ export class MusicInteractions {
         return;
       }
       const response = MusicBuilders.buildFiltersResponse(queue.activeFilters, accentColor);
-      await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+      await this.updateCardOrDefer(interaction, response.toMessagePayload());
       return;
     }
 
@@ -335,7 +388,7 @@ export class MusicInteractions {
       const queue = this.musicService.getQueueInfo(guildId);
       if (queue) {
         const response = MusicBuilders.buildFiltersResponse(queue.activeFilters, accentColor);
-        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
       } else {
         await deferUpdateSafe(interaction);
       }
@@ -361,7 +414,7 @@ export class MusicInteractions {
       else if (action === 'last') page = totalPages;
 
       const response = MusicBuilders.buildQueueResponse(queue, page, 10, accentColor);
-      await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+      await this.updateCardOrDefer(interaction, response.toMessagePayload());
       return;
     }
 
@@ -381,11 +434,8 @@ export class MusicInteractions {
 
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
-        const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
-        const response = isQueueView
-          ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
-          : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+        const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
       } else {
         await deferUpdateSafe(interaction);
       }
@@ -398,11 +448,8 @@ export class MusicInteractions {
       if (success) {
         const updatedQueue = this.musicService.getQueueInfo(guildId);
         if (updatedQueue) {
-          const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
-          const response = isQueueView
-            ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
-            : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-          await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+          const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
+          await this.updateCardOrDefer(interaction, response.toMessagePayload());
         } else {
           await interaction.deferUpdate().catch(() => undefined);
           await interaction.message.delete().catch(() => undefined);
@@ -420,7 +467,7 @@ export class MusicInteractions {
         const updatedQueue = this.musicService.getQueueInfo(guildId);
         if (updatedQueue) {
           const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-          await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+          await this.updateCardOrDefer(interaction, response.toMessagePayload());
         } else {
           await deferUpdateSafe(interaction);
         }
@@ -436,11 +483,8 @@ export class MusicInteractions {
       if (success) {
         const updatedQueue = this.musicService.getQueueInfo(guildId);
         if (updatedQueue) {
-          const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
-          const response = isQueueView
-            ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
-            : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-          await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+          const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
+          await this.updateCardOrDefer(interaction, response.toMessagePayload());
         } else {
           await deferUpdateSafe(interaction);
         }
@@ -455,11 +499,8 @@ export class MusicInteractions {
       this.musicService.clear(guildId);
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
-        const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
-        const response = isQueueView
-          ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
-          : MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+        const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
       } else {
         await deferUpdateSafe(interaction);
       }
@@ -472,7 +513,7 @@ export class MusicInteractions {
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
         const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
       } else {
         await deferUpdateSafe(interaction);
       }
@@ -485,7 +526,7 @@ export class MusicInteractions {
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
         const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
       } else {
         await deferUpdateSafe(interaction);
       }
@@ -498,7 +539,7 @@ export class MusicInteractions {
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
         const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
       } else {
         await deferUpdateSafe(interaction);
       }
@@ -577,7 +618,7 @@ export class MusicInteractions {
       const activeFilters = updatedQueue?.activeFilters ?? [];
       const response = MusicBuilders.buildFiltersResponse(activeFilters, accentColor);
 
-      await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+      await this.updateCardOrDefer(interaction, response.toMessagePayload());
       return;
     }
 
@@ -647,7 +688,7 @@ export class MusicInteractions {
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
         const response = MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor);
-        await interaction.update(response.toMessagePayload() as unknown as InteractionUpdateOptions);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
       } else {
         await deferUpdateSafe(interaction);
       }

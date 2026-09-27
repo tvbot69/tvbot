@@ -471,17 +471,6 @@ export class AlbumService {
       return y >= decade && y <= endDecade;
     });
   }
-
-  public getAlbumsPopularity(topAlbums: Array<{ name: string; playcount: number }>): Array<{ name: string; playcount: number; popularityScore: number }> {
-    if (!topAlbums || topAlbums.length === 0) return [];
-    const maxPlaycount = Math.max(...topAlbums.map((a) => a.playcount), 1);
-    return topAlbums.map((album) => ({
-      name: album.name,
-      playcount: album.playcount,
-      popularityScore: Math.round((album.playcount / maxPlaycount) * 100),
-    }));
-  }
-
   /**
    * Batch hydrates missing album covers across Spotify / Last.fm
    */
@@ -689,15 +678,6 @@ export class AlbumService {
       return all;
     }
   }
-
-  public async getUserAllTimeTopAlbumsByReleaseYear(userId: number, year: number): Promise<TopAlbum[]> {
-    return this.getUserAllTimeTopAlbumsByReleasePrefix(userId, year.toString(), 4);
-  }
-
-  public async getUserAllTimeTopAlbumsByReleaseDecade(userId: number, decade: number): Promise<TopAlbum[]> {
-    return this.getUserAllTimeTopAlbumsByReleasePrefix(userId, Math.floor(decade / 10).toString(), 3);
-  }
-
   /**
    * Filters guild albums to release period
    */
@@ -725,17 +705,6 @@ export class AlbumService {
   }
 
   /**
-   * Filters out singles from guild album lists
-   */
-  public async filterGuildAlbumsThatAreSingles<T extends { artistName: string; albumName: string }>(
-    albums: T[],
-  ): Promise<T[]> {
-    return this.filterAlbumsThatAreSingles(
-      albums.map((a) => ({ ...a, name: a.albumName })),
-    ).map((a) => a as unknown as T);
-  }
-
-  /**
    * Resolves album accent color
    */
   public async getAlbumAccentColor(
@@ -753,18 +722,6 @@ export class AlbumService {
     }
     return DiscordConstants.LastFmColorRed;
   }
-
-  public async getAccentColorWithAlbum(
-    _context: unknown,
-    albumCoverUrl?: string | null,
-    _albumId?: number | null,
-    albumName?: string,
-    artistName?: string,
-    _allowCustomColors: boolean = true,
-  ): Promise<number> {
-    return this.getAlbumAccentColor(albumCoverUrl, albumName, artistName);
-  }
-
   /**
    * Formats album release date string matching C# GetAlbumReleaseDate
    */
@@ -901,16 +858,6 @@ export class AlbumService {
         artistName: r.artist.name,
         albumName: r.name,
       }));
-    } catch {
-      return [];
-    }
-  }
-
-  public async getAlbumImages(albumId: number): Promise<any[]> {
-    try {
-      return await (this.prisma as any).albumImage?.findMany({
-        where: { albumId },
-      }) ?? [];
     } catch {
       return [];
     }

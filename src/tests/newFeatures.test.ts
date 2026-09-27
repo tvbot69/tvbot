@@ -302,7 +302,7 @@ describe('New Features Suite', () => {
     });
 
     it('fetches lyrics for query', async () => {
-      const cmd = trackCommands.commands.find((c) => c.name === 'lyrics')!;
+      const cmd = trackCommands.commands.find((c) => c.name === 'lyric')!;
       const ctx = new ContextModel();
       ctx.discordUserId = '111' as any;
       const res = await cmd.executeAsync(ctx, ['Radiohead - Paranoid Android']);
@@ -312,7 +312,7 @@ describe('New Features Suite', () => {
     });
 
     it('fetches lyrics for now playing if no query provided', async () => {
-      const cmd = trackCommands.commands.find((c) => c.name === 'lyrics')!;
+      const cmd = trackCommands.commands.find((c) => c.name === 'lyric')!;
       const ctx = new ContextModel();
       ctx.discordUserId = '111' as any;
       const res = await cmd.executeAsync(ctx, []);
@@ -344,18 +344,18 @@ describe('New Features Suite', () => {
     });
 
     it('asks for confirmation before removing account', async () => {
-      const cmd = loginCommands.commands.find((c) => c.name === 'remove')!;
+      const cmd = loginCommands.commands.find((c) => c.name === 'unlink')!;
       const ctx = new ContextModel();
       ctx.discordUserId = '111' as any;
       ctx.prefix = '.';
       const res = await cmd.executeAsync(ctx, []);
       expect(res.embed.data.title).toContain('Account Deletion');
-      expect(res.embed.data.description).toContain('.remove confirm');
+      expect(res.embed.data.description).toContain('.unlink confirm');
       expect(mockUserService.removeUser).not.toHaveBeenCalled();
     });
 
     it('deletes account when confirmed', async () => {
-      const cmd = loginCommands.commands.find((c) => c.name === 'remove')!;
+      const cmd = loginCommands.commands.find((c) => c.name === 'unlink')!;
       const ctx = new ContextModel();
       ctx.discordUserId = '111' as any;
       ctx.prefix = '.';

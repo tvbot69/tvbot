@@ -6,13 +6,12 @@ import type { User } from '@domain/interfaces/iuserRepository';
 import type { ReferencedMusic } from '@domain/models/referencedMusic';
 import { ArtworkService } from './artworkService';
 import { ColorService } from './colorService';
-import { MusicBrainzService } from './musicBrainzService';
-import { TasteService, type TasteItem, type TasteComparisonItem } from './tasteService';
 import { CacheService } from './cacheService';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import type { PrismaClient } from '@prisma/client';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { Logger } from '@domain/logger';
+import type { TasteItem } from './tasteService';
 import { isPlaceholderImageUrl } from '@bot/services/artworkService';
 
 const CACHE_TTL_SECONDS = 3600;
@@ -57,7 +56,6 @@ export class ArtistsService {
   private readonly cache: CacheService;
   private readonly artworkService?: ArtworkService;
   private readonly colorService?: ColorService;
-  private readonly musicBrainzService?: MusicBrainzService;
   private readonly prisma?: PrismaClient;
 
   constructor(
@@ -65,14 +63,12 @@ export class ArtistsService {
     cache: CacheService,
     artworkService?: ArtworkService,
     colorService?: ColorService,
-    musicBrainzService?: MusicBrainzService,
     prisma?: PrismaClient,
   ) {
     this.lastfmRepository = lastfmRepository;
     this.cache = cache;
     this.artworkService = artworkService;
     this.colorService = colorService;
-    this.musicBrainzService = musicBrainzService;
     this.prisma = prisma;
   }
 
@@ -108,14 +104,11 @@ export class ArtistsService {
 
     try {
       // Spotify artist link: https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb
-      const spotifyMatch = input.match(/spotify\.com\/(?:intl-[a-zA-Z-]+\/)?artist\/([a-zA-Z0-9]+)/i);
-      if (spotifyMatch && spotifyMatch[1]) {
-        const spotifyId = spotifyMatch[1];
-        const dbArtist = await this.getArtistForSpotifyId(spotifyId);
-        if (dbArtist?.name) {
-          return dbArtist.name;
-        }
-      }
+      // No DB lookup by Spotify artist id exists (the stub that used to serve
+      // this returned null unconditionally, so the branch was unreachable and
+      // every Spotify artist link fell through to the Last.fm regex below).
+      // Kept as an explicit no-op comment rather than a lying lookup: a
+      // real spotify->artist resolver belongs in the artist repository.
 
       // Last.fm artist URL: https://www.last.fm/music/Radiohead
       const lastfmMatch = input.match(/last\.fm\/music\/([^/?#]+)/i);
@@ -141,32 +134,6 @@ export class ArtistsService {
     }
 
     return null;
-  }
-
-  /**
-   * Calculates popularity relative to top artist
-   */
-  public async getArtistsPopularity(
-    topArtists: Array<{ name: string; playcount: number }>,
-  ): Promise<Array<{ name: string; playcount: number; popularityScore: number }>> {
-    if (!topArtists || topArtists.length === 0) return [];
-    const maxPlaycount = Math.max(...topArtists.map((a) => a.playcount), 1);
-    return topArtists.map((artist) => ({
-      name: artist.name,
-      playcount: artist.playcount,
-      popularityScore: Math.round((artist.playcount / maxPlaycount) * 100),
-    }));
-  }
-
-  /**
-   * Filters out singles and EPs from album lists
-   */
-  public filterSinglesFromUserAlbums<T extends { name: string; artistName?: string }>(albums: T[]): T[] {
-    if (!albums || albums.length === 0) return [];
-    return albums.filter((album) => {
-      const lower = album.name.toLowerCase();
-      return !lower.endsWith(' - single') && !lower.endsWith(' - ep') && lower !== 'single';
-    });
   }
 
   /**
@@ -266,26 +233,6 @@ export class ArtistsService {
   }
 
   /**
-   * Visual comparison indicator matching fmbot: ' • ', ' > ', ' < '
-   */
-  public static getCompareChar(ownPlaycount: number, otherPlaycount: number): string {
-    return ownPlaycount === otherPlaycount ? ' • ' : ownPlaycount > otherPlaycount ? ' > ' : ' < ';
-  }
-
-  /**
-   * Filters and sorts matched taste items for side-by-side comparison
-   */
-  public static artistsToShow(
-    leftUserArtists: TasteItem[],
-    rightUserArtists: TasteItem[],
-  ): TasteItem[] {
-    const rightSet = new Map(rightUserArtists.map((a) => [a.name.toLowerCase(), a.playcount]));
-    return leftUserArtists
-      .filter((w) => rightSet.has(w.name.toLowerCase()))
-      .sort((a, b) => b.playcount - a.playcount);
-  }
-
-  /**
    * Formats taste comparison description header
    */
   public static description(
@@ -299,21 +246,6 @@ export class ArtistsService {
     return `Matched **${matched}** of **${total.toLocaleString('en-US')}** artists (${percentage}%) for ${timeDescription}.`;
   }
 
-  /**
-   * Translates extra options like 'xl', 'xs' to standard EmbedSize
-   */
-  public setTasteEmbedSize(extraOptions?: string | null): EmbedSize {
-    if (!extraOptions) return EmbedSize.Default;
-    const lower = extraOptions.toLowerCase();
-    if (lower.includes('xl') || lower.includes('xxl') || lower.includes('extralarge')) {
-      return EmbedSize.Large;
-    }
-    if (lower.includes('xs') || lower.includes('xxs') || lower.includes('extrasmall')) {
-      return EmbedSize.Small;
-    }
-    return EmbedSize.Default;
-  }
-
   public async getArtistForId(artistId: number): Promise<{ id: number; name: string } | null> {
     try {
       const a = await this.db.artist.findUnique({
@@ -325,11 +257,6 @@ export class ArtistsService {
       return null;
     }
   }
-
-  public async getArtistForSpotifyId(_spotifyId: string): Promise<{ id: number; name: string } | null> {
-    return null;
-  }
-
   public async getArtistFromDatabase(artistName: string, _redirectsEnabled: boolean = true): Promise<{ id: number; name: string } | null> {
     if (!artistName) return null;
     try {
@@ -443,47 +370,6 @@ export class ArtistsService {
       return [];
     }
   }
-
-  public async getUserAlbumsForArtist(userId: number, artistName: string): Promise<UserAlbumEntry[]> {
-    try {
-      const albums = await this.getTopAlbumsForArtist(userId, artistName);
-      return albums.map((a) => ({
-        userId,
-        name: a.name,
-        artistName: a.artistName,
-        playcount: a.playcount,
-      }));
-    } catch {
-      return [];
-    }
-  }
-
-  public async getUserAlbumCount(userId: number): Promise<number> {
-    try {
-      const rows = await this.db.$queryRawUnsafe<Array<{ count: bigint }>>(`
-        SELECT COUNT(DISTINCT LOWER(album_name))::bigint AS count
-        FROM user_plays
-        WHERE user_id = $1 AND album_name IS NOT NULL AND album_name != ''
-      `, userId);
-      return rows[0] ? Number(rows[0].count) : 0;
-    } catch {
-      return 0;
-    }
-  }
-
-  public async getUserTrackCount(userId: number): Promise<number> {
-    try {
-      const rows = await this.db.$queryRawUnsafe<Array<{ count: bigint }>>(`
-        SELECT COUNT(DISTINCT (LOWER(artist_name) || '|' || LOWER(track_name)))::bigint AS count
-        FROM user_plays
-        WHERE user_id = $1 AND track_name IS NOT NULL AND track_name != ''
-      `, userId);
-      return rows[0] ? Number(rows[0].count) : 0;
-    } catch {
-      return 0;
-    }
-  }
-
   /**
    * Autocomplete: Recently scrobbled artists in last 2 days
    */
@@ -600,25 +486,6 @@ export class ArtistsService {
     }
 
     return DiscordConstants.LastFmColorRed;
-  }
-
-  /**
-   * Checks if today is the artist's birthday
-   */
-  public static isArtistBirthday(startDateTime?: Date | null): string | null {
-    if (!startDateTime) return null;
-    const now = new Date();
-    // Ignore Jan 1 placeholder dates
-    if (startDateTime.getUTCDate() === 1 && startDateTime.getUTCMonth() === 0) {
-      return null;
-    }
-    if (
-      startDateTime.getUTCDate() === now.getUTCDate() &&
-      startDateTime.getUTCMonth() === now.getUTCMonth()
-    ) {
-      return ' 🎂';
-    }
-    return null;
   }
 
   /**

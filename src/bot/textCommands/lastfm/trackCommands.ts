@@ -68,8 +68,8 @@ export class TrackCommands implements ITextCommandModule {
         executeAsync: (context, args) => this.scrobbleAsync(context, args),
       },
       {
-        name: 'lyrics',
-        aliases: ['lyric', 'genius'],
+        name: 'lyric',
+        aliases: ['genius'],
         executeAsync: (context, args) => this.lyricsAsync(context, args?.join(' ') ?? ''),
       },
     ];

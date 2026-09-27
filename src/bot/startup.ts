@@ -863,12 +863,7 @@ export const configureContainer = (): void => {
   container.registerInstance(GameCommands, gameCommands);
   container.registerInstance(GameSlashCommands, gameSlashCommands);
 
-  const musicIntelligenceService = new MusicIntelligenceService(
-    lastFmRepository,
-    prisma,
-    genreService,
-    countryService,
-  );
+  const musicIntelligenceService = new MusicIntelligenceService(prisma, countryService);
   const icebergGenerator = new IcebergGenerator(puppeteerService);
   const intelligenceInteractions = new IntelligenceInteractions(musicIntelligenceService, userService, colorService);
   const intelligenceCommands = new IntelligenceCommands(

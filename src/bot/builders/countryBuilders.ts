@@ -76,6 +76,57 @@ export interface BuildCountryChartOptions {
 }
 
 export class CountryBuilders {
+  /**
+   * Row packing for the paginated country leaderboards: the guild/user
+   * toggle button plus the page nav buttons, laid out under Discord's
+   * 5-per-row cap.
+   *
+   * This was a byte-identical 30-line block in two builders (top countries
+   * and country artists) and a near-copy in a third, so the row layout had
+   * to be changed in three places at once. One implementation now.
+   */
+  private static addPagedRows(args: {
+    container: ContainerBuilder;
+    actionRows: ActionRowBuilder<ButtonBuilder>[];
+    navButtons: ButtonBuilder[];
+    guildId: string | null | undefined;
+    isServerView: boolean;
+    cacheKey: string;
+    validPageIndex: number;
+    callerDiscordUserId: string;
+  }): void {
+    const { container, actionRows, navButtons, guildId, isServerView, cacheKey, validPageIndex, callerDiscordUserId } = args;
+    if (guildId) {
+      const toggleAction = isServerView ? 'user' : 'server';
+      const toggleLabel = isServerView ? 'View user overview' : 'View server overview';
+      const toggleBtn = new ButtonBuilder()
+        .setCustomId(
+          `country:toggle:${toggleAction}:${cacheKey}:${validPageIndex}:${callerDiscordUserId}`,
+        )
+        .setLabel(toggleLabel)
+        .setStyle(ButtonStyle.Secondary);
+
+      if (navButtons.length === 0) {
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
+        actionRows.push(row);
+        container.addActionRowComponents(row);
+      } else if (navButtons.length < 4) {
+        navButtons.push(toggleBtn);
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
+        actionRows.push(row);
+        container.addActionRowComponents(row);
+      } else {
+        const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
+        const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
+        actionRows.push(row1, row2);
+        container.addActionRowComponents(row1, row2);
+      }
+    } else if (navButtons.length > 0) {
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
+      actionRows.push(row);
+      container.addActionRowComponents(row);
+    }
+  }
   public static buildTopCountriesResponse(options: BuildTopCountriesOptions): ResponseModel {
     const {
       displayName,
@@ -178,36 +229,7 @@ export class CountryBuilders {
       );
     }
 
-    if (guildId) {
-      const toggleAction = isServerView ? 'user' : 'server';
-      const toggleLabel = isServerView ? 'View user overview' : 'View server overview';
-      const toggleBtn = new ButtonBuilder()
-        .setCustomId(
-          `country:toggle:${toggleAction}:${cacheKey}:${validPageIndex}:${callerDiscordUserId}`,
-        )
-        .setLabel(toggleLabel)
-        .setStyle(ButtonStyle.Secondary);
-
-      if (navButtons.length === 0) {
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
-        actionRows.push(row);
-        container.addActionRowComponents(row);
-      } else if (navButtons.length < 4) {
-        navButtons.push(toggleBtn);
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
-        actionRows.push(row);
-        container.addActionRowComponents(row);
-      } else {
-        const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
-        const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
-        actionRows.push(row1, row2);
-        container.addActionRowComponents(row1, row2);
-      }
-    } else if (navButtons.length > 0) {
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
-      actionRows.push(row);
-      container.addActionRowComponents(row);
-    }
+    CountryBuilders.addPagedRows({ container, actionRows, navButtons, guildId, isServerView, cacheKey, validPageIndex, callerDiscordUserId });
 
     const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
     response.commandResponse = CommandResponse.Ok;
@@ -317,36 +339,7 @@ export class CountryBuilders {
       );
     }
 
-    if (guildId) {
-      const toggleAction = isServerView ? 'user' : 'server';
-      const toggleLabel = isServerView ? 'View user overview' : 'View server overview';
-      const toggleBtn = new ButtonBuilder()
-        .setCustomId(
-          `country:toggle:${toggleAction}:${cacheKey}:${validPageIndex}:${callerDiscordUserId}`,
-        )
-        .setLabel(toggleLabel)
-        .setStyle(ButtonStyle.Secondary);
-
-      if (navButtons.length === 0) {
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
-        actionRows.push(row);
-        container.addActionRowComponents(row);
-      } else if (navButtons.length < 4) {
-        navButtons.push(toggleBtn);
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
-        actionRows.push(row);
-        container.addActionRowComponents(row);
-      } else {
-        const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
-        const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(toggleBtn);
-        actionRows.push(row1, row2);
-        container.addActionRowComponents(row1, row2);
-      }
-    } else if (navButtons.length > 0) {
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(navButtons);
-      actionRows.push(row);
-      container.addActionRowComponents(row);
-    }
+    CountryBuilders.addPagedRows({ container, actionRows, navButtons, guildId, isServerView, cacheKey, validPageIndex, callerDiscordUserId });
 
     const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
     response.commandResponse = CommandResponse.Ok;

@@ -67,8 +67,8 @@ export class LoginCommands implements ITextCommandModule {
         executeAsync: (context, _args) => this.logoutAsync(context),
       },
       {
-        name: 'remove',
-        aliases: ['unlink', 'deleteaccount'],
+        name: 'unlink',
+        aliases: ['deleteaccount'],
         executeAsync: (context, args) => this.removeAsync(context, args),
       },
     ];
@@ -173,7 +173,7 @@ export class LoginCommands implements ITextCommandModule {
       response.embed.setDescription(
         `Are you sure you want to disconnect your Last.fm account (**${user.userNameLastFm}**)?\n\n` +
         `This will revoke your session, delete your saved preferences, and remove your cached plays and crowns from the bot.\n\n` +
-        `To confirm deletion, type: \`${context.prefix}remove confirm\` (or \`${context.prefix}unlink confirm\`).`,
+        `To confirm deletion, type: \`${context.prefix}unlink confirm\`.`,
       );
       return response;
     }

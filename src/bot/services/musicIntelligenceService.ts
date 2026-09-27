@@ -1,8 +1,6 @@
 import { inject, injectable } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { GenreService } from './genreService';
 import { CountryService } from './countryService';
 
 export type GapEntityType = 'artist' | 'album' | 'track';
@@ -61,9 +59,7 @@ export interface AffinityData {
 @injectable()
 export class MusicIntelligenceService {
   constructor(
-    @inject('ILastfmRepository') private readonly lastfmRepository: ILastfmRepository,
     @inject(PrismaClient) private readonly prisma?: PrismaClient,
-    @inject(GenreService) private readonly genreService?: GenreService,
     @inject(CountryService) private readonly countryService?: CountryService,
   ) {}
 
@@ -540,33 +536,5 @@ export class MusicIntelligenceService {
       neighbors,
       totalGuildUsers: guildUsers.length,
     };
-  }
-
-  public async loveTrack(sessionKey: string, artist: string, track: string): Promise<boolean> {
-    return this.lastfmRepository.loveTrack(artist, track, sessionKey);
-  }
-
-  public async unloveTrack(sessionKey: string, artist: string, track: string): Promise<boolean> {
-    return this.lastfmRepository.unloveTrack(artist, track, sessionKey);
-  }
-
-  public async getLovedTracks(
-    userNameLastFm: string,
-    limit: number = 20,
-    page: number = 1,
-    sessionKey?: string,
-  ) {
-    return this.lastfmRepository.getLovedTracks(userNameLastFm, limit, page, sessionKey);
-  }
-
-  public async scrobbleTrack(
-    sessionKey: string,
-    artist: string,
-    track: string,
-    album?: string,
-    timestamp?: number,
-  ): Promise<boolean> {
-    const ts = timestamp ?? Math.floor(Date.now() / 1000);
-    return this.lastfmRepository.scrobbleTrack(artist, track, ts, sessionKey, album);
   }
 }
