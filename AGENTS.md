@@ -28,7 +28,7 @@ Paths below are **repo-relative**. Do not write absolute `file://` URLs — they
 3. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 4. Push **only** when asked.
 
-Current baseline: **120 test files / 935 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
+Current baseline: **120 test files / 933 tests**. If the numbers in this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
 
 `npm test` does not typecheck. Always run `npm run build` too — otherwise a bad constructor arity passes vitest and breaks the build.
 
@@ -219,9 +219,27 @@ This session found four multi-hour bugs. The suite was green for all four. The r
 - The listener-wrapper regression: **caught**, because that test drives the real Moonlink interface and awaits it rather than testing our abstraction of it.
 
 Three fixes, in priority order:
-1. **Fixtures captured from real provider responses**, replayed in tests. A recorded Spotify/Last.fm/YouTube payload kills this whole class.
-2. **Invariant tests over event sequences**, not examples. "For any sequence of seeks, stalls and track changes, the displayed chapter never moves backwards without a recorded seek" covers the rewind, the stall path, and whatever is next. Examples cannot express this; properties can.
-3. **Doubles that are deliberately uncooperative** — a double whose `current.position` *disagrees* with the recorded seek intent. Cooperation between double and code is what hid the bug.
+1. **Fixtures captured from real provider responses**, replayed in tests. A recorded Spotify/Last.fm/YouTube payload kills this whole class. — **done**
+2. **Invariant tests over event sequences**, not examples. "For any sequence of seeks, stalls and track changes, the displayed chapter never moves backwards without a recorded seek" covers the rewind, the stall path, and whatever is next. Examples cannot express this; properties can. — **done, but see the trap below**
+3. **Doubles that are deliberately uncooperative** — a double whose `current.position` *disagrees* with the recorded seek intent. Cooperation between double and code is what hid the bug. — **done**: `src/tests/musicBot/uncooperativePlayer.ts`
+
+### The trap that fix 2 fell into, and the rule that replaced it
+
+The first attempt at fix 2 re-implemented the chapter indexing **locally in the test** and asserted against that model. It passed 6/6 — and it also passed **6/6 with `calculatePosition`'s seek-awareness deleted from production code**. A test that cannot fail when the feature is removed is not a test; it is a comment that runs.
+
+The replacement, `src/tests/musicBot/chapterInvariant.uncooperative.test.ts`, drives the **real** `QueueService.calculatePosition` and the **real** `ChapterTimeline.chapterCardFor`, over a hand-moved node clock that is wrong on purpose. The model-based file was deleted rather than kept as a second, weaker claim on the same invariant.
+
+> **Rule: a test that re-implements the logic it is testing is decoration. Import the production function.** If you cannot import it, that is a design finding — extract the logic, do not copy it.
+
+### Mutation-check anything load-bearing
+
+A new test is not finished until you have seen it fail. The cheapest proof is to break the feature and watch the test catch it:
+```
+# disable seek-awareness in queueService.calculatePosition, run the new test, expect failure, then revert
+(Get-Content src/bot/services/music/queueService.ts -Raw) -replace 'seekPos > basePos &&','false &&' | Set-Content src/bot/services/music/queueService.ts -NoNewline
+git checkout -- src/bot/services/music/queueService.ts
+```
+Do this for any test guarding an incident. A test that has never been seen red is an assumption.
 
 And the honest limit: **no test can catch "Spotify changed their API"**, because that is a fact about the world. Only watching the real thing catches it — which is why §9 exists, and why reading the log is part of the job rather than a fallback.
 
