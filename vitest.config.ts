@@ -19,7 +19,7 @@ export default defineConfig({
     // file silently stops counting and coverage rises by shrinking the
     // denominator rather than by adding tests.
     //
-    //   lines 46.31%  branches 67.91%  functions 49.23%  statements 46.31%
+    //   lines 49.00%  branches 68.39%  functions 49.98%  statements 49.00%
     //
     // Thresholds sit just below each, so a 0.1% regression fails the build.
     // The gap between 46% here and the "well tested" impression the repo gave
@@ -28,6 +28,19 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       all: true,
+      // Explicit file set rather than a root glob.
+      //
+      // With `all: true` and no `include`, v8 walked the whole project root and
+      // picked up 14 DELETED source files out of stale build artifacts - they
+      // exist as .js.map sources under dist/ and nowhere else. They were not in
+      // git and not on disk in src/, and all 14 were scored 0%, so they sat in
+      // the denominator inflating it by ~1360 statements and deflating the
+      // reported figure by about two points.
+      //
+      // Scoping to src/ is the fix, and it is robust to the cause rather than
+      // dependent on diagnosing it: the report can only ever describe product
+      // source.
+      include: ['src/**/*.ts'],
       reportsDirectory: './coverage',
       reporter: ['text-summary', 'json-summary', 'lcov'],
       reportOnFailure: true,
@@ -51,10 +64,10 @@ export default defineConfig({
         'scripts/**',
       ],
       thresholds: {
-        statements: 46,
-        branches: 67,
+        statements: 48,
+        branches: 68,
         functions: 49,
-        lines: 46,
+        lines: 48,
       },
     },
   },
