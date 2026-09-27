@@ -19,7 +19,7 @@ export default defineConfig({
     // file silently stops counting and coverage rises by shrinking the
     // denominator rather than by adding tests.
     //
-    //   lines 49.00%  branches 68.39%  functions 49.98%  statements 49.00%
+    //   lines 49.16%  branches 68.62%  functions 50.26%  statements 49.16%
     //
     // Thresholds sit just below each, so a 0.1% regression fails the build.
     // The gap between 46% here and the "well tested" impression the repo gave
@@ -64,10 +64,10 @@ export default defineConfig({
         'scripts/**',
       ],
       thresholds: {
-        statements: 48,
-        branches: 68,
-        functions: 49,
-        lines: 48,
+        statements: 49,
+        branches: 68.5,
+        functions: 50,
+        lines: 49,
       },
     },
   },
