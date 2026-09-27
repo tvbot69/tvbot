@@ -77,5 +77,8 @@ USER node
 # Expose healthcheck probe port (Railway automatically routes $PORT here)
 EXPOSE 3000
 
-# Apply versioned migrations (fail closed on error), then start bot with aggressive V8 heap limit
-CMD ["sh", "-c", "npx prisma migrate deploy --schema src/persistence/prisma/schema.prisma && node --max-old-space-size=384 dist/bot/index.js"]
+  # `npm start` is the single definition of "how the bot boots", and it applies
+  # migrations first (fail-closed). This used to be spelled out inline here,
+  # while railway.json's startCommand overrode the whole CMD with a bare `node`
+  # - so on Railway the migrations this line was meant to run never did.
+  CMD ["npm", "start"]

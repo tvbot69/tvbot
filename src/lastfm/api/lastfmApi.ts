@@ -105,7 +105,7 @@ export class LastfmApi {
         const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
         const startTime = Date.now();
         const headers = {
-          'User-Agent': 'tvbot/0.1.0 (https://github.com/moha/tvbot)',
+          'User-Agent': 'tvbot/0.1.0 (https://github.com/tvbot69/tvbot)',
           ...init.headers,
         };
         const response = await fetch(url, { ...init, headers, signal });

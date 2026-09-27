@@ -68,6 +68,35 @@ Before the first deployment boots up, navigate to the **Variables** tab in your 
 
 ---
 
+## 2b. Migrations and the start command
+
+**Migrations run automatically on every deploy.** `npm start` applies
+`prisma migrate deploy` before launching the bot, and it fails closed — if a
+migration errors, the process exits and Railway restarts it rather than running
+against an out-of-date schema.
+
+There is deliberately **exactly one** definition of how the bot boots:
+
+| What | Where |
+|---|---|
+| start + migrate | `package.json` → `scripts.start` |
+| what the image runs | `Dockerfile` → `CMD ["npm", "start"]` |
+| what Railway runs | `railway.json` → *nothing* |
+
+`railway.json` sets no `startCommand` on purpose. A `startCommand` there
+**overrides the Dockerfile `CMD`**, which is how migrations stopped running on
+Railway: the override was a bare `node dist/bot/index.js` with no migrate step.
+If you add one back, migrations silently stop running again.
+
+`nixpacks.toml` was removed for the same reason — `railway.json` uses
+`builder: DOCKERFILE`, so the nixpacks config was never read.
+
+**After changing `schema.prisma`:** commit the generated SQL under
+`src/persistence/prisma/migrations/` and let the deploy apply it. Never edit an
+already-applied migration; add a new one instead.
+
+---
+
 ## 3. How It Stays Under Free Plan Limits
 
 1. **Memory Cap**: The Node process will not exceed ~384MB heap.

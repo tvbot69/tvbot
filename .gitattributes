@@ -1,0 +1,26 @@
+# Normalise line endings in the repository to LF.
+#
+# Why: nine tracked files had CRLF, including schema.prisma and two
+# repositories. Mixed endings mean a diff shows every line as changed, and a
+# Windows editor can silently rewrite a file's endings so that a two-line change
+# reads as a full-file rewrite in review.
+* text=auto eol=lf
+
+# Images and other binaries must never be touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.mp3 binary
+*.ogg binary
+*.zip binary
+*.pdf binary
+
+# Lockfiles and generated clients keep whatever they have.
+package-lock.json -diff

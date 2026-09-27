@@ -1,29 +1,18 @@
 # Continuous integration gate.
 #
-# Why this exists: `npm test` does NOT typecheck, and the local rule is
-# `npm run build` THEN `npm test`. Without CI those two are gated on one
-# person's machine remembering to run them. A green suite plus a red build is
-# exactly how a bad constructor arity reaches production while every test
-# passes, so the build is the gate that matters most and it runs first.
+# Build first, then tests, then lint. `npm test` does NOT typecheck, so a bad
+# constructor arity passes the suite and breaks the build - which is exactly how
+# that reaches production while every test is green.
 #
-# Secrets are deliberately absent. Nothing here touches a real Discord token,
-# a real database or a real Lavalink node: the build is tsc, and the suite
-# mocks the network. Dummy values below only satisfy prisma generate and the
-# env validator, which is why they are obviously fake.
+# No secrets, deliberately. Nothing here touches Discord, Last.fm, Spotify or a
+# Lavalink node: the build is tsc and the suite mocks the network. The suite used
+# to require a real DISCORD_TOKEN because prismaClient validated the environment
+# at import time, so a fresh clone could not run `npm test` at all;
+# `src/tests/setupEnv.ts` now supplies shape-valid fakes, so neither CI nor a new
+# contributor needs credentials. The dummy values below are obviously fake for
+# exactly that reason - they only satisfy prisma generate and the env validator.
 
 name: CI
-
-# No secrets anywhere, and deliberately so. Nothing in this pipeline contacts
-# Discord, Last.fm, Spotify or a Lavalink node: the build is tsc, the tests mock
-# the network, and the only socket that is never opened is the one DATABASE_URL
-# points at.
-#
-# The suite used to need a real DISCORD_TOKEN because `prismaClient` reaches
-# `assertValidEnvironment()` through `configData`'s lazy getter at import time,
-# and validation happened against the developer's local `.env`. That meant a
-# fresh clone could not run `npm test` at all. `src/tests/setupEnv.ts` now
-# supplies shape-valid fake fallbacks, so CI needs no credentials and neither
-# does a new contributor.
 
 on:
   push:

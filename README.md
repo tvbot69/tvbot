@@ -6,8 +6,8 @@
 
 [![Discord.js](https://img.shields.io/badge/Discord.js-v14-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.js.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Tests](https://img.shields.io/badge/Tests-635%2F635_passing-4caf50?style=flat-square)](https://vitest.dev/)
-[![Prisma](https://img.shields.io/badge/Prisma-6_PostgreSQL-2D3748?style=flat-square)](https://www.prisma.io/)
+  [![CI](https://github.com/tvbot69/tvbot/actions/workflows/ci.yml/badge.svg)](https://github.com/tvbot69/tvbot/actions/workflows/ci.yml)
+  [![Prisma](https://img.shields.io/badge/Prisma-6_PostgreSQL-2D3748?style=flat-square)](https://www.prisma.io/)
 
 </div>
 
@@ -29,7 +29,11 @@ Lavalink v4 (Moonlink.js) across a self-hosted Home node plus public failover. Y
 
 ## Platform
 
-Manual dependency injection (no decorator magic), Prisma + PostgreSQL, Redis with transparent in-memory fallback, structured logging, background cron (sync, cleanup, autoposts, updates), and a 635-test Vitest suite gating every change (`npm run build` + `npm test` — no exceptions).
+Hybrid dependency injection (`@injectable` decorators, a hand-written composition root in
+`src/bot/startup.ts`, and some `container.resolve` for cross-cutting lookups), Prisma +
+PostgreSQL, Redis with transparent in-memory fallback, structured logging, background cron
+(sync, cleanup, autoposts, updates), and a Vitest suite gating every change (`npm run build`
++ `npm test` + `npm run lint` — no exceptions).
 
 ## Setup
 
