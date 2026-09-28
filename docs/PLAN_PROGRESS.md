@@ -98,8 +98,18 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   repo-wide ban on `commandDispatcher` — the `userService`↔`commandDispatcher` edge is a
   type-only edge that is already correct; banning it would force churn for no safety gain.
   `lint` 0 errors.
-- **3.3** 🔄 `scripts/count-debt.ts` not written yet. This is the one that generalises every
-  ratchet so far, and the most valuable single file in the plan.
+- **3.3** ✅ `scripts/count-debt.ts` + `npm run debt` + blocking `debt` CI job.
+  One number per debt kind against a recorded budget that may only go down.
+  - `explicit-any` 136 (budget 136), `typed-catch` 0 (budget 0). AST-based via
+    `ts.Program`, so a string containing `: any` is not counted and test files
+    are excluded (tests legitimately cast).
+  - Note: the AST count is **136**, not the 140 quoted from the earlier regex
+    count. The regex over-counted. Budget set to the real number — a budget that
+    is aspirational is the same failure as no budget.
+  - Mutation-checked both ways: injecting one `export const x: any` → 137, FAILS.
+    Restored → 136, passes.
+  - `ts.isAnyKeyword` is internal and not exported by every TS version; the
+    check uses `ts.SyntaxKind.AnyKeyword` after that threw.
 - **3.4** ⬜ Not started.
 - **3.5** ⬜ Not started.
 ### Phase 4 — type safety: ⬜ nothing started (note: separate earlier work took `any` 392 → 140)

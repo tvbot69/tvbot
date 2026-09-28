@@ -169,3 +169,22 @@ jobs:
       # this keeps it from going backwards while that is worked through.
       - name: Check import cycles
         run: npm run deps:cycles
+  debt:
+    name: debt ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # One number per debt kind, each against a recorded budget that may only
+      # go down. A new `: any` fails the build.
+      - name: Check debt ratchet
+        run: npm run debt
