@@ -31,6 +31,17 @@ const DIR = 'src/persistence/prisma/migrations';
 const SCHEMA = 'scratch_migration_replay';
 
 /**
+ * `--keep` leaves the schema in place instead of dropping it.
+ *
+ * A machine with no Docker and no local Postgres cannot otherwise run the
+ * `*.db.test.ts` suite at all, and the only real database available is the
+ * remote one. A scratch SCHEMA is a real isolation boundary: every table the
+ * migrations create lands inside it, `public` is never read or written, and
+ * `DROP SCHEMA ... CASCADE` removes the lot.
+ */
+const KEEP = process.argv.includes('--keep');
+
+/**
  * Strip comment lines, then split into statements.
  *
  * Dollar-quoted blocks (`DO $$ ... $$`) are kept whole. Splitting on every `;`
@@ -133,7 +144,7 @@ const main = async (): Promise<void> => {
     }
   } finally {
     await prisma.$queryRawUnsafe('SET search_path TO public');
-    await prisma.$queryRawUnsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
+    if (!KEEP) await prisma.$queryRawUnsafe(`DROP SCHEMA IF EXISTS "${SCHEMA}" CASCADE`);
     console.log(`\nscratch schema dropped. Nothing outside it was touched.`);
   }
 

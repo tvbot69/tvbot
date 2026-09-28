@@ -1,7 +1,7 @@
 ﻿import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { PlayRepository } from './playRepository';
-import { connect, resetTables, seedUser, skipReason } from '../../tests/dbHarness';
+import { connect, resetTables, seedUser, skipReason, useScratchSchema } from '../../tests/dbHarness';
 import type { PlayInsert } from '@domain/interfaces/iplayRepository';
 
 /**
@@ -42,7 +42,10 @@ const play = (over: Partial<PlayInsert> = {}): PlayInsert => ({
 suite('PlayRepository against a real database', () => {
   beforeAll(async () => {
     prisma = await connect();
-    if (prisma) repo = new PlayRepository(prisma);
+    if (prisma) {
+      await useScratchSchema(prisma);
+      repo = new PlayRepository(prisma);
+    }
   });
 
   afterAll(async () => {

@@ -34,7 +34,8 @@
     "db:verify-missing-tables": "tsx scripts/verify-missing-tables-migration.ts",
     "db:replay-fresh": "tsx scripts/replay-migrations-fresh.ts",
     "db:verify-live-matches": "tsx scripts/verify-live-matches-migration.ts",
-    "test:db": "vitest run --config vitest.db.config.ts"
+    "test:db": "vitest run --config vitest.db.config.ts",
+    "db:replay-keep": "tsx scripts/replay-migrations-fresh.ts --keep"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

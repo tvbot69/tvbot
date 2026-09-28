@@ -39,6 +39,13 @@ export const skipReason = (): string | undefined => {
   } catch {
     return 'TEST_DATABASE_URL is not a parseable URL.';
   }
+  // An explicit non-public SCHEMA is itself an isolation boundary: every table the
+  // tests touch is created inside it, so `public` is never read or written and the
+  // database NAME stops mattering. This is what lets the suite run against a remote
+  // server on a machine with no local Postgres, and it is still safe - the only
+  // thing that makes a database dangerous here is writing to its real tables.
+  const schema = /[?&]schema=([^&]+)/.exec(url)?.[1];
+  if (schema && schema !== 'public') return undefined;
   if (!ALLOWED_DB_NAME.test(name)) {
     return `REFUSING to run: database "${name}" does not look like a scratch database. ` +
       'These tests TRUNCATE every table, so they must never point at production.';
@@ -93,6 +100,29 @@ export const resetTables = async (prisma: PrismaClient): Promise<void> => {
       artist_genres, albums, tracks, artists, users, guilds
     RESTART IDENTITY CASCADE
   `);
+};
+
+/**
+ * An ISOLATED schema name to run the tests in, taken from the URL query.
+ *
+ * Postgres schemas are a real isolation boundary and every table the tests
+ * touch lives in `public`. Running in a scratch schema means the tests are
+ * safe even against a production server, which is the only real Postgres
+ * available on some machines. Nothing in `public` is read or written.
+ */
+export const scratchSchema = (): string | undefined => {
+  const url = databaseUrl();
+  if (!url) return undefined;
+  const match = /[?&]schema=([^&]+)/.exec(url);
+  return match?.[1];
+};
+
+/** Point the connection at the scratch schema for this client. */
+export const useScratchSchema = async (prisma: PrismaClient): Promise<void> => {
+  const schema = scratchSchema();
+  if (schema) {
+    await prisma.$executeRawUnsafe(`SET search_path TO "${schema}"`);
+  }
 };
 
 /** A unique-enough user id per test file so parallel files cannot collide. */
