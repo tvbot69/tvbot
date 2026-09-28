@@ -986,7 +986,7 @@ export const configureContainer = (): void => {
   container.registerInstance(ClientLogHandler, new ClientLogHandler());
   // Resolved, not constructed: the 37 dependencies are declared as @inject params.
   container.registerInstance(InteractionHandler, container.resolve(InteractionHandler));
-  container.registerInstance(CommandHandler, new CommandHandler());
+  container.registerInstance(CommandHandler, container.resolve(CommandHandler));
   container.registerInstance(
     UpdateQueueHandler,
     new UpdateQueueHandler(userUpdateQueue, updateService),

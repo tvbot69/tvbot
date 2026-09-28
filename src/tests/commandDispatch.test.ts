@@ -7,6 +7,12 @@ import { GuildUserService } from '@bot/services/guild/guildUserService';
 import { ColorService } from '@bot/services/colorService';
 import { GameService } from '@bot/services/gameService';
 import { RateLimitService } from '@bot/services/rateLimitService';
+import type { Client } from 'discord.js';
+import type { GuildService } from '@bot/services/guild/guildService';
+import type { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
+import type { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
+import type { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
+import type { UserService } from '@bot/services/userService';
 
 /**
  * The text dispatcher runs for every message in every channel. These cover
@@ -80,7 +86,48 @@ const makeHandler = (opts: { guildPrefix?: string } = {}) => {
     }
     return {} as never;
   });
-  const handler = new CommandHandler();
+  // The 11 constructor dependencies are declared as TYPED variables rather than
+  // inline `as never` literals, and that is load-bearing.
+  //
+  // With inline literals every argument is `never`, so all 11 are mutually
+  // assignable and a positional swap compiles silently. Verified: swapping
+  // getPrefix and getGuild left this file green. Naming each stub with its real
+  // type makes a swap a COMPILE error, which is the only thing that actually
+  // pins the order.
+  const clientStub = client as unknown as Client;
+  const prefixServiceStub = { getPrefix } as unknown as PrefixService;
+  const guildServiceStub = { getGuild: vi.fn(async () => null) } as unknown as GuildService;
+  const disabledChannelStub = { isChannelDisabled: vi.fn(async () => false) } as unknown as DisabledChannelService;
+  const guildDisabledStub = { isCommandDisabled: vi.fn(async () => false) } as unknown as GuildDisabledCommandService;
+  const channelToggledStub = { isCommandToggled: vi.fn(async () => false) } as unknown as ChannelToggledCommandService;
+  const userServiceStub = { getUserByDiscordUserId: vi.fn(async () => null) } as unknown as UserService;
+  const guildUserStub = { storeGuildUsers: vi.fn(async () => undefined) } as unknown as GuildUserService;
+  const colorServiceStub = { getAccentColorAsync: vi.fn(async () => undefined) } as unknown as ColorService;
+  const gameServiceStub = {
+    getActiveGame: vi.fn(() => null),
+    checkAnswer: vi.fn(() => ({ isCorrect: false })),
+    giveUp: vi.fn(() => null),
+    getUserStats: vi.fn(() => ({})),
+  } as unknown as GameService;
+  const rateLimitStub = {
+    checkUserRateLimitAsync: vi.fn(async () => ({ rateLimited: false, messageSent: false })),
+  } as unknown as RateLimitService;
+
+  // The container mock above stays: the handler still resolves command classes
+  // at dispatch time. This list is positional and must match the constructor.
+  const handler = new CommandHandler(
+    clientStub,
+    prefixServiceStub,
+    guildServiceStub,
+    disabledChannelStub,
+    guildDisabledStub,
+    channelToggledStub,
+    userServiceStub,
+    guildUserStub,
+    colorServiceStub,
+    gameServiceStub,
+    rateLimitStub,
+  );
   return { handler, getPrefix, executeAsync, fire: (content: string) => handlers[0]?.({ content, author: { bot: false }, guildId: 'g1' }) };
 };
 

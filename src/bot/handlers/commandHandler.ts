@@ -1,4 +1,4 @@
-import { container } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import { Client, Events, MessageFlags, type Message } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { Statistics } from '@domain/statistics';
@@ -21,31 +21,33 @@ import { CommandDispatcher } from './commandDispatcher';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { EmbedBuilder } from 'discord.js';
 
+@injectable()
 export class CommandHandler {
-  private readonly client: Client;
-  private readonly prefixService: PrefixService;
-  private readonly guildService: GuildService;
-  private readonly disabledChannelService: DisabledChannelService;
-  private readonly guildDisabledCommands: GuildDisabledCommandService;
-  private readonly channelToggledCommands: ChannelToggledCommandService;
-  private readonly userService: UserService;
-  private readonly guildUserService: GuildUserService;
-  private readonly colorService: ColorService;
-  private readonly gameService: GameService;
-  private readonly rateLimitService: RateLimitService;
 
-  constructor() {
-    this.client = container.resolve(Client);
-    this.prefixService = container.resolve(PrefixService);
-    this.guildService = container.resolve(GuildService);
-    this.disabledChannelService = container.resolve(DisabledChannelService);
-    this.guildDisabledCommands = container.resolve(GuildDisabledCommandService);
-    this.channelToggledCommands = container.resolve(ChannelToggledCommandService);
-    this.userService = container.resolve(UserService);
-    this.guildUserService = container.resolve(GuildUserService);
-    this.colorService = container.resolve(ColorService);
-    this.gameService = container.resolve(GameService);
-    this.rateLimitService = container.resolve(RateLimitService);
+  constructor(
+    @inject(Client)
+    private readonly client: Client,
+    @inject(PrefixService)
+    private readonly prefixService: PrefixService,
+    @inject(GuildService)
+    private readonly guildService: GuildService,
+    @inject(DisabledChannelService)
+    private readonly disabledChannelService: DisabledChannelService,
+    @inject(GuildDisabledCommandService)
+    private readonly guildDisabledCommands: GuildDisabledCommandService,
+    @inject(ChannelToggledCommandService)
+    private readonly channelToggledCommands: ChannelToggledCommandService,
+    @inject(UserService)
+    private readonly userService: UserService,
+    @inject(GuildUserService)
+    private readonly guildUserService: GuildUserService,
+    @inject(ColorService)
+    private readonly colorService: ColorService,
+    @inject(GameService)
+    private readonly gameService: GameService,
+    @inject(RateLimitService)
+    private readonly rateLimitService: RateLimitService,
+  ) {
 
     this.client.on(Events.MessageCreate, (message) => {
       // handleMessage has no top-level catch: any throw in prefix lookup or
