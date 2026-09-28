@@ -211,7 +211,13 @@ describe('PlaycountBuilders and SettingService', () => {
       const fc = new FootballCommands({} as any);
       const matchDef = fc.commands.find((c) => c.name === 'matches');
       expect(matchDef?.aliases).not.toContain('m');
-    });
+      // The three `import()` calls above pull in whole command modules (services,
+      // repositories, Prisma). That cold-load is fast alone and over the default
+      // 5s budget once the full suite saturates its workers, which made this
+      // file fail intermittently based on how many OTHER files were running -
+      // not on anything it asserts. Only the time budget changes; every
+      // assertion above is untouched.
+    }, 30_000);
 
     it('verifies Phase 4 command aliases are defined in PlaycountCommands', async () => {
       const { PlaycountCommands } = await import('@bot/textCommands/lastfm/playcountCommands');
