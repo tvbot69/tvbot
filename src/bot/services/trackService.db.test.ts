@@ -76,8 +76,19 @@ const distinctTracks = (artist: string, count: number, iso: string) =>
     timePlayed: at(iso),
   }));
 
-/** Relative to the clock, because the 20-day cutoff is computed from Date.now(). */
-const daysAgo = (days: number) => new Date(Date.now() - days * DAY);
+/**
+ * Relative to the clock, because the 20-day cutoff is computed from Date.now().
+ *
+ * The `seconds` offset is load-bearing, not decoration. `Date.now()` has
+ * millisecond resolution, so two `daysAgo(1)` calls made in the same tick are
+ * the SAME instant - and `user_plays_identity_uniq` coalesces a NULL track name
+ * and an empty one into one key, which makes a NULL/empty pair at one instant a
+ * 23505 rather than two rows. Distinct offsets make the rows distinct by
+ * construction; two of them can only collide if the clock moved backwards
+ * between calls, which a 1s offset against a millisecond clock cannot do.
+ */
+const daysAgo = (days: number, seconds = 0): Date =>
+  new Date(Date.now() - days * DAY + seconds * 1000);
 
 /** seedUser derives this, so the two have to agree for the findFirst to find a row. */
 const discordIdFor = (id: number) => String(BigInt(id) * 1000n);
@@ -437,10 +448,16 @@ suite('TrackService raw queries against a real database', () => {
   });
 
   it('drops a NULL or empty track name from the recent list', async () => {
+    // Distinct seconds, and the reason is the dedup index rather than taste:
+    // `coalesce(lower(track_name), '')` maps NULL and '' onto ONE key, so at a
+    // single instant these two rows are the same row. The identity deliberately
+    // excludes user_play_id, so re-iding the second insert does not help - only
+    // a different instant does. The all-time and artist-track copies of this
+    // fixture get it right for the same reason.
     await seedPlays(prisma!, [
       { userId, artistName: 'Artist', trackName: 'Real Track', timePlayed: daysAgo(1) },
-      { userId, artistName: 'Artist', trackName: null, timePlayed: daysAgo(1) },
-      { userId, artistName: 'Artist', trackName: '', timePlayed: daysAgo(1) },
+      { userId, artistName: 'Artist', trackName: null, timePlayed: daysAgo(1, 1) },
+      { userId, artistName: 'Artist', trackName: '', timePlayed: daysAgo(1, 2) },
     ]);
     const tracks = await service!.getRecentTopTracks(discordIdFor(userId), false);
     expect(tracks.map((t) => t.name)).toEqual(['Real Track']);
