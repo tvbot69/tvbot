@@ -2,6 +2,7 @@ import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/comm
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
+import type { User } from '@domain/interfaces/iuserRepository';
 import { SettingService } from '@bot/services/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { TopBuilders } from '@bot/builders/topBuilders';
@@ -49,7 +50,7 @@ export class TopCommands implements ITextCommandModule {
     return { period, userStr };
   }
 
-  private async resolveUser(context: ContextModel, rawUser: string | null): Promise<{ userNameLastFm: string; displayName: string; userId?: number; userObj?: any } | ResponseModel> {
+  private async resolveUser(context: ContextModel, rawUser: string | null): Promise<{ userNameLastFm: string; displayName: string; userId?: number; userObj?: User } | ResponseModel> {
     if (rawUser) {
       const mentionMatch = rawUser.match(/<@!?(\d+)>/);
       if (mentionMatch) {
@@ -74,7 +75,7 @@ export class TopCommands implements ITextCommandModule {
     const { period, userStr } = this.parseArgs(raw);
     const resolved = await this.resolveUser(context, userStr);
     if ((resolved as ResponseModel).commandResponse !== undefined) return resolved as ResponseModel;
-    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: any };
+    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: User };
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
@@ -92,7 +93,7 @@ export class TopCommands implements ITextCommandModule {
     const { period, userStr } = this.parseArgs(raw);
     const resolved = await this.resolveUser(context, userStr);
     if ((resolved as ResponseModel).commandResponse !== undefined) return resolved as ResponseModel;
-    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: any };
+    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: User };
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
@@ -110,7 +111,7 @@ export class TopCommands implements ITextCommandModule {
     const { period, userStr } = this.parseArgs(raw);
     const resolved = await this.resolveUser(context, userStr);
     if ((resolved as ResponseModel).commandResponse !== undefined) return resolved as ResponseModel;
-    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: any };
+    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: User };
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }

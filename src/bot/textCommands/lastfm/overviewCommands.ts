@@ -3,6 +3,7 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import { OverviewService } from '@bot/services/overviewService';
+import type { User } from '@domain/interfaces/iuserRepository';
 import { OverviewBuilders } from '@bot/builders/overviewBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -30,7 +31,7 @@ export class OverviewCommands implements ITextCommandModule {
     let userNameLastFm: string;
     let displayName: string;
     let targetUserId: number | undefined;
-    let targetUserObj: any = null;
+    let targetUserObj: User | null = null;
 
     if (userStr) {
       const mentionMatch = userStr.match(/<@!?(\d+)>/);

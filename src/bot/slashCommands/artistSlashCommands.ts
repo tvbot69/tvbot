@@ -3,6 +3,7 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
+import type { User } from '@domain/interfaces/iuserRepository';
 import { ArtistTrackService } from '@bot/services/artistTrackService';
 import { MusicBrainzService } from '@bot/services/musicBrainzService';
 import { GenreService } from '@bot/services/genreService';
@@ -220,7 +221,7 @@ export class ArtistSlashCommands implements ISlashCommandModule {
     );
   }
 
-  private async resolveArtistAndUser(selfUser: any, raw: string): Promise<{ artistName: string; targetUser: any }> {
+  private async resolveArtistAndUser(selfUser: User, raw: string): Promise<{ artistName: string; targetUser: User }> {
     let artistName = raw.trim();
     const targetUser = selfUser;
 

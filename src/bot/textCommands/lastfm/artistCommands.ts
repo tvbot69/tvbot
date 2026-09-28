@@ -3,6 +3,7 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import { ArtistTrackService } from '@bot/services/artistTrackService';
+import type { User } from '@domain/interfaces/iuserRepository';
 import { MusicBrainzService } from '@bot/services/musicBrainzService';
 import { GenreService } from '@bot/services/genreService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
@@ -190,7 +191,7 @@ export class ArtistCommands implements ITextCommandModule {
     );
   }
 
-  private async resolveArtistAndUser(_context: ContextModel, selfUser: any, raw: string): Promise<{ artistName: string; targetUser: any }> {
+  private async resolveArtistAndUser(_context: ContextModel, selfUser: User, raw: string): Promise<{ artistName: string; targetUser: User }> {
     let artistName = raw.trim();
     const targetUser = selfUser;
 

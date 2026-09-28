@@ -3,6 +3,7 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
+import type { User } from '@domain/interfaces/iuserRepository';
 import { SettingService } from '@bot/services/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { TopBuilders } from '@bot/builders/topBuilders';
@@ -50,7 +51,7 @@ export class TopSlashCommands implements ISlashCommandModule {
     ];
   }
 
-  private async resolveUser(context: ContextModel): Promise<{ userNameLastFm: string; displayName: string; userId?: number; userObj?: any } | ResponseModel> {
+  private async resolveUser(context: ContextModel): Promise<{ userNameLastFm: string; displayName: string; userId?: number; userObj?: User } | ResponseModel> {
     const rawUser = context.interaction?.options.getString('user') ?? null;
     if (rawUser) {
       const mentionMatch = rawUser.match(/<@!?(\d+)>/);

@@ -3,6 +3,7 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
+import type { User } from '@domain/interfaces/iuserRepository';
 import { OverviewService } from '@bot/services/overviewService';
 import { OverviewBuilders } from '@bot/builders/overviewBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
@@ -34,7 +35,7 @@ export class OverviewSlashCommands implements ISlashCommandModule {
     let userNameLastFm: string;
     let displayName: string;
     let targetUserId: number | undefined;
-    let targetUserObj: any = null;
+    let targetUserObj: User | null = null;
 
     if (rawUser) {
       const mentionMatch = rawUser.match(/<@!?(\d+)>/);

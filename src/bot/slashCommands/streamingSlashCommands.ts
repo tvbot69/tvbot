@@ -119,7 +119,7 @@ export class StreamingSlashCommands implements ISlashCommandModule {
       }
 
       const track = recents.find((t) => t.nowPlaying) ?? recents[0]!;
-      const artist = track.artistName ?? (track as any).artist?.name ?? '';
+      const artist = track.artistName ?? '';
       const name = track.name ?? '';
       const query = `${artist} ${name}`.trim();
       if (!query) {
@@ -176,7 +176,7 @@ export class StreamingSlashCommands implements ISlashCommandModule {
       }
 
       const track = recents.find((t) => t.nowPlaying) ?? recents[0]!;
-      const artist = track.artistName ?? (track as any).artist?.name ?? '';
+      const artist = track.artistName ?? '';
       const album = track.albumName ?? '';
       const query = album ? `${artist} ${album}`.trim() : `${artist}`.trim();
       if (!query) {
@@ -233,7 +233,7 @@ export class StreamingSlashCommands implements ISlashCommandModule {
       }
 
       const track = recents.find((t) => t.nowPlaying) ?? recents[0]!;
-      const artist = track.artistName ?? (track as any).artist?.name ?? '';
+      const artist = track.artistName ?? '';
       if (!artist) {
         return {
           errorResponse: GenericEmbedService.buildCommandErrorResponse(
