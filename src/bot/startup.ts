@@ -984,7 +984,8 @@ export const configureContainer = (): void => {
   playlistChunkManager.setUnavailableNotifier(musicSystemNotifier);
 
   container.registerInstance(ClientLogHandler, new ClientLogHandler());
-  container.registerInstance(InteractionHandler, new InteractionHandler());
+  // Resolved, not constructed: the 37 dependencies are declared as @inject params.
+  container.registerInstance(InteractionHandler, container.resolve(InteractionHandler));
   container.registerInstance(CommandHandler, new CommandHandler());
   container.registerInstance(
     UpdateQueueHandler,

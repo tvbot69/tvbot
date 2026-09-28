@@ -84,6 +84,42 @@ const KINDS: Record<string, (program: ts.Program) => number> = {
     }
     return n;
   },
+
+  /**
+   * `container.resolve` outside the three files the plan allows.
+   *
+   * The plan names `startup.ts`, `textCommands/index.ts` and
+   * `slashCommands/index.ts` as the composition roots, and everything else as
+   * debt with a target under 30. Those three are excluded here because they are
+   * supposed to construct things; counting them would make the number mean
+   * nothing.
+   *
+   * Counted from the AST rather than a regex so a `container.resolve` inside a
+   * comment or a string does not inflate the total.
+   */
+  'container-resolve-outside-root': (program) => {
+    const ROOTS = ['/bot/startup.ts', '/bot/textCommands/index.ts', '/bot/slashCommands/index.ts'];
+    let n = 0;
+    for (const sf of program.getSourceFiles()) {
+      if (!isProduction(sf)) continue;
+      const p = path.resolve(sf.fileName).replace(/\\/g, '/');
+      if (ROOTS.some((r) => p.endsWith(r))) continue;
+      const visit = (node: ts.Node): void => {
+        if (
+          ts.isCallExpression(node) &&
+          ts.isPropertyAccessExpression(node.expression) &&
+          node.expression.name.text === 'resolve' &&
+          ts.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === 'container'
+        ) {
+          n += 1;
+        }
+        node.forEachChild(visit);
+      };
+      visit(sf);
+    }
+    return n;
+  },
 };
 
 /** Production source only: under src/, not a test, not a declaration. */

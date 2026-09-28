@@ -1,4 +1,4 @@
-import { container } from 'tsyringe';
+import { container, inject, injectable } from 'tsyringe';
 import {
   Client,
   Events,
@@ -53,83 +53,86 @@ import { getSlashCommand } from '@bot/slashCommands';
 import { getAutoCompleteResponder } from '@bot/autoCompleteHandlers';
 import { tryHandleModal } from '@bot/interactions';
 
+@injectable()
 export class InteractionHandler {
-  private readonly client: Client;
-  private readonly guildService: GuildService;
-  private readonly disabledChannelService: DisabledChannelService;
-  private readonly guildDisabledCommands: GuildDisabledCommandService;
-  private readonly channelToggledCommands: ChannelToggledCommandService;
-  private readonly componentTracker: ComponentInteractionTracker;
-  private readonly componentPaginatorService: ComponentPaginatorService;
-  private readonly colorService: ColorService;
-  private readonly userService: UserService;
-  private readonly guildUserService: GuildUserService;
-  private readonly settingsInteractions: SettingsInteractions;
-  private readonly chartInteractions: ChartInteractions;
-  private readonly albumInteractions: AlbumInteractions;
-  private readonly fmModeInteractions: FmModeInteractions;
-  private readonly friendInteractions: FriendInteractions;
-  private readonly musicInteractions: MusicInteractions;
-  private readonly trackPreviewInteractions: TrackPreviewInteractions;
-  private readonly topInteractions: TopInteractions;
-  private readonly artistTrackInteractions: ArtistTrackInteractions;
-  private readonly artistInteractions: ArtistInteractions;
-  private readonly tasteInteractions: TasteInteractions;
-  private readonly recentInteractions: RecentInteractions;
-  private readonly crownInteractions: CrownInteractions;
-  private readonly footballInteractions: FootballInteractions;
-  private readonly playcountInteractions: PlaycountInteractions;
-  private readonly profileInteractions: ProfileInteractions;
-  private readonly librarySearchInteractions: LibrarySearchInteractions;
-  private readonly serverInteractions: ServerInteractions;
-  private readonly genreInteractions: GenreInteractions;
-  private readonly countryInteractions: CountryInteractions;
-  private readonly gameInteractions: GameInteractions;
-  private readonly userHubInteractions: UserHubInteractions;
-  private readonly intelligenceInteractions: IntelligenceInteractions;
-  private readonly nowPlayingInteractions: NowPlayingInteractions;
-  private readonly userSettingsInteractions: UserSettingsInteractions;
-  private readonly helpInteractions: HelpInteractions;
-  private readonly rateLimitService: RateLimitService;
 
-  constructor() {
+  constructor(
+    @inject(Client)
+    private readonly client: Client,
+    @inject(HelpInteractions)
+    private readonly helpInteractions: HelpInteractions,
+    @inject(NowPlayingInteractions)
+    private readonly nowPlayingInteractions: NowPlayingInteractions,
+    @inject(UserSettingsInteractions)
+    private readonly userSettingsInteractions: UserSettingsInteractions,
+    @inject(GuildService)
+    private readonly guildService: GuildService,
+    @inject(DisabledChannelService)
+    private readonly disabledChannelService: DisabledChannelService,
+    @inject(GuildDisabledCommandService)
+    private readonly guildDisabledCommands: GuildDisabledCommandService,
+    @inject(ChannelToggledCommandService)
+    private readonly channelToggledCommands: ChannelToggledCommandService,
+    @inject(ComponentInteractionTracker)
+    private readonly componentTracker: ComponentInteractionTracker,
+    @inject(ComponentPaginatorService)
+    private readonly componentPaginatorService: ComponentPaginatorService,
+    @inject(ColorService)
+    private readonly colorService: ColorService,
+    @inject(UserService)
+    private readonly userService: UserService,
+    @inject(GuildUserService)
+    private readonly guildUserService: GuildUserService,
+    @inject(SettingsInteractions)
+    private readonly settingsInteractions: SettingsInteractions,
+    @inject(ChartInteractions)
+    private readonly chartInteractions: ChartInteractions,
+    @inject(AlbumInteractions)
+    private readonly albumInteractions: AlbumInteractions,
+    @inject(FmModeInteractions)
+    private readonly fmModeInteractions: FmModeInteractions,
+    @inject(FriendInteractions)
+    private readonly friendInteractions: FriendInteractions,
+    @inject(MusicInteractions)
+    private readonly musicInteractions: MusicInteractions,
+    @inject(TrackPreviewInteractions)
+    private readonly trackPreviewInteractions: TrackPreviewInteractions,
+    @inject(TopInteractions)
+    private readonly topInteractions: TopInteractions,
+    @inject(ArtistTrackInteractions)
+    private readonly artistTrackInteractions: ArtistTrackInteractions,
+    @inject(ArtistInteractions)
+    private readonly artistInteractions: ArtistInteractions,
+    @inject(TasteInteractions)
+    private readonly tasteInteractions: TasteInteractions,
+    @inject(RecentInteractions)
+    private readonly recentInteractions: RecentInteractions,
+    @inject(CrownInteractions)
+    private readonly crownInteractions: CrownInteractions,
+    @inject(FootballInteractions)
+    private readonly footballInteractions: FootballInteractions,
+    @inject(PlaycountInteractions)
+    private readonly playcountInteractions: PlaycountInteractions,
+    @inject(ProfileInteractions)
+    private readonly profileInteractions: ProfileInteractions,
+    @inject(LibrarySearchInteractions)
+    private readonly librarySearchInteractions: LibrarySearchInteractions,
+    @inject(ServerInteractions)
+    private readonly serverInteractions: ServerInteractions,
+    @inject(GenreInteractions)
+    private readonly genreInteractions: GenreInteractions,
+    @inject(CountryInteractions)
+    private readonly countryInteractions: CountryInteractions,
+    @inject(GameInteractions)
+    private readonly gameInteractions: GameInteractions,
+    @inject(UserHubInteractions)
+    private readonly userHubInteractions: UserHubInteractions,
+    @inject(IntelligenceInteractions)
+    private readonly intelligenceInteractions: IntelligenceInteractions,
+    @inject(RateLimitService)
+    private readonly rateLimitService: RateLimitService,
+  ) {
     this.client = container.resolve(Client);
-    this.helpInteractions = container.resolve(HelpInteractions);
-    this.nowPlayingInteractions = container.resolve(NowPlayingInteractions);
-    this.userSettingsInteractions = container.resolve(UserSettingsInteractions);
-    this.guildService = container.resolve(GuildService);
-    this.disabledChannelService = container.resolve(DisabledChannelService);
-    this.guildDisabledCommands = container.resolve(GuildDisabledCommandService);
-    this.channelToggledCommands = container.resolve(ChannelToggledCommandService);
-    this.componentTracker = container.resolve(ComponentInteractionTracker);
-    this.componentPaginatorService = container.resolve(ComponentPaginatorService);
-    this.colorService = container.resolve(ColorService);
-    this.userService = container.resolve(UserService);
-    this.guildUserService = container.resolve(GuildUserService);
-    this.settingsInteractions = container.resolve(SettingsInteractions);
-    this.chartInteractions = container.resolve(ChartInteractions);
-    this.albumInteractions = container.resolve(AlbumInteractions);
-    this.fmModeInteractions = container.resolve(FmModeInteractions);
-    this.friendInteractions = container.resolve(FriendInteractions);
-    this.musicInteractions = container.resolve(MusicInteractions);
-    this.trackPreviewInteractions = container.resolve(TrackPreviewInteractions);
-    this.topInteractions = container.resolve(TopInteractions);
-    this.artistTrackInteractions = container.resolve(ArtistTrackInteractions);
-    this.artistInteractions = container.resolve(ArtistInteractions);
-    this.tasteInteractions = container.resolve(TasteInteractions);
-    this.recentInteractions = container.resolve(RecentInteractions);
-    this.crownInteractions = container.resolve(CrownInteractions);
-    this.footballInteractions = container.resolve(FootballInteractions);
-    this.playcountInteractions = container.resolve(PlaycountInteractions);
-    this.profileInteractions = container.resolve(ProfileInteractions);
-    this.librarySearchInteractions = container.resolve(LibrarySearchInteractions);
-    this.serverInteractions = container.resolve(ServerInteractions);
-    this.genreInteractions = container.resolve(GenreInteractions);
-    this.countryInteractions = container.resolve(CountryInteractions);
-    this.gameInteractions = container.resolve(GameInteractions);
-    this.userHubInteractions = container.resolve(UserHubInteractions);
-    this.intelligenceInteractions = container.resolve(IntelligenceInteractions);
-    this.rateLimitService = container.resolve(RateLimitService);
 
     this.client.on(Events.InteractionCreate, (interaction) => {
       void this.onInteractionCreated(interaction);
