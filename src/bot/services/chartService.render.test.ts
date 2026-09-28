@@ -17,8 +17,9 @@ import { AppleMusicSearchApi } from '@applemusic/apis/appleMusicSearchApi';
 import { PuppeteerService } from '@images/generators/puppeteerService';
 import { ChartService as ImageChartService } from '@images/generators/chartService';
 
+import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 const cache = new CacheService();
-const lastFm = new LastFmRepository(new LastfmApi());
+const lastFm = new LastFmRepository(new LastfmApi(new LastfmErrorRateTracker()));
 lastFm.getTopAlbums = async () => [
   { name: 'Album 1', artistName: 'Artist 1', playcount: 100, imageUrl: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' },
   { name: 'Album 2', artistName: 'Artist 2', playcount: 80, imageUrl: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=' },

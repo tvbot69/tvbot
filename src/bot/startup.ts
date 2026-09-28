@@ -219,6 +219,8 @@ import { ExposedCommands } from './textCommands/lastfm/exposedCommands';
 import { ExposedSlashCommands } from './slashCommands/exposedSlashCommands';
 import type { ICache } from '@domain/interfaces/icache';
 import { ICACHE } from '@domain/interfaces/icache';
+import type { ITelemetry } from '@domain/interfaces/telemetry';
+import { ITELEMETRY } from '@domain/interfaces/telemetry';
 
 export const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -276,7 +278,7 @@ export const configureContainer = (): void => {
   container.registerInstance(ComponentPaginatorService, componentPaginatorService);
 
   const spotifyTokenManager = new SpotifyTokenManager();
-  const lastfmApi = new LastfmApi();
+  const lastfmApi = new LastfmApi(new LastfmErrorRateTracker());
   const spotifySearchApi = new SpotifySearchApi(spotifyTokenManager);
   const deezerApi = new DeezerApi();
   const appleMusicTokenScraper = new AppleMusicTokenScraper();
@@ -518,6 +520,9 @@ export const configureContainer = (): void => {
   container.registerInstance(TimerService, timerService);
   container.registerInstance(ReconcileService, reconcileService);
   container.registerInstance(TelemetryService, telemetryService);
+  // Bind the narrow port too, so src/lastfm can inject a capability rather than
+  // resolve a class out of the container from a lower layer (plan 3.2/3.3).
+  container.registerInstance<ITelemetry>(ITELEMETRY, telemetryService);
   container.registerInstance(AutopostService, autopostService);
 
   const lyricsService = new LyricsService();

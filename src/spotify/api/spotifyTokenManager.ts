@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { ConfigData } from '@bot/configurations/configData';
+import { ConfigData } from '@config/configData';
 import { Logger } from '@domain/logger';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 

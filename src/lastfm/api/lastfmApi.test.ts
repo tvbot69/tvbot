@@ -24,7 +24,7 @@ describe('LastfmApi', () => {
       } as any;
     });
 
-    const api = new LastfmApi();
+    const api = new LastfmApi(new LastfmErrorRateTracker());
     const result = await api.call<{ user: { name: string; playcount: string } }>('user.getInfo', {
       user: 'alice',
     });
@@ -52,7 +52,7 @@ describe('LastfmApi', () => {
       } as any;
     });
 
-    const api = new LastfmApi();
+    const api = new LastfmApi(new LastfmErrorRateTracker());
     const result = await api.call<{ artist: { name: string } }>('artist.getInfo', {
       artist: 'Radiohead',
     });

@@ -1,15 +1,10 @@
-import dns from 'dns';
-try {
-  dns.setDefaultResultOrder('ipv4first');
-} catch {
-  // ignore
-}
-import { container } from 'tsyringe';
-import { ConfigData } from '@bot/configurations/configData';
+import { inject } from 'tsyringe';
+import { ConfigData } from '@config/configData';
 import { Logger } from '@domain/logger';
+import type { ITelemetry } from '@domain/interfaces/telemetry';
+import { ITELEMETRY } from '@domain/interfaces/telemetry';
 import { LastfmApiError } from '@domain/models/lastfmError';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
-import { TelemetryService } from '@bot/services/telemetryService';
 import { createLastfmSignature } from './lastfmSignature';
 
 const LASTFM_API_URL = 'https://ws.audioscrobbler.com/2.0/';
@@ -87,13 +82,20 @@ class TokenBucketRateLimiter {
 export class LastfmApi {
   private readonly apiKey: string;
   private readonly apiSecret: string;
-  private readonly errorTracker: LastfmErrorRateTracker;
-  private readonly rateLimiter: TokenBucketRateLimiter;
+    private readonly errorTracker: LastfmErrorRateTracker;
+    private readonly rateLimiter: TokenBucketRateLimiter;
+    private readonly telemetry?: ITelemetry;
 
-  constructor() {
+    // tsyringe treats a parameter whose type includes `undefined` as optional,
+    // so no @optional() decorator is needed (and 4.10 does not export one).
+    constructor(
+      @inject(LastfmErrorRateTracker) errorRateTracker: LastfmErrorRateTracker,
+      @inject(ITELEMETRY) telemetry?: ITelemetry,
+    ) {
+    this.telemetry = telemetry;
     this.apiKey = ConfigData.Data.lastFm.publicKey;
     this.apiSecret = ConfigData.Data.lastFm.privateKey;
-    this.errorTracker = container.resolve(LastfmErrorRateTracker);
+    this.errorTracker = errorRateTracker;
     this.rateLimiter = new TokenBucketRateLimiter(5, 5);
   }
 
@@ -112,11 +114,12 @@ export class LastfmApi {
         const durationMs = Date.now() - startTime;
 
         try {
-          if (container.isRegistered(TelemetryService)) {
-            container.resolve(TelemetryService).recordApiCall('lastfm', method, durationMs, response.status);
-          }
+          // Injected, not located. Resolving out of the container from inside a
+          // lower layer made the dependency invisible in the constructor and
+          // untestable without a container (plan 3.2/3.3).
+          this.telemetry?.recordApiCall('lastfm', method, durationMs, response.status);
         } catch {
-          // Ignore telemetry errors
+          // Telemetry is best-effort and must never fail the API call.
         }
 
         if (!response.ok && isTransientStatus(response.status) && attempt < MAX_RETRIES - 1) {
