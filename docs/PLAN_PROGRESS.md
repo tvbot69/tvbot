@@ -7,10 +7,10 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **2518** (179 files) | — |
-| Line coverage | 48.5% claimed / **49.00% measured** | **60.92%** | ≥65% |
-| Branch coverage | 68.6% claimed | **73.68%** | — |
-| `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 75**, see `scripts/count-debt.ts` | <80 combined |
+| Tests | 1085 | **3792** (204 files) | — |
+| Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
+| Branch coverage | 68.6% claimed | **77.48%** | — |
+| `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 75** | <80 combined ✅ |
 | `catch (err: any)` | 37 | **0** | 0 |
 | `container.resolve` outside composition root | ~300 | **155** (0 eager) | informational |
 | Import cycles | 4 | **0 runtime** / 3 type-only | 0 runtime |
@@ -210,6 +210,52 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   globs used `/` so on Windows **141 test files were counted as untested product code**.
   A third: **14 deleted files** survived as source-map sources under `dist/` and were scored 0%.
   Ratchet verified to block. Thresholds now lines/statements 49, branches 68.5, functions 50.
+- **2.2** ✅ **TARGET MET. 49.82% → 66.73% lines, 68.83% → 77.48% branches.**
+  1085 → **3792 tests** across 204 files. Ratchet raised 52.3/70.1/52.8 → **66.5/77.2/63.8**,
+  mutation-checked by raising `lines` to 99 and confirming the check fails.
+  - 🐛 **The working method that fixed this: 8 subagents in parallel, 4 files each, every prompt
+    carrying the anti-invention rules.** I first did this serially — one file, verify, commit,
+    repeat — and estimated *5 days*. It took one session. The serial version was the error, not
+    the volume of work.
+  - **The anti-invention rules that mattered, after a subagent burned 45 minutes on a
+    hallucinated API:** (1) copy the constructor's exact positional arity from the source;
+    (2) `Select-String -Pattern "Builders\.\w+|-AllMatches"` to get real builder names;
+    (3) `Select-String -Pattern "this\.\w+\.\w+"` to enumerate every collaborator method the code
+    calls, so mocks are complete; (4) "write only test files, do not modify production".
+  - ⚠️ **A parallel batch makes the gates lie mid-flight.** Every agent reported a *different*
+    set of `tsc`/lint errors in its peers' half-written files, and the error count swung
+    29 → 18 → 0 with no edits between runs. Four of eight agents independently concluded "another
+    process is editing the repo", which was simply their own batch. **Do not trust a gate result
+    reported from inside a parallel batch** — re-run all three yourself afterwards. I did, and
+    they were clean.
+  - ⚠️ **`tsc --incremental` reports a different file list on consecutive runs.** One agent
+    diagnosed it correctly: stale Prisma client types, cleared by `db:generate`. Use
+    `--incremental false` when counting.
+  - 🐛 **Found: `src/bot/services/timerService.ts` had been left modified by my own earlier
+    aborted experiment** — a `?? ''` on a non-nullable column, dead since I reverted the
+    `discordUserId`-optional type change. No agent claimed touching production code, and
+    `git status` is what caught it. **Always diff production files before staging; the
+    per-agent "I touched nothing" claim is not a substitute for `git diff`.**
+  - **One flake fixed honestly:** `playcountBuilders.test.ts` had three whole-module
+    `await import()` calls against a 5s budget, so it failed based on how many other files were
+    running rather than on anything it asserts. Timeout raised to 30s; **every assertion
+    byte-identical.** Reported by the agent rather than hidden.
+  - **Behavioural findings the new tests pinned rather than assumed:**
+    - `setPrivacyLevel('server')` and `('hide')` both store `'Hide'`, and the return is derived
+      from the *stored* value, so both reply `'Server'`. The per-guild scope is not persisted.
+    - `getUserTopCountriesAllTime` sorts by artist **count**, not playcount — three one-play
+      artists outrank one ten-play artist. This is the user top-countries card.
+    - `genreService`'s `s/$` retry is a **global** replace: `"Travis Scott"` → `"Travi$ $cott"`.
+    - `settingService`: the custom day-span branch shadows every numeric `dayAmounts` entry, so
+      `2d` means "2 days" (`Custom`), never `Daily`.
+    - `countryInteractions` computes `pageIndex: -1` for next/last on an empty list where
+      `genreInteractions` floors at 1. Latent — both builders early-return on empty.
+    - `friends:settype` is in `FRIEND_BUTTON_PREFIXES` but only the select menu handles it, so a
+      button press is a silent no-op.
+    - `tryHandleModal` uses `handlers.find()`, so the **first** registration wins for the file's
+      lifetime — a per-test mock is never found. Share one mock across instances.
+  - Remaining coverage gaps, measured and not yet attempted: the text-command layer's slash
+  siblings still untested, and the music module's larger services.
 - **2.2** 🔄 **This session: 12 new test files, ~800 tests. Coverage 49.82% → 60.92%.**
   | File | Tests | Notes |
   |---|---|---|

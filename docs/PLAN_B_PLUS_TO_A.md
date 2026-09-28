@@ -180,10 +180,11 @@ finish an item, tick it. If you un-finish one, untick it and say why in
 
 - [x] Migrations run on every Railway deploy. One start command.
 - [x] Sync lock is atomic. `user_plays` has a DB-level unique key. Duplicate count is 0.
-- [ ] Line coverage ≥ 65% and core files ≥ 60%, enforced in CI. *(now 49.82%; the
-      ratchet is 49.5 lines / 68.5 branches / 50.5 functions and was verified to FAIL when
-      raised above the measurement. `lastFmRepository` is at 93.57%; `playcountCommands`
-      28.96% and `whoKnowsCommands` 35.73% are still short of 60%)*
+- [x] Line coverage ≥ 65% and core files ≥ 60%, enforced in CI. **66.73% lines /
+      77.48% branches / 64% functions** (38085/57066). Ratchet 66.5 / 77.2 / 63.8,
+      mutation-checked: raised to 99 and confirmed the check fails
+      ("Coverage for lines (66.73%) does not meet global threshold").
+      3792 tests across 204 files. Was 49.82% at the start of this session.
 - [ ] Real-Postgres tests cover every raw SQL query. *(the suite, the harness, a
       production-refusing guard and `playRepository` now exist and CI runs them against
       postgres:16; 5 of the 6 files holding raw queries are not yet covered)*
