@@ -1,4 +1,4 @@
-import { inject, injectable , container} from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import {
   Client,
   Events,
@@ -13,18 +13,18 @@ import { GuildUserService } from '@bot/services/guild/guildUserService';
 export class UserEventHandler {
 
   constructor(
+    @inject(Client)
+    private readonly client: Client,
     @inject(UserService)
     private readonly userService: UserService,
     @inject(GuildUserService)
     private readonly guildUserService: GuildUserService,
   ) {
-    const client = container.resolve(Client);
-
-    client.on(Events.GuildMemberAdd, (member) => {
+    this.client.on(Events.GuildMemberAdd, (member) => {
       void this.handleMemberAdd(member);
     });
 
-    client.on(Events.GuildMemberRemove, (member) => {
+    this.client.on(Events.GuildMemberRemove, (member) => {
       void this.handleMemberRemove(member);
     });
   }

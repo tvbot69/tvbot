@@ -132,8 +132,6 @@ export class InteractionHandler {
     @inject(RateLimitService)
     private readonly rateLimitService: RateLimitService,
   ) {
-    this.client = container.resolve(Client);
-
     this.client.on(Events.InteractionCreate, (interaction) => {
       void this.onInteractionCreated(interaction);
     });

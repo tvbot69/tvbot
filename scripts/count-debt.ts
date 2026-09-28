@@ -40,7 +40,18 @@ const SET_ARGS = process.argv.filter((a) => a.startsWith('--set='));
  * `ts.Program` is built once and shared - constructing one per rule would
  * reparse the whole tree a dozen times and the script would take minutes.
  */
-const KINDS: Record<string, (program: ts.Program) => number> = {
+/**
+ * Each kind returns a count, and may push offender paths into `where` so a
+ * regression can be found without re-deriving the measurement by hand.
+ */
+let WHERE: string[] = [];
+const record = (file: string, line: number): void => {
+  WHERE.push(`${file}:${line}`);
+};
+
+type KindFn = (program: ts.Program) => number;
+
+const KINDS: Record<string, KindFn> = {
   /**
    * `: any` / `<any>` / `as any` in production code.
    * The original debt was 392. AGENTS.md golden rule 9 is the sibling rule
@@ -116,7 +127,77 @@ const KINDS: Record<string, (program: ts.Program) => number> = {
         }
         node.forEachChild(visit);
       };
-      visit(sf);
+        visit(sf);
+      }
+    return n;
+  },
+
+  /**
+   * `container.resolve` inside a CONSTRUCTOR body, outside the composition roots.
+   *
+   * Counted separately from the total because the two mean different things.
+   *
+   * A resolve in a constructor is eager: it runs at construction, it hides the
+   * dependency from the wiring graph, and the container cannot build the class
+   * without knowing about it. `interactionHandler` had 37 of these. That is the
+   * architectural debt the plan means.
+   *
+   * A resolve inside a method is lazy. `fmFooterResolver` resolves PrismaClient
+   * only when the "artist plays" footer is enabled - that is a deliberate
+   * tradeoff, not an oversight, and converting it would pay for construction
+   * the feature may never use. Counting it the same as an eager resolve makes
+   * a single number meaningless.
+   *
+   * Both are ratcheted, both only ever go down, and this one is the stricter
+   * constraint on the constructor case.
+   */
+  'container-resolve-in-constructor': (program) => {
+    const ROOTS = ['/bot/startup.ts', '/bot/textCommands/index.ts', '/bot/slashCommands/index.ts'];
+    let n = 0;
+    for (const sf of program.getSourceFiles()) {
+      if (!isProduction(sf)) continue;
+      const p = path.resolve(sf.fileName).replace(/\\/g, '/');
+      if (ROOTS.some((r) => p.endsWith(r))) continue;
+      const visitClass = (node: ts.ClassDeclaration): void => {
+        for (const member of node.members) {
+          if (!ts.isConstructorDeclaration(member) || !member.body) continue;
+          const inCtor = (x: ts.Node): void => {
+            if (
+              ts.isCallExpression(x) &&
+              ts.isPropertyAccessExpression(x.expression) &&
+              ts.isIdentifier(x.expression.expression) &&
+              x.expression.expression.text === 'container' &&
+              x.expression.name.text === 'resolve'
+            ) {
+              n += 1;
+              // Use the source file already in scope: node.getSourceFile() can
+              // be undefined for synthesized nodes inside a ts.Program.
+              const { line } = sf.getLineAndCharacterOfPosition(x.getStart(sf));
+              record(p.split('/src/')[1] ?? p, line + 1);
+            }
+            // Do NOT cross a function boundary. `topInteractions` registers
+            // `registerModalHandler('overview-jump', async () => { ... })`
+            // inside its constructor, so a resolve inside that arrow is
+            // lexically in the constructor but runs when the modal is clicked.
+            // Counting it made the metric report 6 where 4 were eager.
+            if (
+              ts.isArrowFunction(x) ||
+              ts.isFunctionExpression(x) ||
+              ts.isFunctionDeclaration(x) ||
+              ts.isMethodDeclaration(x)
+            ) {
+              return;
+            }
+            x.forEachChild(inCtor);
+          };
+          member.body.forEachChild(inCtor);
+        }
+      };
+      const walk = (node: ts.Node): void => {
+        if (ts.isClassDeclaration(node)) visitClass(node);
+        node.forEachChild(walk);
+      };
+      walk(sf);
     }
     return n;
   },
@@ -193,8 +274,22 @@ const main = (): void => {
 
   const program = buildProgram();
   const measured: Record<string, number> = {};
+  const offenders: Record<string, string[]> = {};
   for (const [kind, count] of Object.entries(KINDS)) {
+    WHERE = [];
     measured[kind] = count(program);
+    if (WHERE.length) offenders[kind] = WHERE;
+  }
+
+  // `--where` exists because a ratchet you cannot locate is a ratchet you
+  // cannot act on. Printing the number alone means re-deriving the measurement
+  // by hand every time one moves.
+  if (process.argv.includes('--where')) {
+    for (const [kind, where] of Object.entries(offenders)) {
+      console.log(`\n${kind}:`);
+      for (const w of where) console.log(`  ${w}`);
+    }
+    return;
   }
 
   const w = Math.max(...Object.keys(KINDS).map((k) => k.length));

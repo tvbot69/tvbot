@@ -1,5 +1,6 @@
 {
   "explicit-any": 136,
   "typed-catch": 0,
-  "container-resolve-outside-root": 160
+  "container-resolve-outside-root": 155,
+  "container-resolve-in-constructor": 0
 }

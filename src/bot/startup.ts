@@ -983,7 +983,7 @@ export const configureContainer = (): void => {
   musicService.setCardRefreshNotifier((guildId: string) => musicHandler.refreshGuildCard(guildId));
   playlistChunkManager.setUnavailableNotifier(musicSystemNotifier);
 
-  container.registerInstance(ClientLogHandler, new ClientLogHandler());
+  container.registerInstance(ClientLogHandler, container.resolve(ClientLogHandler));
   // Resolved, not constructed: the 37 dependencies are declared as @inject params.
   container.registerInstance(InteractionHandler, container.resolve(InteractionHandler));
   container.registerInstance(CommandHandler, container.resolve(CommandHandler));
