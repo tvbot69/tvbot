@@ -34,11 +34,27 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   Added `CacheService.setNX`. 12 tests, 3 mutations caught.
   *I introduced a bug writing it* (deleted the lock on exists, not expires) — the real-code
   test caught it; a stub would not have.
-- **1.2** 🔄 **Step 1 DONE, step 2 WRITTEN (not applied).**
+- **1.2** 🔴 **MIGRATION FAILED ON PRODUCTION — the unique index does not exist.**
   *Step 1:* `scripts/count-duplicate-plays.ts` (`npm run db:count-duplicates`), read-only.
   **Measured against production 2026-09-28: 303,424 plays, 0 duplicate keys, 0 extra rows,
-  0 users affected.** So no cleanup data fix is needed and the unique index can go in directly.
-  *Step 2:* two migration files, ready but **NOT applied** — apply deliberately:
+  0 users affected.** So no cleanup data fix is needed and the unique index would build cleanly.
+  *Step 2:* ⚠️ **`20260928010000_user_plays_dedup_index` DID NOT APPLY.** Verified by probing the
+  live database, not inferred: `user_plays_identity_uniq` is **MISSING**, 303,424 rows, 0 duplicate
+  groups. The data is clean, so this is a **mechanism failure, not a data failure**.
+  - **Real cause, from Prisma's own recorded logs** (`npm run db:migration-logs`):
+    `SqlState 42P17 — functions in index expression must be marked IMMUTABLE`.
+  - **The migration's own comment was wrong about the cause.** It theorised a *transaction*
+    problem (single-statement arity). It is not that. `lower()` **is** immutable — confirmed from
+    `pg_proc`. The suspect is `play_source`, a Postgres **ENUM**, cast by
+    `coalesce(play_source::text, '')`. Enum **I/O** conversion is not catalogued in `pg_cast`, so it
+    cannot be confirmed with a catalog query. That is the honest limit of this diagnosis.
+  - ✅ Diagnostics committed, read-only, production-safe, so the next pass does not theorise:
+    `npm run db:check-index` (is the index there, is the data clean) and
+    `npm run db:migration-logs` (what did Prisma record).
+  - 🔴 **BLOCKING.** `prisma migrate resolve` must be run on the failed migration before **any**
+    further migration can apply. Two steps remain, both touching production, so both are left for a
+    clean context rather than the end of a long session: (a) rewrite the index expression so it does
+    not cast an enum, (b) `migrate resolve`. No data repair needed.
   - `20260928000000_user_plays_dedup_cleanup` — the DELETE. A no-op on current data; kept so a
     drifted copy can be repaired by the same file.
   - `20260928010000_user_plays_dedup_index` — `CREATE UNIQUE INDEX CONCURRENTLY ... NULLS NOT DISTINCT`
@@ -49,6 +65,10 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   - `NULLS NOT DISTINCT` is load-bearing, not decorative: without it NULLs are distinct, so a null
     `track_name` or `play_source` would slip past and the guarantee would be partial in exactly the
     cases most likely to be real. Host is PostgreSQL 18.6.
+  - ⚠️ **Comment in the index file is misleading and should be corrected when it is fixed.** It
+    claims the single-statement rule is the load-bearing thing and that failure would be 25001
+    "cannot run inside a transaction block". The real error was **42P17**, not 25001. The
+    single-statement rule is still worth keeping, but it is not what broke.
 
   Two things the script had to get right, both found by running it rather than reading it:
   - a plain string interpolated into a `$queryRaw` tagged template is bound as a **parameter**,
@@ -224,6 +244,8 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | A codemod reported "converted 37" having removed nothing | Signature rewrite succeeded, assignment-removal regex matched nothing, and the result still compiled. The debt ratchet was the only thing that noticed |
 | Two files I had *just* converted still had a `container.resolve` in the constructor | `--where` on the ratchet. Assigning to a parameter property compiles, so the build stayed green both times |
 | A new ratchet kind reported 6 eager resolves; **one was a false positive** | `topInteractions` registers an async modal handler *inside* its constructor, so a resolve inside that arrow runs on click, not at construction. Added a function boundary the traversal will not cross |
+| **Production migration FAILED** — `user_plays_identity_uniq` never created | `prisma migrate status` said "Following migration have failed". Probed the live DB to confirm the index was genuinely missing rather than just unrecorded |
+| The dedup index failed with **42P17**, not the 25001 the file's comment predicted | Reading Prisma's own `_prisma_migrations.logs` via `npm run db:migration-logs`. The comment's transaction theory was wrong |
 | `artworkService` had 3 lint errors nobody ran | `--quiet` in the gates after a new ESLint rule |
 
 ## Mistakes I made, so they are not repeated
