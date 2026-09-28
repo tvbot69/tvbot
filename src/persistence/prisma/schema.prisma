@@ -345,7 +345,7 @@ model GuildMusicSettings {
   volume   Int     @default(100)
   loopMode String  @default("off") @map("loop_mode") @db.VarChar(10)
   autoplay Boolean @default(false)
-  filters  String[] @map("filters")
+  filters  String[] @default([]) @map("filters")
 
   guild Guild @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
 
