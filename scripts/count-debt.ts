@@ -29,7 +29,6 @@ import ts from 'typescript';
 
 const ROOT = process.cwd();
 const BUDGET_FILE = path.join(ROOT, 'scripts', 'debt-budget.json');
-const SRC = path.join(ROOT, 'src');
 
 const REPORT_ONLY = process.argv.includes('--report');
 const SET_ARGS = process.argv.filter((a) => a.startsWith('--set='));

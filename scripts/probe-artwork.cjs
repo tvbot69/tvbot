@@ -1,12 +1,10 @@
 require('reflect-metadata');
 require('dotenv').config();
-const { ConfigData } = require('../dist/bot/configurations/configData');
 const { SpotifyTokenManager } = require('../dist/spotify/api/spotifyTokenManager');
 const { SpotifySearchApi } = require('../dist/spotify/api/spotifySearchApi');
 const { DeezerApi } = require('../dist/deezer/apis/deezerApi');
 const { AppleMusicSearchApi } = require('../dist/applemusic/apis/appleMusicSearchApi');
 
-ConfigData.Data;
 
 (async () => {
   const tokenManager = new SpotifyTokenManager();

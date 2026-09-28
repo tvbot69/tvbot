@@ -51,15 +51,6 @@ const IDENTITY = [
 
 const ident = () => Prisma.raw(IDENTITY);
 
-interface DuplicateGroup {
-  count: bigint;
-  sample_artist: string;
-  sample_track: string | null;
-  user_id: number;
-  time_played: Date;
-  play_source: string | null;
-}
-
 const main = async (): Promise<void> => {
   try {
     const total = await prisma.userPlay.count();

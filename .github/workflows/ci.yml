@@ -188,3 +188,65 @@ jobs:
       # go down. A new `: any` fails the build.
       - name: Check debt ratchet
         run: npm run debt
+  migrations:
+    name: migrations apply to a real postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+
+    # This job exists because 20260928010000_user_plays_dedup_index failed on
+    # production with SqlState 42P17, and because `npm start` is
+    # `migrate deploy && node dist/bot/index.js`, P3009 took the ENTIRE bot down.
+    # Nothing in CI was applying these migrations to a real database, so a
+    # syntactically valid but unusable index reached production.
+    #
+    # A migration only counts as tested once a real Postgres has executed it.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tvbot
+          POSTGRES_PASSWORD: tvbot
+          POSTGRES_DB: tvbot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://tvbot:tvbot@localhost:5432/tvbot?schema=public
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Generate the client
+        run: npx prisma generate --schema src/persistence/prisma/schema.prisma
+
+      # The gate. Every migration in the repo, applied for real, in order.
+      - name: Apply every migration
+        run: npx prisma migrate deploy --schema src/persistence/prisma/schema.prisma
+
+      - name: Database is at the expected version
+        run: npx prisma migrate status --schema src/persistence/prisma/schema.prisma
+
+      # A functional index can only be judged by being built, so verify the
+      # expression and the constraint against the real column types here rather
+      # than in production. Runs against a throwaway TEMP table.
+      - name: Verify the dedup index expression builds
+        run: npm run db:verify-index-expr
+
+      - name: Verify the dedup constraint holds
+        run: npm run db:verify-constraint
+
+      - name: Verify the index exists and the data is clean
+        run: npm run db:check-index

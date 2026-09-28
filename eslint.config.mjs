@@ -97,4 +97,25 @@ export default tseslint.config(
       ],
     },
   },
+
+/**
+ * `scripts/` is linted, because it now contains code that runs against the
+ * production database - a migration verifier that nobody ever lints is how a
+ * bad assumption reaches production.
+ *
+ * `.cjs` files are CommonJS by extension, so forbidding `require` in them is a
+ * false positive: 42 of the 46 errors were exactly that.
+ */
+{
+  files: ['scripts/**/*.ts'],
+  rules: {
+    'no-console': 'off',
+  },
+},
+{
+  files: ['scripts/**/*.cjs', 'scripts/**/*.js'],
+  rules: {
+    '@typescript-eslint/no-require-imports': 'off',
+  },
+},
 );

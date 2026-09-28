@@ -14,7 +14,7 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "check:log": "tsx scripts/check-log-invariants.ts",
-    "lint": "eslint src",
+    "lint": "eslint src scripts",
     "format": "prettier --write \"src/**/*.{ts,json}\"",
     "db:generate": "prisma generate --schema src/persistence/prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema src/persistence/prisma/schema.prisma",
