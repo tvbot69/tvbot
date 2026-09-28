@@ -30,7 +30,10 @@
     "db:migration-logs": "tsx scripts/migration-failure-logs.ts",
     "db:verify-index-expr": "tsx scripts/verify-dedup-index-expr.ts",
     "db:verify-constraint": "tsx scripts/verify-dedup-constraint.ts",
-    "db:verify": "npm run db:check-index && npm run db:verify-index-expr && npm run db:verify-constraint"
+    "db:verify": "npm run db:check-index && npm run db:verify-index-expr && npm run db:verify-constraint",
+    "db:verify-missing-tables": "tsx scripts/verify-missing-tables-migration.ts",
+    "db:replay-fresh": "tsx scripts/replay-migrations-fresh.ts",
+    "db:verify-live-matches": "tsx scripts/verify-live-matches-migration.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
