@@ -268,6 +268,15 @@ jobs:
       - name: Create the scratch database
         run: PGPASSWORD=tvbot psql -h localhost -U tvbot -d tvbot -c "CREATE DATABASE tvbot_ci_test"
 
+      # The scratch database is created EMPTY, and the migrations above were applied
+      # to the `tvbot` database, not this one. Without migrating it the tests run
+      # against a database with no tables and fail on the first query - which is
+      # exactly what happened for three CI runs.
+      - name: Apply the migrations to the scratch database
+        run: npx prisma migrate deploy --schema src/persistence/prisma/schema.prisma
+        env:
+          DATABASE_URL: postgresql://tvbot:tvbot@localhost:5432/tvbot_ci_test?schema=public
+
       - name: Raw SQL against a real database
         run: npm run test:db
         env:
