@@ -8,6 +8,7 @@ export interface RecentTrack {
   imageUrl?: string;
   nowPlaying: boolean;
   timePlayed?: Date;
+  loved?: boolean;
 }
 
 export interface RecentTrackList {

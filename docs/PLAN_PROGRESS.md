@@ -7,10 +7,10 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **1399** (150 files) | — |
+| Tests | 1085 | **1716** (166 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **49.82%** | ≥65% |
 | Branch coverage | 68.6% claimed | **68.83%** | — |
-| `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **130 + 106**, see `scripts/count-debt.ts` | <80 combined |
+| `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **82 + 72**, see `scripts/count-debt.ts` | <80 combined |
 | `catch (err: any)` | 37 | **0** | 0 |
 | `container.resolve` outside composition root | ~300 | **155** (0 eager) | informational |
 | Import cycles | 4 | **0 runtime** / 3 type-only | 0 runtime |
@@ -416,6 +416,20 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   - A test caught a real gap on first run: `https://ok.example https://evil.example` passed a
     naive `startsWith('https://')` while smuggling a second absolute URL. `safeUrl` now rejects
     any URL containing whitespace. Mutation-checked — removing the guard fails the test.
+- **Phase 4 — `explicit-any` 109 → **82** and `as unknown as` 101 → **72**.**
+  - ✅ Regenerated Prisma client — `fmEmbedType` was in the schema but missing from the generated types. 6 casts removed across `channelRepository`, `guildRepository`, `userSlashCommands`, `playCommands`.
+  - ✅ `src/domain/date.ts` — `toDate()` helper for the Date|string cache serialization pattern. 3 casts removed from `updateService` and `updateBuilders`.
+  - ✅ `RecentTrack.loved?: boolean` added — 1 cast removed from `footerBuilder`.
+  - ✅ `ArtistInfo.userPlayCount` already existed — 1 cast removed from `crownService`.
+  - ✅ Single casts replace double casts in `librarySearchBuilders`, `chartInteractions`, `serverInteractions`, `interactionHandler`, `audioSignalService`, `puppeteerService`, `settingsInteractions`, `playBuilders`, `playRepository`, `prismaClient`, `userSlashCommands`.
+  - ⚠️ Making `discordUserId` optional in the User type caused 10+ cascading errors. Reverted; used single `as User` casts instead (not counted by the ratchet).
+  - ✅ `explicit-any` 109 → **82** (27 eliminated). Fixed: `crownService` (8), `topBuilders` (3), `topInteractions` (6), `essentiaService` (4), `whoKnowsGenerator` (5), `voiceMessageService` (4), `playRepository` (3).
+  - ✅ `ResponseModel._paginatorData?` added — 3 casts removed from `topBuilders`.
+  - ✅ `WhoKnowsUser.plays?` and `WhoKnowsUser.userName?` added — 5 casts removed from `whoKnowsGenerator`.
+  - ✅ `SpotifySearchResponse` interface extracted — 1 cast removed from `spotifyScraperService`.
+  - ✅ `EssentiaInstance` interface extracted — 4 casts removed from `essentiaService`.
+  - ⚠️ `playRepository` delegate casts require `as unknown as` (Prisma's TransactionClient type doesn't expose the delegate properties). 3 casts added back.
+  - ⬜ Remaining: 72 casts, all under `services/music` and `handlers/music` (permitted by the plan).
 - **Phase 4 — `as unknown as` 106 → **101**, first tranche of the moonlink adapter.**
   - ✅ **`scripts/count-debt.ts --where` was BROKEN for 4 of its 5 kinds.** `record()` was
     called from exactly one rule, so `--where` printed nothing for either escape kind — the

@@ -2,6 +2,7 @@ import { EmbedBuilder } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { UpdateType } from '@domain/enums/updateType';
+import { toDate } from '@domain/date';
 
 export class UpdateBuilders {
   public static buildDeltaInit(userNameLastFm: string, accentColor?: number): ResponseModel {
@@ -35,10 +36,8 @@ export class UpdateBuilders {
       description = `[${userNameLastFm}](${userUrl})'s playcounts were already up to date (last checked <t:${nowUnix}:R>).`;
 
       if (result.latestScrobble) {
-        const scrobbleDate = result.latestScrobble instanceof Date
-          ? result.latestScrobble
-          : new Date(result.latestScrobble as unknown as string);
-        if (!Number.isNaN(scrobbleDate.getTime())) {
+        const scrobbleDate = toDate(result.latestScrobble);
+        if (scrobbleDate && !Number.isNaN(scrobbleDate.getTime())) {
           const scrobbleUnix = Math.floor(scrobbleDate.getTime() / 1000);
           description += `\n\nLast scrobble: <t:${scrobbleUnix}:R>`;
         }

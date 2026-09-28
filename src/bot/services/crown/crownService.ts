@@ -28,13 +28,13 @@ export class CrownService {
     artistName: string,
     resolvedArtistName?: string,
   ): Promise<CrownModel | null> {
-    if (!guild || (guild as any).crownsDisabled) {
+    if (!guild || guild.crownsDisabled) {
       return null;
     }
 
     const guildIdStr = guild.guildId.toString();
-    const minPlaycount = (guild as any).crownsMinimumPlaycountThreshold ?? 30;
-    const activityDays = (guild as any).crownsActivityThresholdDays;
+    const minPlaycount = guild.crownsMinimumPlaycountThreshold ?? 30;
+    const activityDays = guild.crownsActivityThresholdDays;
 
     // 1. Filter eligible users (privacy opt-outs and abuse-flagged farmers
     // can never hold crowns)
@@ -54,8 +54,8 @@ export class CrownService {
         if (lastUsedMs < cutoffMs) return false;
       }
 
-      if (guild && (guild as any).crownRoles && (guild as any).crownRoles.length > 0) {
-        const requiredRoles = new Set((guild as any).crownRoles.map((r: any) => r.toString()));
+      if (guild && guild.crownRoles && guild.crownRoles.length > 0) {
+        const requiredRoles = new Set(guild.crownRoles.map((r) => r.toString()));
         const userRoles = u.roles ?? [];
         const hasRole = userRoles.some((r) => requiredRoles.has(r));
         if (!hasRole) return false;
@@ -186,7 +186,7 @@ export class CrownService {
     if (!this.lastfmRepository || !holderLastFmUsername) return null;
     try {
       const info = await this.lastfmRepository.getArtistInfo(artistName, holderLastFmUsername);
-      const plays = (info as unknown as { userPlayCount?: unknown })?.userPlayCount;
+      const plays = info?.userPlayCount;
       return typeof plays === 'number' && Number.isFinite(plays) ? plays : null;
     } catch {
       return null;

@@ -96,7 +96,7 @@ export class VoiceMessageService {
     const res = await fetchTimeout(`https://discord.com/api/v10/webhooks/${appId}/${interactionToken}`, {
       method: 'POST',
       headers: { Authorization: `Bot ${botToken}` },
-      body: form as any,
+      body: form,
     });
     if (!res.ok) {
       const txt = await res.text();
@@ -106,7 +106,7 @@ export class VoiceMessageService {
   }
 
   // Send via channel attachments endpoint (text commands / preview button)
-  public async sendViaChannel(channelId: string, oggPath: string, botToken: string, replyToMessageId?: string): Promise<any> {
+  public async sendViaChannel(channelId: string, oggPath: string, botToken: string, replyToMessageId?: string): Promise<void> {
     const duration = await getDuration(oggPath);
     const stat = await fs.stat(oggPath);
     const fileName = path.basename(oggPath);
@@ -119,10 +119,12 @@ export class VoiceMessageService {
       headers: { 'Content-Type': 'application/json', Authorization: `Bot ${botToken}` },
     });
     if (!res.ok) throw new Error(`attach req failed ${res.status} ${await res.text()}`);
-    const data: any = await res.json();
+    const data = await res.json() as { attachments: { upload_url: string; upload_filename: string }[] };
+    const attachment = data.attachments[0];
+    if (!attachment) throw new Error('No attachment in response');
 
     // Step 2: PUT to upload_url
-    const putRes = await fetchTimeout(data.attachments[0].upload_url, {
+    const putRes = await fetchTimeout(attachment.upload_url, {
       method: 'PUT',
       body: await fs.readFile(oggPath),
       headers: { 'Content-Type': 'audio/ogg' },
@@ -132,11 +134,11 @@ export class VoiceMessageService {
     const waveBuf = Buffer.alloc(100);
     for (let i = 0; i < 100; i++) waveBuf[i] = Math.floor(20 + Math.random() * 130);
 
-    const payload: any = {
-      attachments: [{ id: '0', filename: fileName, uploaded_filename: data.attachments[0].upload_filename, duration_secs: Number.isFinite(duration) ? duration : 30, waveform: waveBuf.toString('base64') }],
+    const payload = {
+      attachments: [{ id: '0', filename: fileName, uploaded_filename: attachment.upload_filename, duration_secs: Number.isFinite(duration) ? duration : 30, waveform: waveBuf.toString('base64') }],
       flags: 8192,
     };
-    if (replyToMessageId) payload.message_reference = { message_id: replyToMessageId };
+    if (replyToMessageId) (payload as Record<string, unknown>).message_reference = { message_id: replyToMessageId };
 
     const res3 = await fetchTimeout(`https://discord.com/api/v10/channels/${channelId}/messages`, {
       method: 'POST',

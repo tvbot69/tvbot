@@ -65,4 +65,4 @@ export const prisma = basePrisma.$extends({
       },
     },
   },
-}) as unknown as PrismaClient;
+}) as PrismaClient;

@@ -148,12 +148,12 @@ export class PlayCommands implements ITextCommandModule {
       if (context.guildId) {
         const guildRepo = container.resolve(GuildRepository);
         const guild = await guildRepo.getGuild(context.guildId);
-        guildFmType = (guild as unknown as { fmEmbedType?: number | null })?.fmEmbedType ?? null;
+        guildFmType = guild?.fmEmbedType ?? null;
       }
       if (channelId) {
         const channelRepo = container.resolve(ChannelRepository);
         const ch = await channelRepo.getChannel(channelId);
-        channelFmType = (ch as unknown as { fmEmbedType?: number | null })?.fmEmbedType ?? null;
+        channelFmType = ch?.fmEmbedType ?? null;
       }
     } catch { /* ignore */ }
 

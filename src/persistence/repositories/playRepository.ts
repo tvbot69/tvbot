@@ -31,11 +31,9 @@ type DeltaDelegate = (client: PrismaClient) => {
   create(args: { data: Record<string, unknown> }): Prisma.PrismaPromise<unknown>;
 };
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-const userArtistDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as any).userArtist) as never;
-const userAlbumDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as any).userAlbum) as never;
-const userTrackDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as any).userTrack) as never;
-/* eslint-enable @typescript-eslint/no-explicit-any */
+const userArtistDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as unknown as { userArtist: ReplaceDelegate & DeltaDelegate }).userArtist) as never;
+const userAlbumDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as unknown as { userAlbum: ReplaceDelegate & DeltaDelegate }).userAlbum) as never;
+const userTrackDelegate: ReplaceDelegate & DeltaDelegate = ((c: TxLike) => (c as unknown as { userTrack: ReplaceDelegate & DeltaDelegate }).userTrack) as never;
 
 
 /**
@@ -106,7 +104,7 @@ export class PlayRepository implements IPlayRepository {
             trackName: p.trackName ?? null,
             timePlayed: p.timePlayed,
             msPlayed: p.msPlayed ?? null,
-            playSource: (p.playSource as unknown as import('@prisma/client').PlaySource) ?? 'LastFm',
+            playSource: p.playSource ?? 'LastFm',
           })),
           skipDuplicates: true,
         });

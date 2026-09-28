@@ -316,7 +316,7 @@ export class TopBuilders {
     }
 
     response.addButtonRow(0, buildPaginatorRow(page, totalPages, 'topartists', userNameLastFm, timeSettings.description));
-    (response as any)._paginatorData = { type: 'artists', userNameLastFm, displayName, timeSettings, items: topArtists, accentColor };
+    response._paginatorData = { type: 'artists', userNameLastFm, displayName, timeSettings, items: topArtists, accentColor };
     return response;
   }
 
@@ -416,7 +416,7 @@ export class TopBuilders {
     }
 
     response.addButtonRow(0, buildPaginatorRow(page, totalPages, 'topalbums', userNameLastFm, timeSettings.description));
-    (response as any)._paginatorData = { type: 'albums', userNameLastFm, displayName, timeSettings, items: topAlbums, accentColor };
+    response._paginatorData = { type: 'albums', userNameLastFm, displayName, timeSettings, items: topAlbums, accentColor };
     return response;
   }
 
@@ -516,7 +516,7 @@ export class TopBuilders {
     }
 
     response.addButtonRow(0, buildPaginatorRow(page, totalPages, 'toptracks', userNameLastFm, timeSettings.description));
-    (response as any)._paginatorData = { type: 'tracks', userNameLastFm, displayName, timeSettings, items: topTracks, accentColor };
+    response._paginatorData = { type: 'tracks', userNameLastFm, displayName, timeSettings, items: topTracks, accentColor };
     return response;
   }
 }

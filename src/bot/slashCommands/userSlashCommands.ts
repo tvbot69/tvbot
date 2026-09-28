@@ -181,11 +181,11 @@ export class UserSlashCommands implements ISlashCommandModule {
       fmSetting = await fmService.get(displayUser.userId);
       if (context.guildId) {
         const g = await container.resolve(GuildRepository).getGuild(context.guildId);
-        guildFmType = (g as unknown as { fmEmbedType?: number | null })?.fmEmbedType ?? null;
+        guildFmType = g?.fmEmbedType ?? null;
       }
       if (slashChannelId) {
         const ch = await container.resolve(ChannelRepository).getChannel(slashChannelId);
-        channelFmType = (ch as unknown as { fmEmbedType?: number | null })?.fmEmbedType ?? null;
+        channelFmType = ch?.fmEmbedType ?? null;
       }
     } catch { /* */ }
 
@@ -212,7 +212,7 @@ export class UserSlashCommands implements ISlashCommandModule {
       : {};
 
     return PlayBuilders.buildFmResponse(context, displayUser, tracks, lastfmUser, {
-      fmSetting: fmSetting as unknown as { embedType: number; footerOptions: bigint; smallTextType: number | null; buttons: bigint } | null,
+      fmSetting: fmSetting as { embedType: number; footerOptions: bigint; smallTextType: number | null; buttons: bigint } | null,
       guildFmType,
       channelFmType,
       inlineEmbedType,

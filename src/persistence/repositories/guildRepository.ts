@@ -78,7 +78,7 @@ export class GuildRepository implements IGuildRepository {
       guildId: entity.guildId.toString(),
       guildName: entity.guildName,
       prefix: entity.prefix ?? undefined,
-      fmEmbedType: (entity as unknown as { fmEmbedType?: number | null }).fmEmbedType ?? undefined,
+      fmEmbedType: entity.fmEmbedType ?? undefined,
       guildCreatedOn: entity.guildCreatedOn,
       lastCommand: entity.lastCommand ?? undefined,
       commandsDisabled: entity.commandsDisabled,

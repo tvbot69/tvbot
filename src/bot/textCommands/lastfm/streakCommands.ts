@@ -92,8 +92,8 @@ export class StreakCommands implements ITextCommandModule {
             ...callerUser,
             userId: 0,
             userNameLastFm: lfmClean,
-            discordUserId: undefined,
-          } as unknown as User;
+            discordUserId: '',
+          } as User;
           displayName = lfmClean;
         }
       }

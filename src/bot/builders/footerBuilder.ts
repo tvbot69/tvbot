@@ -20,7 +20,7 @@ export function buildFooterText(opts: {
   const parts: string[] = [];
   const has = (f: FmFooterOption) => (opts.footerOptions & BigInt(f)) !== BigInt(0);
 
-  if (has(FmFooterOption.Loved) && (opts.isLoved || (opts.track as unknown as { loved?: boolean })?.loved)) {
+  if (has(FmFooterOption.Loved) && (opts.isLoved || opts.track.loved)) {
     parts.push('❤️ Loved');
   }
   if (has(FmFooterOption.ArtistPlays) && opts.artistPlays !== undefined) {

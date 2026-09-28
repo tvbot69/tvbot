@@ -32,13 +32,13 @@ try {
   const candidatesFfmpeg = [process.env.FFMPEG_PATH, 'C:\\tools\\ffmpeg\\bin\\ffmpeg.exe', '/usr/bin/ffmpeg'].filter(Boolean) as string[];
   for (const p of candidatesFfmpeg) if (fs.existsSync(p)) { resolvedFfmpeg = p; break; }
   if (!resolvedFfmpeg) {
-    const pkg = (ffmpegStatic as unknown as { path?: string })?.path ?? ffmpegStatic;
+    const pkg = (ffmpegStatic as { path?: string }).path ?? ffmpegStatic;
     if (typeof pkg === 'string') resolvedFfmpeg = pkg;
   }
   const candidatesFfprobe = [process.env.FFPROBE_PATH, 'C:\\tools\\ffmpeg\\bin\\ffprobe.exe', '/usr/bin/ffprobe'].filter(Boolean) as string[];
   for (const p of candidatesFfprobe) if (fs.existsSync(p)) { resolvedFfprobe = p; break; }
   if (!resolvedFfprobe) {
-    const pkg = (ffprobeStatic as unknown as { path?: string })?.path ?? ffprobeStatic;
+    const pkg = (ffprobeStatic as { path?: string }).path ?? ffprobeStatic;
     if (typeof pkg === 'string') resolvedFfprobe = pkg;
   }
   if (resolvedFfmpeg) process.env.FFMPEG_PATH = resolvedFfmpeg;

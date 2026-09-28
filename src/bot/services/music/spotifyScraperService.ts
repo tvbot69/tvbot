@@ -1,6 +1,22 @@
 import { Logger } from '@domain/logger';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 
+interface SpotifySearchResponse {
+  tracks?: {
+    items?: Array<{
+      name?: string;
+      title?: string;
+      artists?: Array<{ name?: string }>;
+      subtitle?: string;
+      audioPreview?: { url?: string };
+      preview_url?: string | null;
+      duration?: { totalMilliseconds?: number };
+      duration_ms?: number;
+      albumOfTrack?: { coverArt?: { sources?: Array<{ url?: string }> } };
+    }>;
+  };
+}
+
 export interface ScrapedTrack {
   name: string;
   artist: string;
@@ -304,7 +320,7 @@ export class SpotifyScraperService {
           headers: { Authorization: `Bearer ${token}`, 'App-Platform': 'WebPlayer', Accept: 'application/json', 'User-Agent': this.userAgent, Origin: 'https://open.spotify.com', Referer: 'https://open.spotify.com/' },
         });
         if (res.ok) {
-          const j: any = await res.json();
+          const j = await res.json() as SpotifySearchResponse;
           const items = j?.tracks?.items ?? [];
           for (const it of items) {
             const title = it.name ?? it.title ?? '';

@@ -6,6 +6,8 @@ import type { Guild } from '@persistence/domain/models/guild';
 export interface WhoKnowsUser {
   userId: number;
   playcount: number;
+  plays?: number;
+  userName?: string;
   lastFmUsername: string;
   discordName?: string;
   discordUserId?: string;

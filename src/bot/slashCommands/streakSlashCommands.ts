@@ -95,8 +95,8 @@ export class StreakSlashCommands implements ISlashCommandModule {
           ...callerUser,
           userId: 0,
           userNameLastFm: lfmClean,
-          discordUserId: undefined,
-        } as unknown as User;
+          discordUserId: '',
+        } as User;
         displayName = lfmClean;
       }
     }

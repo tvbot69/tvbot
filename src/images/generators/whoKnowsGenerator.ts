@@ -101,7 +101,7 @@ export class WhoKnowsGenerator {
     } = params;
 
     const getPlays = (u: WhoKnowsUser): number =>
-      u.playcount ?? (u as any).plays ?? 0;
+      u.playcount ?? u.plays ?? 0;
 
     const distinctUsers = users.filter(
       (u, i, arr) => arr.findIndex((x) => x.userId === u.userId) === i,
@@ -140,9 +140,9 @@ export class WhoKnowsGenerator {
         const name =
           user.discordName ||
           user.lastFmUsername ||
-          (user as any).userName ||
+          user.userName ||
           'Unknown';
-        const playcount = user.playcount ?? (user as any).plays ?? 0;
+        const playcount = user.playcount ?? user.plays ?? 0;
         const playsFormatted = playcount.toLocaleString();
         const highlightClass = isCaller ? 'caller-highlight' : '';
 

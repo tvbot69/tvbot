@@ -133,8 +133,8 @@ export class LibrarySearchBuilders {
     container.addActionRowComponents(navRow, tabRow);
 
     res.setComponentsV2Container(container);
-    res.addButtonRow(0, navRow as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
-    res.addButtonRow(1, tabRow as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    res.addButtonRow(0, navRow as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    res.addButtonRow(1, tabRow as ActionRowBuilder<MessageActionRowComponentBuilder>);
 
     // Classic embed fallback
     res.embed.setTitle(null);

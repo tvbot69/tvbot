@@ -48,7 +48,7 @@ export class ChannelRepository implements IChannelRepository {
       guildId: entity.guildId.toString(),
       toggledCommands: entity.toggledCommands,
       whoKnowsWhitelisted: entity.whoKnowsWhitelisted,
-      fmEmbedType: (entity as unknown as { fmEmbedType?: number | null }).fmEmbedType ?? undefined,
+      fmEmbedType: entity.fmEmbedType ?? undefined,
     };
   }
 }

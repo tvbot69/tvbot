@@ -1,5 +1,6 @@
 import { inject, injectable , container} from 'tsyringe';
-import { ActionRowBuilder, ButtonInteraction, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { ActionRowBuilder, ButtonInteraction, MessageFlags, ModalActionRowComponentBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { ResponseModel } from '@bot/models/responseModel';
 import { TopBuilders } from '@bot/builders/topBuilders';
 import { resolveTopBuildersDeps } from '@bot/builders/topBuildersDeps';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
@@ -39,7 +40,7 @@ export class TopInteractions {
       // submit 3 seconds; a slow upstream would otherwise surface as 10062.
       await interaction.deferReply().catch(() => undefined);
       try {
-        let response: any;
+        let response: ResponseModel;
         if (prefix === 'topartists') {
           const items = await this.lastfmRepository.getTopArtists(displayName, timeSettings.timePeriod, 1000);
           response = await TopBuilders.buildTopArtistsResponse(resolveTopBuildersDeps(), displayName, displayName, items, timeSettings, Math.min(targetPage, Math.max(0, Math.ceil(items.length / 10) - 1)), accentColor);
@@ -110,7 +111,7 @@ export class TopInteractions {
         .setMinLength(1)
         .setMaxLength(2);
       const row = new ActionRowBuilder<TextInputBuilder>().addComponents(input);
-      modal.addComponents(row as any);
+      modal.addComponents(row as ActionRowBuilder<ModalActionRowComponentBuilder>);
       await interaction.showModal(modal).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
       return;
     }

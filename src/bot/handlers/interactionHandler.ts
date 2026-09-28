@@ -436,9 +436,10 @@ export class InteractionHandler {
 
     let typingInterval: NodeJS.Timeout | null = null;
     if (!command.ephemeral && interaction.channel && 'sendTyping' in interaction.channel) {
-      void (interaction.channel as unknown as { sendTyping?: () => Promise<void> }).sendTyping?.().catch(() => undefined);
+      const channel = interaction.channel as { sendTyping?: () => Promise<void> };
+      void channel.sendTyping?.().catch(() => undefined);
       typingInterval = setInterval(() => {
-        void (interaction.channel as unknown as { sendTyping?: () => Promise<void> }).sendTyping?.().catch(() => undefined);
+        void channel.sendTyping?.().catch(() => undefined);
       }, 7000);
     }
 

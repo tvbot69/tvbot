@@ -8,6 +8,7 @@ import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
 import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import { toDate } from '@domain/date';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import { CacheService } from './cacheService';
 import { Logger } from '@domain/logger';
@@ -137,10 +138,8 @@ export class UpdateService {
 
     // Queue mode: skip if recently updated
     if (opts?.queue && user.lastUpdate) {
-      const lastUpdate = user.lastUpdate instanceof Date
-        ? user.lastUpdate
-        : new Date(user.lastUpdate as unknown as string);
-      if (!Number.isNaN(lastUpdate.getTime())) {
+      const lastUpdate = toDate(user.lastUpdate);
+      if (lastUpdate && !Number.isNaN(lastUpdate.getTime())) {
         const hoursSinceUpdate = (Date.now() - lastUpdate.getTime()) / (3600 * 1000);
         if (hoursSinceUpdate < STALE_THRESHOLD_HOURS) {
           Logger.debug(`Delta sync skipped for ${user.userNameLastFm} — updated ${hoursSinceUpdate.toFixed(1)}h ago`);
@@ -210,9 +209,7 @@ export class UpdateService {
 
     // Calculate fetch window — mirror fmbot's dateFromFilter logic
     let dateFromFilter: Date;
-    const lastScrobbleDate = user.lastScrobbleUpdate
-      ? (user.lastScrobbleUpdate instanceof Date ? user.lastScrobbleUpdate : new Date(user.lastScrobbleUpdate as unknown as string))
-      : null;
+    const lastScrobbleDate = toDate(user.lastScrobbleUpdate);
 
     if (lastScrobbleDate && !Number.isNaN(lastScrobbleDate.getTime())) {
       dateFromFilter = new Date(lastScrobbleDate.getTime() - OVERLAP_HOURS * 3600 * 1000);
@@ -589,10 +586,8 @@ export class UpdateService {
     if (!user.lastUpdate) return true;
     // Cache backends serialize Date fields as strings. Treat an unreadable value as
     // stale rather than letting a now-playing command fail on `getTime`.
-    const lastUpdate = user.lastUpdate instanceof Date
-      ? user.lastUpdate
-      : new Date(user.lastUpdate as unknown as string);
-    if (Number.isNaN(lastUpdate.getTime())) return true;
+    const lastUpdate = toDate(user.lastUpdate);
+    if (!lastUpdate || Number.isNaN(lastUpdate.getTime())) return true;
     const minutesSince = (Date.now() - lastUpdate.getTime()) / (60 * 1000);
     return minutesSince >= thresholdMinutes;
   }

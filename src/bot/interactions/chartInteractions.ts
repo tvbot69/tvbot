@@ -275,8 +275,8 @@ export class ChartInteractions {
       this.userService.enqueueUserUpdate(user, 'Command' as never);
 
       const displayName =
-        interaction.member && 'displayName' in (interaction.member as object)
-          ? (interaction.member as unknown as { displayName: string }).displayName
+        interaction.member && 'displayName' in interaction.member
+          ? (interaction.member as { displayName: string }).displayName
           : interaction.user.username;
 
       const response = artistChart

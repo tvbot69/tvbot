@@ -171,7 +171,7 @@ export class PlayBuilders {
     const useSmallText = fmSetting?.smallTextType !== null && fmSetting?.smallTextType !== undefined && fmSetting.smallTextType !== FmTextType.NormalText;
     const footerOptions = fmSetting ? (fmSetting.footerOptions as bigint) : BigInt(FmFooterOption.TotalScrobbles);
     const rawFooter = buildFooterText({
-      footerOptions: footerOptions as unknown as bigint,
+      footerOptions,
       track,
       previousTrack: tracks[1] ?? null,
       totalScrobbles: lastFmUser?.playCount,

@@ -1,24 +1,30 @@
 import { Logger } from '@domain/logger';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let essentiaInstance: any = null;
+interface EssentiaInstance {
+  arrayToVector(arr: Float32Array): unknown;
+  RhythmExtractor2013(vector: unknown): { bpm?: number } | null;
+  KeyExtractor(vector: unknown): { key?: string } | null;
+  deleteVector?(vector: unknown): void;
+}
+
+let essentiaInstance: EssentiaInstance | null = null;
 let initFailed = false;
 
-function getEssentia(): any | null {
+function getEssentia(): EssentiaInstance | null {
   if (essentiaInstance !== null) return essentiaInstance;
   if (initFailed) return null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const esPkg: any = require('essentia.js');
-    const Essentia = esPkg.Essentia ?? esPkg.default?.Essentia ?? esPkg;
-    const WASM = esPkg.EssentiaWASM ?? esPkg.default?.EssentiaWASM;
+    const esPkg = require('essentia.js') as { Essentia?: new (wasm: unknown) => EssentiaInstance; EssentiaWASM?: unknown };
+    const Essentia = esPkg.Essentia;
+    const WASM = esPkg.EssentiaWASM;
     if (!Essentia || !WASM) throw new Error('Essentia export missing');
     essentiaInstance = new Essentia(WASM);
     return essentiaInstance;
   } catch (err) {
     Logger.warn({ err }, '[Essentia] init failed — BPM/key will be unavailable');
     initFailed = true;
-    essentiaInstance = false as any;
+    essentiaInstance = null;
     return null;
   }
 }

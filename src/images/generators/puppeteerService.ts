@@ -444,8 +444,9 @@ export class PuppeteerService {
             }),
         ),
       );
-      if (typeof (window as unknown as { processAllCellThemes?: () => void }).processAllCellThemes === 'function') {
-        (window as unknown as { processAllCellThemes: () => void }).processAllCellThemes();
+      const w = window as { processAllCellThemes?: () => void };
+      if (typeof w.processAllCellThemes === 'function') {
+        w.processAllCellThemes();
       }
     }).catch(() => undefined);
   }

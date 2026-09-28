@@ -30,7 +30,7 @@ const serverRankingStore = new TtlStore<CachedServerRanking>(
   'session:server-ranking:',
   30 * 60,
   (value) => {
-    const settings = { ...(value.settings as unknown as Record<string, unknown>) };
+    const settings: Record<string, unknown> = { ...value.settings };
     for (const key of DATE_KEYS) {
       const raw = settings[key];
       if (typeof raw === 'string' && raw) settings[key] = new Date(raw);
