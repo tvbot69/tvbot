@@ -1,7 +1,7 @@
 ﻿import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { PlayRepository } from './playRepository';
-import { connect, resetTables, skipReason } from '../../tests/dbHarness';
+import { connect, resetTables, seedUser, skipReason } from '../../tests/dbHarness';
 import type { PlayInsert } from '@domain/interfaces/iplayRepository';
 
 /**
@@ -50,8 +50,12 @@ suite('PlayRepository against a real database', () => {
   });
 
   beforeEach(async () => {
-    if (prisma) await resetTables(prisma);
+    if (!prisma) return;
+    await resetTables(prisma);
     userId += 1;
+    // The scratch database starts empty and user_plays.user_id is a foreign
+    // key, so every insert needs a user row to point at.
+    await seedUser(prisma, userId);
   });
 
   it('inserts a batch and reports the count', async () => {

@@ -61,6 +61,24 @@ export const connect = async (): Promise<PrismaClient | null> => {
   return prisma;
 };
 
+/**
+ * A user row to satisfy the user_plays foreign key.
+ *
+ * The scratch database is created EMPTY by CI, and every insert into
+ * user_plays needs a user to point at. Seeding one is what lets a test assert
+ * a real count instead of skipping everything.
+ */
+export const seedUser = async (prisma: PrismaClient, userId: number): Promise<void> => {
+  await prisma.$executeRawUnsafe(
+    // discord_user_id is a BIGINT: a non-numeric literal is 22P02 at runtime.
+    `INSERT INTO users ("user_id", "user_name_last_fm", "discord_user_id")
+     VALUES ($1, $2, $3) ON CONFLICT ("user_id") DO NOTHING`,
+    userId,
+    `db_user_${userId}`,
+    String(BigInt(userId) * 1000n),
+  );
+};
+
 /** Truncate every table the tests write to, so runs are independent. */
 export const resetTables = async (prisma: PrismaClient): Promise<void> => {
   await prisma.$executeRawUnsafe(`

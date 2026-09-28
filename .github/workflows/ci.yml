@@ -261,6 +261,13 @@ jobs:
       # whose name does not look like a scratch database, because the tests
       # TRUNCATE every table. Setting it to a real one must not be possible by
       # accident.
+      # The postgres service only creates POSTGRES_DB, so the scratch database
+      # the tests point at has to be created explicitly. dbHarness deliberately
+      # refuses a name that does not look like scratch, which is why this cannot
+      # just reuse the `tvbot` database.
+      - name: Create the scratch database
+        run: PGPASSWORD=tvbot psql -h localhost -U tvbot -d tvbot -c "CREATE DATABASE tvbot_ci_test"
+
       - name: Raw SQL against a real database
         run: npm run test:db
         env:
