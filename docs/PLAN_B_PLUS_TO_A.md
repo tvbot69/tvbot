@@ -185,9 +185,13 @@ finish an item, tick it. If you un-finish one, untick it and say why in
       mutation-checked: raised to 99 and confirmed the check fails
       ("Coverage for lines (66.73%) does not meet global threshold").
       3792 tests across 204 files. Was 49.82% at the start of this session.
-- [ ] Real-Postgres tests cover every raw SQL query. *(the suite, the harness, a
-      production-refusing guard and `playRepository` now exist and CI runs them against
-      postgres:16; 5 of the 6 files holding raw queries are not yet covered)*
+- [x] Real-Postgres tests cover every raw SQL query. **28 of 28** `$queryRawUnsafe`
+      calls now have a test that executes them. 6 files, 114 tests, all skipping
+      cleanly without `TEST_DATABASE_URL` and running in the migrations CI job
+      against postgres:16. Writing the last 12 found **two queries that cannot
+      execute at all** — `getUserAllTimeTopAlbumsByReleasePrefix` and
+      `getAverageTrackAudioFeaturesForTopTracks` — both because they name columns
+      that no migration creates.
 - [x] Unit suite passes without Chrome.
 - [x] 0 import cycles and 0 `@bot/*` imports from lower layers, both enforced.
 - [x] `container.resolve` outside the composition root < 30. *(the eager count is 0 and

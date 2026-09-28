@@ -344,6 +344,39 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     swap compiled clean and was caught by **12 tests** instead. Comment corrected to say so.
   - Remaining: `crownInteractions`, `countryInteractions`, and the rest of the 34-file
     text-command layer, which still has **zero** test files. Target ≥60% per file, global ≥60%.
+- **2.3** ✅ **COMPLETE. 28 of 28 raw queries covered, 6 files, 114 tests.**
+  - 🐛🐛 **Writing the last 12 found two queries that CANNOT EXECUTE AT ALL.** This is the
+    whole justification for the item: a renamed column is a runtime failure with a green build
+    and a green unit suite, and both of these have been shipping.
+    - **`albumService.getUserAllTimeTopAlbumsByReleasePrefix` (albumService.ts:658,660)** —
+      `SELECT a.type ... INNER JOIN albums a ON ua.album_id = a.id`. `Album` has `album_id` and
+      `spotify_album_type`; it has **no `id` and no `type`**. Postgres rejects with **42703** on
+      every call, the method catches, and returns the **unfiltered all-time list**. Asking for the
+      90s returns a 2020s album, with a confident embed. Fix is two identifiers.
+    - **`trackService.getAverageTrackAudioFeaturesForTopTracks` (trackService.ts:371-381)** —
+      selects `danceability, energy, valence, tempo, acousticness` from `tracks`. `Track` has none
+      of those columns and **no migration creates them** (grepped every `.sql`). 42703, then
+      `.catch(() => [])` returns the zero shape, so the feature reports 0 for every track,
+      permanently. Needs a migration, so it is NOT fixed here.
+  - ⚠️ **Third, not a crash: `getDiscoveries` (musicIntelligenceService.ts:229)** filters
+    `a.first_play` — the all-time `MIN` — to the window, so an artist discovered *before* the
+    window is dropped rather than reported. That makes the first CTE redundant.
+  - ✅ **I verified all three claims by hand** against `schema.prisma` and all 14 migrations rather
+    than trusting the subagents that reported them. Both were correct.
+  - ⚠️ **The two broken queries are recorded as tests asserting the CURRENT behaviour**, so CI goes
+    red the moment someone fixes them. That is deliberate, but it is a trap: a developer under
+    pressure will "fix" the test instead of the query. The comments in each say so explicitly,
+    and three tests prove the mechanism independently (an `information_schema` check that the
+    columns are absent, and the same query with corrected names returning the expected rows).
+  - ⚠️ **Nothing here has been executed.** No Docker, no local Postgres, no `psql` on this machine,
+    and `DATABASE_URL` points at **production** Railway. The suite skips cleanly locally and runs
+    in the migrations CI job. Per AGENTS.md §11 these 87 tests are **unproven until CI runs them** —
+    they have never been seen green, let alone red.
+    - I did **not** run `npm run db:replay-keep` against production. The replay script sets
+      `search_path` to the scratch schema *alone*, but `SET search_path` is per-connection and
+      Prisma pools — and PLAN_PROGRESS already records an incident where it did not take effect.
+      Had it failed silently the migrations would have issued DDL against the live schema. That
+      needs an explicit go-ahead, not a default.
 - **2.3** 🔄 **Infrastructure + the first repository done. The queries now have a home;
   the coverage of them is 1 of 6 files.**
   - ✅ `vitest.db.config.ts` + `npm run test:db`, a third suite alongside unit and render.
