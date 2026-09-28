@@ -78,10 +78,10 @@ export default defineConfig({
         'scripts/**',
       ],
       thresholds: {
-        statements: 51.9,
+        statements: 52.1,
         branches: 70.1,
-        functions: 52.2,
-        lines: 51.9,
+        functions: 52.5,
+        lines: 52.1,
       },
     },
   },
