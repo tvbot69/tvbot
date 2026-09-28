@@ -149,3 +149,23 @@ jobs:
         run: npm run test:render
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+  deps:
+    name: import cycles (ratchet)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Fails if the cycle count rises above the recorded budget. If this goes
+      # red, break a cycle - do NOT raise MAX_CYCLES. The plan target is zero;
+      # this keeps it from going backwards while that is worked through.
+      - name: Check import cycles
+        run: npm run deps:cycles
