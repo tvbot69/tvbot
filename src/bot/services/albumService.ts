@@ -644,6 +644,13 @@ export class AlbumService {
     prefixLength: number = 4,
   ): Promise<TopAlbum[]> {
     try {
+      // Every column here was wrong before the real-Postgres suite ran
+      // (42703 ua.artist_name / 42883 left(text, bigint)):
+      //   - albums' PK is album_id, not id.
+      //   - user_albums has no artist_name; the artist name lives on artists,
+      //     reachable only through albums.artist_id.
+      //   - there is no albums.type; the column is spotify_album_type.
+      //   - $2 arrives as bigint and there is no left(text, bigint).
       const rows = await this.prisma.$queryRawUnsafe<Array<{
         album_name: string;
         artist_name: string;
@@ -652,15 +659,16 @@ export class AlbumService {
         album_type: string | null;
       }>>(`
         SELECT ua.name AS album_name,
-               ua.artist_name,
+               ar.name AS artist_name,
                ua.playcount,
                a.release_date,
-               a.type AS album_type
+               a.spotify_album_type AS album_type
         FROM user_albums ua
-        INNER JOIN albums a ON ua.album_id = a.id
+        INNER JOIN albums a ON ua.album_id = a.album_id
+        INNER JOIN artists ar ON a.artist_id = ar.artist_id
         WHERE ua.user_id = $1
           AND a.release_date IS NOT NULL
-          AND LEFT(a.release_date::text, $2) = $3
+          AND LEFT(a.release_date::text, $2::int) = $3
         ORDER BY ua.playcount DESC
         LIMIT 100
       `, userId, prefixLength, prefix);
@@ -672,10 +680,15 @@ export class AlbumService {
         releaseDate: r.release_date ?? undefined,
         albumType: r.album_type ?? undefined,
       }));
-    } catch {
-      // Fallback using user plays and in-memory year filter
-      const all = await this.getUserAllTimeTopAlbums(userId, true);
-      return all;
+    } catch (err) {
+      // Deliberately NOT the unfiltered all-time list. That was the worse bug:
+      // the catch returned every album, so a query that always threw produced a
+      // confident embed with a decade filter that had done nothing, and nothing
+      // in the logs distinguished it from success. An empty result and a
+      // degraded one now look the same to the user, which is the correct amount
+      // of deception for a broken join.
+      Logger.warn({ err }, 'getUserAllTimeTopAlbumsByReleasePrefix query failed; returning empty');
+      return [];
     }
   }
   /**

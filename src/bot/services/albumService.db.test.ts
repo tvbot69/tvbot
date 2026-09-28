@@ -377,39 +377,58 @@ suite('AlbumService raw queries against a real database', () => {
       });
     };
 
-    it('returns nothing even though the user has top albums, because the join cannot execute', async () => {
+    it('returns only the albums whose release year matches the prefix', async () => {
+      // Was: 'returns nothing even though the user has top albums, because the
+      // join cannot execute' - a test that asserted the bug. Three rows exist in
+      // user_albums and one matches the prefix, so the correct answer is that one
+      // row, and it now comes back. Driving the real method, not a hand-written
+      // copy of the query, so a regression in albumService.ts fails this.
       await seedTopAlbum('Slowdive', 'Souvlaki', 40, new Date('1993-04-27'));
       await seedTopAlbum('Boards of Canada', 'Geogaddi', 30, new Date('2002-02-11'));
-      // Three rows exist in user_albums and match the decade. Getting [] back
-      // is not "no data" - the raw query never returns a row, and the method
-      // silently degrades to its in-memory fallback. See the next two tests
-      // for the mechanism.
-      await expect(service!.getUserAllTimeTopAlbumsByReleasePrefix(userId, '1993', 4)).resolves.toEqual([]);
-    });
-
-    it('silently ignores the release prefix and returns the unfiltered all-time list', async () => {
-      // The user-visible symptom, and the reason this matters in production:
-      // asking for the 90s returns a 2020s album with a confident embed.
-      await seedTopAlbum('Slowdive', 'Souvlaki', 40, new Date('1993-04-27'));
-      await seedPlays(prisma!, [
-        { userId, artistName: 'Caroline Polachek', trackName: 'Bunny Is A Rider', albumName: 'Pang', timePlayed: at(0) },
-        { userId, artistName: 'Caroline Polachek', trackName: 'Welcome To My Island', albumName: 'Pang', timePlayed: at(1) },
-      ]);
       const albums = await service!.getUserAllTimeTopAlbumsByReleasePrefix(userId, '1993', 4);
-      expect(albums.map((a) => a.name)).toEqual(['Pang']);
-      expect(albums[0]?.releaseDate).toBeUndefined();
-      expect(albums[0]?.albumType).toBeUndefined();
+      expect(albums.map((a) => a.name)).toEqual(['Souvlaki']);
+      expect(albums[0]?.artistName).toBe('Slowdive');
+      expect(albums[0]?.playcount).toBe(40);
+      expect(albums[0]?.releaseDate).toBeInstanceOf(Date);
     });
 
-    it('the albums table has neither an `id` nor a `type` column, which is why the join fails', async () => {
-      // Root cause, asked of Postgres rather than of the schema file, so the
-      // assertion is a fact about the deployed database.
+    it('excludes an album outside the prefix instead of returning it anyway', async () => {
+      // Was: 'silently ignores the release prefix and returns the unfiltered
+      // all-time list' - the user-visible symptom, asking for the 90s and being
+      // handed a 2020s album in a confident embed. The fallback in the catch
+      // branch returned unfiltered data, so a failed query looked like a
+      // working filter. The 2020s album is seeded as a real user_albums row so
+      // that returning it would mean the filter is not applied, not that the row
+      // is missing.
+      await seedTopAlbum('Slowdive', 'Souvlaki', 40, new Date('1993-04-27'));
+      await seedTopAlbum('Caroline Polachek', 'Pang', 90, new Date('2019-06-14'));
+      const albums = await service!.getUserAllTimeTopAlbumsByReleasePrefix(userId, '1993', 4);
+      expect(albums.map((a) => a.name)).toEqual(['Souvlaki']);
+    });
+
+    it('orders by playcount and honours the prefixLength parameter', async () => {
+      // The 42883 was `function left(text, bigint) does not exist`: $2 arrives as
+      // bigint, so the cast to int is load-bearing, and this is what covers it.
+      await seedTopAlbum('Slowdive', 'Souvlaki', 40, new Date('1993-04-27'));
+      await seedTopAlbum('My Bloody Valentine', 'Loveless', 30, new Date('1991-04-22'));
+      await seedTopAlbum('Talk Talk', 'Laughing Stock', 50, new Date('1991-11-01'));
+      expect((await service!.getUserAllTimeTopAlbumsByReleasePrefix(userId, '1991', 4))
+        .map((a) => a.name)).toEqual(['Laughing Stock', 'Loveless']);
+      expect((await service!.getUserAllTimeTopAlbumsByReleasePrefix(userId, '199', 3))
+        .map((a) => a.name)).toEqual(['Laughing Stock', 'Souvlaki', 'Loveless']);
+    });
+
+    it('the albums table has neither an `id` nor a `type` column, which is why the join failed', async () => {
+      // Kept as-is. This is the root cause, asked of Postgres rather than of the
+      // schema file, so the assertion is a fact about the deployed database and
+      // would catch someone "fixing" the query back to a.id / a.type.
       //
-      // The L647 query reads `a.id` and `a.type`. The Album model's primary key
-      // is mapped to `album_id`, and the album type column is
-      // `spotify_album_type`. Both references are unresolvable, so the statement
-      // fails with 42703 on every call and the method takes its `catch` branch
-      // every single time.
+      // The L647 query read `a.id`, `a.type` and `ua.artist_name`. The Album
+      // model's primary key is mapped to `album_id`, the album type column is
+      // `spotify_album_type`, and user_albums has no artist_name at all - the
+      // artist name is only reachable through albums.artist_id. Every reference
+      // was unresolvable, so the statement failed with 42703 on every call and
+      // the method took its `catch` branch every single time.
       const columns = await prisma!.$queryRawUnsafe<Array<{ column_name: string }>>(`
         SELECT column_name FROM information_schema.columns WHERE table_name = 'albums'
       `);
@@ -419,45 +438,17 @@ suite('AlbumService raw queries against a real database', () => {
       expect(names).toContain('spotify_album_type');
       expect(names).not.toContain('id');
       expect(names).not.toContain('type');
-    });
 
-    it('the intended join works once the column names are the real ones', async () => {
-      // Same shape as L647 with `a.album_id` and `a.spotify_album_type`, so the
-      // schema is proven to support the intent and the defect is isolated to
-      // the query text. This is the fix, asserted - not applied, because this
-      // file is only allowed to write tests.
-      await seedTopAlbum('Slowdive', 'Souvlaki', 40, new Date('1993-04-27'));
-      await seedTopAlbum('My Bloody Valentine', 'Loveless', 30, new Date('1991-04-22'));
-      await seedTopAlbum('Boards of Canada', 'Geogaddi', 50, new Date('2002-02-11'));
-
-      const rows = await prisma!.$queryRawUnsafe<Array<{
-        album_name: string;
-        artist_name: string;
-        playcount: number;
-        release_date: Date;
-        album_type: string | null;
-      }>>(`
-        SELECT ua.name AS album_name, ua.artist_name, ua.playcount, a.release_date, a.spotify_album_type AS album_type
-        FROM user_albums ua
-        INNER JOIN albums a ON ua.album_id = a.album_id
-        WHERE ua.user_id = $1
-          AND a.release_date IS NOT NULL
-          AND LEFT(a.release_date::text, $2) = $3
-        ORDER BY ua.playcount DESC
-        LIMIT 100
-      `, userId, 3, '199');
-
-      expect(rows.map((r) => r.album_name)).toEqual(['Souvlaki', 'Loveless']);
-      expect(rows.map((r) => r.playcount)).toEqual([40, 30]);
-      expect(rows[0]?.release_date.toISOString().slice(0, 10)).toBe('1993-04-27');
-      expect(rows[0]?.album_type).toBe('album');
+      const userAlbumColumns = await prisma!.$queryRawUnsafe<Array<{ column_name: string }>>(`
+        SELECT column_name FROM information_schema.columns WHERE table_name = 'user_albums'
+      `);
+      // The third leg of the bug: the fix needs a join to artists, because this
+      // column genuinely does not exist and cannot be selected from here.
+      expect(userAlbumColumns.map((c) => c.column_name)).not.toContain('artist_name');
     });
 
     it('a null release_date is dropped by INNER JOIN + IS NOT NULL, and a LEFT JOIN keeps it', async () => {
-      // The brief expected a null release_date to survive the join. It cannot,
-      // as the query is written: an INNER JOIN plus `release_date IS NOT NULL`
-      // drops that row by construction. The schema does allow it, though - so
-      // this records both halves: the row is genuinely joinable, and the two
+      // Unchanged in intent: the row is genuinely joinable, and the two
       // predicates are what remove it. Keeping such rows is a production
       // change, not something a test can grant.
       await seedTopAlbum('Slowdive', 'Souvlaki', 40, new Date('1993-04-27'));
@@ -467,7 +458,7 @@ suite('AlbumService raw queries against a real database', () => {
       const innerRows = await prisma!.$queryRawUnsafe<Array<{ name: string }>>(`
         SELECT ua.name FROM user_albums ua
         INNER JOIN albums a ON ua.album_id = a.album_id
-        WHERE ua.user_id = $1 AND a.release_date IS NOT NULL AND LEFT(a.release_date::text, $2) = $3
+        WHERE ua.user_id = $1 AND a.release_date IS NOT NULL AND LEFT(a.release_date::text, $2::int) = $3
       `, userId, 3, '199');
       expect(innerRows.map((r) => r.name)).toEqual(['Souvlaki']);
 

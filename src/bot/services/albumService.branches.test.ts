@@ -558,15 +558,21 @@ describe('AlbumService.getUserAllTimeTopAlbumsByReleasePrefix', () => {
     ]);
   });
 
-  it('falls back to the in-memory list when the prefix query fails', async () => {
+  it('returns [] rather than an unfiltered list when the prefix query fails', () => {
+    // Was 'falls back to the in-memory list when the prefix query fails', and the
+    // assertion was the bug. The catch branch called getUserAllTimeTopAlbums and
+    // returned every album the user had, with the decade filter silently not
+    // applied. That is the failure mode that hid the 42703 for as long as it
+    // existed: the query threw on every single call and the embed still rendered
+    // a full, confident, wrong list. Nothing in the output distinguished degraded
+    // from working.
+    //
+    // Empty and degraded now look identical to the user, and Logger.warn records
+    // which one actually happened. Deliberate behaviour change, not an accident.
     const { service, deps } = build();
-    mockOf(deps.prisma).$queryRawUnsafe
-      .mockRejectedValueOnce(new Error('db down'))
-      .mockResolvedValue([{ album_name: 'A', artist_name: 'X', playcount: 1n }]);
+    mockOf(deps.prisma).$queryRawUnsafe.mockRejectedValue(new Error('db down'));
 
-    const r = await service.getUserAllTimeTopAlbumsByReleasePrefix(1, '1997');
-
-    expect(r).toEqual([{ name: 'A', artistName: 'X', playcount: 1 }]);
+    return expect(service.getUserAllTimeTopAlbumsByReleasePrefix(1, '1997')).resolves.toEqual([]);
   });
 });
 
