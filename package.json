@@ -27,7 +27,10 @@
     "deps:cycles": "tsx scripts/check-import-cycles.ts",
     "debt": "tsx scripts/count-debt.ts",
     "db:check-index": "tsx scripts/check-user-plays-index.ts",
-    "db:migration-logs": "tsx scripts/migration-failure-logs.ts"
+    "db:migration-logs": "tsx scripts/migration-failure-logs.ts",
+    "db:verify-index-expr": "tsx scripts/verify-dedup-index-expr.ts",
+    "db:verify-constraint": "tsx scripts/verify-dedup-constraint.ts",
+    "db:verify": "npm run db:check-index && npm run db:verify-index-expr && npm run db:verify-constraint"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

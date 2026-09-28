@@ -34,27 +34,38 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   Added `CacheService.setNX`. 12 tests, 3 mutations caught.
   *I introduced a bug writing it* (deleted the lock on exists, not expires) — the real-code
   test caught it; a stub would not have.
-- **1.2** 🔴 **MIGRATION FAILED ON PRODUCTION — the unique index does not exist.**
-  *Step 1:* `scripts/count-duplicate-plays.ts` (`npm run db:count-duplicates`), read-only.
-  **Measured against production 2026-09-28: 303,424 plays, 0 duplicate keys, 0 extra rows,
-  0 users affected.** So no cleanup data fix is needed and the unique index would build cleanly.
-  *Step 2:* ⚠️ **`20260928010000_user_plays_dedup_index` DID NOT APPLY.** Verified by probing the
-  live database, not inferred: `user_plays_identity_uniq` is **MISSING**, 303,424 rows, 0 duplicate
-  groups. The data is clean, so this is a **mechanism failure, not a data failure**.
-  - **Real cause, from Prisma's own recorded logs** (`npm run db:migration-logs`):
-    `SqlState 42P17 — functions in index expression must be marked IMMUTABLE`.
-  - **The migration's own comment was wrong about the cause.** It theorised a *transaction*
-    problem (single-statement arity). It is not that. `lower()` **is** immutable — confirmed from
-    `pg_proc`. The suspect is `play_source`, a Postgres **ENUM**, cast by
-    `coalesce(play_source::text, '')`. Enum **I/O** conversion is not catalogued in `pg_cast`, so it
-    cannot be confirmed with a catalog query. That is the honest limit of this diagnosis.
-  - ✅ Diagnostics committed, read-only, production-safe, so the next pass does not theorise:
-    `npm run db:check-index` (is the index there, is the data clean) and
-    `npm run db:migration-logs` (what did Prisma record).
-  - 🔴 **BLOCKING.** `prisma migrate resolve` must be run on the failed migration before **any**
-    further migration can apply. Two steps remain, both touching production, so both are left for a
-    clean context rather than the end of a long session: (a) rewrite the index expression so it does
-    not cast an enum, (b) `migrate resolve`. No data repair needed.
+- **1.2** ✅ **FIXED AND APPLIED. Production is unblocked and the guarantee is proven.**
+  - *Step 1* `scripts/count-duplicate-plays.ts` (`npm run db:count-duplicates`), read-only.
+    **Measured 2026-09-28: 303,424 plays, 0 duplicate keys, 0 extra rows, 0 users affected.**
+  - *Step 2* the migration had **failed** (SqlState 42P17), and because `npm start` is
+    `migrate deploy && node dist/bot/index.js`, **P3009 took the whole bot down**. It was DOWN, not
+    degraded — the process exited before Discord connected.
+  - **Root cause, measured not guessed:** `select provolatile from pg_proc where proname='enum_out'`
+    returns **`s` (STABLE)**. `play_source` is a Postgres ENUM, and the index cast it with
+    `coalesce("play_source"::text, '')`. An enum→text conversion goes through `enum_out`, which is
+    STABLE, so Postgres rejects it in an index expression. It is **not** in `pg_cast` — I/O
+    conversions are not catalogued as casts — so the earlier `pg_cast` probe returned nothing and
+    proved nothing. Do not look there.
+  - **The migration's own comment was wrong about the cause.** It blamed Prisma's statement-arity
+    transaction rule and predicted 25001; the real error was 42P17. The arity rule is still worth
+    keeping, but it was never the cause, and the comment said so at length.
+  - ✅ **Fix:** index the enum column **directly** (`"play_source"`), and handle NULLs with the
+    `NULLS NOT DISTINCT` that was already there — `play_source` is nullable, so deleting the
+    coalesce without it would have let every NULL through and made the guarantee partial in exactly
+    the cases most likely to be real. `lower()` is IMMUTABLE and `coalesce()` is a SQL construct, so
+    neither is a problem.
+  - ✅ **Dry-run before migrating:** `npm run db:verify-index-expr` builds each expression on a
+    throwaway table with the real column types. It reproduces the exact 42P17 on the old expression
+    and builds the new one. A syntactically valid migration is not a working one.
+  - ✅ Applied: `migrate resolve --rolled-back` → `migrate deploy` → *"All migrations have been
+    successfully applied."*
+  - ✅ **Proven, not assumed** — `npm run db:verify-constraint` writes inside a transaction and
+    rolls back. Control (identity shifted 1 second) **accepted**; exact duplicate **REJECTED with
+    23505**. Both rolled back; 303,424 rows unchanged.
+  - ⚠️ The control was rejected on the first attempt because the test assumed a new `user_play_id`
+    would make a row distinct. It does not — the identity deliberately excludes the id, so two
+    scrobbles of the same track in the same second are one play **whatever their ids**. That is
+    the intended trade-off, and the test now documents it instead of hiding it.
   - `20260928000000_user_plays_dedup_cleanup` — the DELETE. A no-op on current data; kept so a
     drifted copy can be repaired by the same file.
   - `20260928010000_user_plays_dedup_index` — `CREATE UNIQUE INDEX CONCURRENTLY ... NULLS NOT DISTINCT`
@@ -246,6 +257,8 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | A new ratchet kind reported 6 eager resolves; **one was a false positive** | `topInteractions` registers an async modal handler *inside* its constructor, so a resolve inside that arrow runs on click, not at construction. Added a function boundary the traversal will not cross |
 | **Production migration FAILED** — `user_plays_identity_uniq` never created | `prisma migrate status` said "Following migration have failed". Probed the live DB to confirm the index was genuinely missing rather than just unrecorded |
 | The dedup index failed with **42P17**, not the 25001 the file's comment predicted | Reading Prisma's own `_prisma_migrations.logs` via `npm run db:migration-logs`. The comment's transaction theory was wrong |
+| The P3009 **took the whole bot down**, not just the migration | `npm start` is `migrate deploy && node dist/bot/index.js` — a non-zero exit from the first half never reaches Discord. Diagnosing "a migration failed" understated it |
+| A control insert in the constraint test was rejected | Assumed a new `user_play_id` makes a row distinct. The identity deliberately excludes the id, so it does not. The test now shifts the *identity* instead |
 | `artworkService` had 3 lint errors nobody ran | `--quiet` in the gates after a new ESLint rule |
 
 ## Mistakes I made, so they are not repeated

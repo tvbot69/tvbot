@@ -217,6 +217,36 @@ Do not reason about a third party's response shape from memory. Measure it.
 
 Each of these cost real time. Re-deriving them is pure waste.
 
+- **A failed Prisma migration bricks the whole bot.** `npm start` is
+  `migrate deploy && node dist/bot/index.js`, so `P3009` (found failed migrations)
+  means the process exits before Discord connects. The bot is DOWN, not degraded.
+  `20260928010000_user_plays_dedup_index` did exactly this on 2026-09-27.
+- **`enum_out` is STABLE, not IMMUTABLE**, so an enum may not be cast inside an
+  index expression — `coalesce(col::text, '')` fails with `42P17 functions in
+  index expression must be marked IMMUTABLE`. Index the enum column directly and
+  handle NULLs with `NULLS NOT DISTINCT`. Enum I/O conversion is **not** in
+  `pg_cast`, so probe `pg_proc` for `enum_out`, not the cast catalog — a
+  `pg_cast` query returns nothing and looks like "no problem".
+- **Verify index *expressions* on a temp table before migrating.** A
+  syntactically valid migration is not a working one, and the only test of it is
+  the production database. `npm run db:verify-index-expr` builds each expression
+  on a throwaway table with the real column types. Run it *before* `migrate deploy`.
+- **Recovering a failed migration:** `prisma migrate resolve --rolled-back <name>`,
+  then fix the file, then `migrate deploy`. `--applied` is only for a migration
+  that genuinely took effect. Read what Prisma actually recorded with
+  `npm run db:migration-logs` — the `logs` column has the real SQLSTATE, and it
+  will contradict whatever the migration's own comment claims.
+- **An index existing is not the same as a guarantee holding.**
+  `npm run db:verify-constraint` writes a duplicate inside a transaction and
+  rolls back, proving `23505`. It also runs a *control* insert one second later,
+  which must be accepted — without it, a broken index that rejects everything
+  would look like a pass.
+- **The dedup identity deliberately excludes `user_play_id`**, so two scrobbles
+  of the same track in the same second from the same source are one play. That
+  is intended, not a bug, and it surprises anyone who assumes a new id makes a
+  row distinct.
+- **`user_plays` has no `id` column** — the key is `user_play_id` (BigInt). Raw SQL
+  written from muscle memory fails with `42703`.
 - **`current.position` / `current.time` are moonlink's, not ours.** The node rewrites them from the *pre-seek* position for several seconds after a seek lands. Never trust them alone; `queueService.calculatePosition` treats a recent `lastUserSeekAt`/`lastUserSeekPos` as authoritative, forward-only. This was the true cause of a chapter rewind that took two days to find.
 - **Spotify playlist contents are 403 for app-only tokens.** `/v1/playlists/{id}/tracks` is forbidden; `/v1/playlists/{id}` returns metadata with no `tracks`; the anonymous `open.spotify.com/get_access_token` endpoint now returns XML; the main playlist HTML no longer ships `__NEXT_DATA__`; the embed page returns the same first 100 tracks regardless of `?offset`. 100 is a hard ceiling. Extended quota — the only route past it — is granted solely to organisations with 250k+ MAU, so it is not available here. Do not build a chunker that pages past 100.
 - **Catalogue title shapes break strict matching.** DJ-pool and compilation rips prefix a date (`20191009 I Like Her`, `20200817 Proud True Toyota`) and are often the *only* rows a provider returns. Matching must strip a LEADING date, while staying strict: `"Song"` must never match `"Song 2"`, and `1989` is a title, not a date.
