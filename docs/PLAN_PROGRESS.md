@@ -210,15 +210,16 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   globs used `/` so on Windows **141 test files were counted as untested product code**.
   A third: **14 deleted files** survived as source-map sources under `dist/` and were scored 0%.
   Ratchet verified to block. Thresholds now lines/statements 49, branches 68.5, functions 50.
-- **2.2** ✅ **Coverage grind: four services, 89 new tests, 24 mutations caught.** Global
-  **49.82% -> 50.73%** lines, 68.83% -> **69.33%** branches, 50.65% -> **51.27%** functions.
+- **2.2** ✅ **Coverage grind: five services, 120 new tests, 33 mutations caught.** Global
+  **49.82% -> 51.08%** lines, 68.83% -> **69.54%** branches, 50.65% -> **51.58%** functions.
   | File | Was | Now | Tests | Mutations |
   |---|---|---|---|---|
   | `albumService.ts` | 16% | **47.1%** | 23 | 4/4 |
   | `artistsService.ts` | 16.46% | **31.98%** | 19 | 5/5 |
   | `trackService.ts` | 14.95% | **44.71%** | 17 | 7/7 |
   | `spotifyResolver.ts` | 11.37% | **37.31%** | 30 | 8/8 |
-  Ratchet raised each time: 48 -> 49.5 -> 50 -> 50.2 -> 50.4 -> **50.6** lines.
+  | `chartService.ts` | 10.44% | **53.09%** | 31 | 9/9 |
+  Ratchet raised each time: 48 -> 49.5 -> 50 -> 50.2 -> 50.4 -> 50.6 -> **50.9** lines.
   - What the mutations caught, which is the point: the placeholder grey box is filtered on
     BOTH sides of the image backfill and at all THREE steps of the track cover fallback, so
     an implementation checking only the input still renders it; the `Artist | Track` and
