@@ -74,7 +74,7 @@ export class TopSlashCommands implements ISlashCommandModule {
   private async topArtistsAsync(context: ContextModel): Promise<ResponseModel> {
     const resolved = await this.resolveUser(context);
     if ((resolved as ResponseModel).commandResponse !== undefined) return resolved as ResponseModel;
-    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: any };
+    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: User };
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
@@ -92,7 +92,7 @@ export class TopSlashCommands implements ISlashCommandModule {
   private async topAlbumsAsync(context: ContextModel): Promise<ResponseModel> {
     const resolved = await this.resolveUser(context);
     if ((resolved as ResponseModel).commandResponse !== undefined) return resolved as ResponseModel;
-    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: any };
+    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: User };
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
@@ -110,7 +110,7 @@ export class TopSlashCommands implements ISlashCommandModule {
   private async topTracksAsync(context: ContextModel): Promise<ResponseModel> {
     const resolved = await this.resolveUser(context);
     if ((resolved as ResponseModel).commandResponse !== undefined) return resolved as ResponseModel;
-    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: any };
+    const { userNameLastFm, displayName, userId, userObj } = resolved as { userNameLastFm: string; displayName: string; userId?: number; userObj?: User };
     if (userObj && userId && UpdateService.needsUpdate(userObj, 2)) {
       void this.updateService.updateUser(userId, { accurateTotal: true });
     }
