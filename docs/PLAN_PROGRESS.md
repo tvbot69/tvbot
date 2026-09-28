@@ -7,7 +7,7 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **3954 passed / 114 skipped** (212 files) | — |
+| Tests | 1085 | **3954 unit + 114 db = 4068** (212 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
 | Branch coverage | 68.6% claimed | **77.48%** | — |
 | `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 76** (budget 101) | <80 combined ✅ |
@@ -20,11 +20,12 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | `@ts-ignore` | 0 | **0** | 0 |
 | Lint errors | 143 | **0** (351 warnings) | 0 |
 
-> The 114 skipped tests are the real-Postgres suite. They have **never executed** — this machine
-> has no Docker, no local Postgres and no `psql`, and `DATABASE_URL` points at production
-> Railway. Every one of them has been written, committed and reasoned about, and not one line of
-> it has touched a database. They run in CI, and CI is the first execution. Read the 2.3 findings
-> below with that in mind: they are *static* conclusions about queries that have never run.
+> **The 114 database tests now pass against real PostgreSQL 16 in CI** (run 36483189481, 6/6 files,
+> 0 skipped). They are the only place in this repo that has ever executed a query against a database,
+> and they found four production bugs on their first run — see "Bugs found and fixed so far" below.
+> They still **skip locally**: no Docker, no local Postgres, no `psql`, and `DATABASE_URL` is
+> production Railway, which must never be truncated. Everything I concluded about SQL before that run
+> was a static conclusion about a query that had never executed.
 
 ## Status
 
@@ -677,6 +678,36 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 
 | Bug | How it was found |
 |---|---|
+### The four the real-Postgres suite found on its FIRST EVER execution
+
+The 114 DB tests from task 2.3 had never run before this. No Docker, no local Postgres, no `psql` on
+this machine, and `DATABASE_URL` is production Railway — so they were written, committed, reasoned
+about, and never executed. The **first CI run of them** found four real production bugs in one pass.
+All four were invisible to the build, the typecheck, the lint and the entire mocked suite.
+
+| Bug | Symptom in production | Why nothing caught it |
+|---|---|---|
+| **20 columns in `schema.prisma` that no migration creates** | `P2022: The column 'artists.country_code' does not exist`. Every `artist.create()` and every unqualified `artist.findMany()`. | The Prisma client is generated *from the schema*, so it faithfully emits SQL for a column the database has never had. Every test double agreed with it. |
+| **`getUserAllTimeTopAlbumsByReleasePrefix` returned unfiltered data** | Ask for the 90s, get your entire library in a confident embed, decade filter silently not applied. | The query threw on **100% of calls** and the `catch` returned everything. A total failure rendered as total success. |
+| **5 foreign keys the schema declares, no migration creates** | Orphaned crowns, autoposts, genres and fm settings on guild/user delete. | Referential integrity was never checked, because there was no schema-vs-database check at all. |
+| **`friends` was the wrong table shape entirely** | Every insert fails `23502` — `user_id` is `NOT NULL` with no default and Prisma never sends `scribe_user_id`. The `FriendsRepository` upsert's unique index does not exist either. | Built during the "db push era" and never reconciled with the model. |
+
+**The method — which I got wrong first.** I hand-wrote a regex to diff `schema.prisma` against the
+migrations. It reported 136 missing columns, which was obviously absurd: it compared camelCase JS
+field names against SQL. I was re-implementing the thing under test, the exact antipattern §11
+documents. Replaced with the real tool, which needs no database and is authoritative:
+
+```
+npx prisma migrate diff --from-empty --to-schema-datamodel src/persistence/prisma/schema.prisma --script
+```
+
+20 real columns, 6 tables. **Not one of the 135 `prisma.` call sites was implicated.**
+
+> Writing 114 database tests changed nothing. *Running* them changed four production bugs.
+> The tests were not the value — the first execution was, and that required a CI database.
+
+### The earlier ones
+
 | Migrations never ran on Railway | Reading 4 start commands; `startCommand` overrides `CMD` |
 | Weekly charts rendered "NaN plays" | New test; converters had **zero** coverage |
 | 5 unguarded Components V2 payloads posting `[undefined]` | Asking why an `as any` existed |
