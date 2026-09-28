@@ -120,3 +120,32 @@ jobs:
       # justification.
       - name: Lint
         run: npm run lint
+
+  render:
+    name: render tests (needs Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+
+      # A chart generator that silently renders a blank image is a real
+      # user-facing bug, so these are worth running - but they need a browser, so
+      # they are a separate job rather than something the unit suite depends on.
+      # Excluding them from `npm test` is what keeps the unit suite runnable
+      # with no Chromium installed at all.
+      - name: Render tests
+        run: npm run test:render
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci

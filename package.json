@@ -22,7 +22,8 @@
     "db:studio": "prisma studio --schema src/persistence/prisma/schema.prisma",
     "test:coverage": "vitest run --coverage",
     "test:coverage:ci": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=reports/junit.xml",
-    "db:count-duplicates": "tsx scripts/count-duplicate-plays.ts"
+    "db:count-duplicates": "tsx scripts/count-duplicate-plays.ts",
+    "test:render": "vitest run --config vitest.render.config.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

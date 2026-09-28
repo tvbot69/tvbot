@@ -67,7 +67,17 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   (`playcountCommands` 18%, `whoKnowsCommands` 16%), `crownInteractions`, `countryInteractions`.
   Target ≥60% per file, global ≥60%.
 - **2.3** ⬜ Not started.
-- **2.4** ⬜ Not started.
+- **2.4** ✅ Split the suite so the unit run needs no browser. Measured rather than trusted: the
+  plan said 7 browser tests, and **3 files** actually launch Chromium —
+  `chartService.render.test.ts` (x2) and `whoKnowsGenerator.render.test.ts`. The two
+  `puppeteer*.test.ts` files **mock** `launchBrowser`, so they stay in the unit suite.
+  - `npm test` = 1203 unit tests, no Chromium. `npm run test:render` = 9 render tests.
+  - New `render` CI job, so a missing browser fails that job and not everything else.
+  - **Coverage consequence, handled deliberately:** excluding the render files dropped the
+    measured baseline a full point, because they cover real product code. The ratchet is now set
+    on the unit-only figure (lines 48.21%) and the comment says why, so it stays reproducible on
+    a machine with no Chromium. `vitest --render` is not a real flag; the separate
+    `vitest.render.config.ts` is what works.
 
 ### Phase 3 — architecture: ⬜ nothing started
 ### Phase 4 — type safety: ⬜ nothing started (note: separate earlier work took `any` 392 → 140)
