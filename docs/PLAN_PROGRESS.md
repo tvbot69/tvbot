@@ -110,27 +110,38 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     Restored → 136, passes.
   - `ts.isAnyKeyword` is internal and not exported by every TS version; the
     check uses `ts.SyntaxKind.AnyKeyword` after that threw.
-- **3.2 (plan's 3.2) — lower layers must not import `@bot/*`** 🔄 **8 measured, 1 fixed.**
-  The earlier entry under 3.2 was about the music DAG; that is not what the plan's
-  3.2 says. Corrected here rather than quietly relabelled.
-  - ✅ `isPlaceholderImageUrl` → `src/domain/lastfmPlaceholder.ts`.
-    `recentTrackConverter` was pulling in the whole artwork cascade — Spotify, Deezer, Apple,
-    Prisma, cache — to ask whether a string was a known hash. `artworkService` re-exports it,
-    so **20 call sites changed zero lines** (the §6 facade pattern).
-    A test asserts **identity**, not behaviour: `expect(as.isPlaceholderImageUrl).toBe(p)`.
-    Behaviour tests would pass with two copies, which is the exact failure rule 2 prevents.
-  - ⬜ 3 remain and a type-only import cannot fix them — they are real runtime deps:
-    `lastfmApi`→`ConfigData` (static class), `lastfmApi`→`TelemetryService` (container-resolved
-    at call time), `lastFmRepository`→`CacheService` (an `@inject()` token). These need the
-    port route the plan describes: `ICache`/`ITelemetry` in domain, bound in the composition
-    root. Touches `startup.ts`, so it is its own task, not something to smuggle in.
-  - ⬜ 4 are `import type` (autopostRepository, iceberg/whoKnows/worldMap generators) — erased
-    at compile time, same finding as the 3.1 cycles. Harmless at runtime; deferred with the
-    reasoning recorded rather than silently ignored.
-- **3.3 (plan's 3.3) — one DI style** 🔄 `scripts/count-debt.ts` done (see above), but the
-  substantive part is untouched: `container.resolve` outside the allowlist (target <30),
-  and the module-scope side effects (`dns.setDefaultResultOrder` → `bot/index.ts`;
-  `prismaClient` validating env on import).
+- **3.2 (plan's 3.2) — lower layers must not import `@bot/*`** ✅ **Value imports 4 → 0.**
+  Type-only imports remain (4, below) and are enforced by test.
+  - ✅ `isPlaceholderImageUrl` → `src/domain/lastfmPlaceholder.ts`. `recentTrackConverter` was
+    pulling in the whole artwork cascade — Spotify, Deezer, Apple, Prisma, cache — to ask
+    whether a string was a known hash. `artworkService` re-exports it, so **20 call sites
+    changed zero lines** (the §6 facade pattern). A test asserts **identity**, not behaviour:
+    `expect(as.isPlaceholderImageUrl).toBe(p)`. Behaviour tests would pass with two copies,
+    which is the exact failure rule 2 prevents.
+  - ✅ `ICache` port (`get`/`set` only — the consumer calls nothing else) + `ICACHE` string
+    token. `CacheService implements ICache`; binding made once in `startup.ts`.
+    ⚠️ `LastFmRepository` is **only** container-resolved, never constructed directly — so a
+    missing binding throws in production and no unit test notices. One test registers the
+    token itself and therefore passes even with the binding deleted; a **second** test reads
+    `startup.ts` and fails if the line goes. That second one is the load-bearing one.
+  - ✅ `ITelemetry` port. `lastfmApi` was doing `container.isRegistered(TelemetryService)` then
+    `container.resolve(...)` **from a lower layer at a call site** — the exact hybrid DI the
+    plan's 3.3 targets. Now constructor-injected. `LastfmErrorRateTracker` likewise.
+    ⚠️ tsyringe 4.10 has **no `@optional()` decorator**; it infers optionality from `?` in
+    the type. Writing `@optional()` is a compile error in this version.
+  - ✅ `ConfigData` → `src/config/configData.ts`, imported as `@config/configData`. 11 bot-layer
+    files keep the old path via a one-line re-export shim; rewriting 11 working imports buys
+    nothing.
+  - ✅ Removed a **module-scope side effect**: `lastfmApi.ts` opened with
+    `dns.setDefaultResultOrder(...)` inside a `try`, which is a global mutation firing on
+    import — including in tests that import the module for unrelated reasons. `bot/index.ts`
+    already did it properly as an entrypoint.
+  - ⬜ 4 `import type` remain (autopostRepository, iceberg/whoKnows/worldMap generators). Erased
+    at compile time, same finding as the 3.1 cycles. Now **excluded** from the invariant test
+    rather than silently ignored.
+- **3.3 (plan's 3.3) — one DI style** 🔄 Locators removed from all lower layers. Remaining:
+  the ~300 `container.resolve` calls under `bot/` (target <30) and the allowlist decision
+  for `startup.ts` / `textCommands/index.ts` / `slashCommands/index.ts`.
 - **3.4** ⬜ Not started. Measured: Prisma is called directly in 20+ files under `bot/`, and the
   plan explicitly says **not** to mass-move. This is enforced going forward instead.
 - **3.5** ✅ `src/images/html.ts` with a tested `escapeHtml` and `safeUrl`. 15 tests.
@@ -170,6 +181,9 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | The 4 import "cycles" were **0 runtime cycles** | madge counted `import type` edges; 3 were type-only, the 1 real one was a constant imported from the wrong module |
 | `safeUrl` accepted `https://a https://b` | A hostile-input test written before the guard — not by reading the code |
 | Two "cycles" below `bot/` were one predicate in the wrong layer | Plan 3.2 named the file; reading the import showed a whole artwork cascade pulled in to test a hash |
+| `lastfmApi` mutated DNS on **import** | Writing the side-effect invariant; `bot/index.ts` already did it at the entrypoint |
+| A missing `ICACHE` binding would have thrown in production only | `LastFmRepository` is container-resolved, never constructed — so a test registering the token passes even with the binding deleted |
+| `shardManager`/`shardWorker` also set DNS order | Invariant caught them; they are real forked-process entrypoints, allowlisted by name with the reason |
 
 ## Mistakes I made, so they are not repeated
 
