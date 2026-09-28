@@ -91,6 +91,41 @@ export const seedUser = async (prisma: PrismaClient, userId: number): Promise<vo
   );
 };
 
+/** A play to insert, in the shape the tests want to reason about. */
+export interface PlayFixture {
+  userId: number;
+  artistName: string;
+  timePlayed: Date;
+  trackName?: string | null;
+  albumName?: string | null;
+  playSource?: 'LastFm' | 'SpotifyImport' | 'AppleMusicImport';
+}
+
+/**
+ * Insert plays for a test, with the parameter types spelled out.
+ *
+ * The casts are load-bearing, and the reason is the single most common failure
+ * in this suite: Prisma sends `$1` as an UNTYPED parameter, and Postgres cannot
+ * resolve an untyped parameter in an INSERT VALUES list, so the uncast form
+ * fails with 42804 while the same query with literal values succeeds. Every
+ * test that seeds rows should go through here rather than writing its own SQL.
+ */
+export const seedPlays = async (prisma: PrismaClient, plays: PlayFixture[]): Promise<void> => {
+  for (const p of plays) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO user_plays
+         ("user_id", "artist_name", "track_name", "album_name", "time_played", "play_source")
+       VALUES ($1::int4, $2::text, $3::text, $4::text, $5::timestamptz, $6::"PlaySource")`,
+      p.userId,
+      p.artistName,
+      p.trackName ?? null,
+      p.albumName ?? null,
+      p.timePlayed,
+      p.playSource ?? 'LastFm',
+    );
+  }
+};
+
 /** Truncate every table the tests write to, so runs are independent. */
 export const resetTables = async (prisma: PrismaClient): Promise<void> => {
   await prisma.$executeRawUnsafe(`

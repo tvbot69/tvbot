@@ -175,6 +175,19 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   `.catch(() => [])`, so ANY database error there is swallowed and the year chart silently
   renders as zeros. That design hides exactly the failure this suite exists to catch, and it
   should be revisited independently of the test.
+- ✅ **`playHistoryService` now covered: 9 tests, 18/18 across both DB files against a real
+  postgres.** `getYearOverview` is SIX raw queries that had never been parsed by Postgres.
+  - The earlier 42804 was **my test, not the code** - untyped `$1` parameters in hand-written
+    INSERTs, the exact class already found in `seedUser`. Fixed at the source:
+    **`dbHarness.seedPlays`** now owns every seeded play, with `$1::int4, $2::text, ...`
+    spelled out, so no test can re-introduce it.
+  - A second failure was also mine: two plays one second apart tripped the dedup index with
+    23505. The index was right - the dedup identity deliberately excludes `user_play_id`, so
+    two scrobbles in the same second are one play whatever their ids. The fixture now shifts
+    the second, which is the control that test in `playRepository.db.test.ts` uses.
+  - Asserts the real shapes: NULL track lands under "Unknown Track", an empty album name is
+    excluded, the 12-slot monthly array is indexed by calendar month (March = index 2),
+    distinct artists are counted case-insensitively, and one user never sees another plays.
 ### Phase 2 — test where the product lives
 - **2.1** ✅ `f062fc9` + `1d46170`. Real coverage is **49.00%**, not the 48.5% claimed — and not
   the 46.5% I first measured either. Two config bugs: `all` defaults to false, and the exclude
