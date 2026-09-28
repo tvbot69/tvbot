@@ -73,7 +73,7 @@ export class TopInteractions {
       await interaction.deferReply().catch(() => undefined);
       try {
         const { OverviewService } = await import('@bot/services/overviewService');
-        const ovService = container.resolve(OverviewService) as any;
+        const ovService = container.resolve(OverviewService);
         const overview = await ovService.getOverview(decodeURIComponent(userNameLastFm ?? ''));
         const timeSettings = this.settingService.getTimePeriod(decodeURIComponent(timeKey ?? 'weekly'));
         const { OverviewBuilders } = await import('@bot/builders/overviewBuilders');
@@ -160,7 +160,7 @@ export class TopInteractions {
         const timeSettings = this.settingService.getTimePeriod(timeKey);
         const { OverviewService } = await import('@bot/services/overviewService');
         const { container: c } = await import('tsyringe');
-        const ovService = c.resolve(OverviewService) as any;
+        const ovService = c.resolve(OverviewService);
         const overview = await ovService.getOverview(userNameLastFm);
         const perPage = 4;
         const totalPages = Math.max(1, Math.ceil(overview.dailyBlocks.length / perPage));

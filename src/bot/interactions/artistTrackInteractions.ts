@@ -1,3 +1,4 @@
+import { memberDisplayName } from '@domain/interfaces/guildMember';
 import { inject, injectable , container} from 'tsyringe';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
@@ -60,7 +61,7 @@ export class ArtistTrackInteractions {
     else if (action === 'prev') targetPage = Math.max(0, currentPage - 1);
     else if (action === 'next') targetPage = Math.min(totalPages - 1, currentPage + 1);
     else if (action === 'last') targetPage = totalPages - 1;
-    const displayName = (interaction.guild as any)?.members.cache.get(targetUserId)?.displayName ?? user.userNameLastFm;
+    const displayName = memberDisplayName(interaction.guild, targetUserId) ?? user.userNameLastFm;
     const accentColor = await this.colorService.getAccentColorAsync(interaction.guildId);
     const response = ArtistTrackBuilders.buildArtistTopTracksResponse(
       artistName,
