@@ -7,14 +7,14 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **1212** | — |
-| Line coverage | 48.5% claimed / **49.00% measured** | **49.26%** | ≥65% |
-| Branch coverage | 68.6% claimed | **68.72%** | — |
-| `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | see `scripts/count-debt.ts` | <80 combined |
+| Tests | 1085 | **1373** (149 files) | — |
+| Line coverage | 48.5% claimed / **49.00% measured** | **49.82%** | ≥65% |
+| Branch coverage | 68.6% claimed | **68.83%** | — |
+| `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **130 + 106**, see `scripts/count-debt.ts` | <80 combined |
 | `catch (err: any)` | 37 | **0** | 0 |
-| `container.resolve` outside composition root | ~300 | not yet measured | <30 |
-| Import cycles | 4 | not yet measured | 0 |
-| Lower layers importing `@bot/*` | 6+ | not yet measured | 0 |
+| `container.resolve` outside composition root | ~300 | **155** (0 eager) | informational |
+| Import cycles | 4 | **0 runtime** / 3 type-only | 0 runtime |
+| Lower layers importing `@bot/*` | 6+ | **0 value** / 4 type-only | 0 value |
 | `@ts-ignore` | 0 | **0** | 0 |
 | Lint errors | 143 | **0** | 0 |
 
@@ -94,9 +94,31 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   globs used `/` so on Windows **141 test files were counted as untested product code**.
   A third: **14 deleted files** survived as source-map sources under `dist/` and were scored 0%.
   Ratchet verified to block. Thresholds now lines/statements 49, branches 68.5, functions 50.
-- **2.2** 🔄 6 files done. Remaining: `lastFmRepository` (14%), the text-command layer
-  (`playcountCommands` 18%, `whoKnowsCommands` 16%), `crownInteractions`, `countryInteractions`.
-  Target ≥60% per file, global ≥60%.
+- **2.2** 🔄 **This session: 3 core files, 154 tests, all mutation-checked.**
+  - `lastFmRepository.contract.test.ts` — **85 tests. 11.92% → 93.57% lines, 12% → 100% functions.**
+    Covers auth, user info, the retry path, info lookups, search, friends, all three top-list
+    families (both the period and weekly-chart branches), scrobble counts, milestones, loved
+    tracks and the three signed writes. Also lifted the three converters it exercises:
+    `infoConverter` 8.33→91.66, `topListConverter` 60.43→94.5, `userConverter` 17.39→95.65.
+  - `playcountCommands.target.test.ts` — **20 tests. 18.33% → 28.96% lines.** The text target
+    grammar: `<@id>` and `lfm:name` mentions, the `userId: 0` sentinel for an unregistered
+    target, mention-beats-lfm precedence, and the whitespace collapse. **4 mutations, all caught.**
+  - `whoKnowsCommands.guard.test.ts` — **24 tests. 16.44% → 35.73% lines.** Guild-only guards,
+    the documented `whoKnowsArtistForName` verbatim-name entry point (the "Page" band incident),
+    the `img`/`nf` grammar, and `splitArtistTitle`. **2 of 3 mutations caught; the third is
+    provably equivalent** — `byIndex > 0` → `>= 0` is unreachable because the inner
+    `if (title && artist)` already rejects the empty title that `slice(0, 0)` produces.
+  - ⚠️ **Two of my own tests were wrong and the real API proved it** (AGENTS.md §11).
+    I asserted `album.getinfo` durations were milliseconds; probed live, they are **seconds**
+    (`Airbag` = `284`, a number) while `track.getinfo` is milliseconds (`"284000"`, a string).
+    `infoConverter` divides only on the track path, so both conversions are correct and a
+    "make them uniform" refactor would break the album one. The test now documents the
+    asymmetry so nobody tidies it into a bug.
+  - ⚠️ **I claimed the 13-arg constructor made a swapped stub a TS2345. It does not.**
+    `deps` is `Record<string, unknown>`, so every position accepts every stub. Injecting the
+    swap compiled clean and was caught by **12 tests** instead. Comment corrected to say so.
+  - Remaining: `crownInteractions`, `countryInteractions`, and the rest of the 34-file
+    text-command layer, which still has **zero** test files. Target ≥60% per file, global ≥60%.
 - **2.3** ⬜ Not started.
 - **2.4** ✅ Split the suite so the unit run needs no browser. Measured rather than trusted: the
   plan said 7 browser tests, and **3 files** actually launch Chromium —
@@ -259,6 +281,7 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | The dedup index failed with **42P17**, not the 25001 the file's comment predicted | Reading Prisma's own `_prisma_migrations.logs` via `npm run db:migration-logs`. The comment's transaction theory was wrong |
 | The P3009 **took the whole bot down**, not just the migration | `npm start` is `migrate deploy && node dist/bot/index.js` — a non-zero exit from the first half never reaches Discord. Diagnosing "a migration failed" understated it |
 | A control insert in the constraint test was rejected | Assumed a new `user_play_id` makes a row distinct. The identity deliberately excludes the id, so it does not. The test now shifts the *identity* instead |
+| `album.getinfo` and `track.getinfo` disagree on the duration unit, and the code is right | A new test asserted both were ms. Probed the live API: album `284` (number, seconds), track `"284000"` (string, ms). A "unify these" cleanup would have introduced a real bug |
 | `artworkService` had 3 lint errors nobody ran | `--quiet` in the gates after a new ESLint rule |
 
 ## Mistakes I made, so they are not repeated
@@ -278,6 +301,8 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 7. **Anchors guessed from memory missed** because of indentation and line endings. Normalise and
    copy verbatim.
 8. **A green suite with exit code 1** (unhandled rejection) — chased it instead of rerunning.
+9. **Read the log, not the exit code you captured.** `%ERRORLEVEL%` inside a `cmd /c` chain is the pre-run value. This is mistake 1 again, and it nearly made me report a working ratchet as broken.
+10. **A comment asserting a safety property is a claim, not a fact.** I wrote "a swapped stub is a TS2345" and only tested it because I was suspicious. It compiled clean.
 
 ## Rules that worked
 
@@ -287,5 +312,7 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 - Mutation-check every new test. Roughly a third of my first drafts were decoration.
 - When a mutation is genuinely equivalent, **document it as equivalent** instead of inventing a
   test that cannot distinguish it.
+- **`cmd /c "... & echo %ERRORLEVEL% > f"` reports the WRONG exit code.** The variable expands at parse time, before the command runs, so a failing coverage ratchet read as exit 0 and I nearly "proved" the ratchet does not block. Use `cmd /v:on` with `!ERRORLEVEL!`, or read the vitest log for the threshold error.
+- A passing `vitest` run and a passing `tsc` are different claims. The new test files were green on all 1373 tests and still failed the build 4 times (optional `aliases`, a non-tuple spread, `args` required). `npm run build` is not optional.
 - Per-file sweep with revert-on-error beats one batch. A single 15-site batch reported "5 errors"
   and would have discarded 10 real wins over 5 deliberate casts.
