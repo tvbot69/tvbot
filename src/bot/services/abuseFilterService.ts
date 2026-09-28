@@ -1,18 +1,36 @@
-import { PrismaClient } from '@prisma/client';
 import { Logger } from '@domain/logger';
+import { AbuseFlagRepository } from '@persistence/repositories/abuseFlagRepository';
 
 // fmbot parity (WhoKnowsFilterService): loop-scrobbling trips at ~650 plays
 // in a day or sustained inhuman volume across 8 days. Flags last 90 days.
 const DAY_SPIKE_THRESHOLD = 650;
 const EIGHT_DAY_VOLUME_THRESHOLD = 2500;
 const FLAG_TTL_DAYS = 90;
+const FLAG_REASON = 'scrobble-velocity';
+
+/**
+ * The client `AbuseFlagRepository` is built from, taken from the repository's own
+ * constructor rather than imported from `@prisma/client`: `bot/` must not import
+ * the Prisma client (debt ratchet `prisma-client-import-in-bot`), and this
+ * service holds no schema knowledge of its own any more - it only forwards a
+ * client to the repository. Deriving it this way means the two cannot drift.
+ */
+export type AbuseFlagPrismaClient = ConstructorParameters<typeof AbuseFlagRepository>[0];
 
 export class AbuseFilterService {
   private flagged = new Set<number>();
   private loadedAt = 0;
   private static readonly REFRESH_MS = 3600000;
+  private readonly store: AbuseFlagRepository | null;
 
-  constructor(private readonly prisma?: PrismaClient | null) {}
+  /**
+   * @param prisma Legacy injection path, kept so existing callers and tests can
+   *   hand over a bare client; a repository is built from it when none is given.
+   * @param store  The data access. Takes precedence over `prisma`.
+   */
+  constructor(prisma?: AbuseFlagPrismaClient | null, store?: AbuseFlagRepository | null) {
+    this.store = store ?? (prisma ? new AbuseFlagRepository(prisma) : null);
+  }
 
   /** Synchronous hot-path check (memory mirror, refreshed hourly + on scan). */
   public isFlagged(userId: number): boolean {
@@ -20,13 +38,9 @@ export class AbuseFilterService {
   }
 
   public async refresh(): Promise<void> {
-    if (!this.prisma) return;
+    if (!this.store) return;
     try {
-      const rows = await this.prisma.abuseFlag.findMany({
-        where: { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
-        select: { userId: true },
-      });
-      this.flagged = new Set(rows.map((r) => r.userId));
+      this.flagged = new Set(await this.store.getActiveFlaggedUserIds());
       this.loadedAt = Date.now();
     } catch (err) {
       Logger.debug({ err }, 'Abuse flag refresh failed');
@@ -44,39 +58,20 @@ export class AbuseFilterService {
    * self-cleaning (expired rows deleted). Returns newly flagged user count.
    */
   public async scanAndFlag(): Promise<number> {
-    if (!this.prisma) return 0;
+    if (!this.store) return 0;
     await this.ensureFresh();
     let flagged = 0;
     try {
-      const offenders = await this.prisma.$queryRaw<Array<{ userId: number; recent: bigint }>>`
-        SELECT up.user_id AS "userId", COUNT(*) AS "recent"
-        FROM user_plays up
-        WHERE up.time_played > NOW() - INTERVAL '8 days'
-        GROUP BY up.user_id
-        HAVING COUNT(*) > ${EIGHT_DAY_VOLUME_THRESHOLD}
-      `;
-      const daySpike = await this.prisma.$queryRaw<Array<{ userId: number }>>`
-        SELECT up.user_id AS "userId"
-        FROM user_plays up
-        WHERE up.time_played > NOW() - INTERVAL '1 day'
-        GROUP BY up.user_id
-        HAVING COUNT(*) > ${DAY_SPIKE_THRESHOLD}
-      `;
-      const ids = new Set<number>([
-        ...offenders.map((r) => r.userId),
-        ...daySpike.map((r) => r.userId),
-      ]);
+      const offenders = await this.store.findEightDayVolumeOffenders(EIGHT_DAY_VOLUME_THRESHOLD);
+      const daySpike = await this.store.findDaySpikeOffenders(DAY_SPIKE_THRESHOLD);
+      const ids = new Set<number>([...offenders, ...daySpike]);
       const expiresAt = new Date(Date.now() + FLAG_TTL_DAYS * 86400000);
       for (const userId of ids) {
         if (this.flagged.has(userId)) continue;
-        await this.prisma.abuseFlag.upsert({
-          where: { userId },
-          update: { reason: 'scrobble-velocity', expiresAt },
-          create: { userId, reason: 'scrobble-velocity', expiresAt },
-        });
+        await this.store.upsertFlag(userId, FLAG_REASON, expiresAt);
         flagged++;
       }
-      await this.prisma.abuseFlag.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+      await this.store.deleteExpiredFlags();
       await this.refresh();
       if (flagged > 0) {
         Logger.warn(`Abuse scan flagged ${flagged} users for scrobble velocity`);
@@ -89,8 +84,8 @@ export class AbuseFilterService {
   }
 
   public async unflag(userId: number): Promise<void> {
-    if (!this.prisma) return;
-    await this.prisma.abuseFlag.deleteMany({ where: { userId } }).catch(() => undefined);
+    if (!this.store) return;
+    await this.store.deleteFlagsForUser(userId).catch(() => undefined);
     this.flagged.delete(userId);
   }
 }

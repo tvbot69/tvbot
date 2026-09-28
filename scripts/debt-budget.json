@@ -4,5 +4,6 @@
   "container-resolve-outside-root": 155,
   "container-resolve-in-constructor": 0,
   "as-unknown-as": 101,
-  "process-env-outside-config": 0
+  "process-env-outside-config": 0,
+  "prisma-client-import-in-bot": 17
 }

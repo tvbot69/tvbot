@@ -1,5 +1,4 @@
 import { container } from 'tsyringe';
-import { PrismaClient } from '@prisma/client';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
@@ -8,6 +7,7 @@ import { AlbumService } from './albumService';
 import { TrackService } from './trackService';
 import { WhoKnowsRepository } from '@persistence/repositories/whoKnowsRepository';
 import { CrownRepository } from '@persistence/repositories/crownRepository';
+import { FmFooterRepository } from '@persistence/repositories/fmFooterRepository';
 
 export interface FmFooterData {
   artistPlays?: number;
@@ -61,15 +61,8 @@ export class FmFooterResolver {
             if (info?.userPlayCount !== undefined) {
               result.artistPlays = info.userPlayCount;
             } else {
-              const prisma = container.resolve(PrismaClient);
-              const agg = await prisma.userArtist.aggregate({
-                _sum: { playcount: true },
-                where: {
-                  userId: user.userId,
-                  name: { equals: track.artistName, mode: 'insensitive' },
-                },
-              });
-              const total = agg._sum.playcount ?? 0;
+              const footerRepo = container.resolve(FmFooterRepository);
+              const total = (await footerRepo.getUserArtistPlaycount(user.userId, track.artistName)) ?? 0;
               if (total > 0) result.artistPlays = total;
             }
           } catch {
@@ -89,15 +82,8 @@ export class FmFooterResolver {
             if (info?.userPlayCount !== undefined) {
               result.albumPlays = info.userPlayCount;
             } else {
-              const prisma = container.resolve(PrismaClient);
-              const agg = await prisma.userAlbum.aggregate({
-                _sum: { playcount: true },
-                where: {
-                  userId: user.userId,
-                  name: { equals: track.albumName, mode: 'insensitive' },
-                },
-              });
-              const total = agg._sum.playcount ?? 0;
+              const footerRepo = container.resolve(FmFooterRepository);
+              const total = (await footerRepo.getUserAlbumPlaycount(user.userId, track.albumName)) ?? 0;
               if (total > 0) result.albumPlays = total;
             }
           } catch {
@@ -123,15 +109,8 @@ export class FmFooterResolver {
               }
             }
             if (result.trackPlays === undefined && has(FmFooterOption.TrackPlays)) {
-              const prisma = container.resolve(PrismaClient);
-              const agg = await prisma.userTrack.aggregate({
-                _sum: { playcount: true },
-                where: {
-                  userId: user.userId,
-                  name: { equals: track.name, mode: 'insensitive' },
-                },
-              });
-              const total = agg._sum.playcount ?? 0;
+              const footerRepo = container.resolve(FmFooterRepository);
+              const total = (await footerRepo.getUserTrackPlaycount(user.userId, track.name)) ?? 0;
               if (total > 0) result.trackPlays = total;
             }
           } catch {
@@ -146,16 +125,13 @@ export class FmFooterResolver {
       tasks.push(
         (async () => {
           try {
-            const prisma = container.resolve(PrismaClient);
+            const footerRepo = container.resolve(FmFooterRepository);
             const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-            const count = await prisma.userPlay.count({
-              where: {
-                userId: user.userId,
-                artistName: { equals: track.artistName, mode: 'insensitive' },
-                timePlayed: { gte: weekAgo },
-              },
-            });
-            result.artistPlaysThisWeek = count;
+            result.artistPlaysThisWeek = await footerRepo.countUserArtistPlaysSince(
+              user.userId,
+              track.artistName,
+              weekAgo,
+            );
           } catch {
             // graceful fallback
           }
@@ -183,13 +159,8 @@ export class FmFooterResolver {
       tasks.push(
         (async () => {
           try {
-            const prisma = container.resolve(PrismaClient);
-            const album = await prisma.album.findFirst({
-              where: {
-                name: { equals: track.albumName, mode: 'insensitive' },
-                artist: { name: { equals: track.artistName, mode: 'insensitive' } },
-              },
-            });
+            const footerRepo = container.resolve(FmFooterRepository);
+            const album = await footerRepo.findAlbumByNameAndArtist(track.albumName, track.artistName);
             if (album) {
               const whoKnowsRepo = container.resolve(WhoKnowsRepository);
               const rows = await whoKnowsRepo.getIndexedUsersForAlbum(guildId, album.albumId);
@@ -207,13 +178,8 @@ export class FmFooterResolver {
       tasks.push(
         (async () => {
           try {
-            const prisma = container.resolve(PrismaClient);
-            const dbTrack = await prisma.track.findFirst({
-              where: {
-                name: { equals: track.name, mode: 'insensitive' },
-                artist: { name: { equals: track.artistName, mode: 'insensitive' } },
-              },
-            });
+            const footerRepo = container.resolve(FmFooterRepository);
+            const dbTrack = await footerRepo.findTrackByNameAndArtist(track.name, track.artistName);
             if (dbTrack) {
               const whoKnowsRepo = container.resolve(WhoKnowsRepository);
               const rows = await whoKnowsRepo.getIndexedUsersForTrack(guildId, dbTrack.trackId);

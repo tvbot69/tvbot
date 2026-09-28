@@ -124,8 +124,10 @@ import { TrackPreviewInteractions } from './interactions/trackPreviewInteraction
 import { OverviewService } from './services/overviewService';
 import { TopSlashCommands } from './slashCommands/topSlashCommands';
 import { CrownRepository } from '@persistence/repositories/crownRepository';
+import { FmFooterRepository } from '@persistence/repositories/fmFooterRepository';
 import { GuildMusicSettingsRepository } from '@persistence/repositories/guildMusicSettingsRepository';
 import { AbuseFilterService } from '@bot/services/abuseFilterService';
+import { AbuseFlagRepository } from '@persistence/repositories/abuseFlagRepository';
 import { CrownService } from './services/crown/crownService';
 import { CrownInteractions } from './interactions/crownInteractions';
 import { CrownCommands } from './textCommands/guild/crownCommands';
@@ -299,6 +301,7 @@ export const configureContainer = (): void => {
   const whoKnowsRepository = new WhoKnowsRepository(prisma);
   const friendsRepository = new FriendsRepository(prisma);
   const artistGenreRepository = new ArtistGenreRepository(prisma);
+  const fmFooterRepository = new FmFooterRepository(prisma);
 
   const userUpdateQueue = new UserUpdateQueueService(cache);
   const userIndexQueue = new UserIndexQueueService(cache);
@@ -320,7 +323,8 @@ export const configureContainer = (): void => {
   const genreService = new GenreService(cache, artistGenreRepository, artistRepository, lastFmRepository, prisma);
   const friendsService = new FriendsService(friendsRepository, userRepository);
   const crownRepository = new CrownRepository(prisma);
-  const abuseFilterService = new AbuseFilterService(prisma);
+  const abuseFlagRepository = new AbuseFlagRepository(prisma);
+  const abuseFilterService = new AbuseFilterService(prisma, abuseFlagRepository);
   container.registerInstance(AbuseFilterService, abuseFilterService);
   const crownService = new CrownService(crownRepository, userService, lastFmRepository, errorRateTracker, abuseFilterService);
   const whoKnowsArtistService = new WhoKnowsArtistService(
@@ -490,12 +494,14 @@ export const configureContainer = (): void => {
   container.registerInstance(FmSettingService, fmSettingService);
   container.registerInstance(UserFmSettingRepository, userFmSettingRepository);
   container.registerInstance(WhoKnowsRepository, whoKnowsRepository);
+  container.registerInstance(FmFooterRepository, fmFooterRepository);
   container.registerInstance(FriendsRepository, friendsRepository);
 
   container.registerInstance(ArtistGenreRepository, artistGenreRepository);
   container.registerInstance(GenreService, genreService);
   container.registerInstance(FriendsService, friendsService);
   container.registerInstance(CrownRepository, crownRepository);
+  container.registerInstance(AbuseFlagRepository, abuseFlagRepository);
   container.registerInstance(CrownService, crownService);
   container.registerInstance(WhoKnowsArtistService, whoKnowsArtistService);
   container.registerInstance(WhoKnowsTrackService, whoKnowsTrackService);

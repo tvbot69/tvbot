@@ -281,6 +281,38 @@ const KINDS: Record<string, KindFn> = {
     }
     return n;
   },
+
+  /**
+   * Files under `src/bot` that import `@prisma/client` directly.
+   *
+   * Counting FILES, not call sites: 135 `prisma.` calls exist, but the debt the
+   * plan describes is architectural - `bot/` reaching past the repository layer
+   * - and that is a property of a file, not of a line. A file that imports the
+   * client is a file that knows the schema.
+   *
+   * The plan explicitly says do NOT mass-move these. So this is a ratchet at
+   * today's real number: it makes the debt visible, keeps it attributable, and
+   * fails if it grows. "New code must not add direct Prisma calls in bot/"
+   * only means something if something counts.
+   */
+  'prisma-client-import-in-bot': (program) => {
+    let n = 0;
+    for (const sf of program.getSourceFiles()) {
+      if (!isProduction(sf)) continue;
+      const p = path.resolve(sf.fileName).replace(/\\/g, '/');
+      if (!p.includes('/src/bot/')) continue;
+      if (p.includes('/src/bot/services/music/')) continue;
+      const importsClient = sf.statements.some((st) => {
+        if (!ts.isImportDeclaration(st)) return false;
+        const mod = st.moduleSpecifier;
+        return ts.isStringLiteral(mod) && mod.text === '@prisma/client';
+      });
+      if (!importsClient) continue;
+      n += 1;
+      record(p.split('/src/')[1] ?? p, 0);
+    }
+    return n;
+  },
 };
 
 /** Production source only: under src/, not a test, not a declaration. */
