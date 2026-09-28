@@ -154,14 +154,30 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     and it is what found the two leftover resolves described below.
   - ✅ Module-scope `dns.setDefaultResultOrder` removed from `lastfmApi`; only the 3 real
     entrypoints keep it (`index`, `shardManager`, `shardWorker` — the last two are forked).
-  - ⬜ **The plan's `<30` target needs rethinking, and that is a judgement call, not a chore.**
-    Of the 155 remaining, only a handful are in constructors. The rest are resolves inside
-    methods, and many are **deliberately lazy**: `fmFooterResolver` resolves `PrismaClient`
-    only when the "artist plays" footer is enabled; `shutdownService` and `healthServer`
-    should not force eager construction at boot. Converting those would *cost* startup work
-    for features that may never run. The real architectural debt — eager construction hiding
-    the wiring graph — is **0**. Recommendation: ratchet the eager count at 0 (done) and treat
-    the total as informational, rather than driving it to 30 for its own sake.
+  - ✅ **3.3 target decision, made and settled.** The plan's `<30` for `container.resolve` is
+    **not** the right target, and measurement is why. Ratchet the **eager** count at **0** (done) and
+    treat the 155 lazy total as **informational**. Converting lazily-resolved services would *cost*
+    startup work for features that may never run — `fmFooterResolver` resolves `PrismaClient` only
+    when the "artist plays" footer is on. The debt the plan described (eager construction hiding the
+    wiring graph) is gone; driving the total to 30 anyway would be a number, not an improvement.
+- **Phase 4 — type safety** 🔄 Baselines now measured and ratcheted, all CI-blocking:
+  `explicit-any` **135** · `as-unknown-as` **106** · `typed-catch` **0** → **combined 241**
+  (plan's baseline was ~302, target < 80).
+  - ✅ `as unknown as` is a first-class debt kind, not a grep. AST-based, so a cast inside a
+    string or comment does not count.
+  - ✅ `src/domain/interfaces/discordChannel.ts` — one checked narrowing boundary
+    (`replyChannel` / `typingChannel` / `fetchableChannel`) replacing **11** inline casts in
+    `commandHandler` + `commandDispatcher`. Those casts existed so tests could pass `{ send: vi.fn() }`
+    instead of a channel — production code contorted to suit the double, AGENTS.md §11. Downstream
+    callers now get a real type, so a payload-key typo is a compile error.
+  - ✅ A test caught a bug in the new helper: `has(ch, 'messages')` failed every real channel,
+    because `messages` is an object and the helper only knew how to test functions.
+  - ⬜ Remaining hotspots per the plan: `artistBuilders` 10, `crownInteractions` 8,
+    `artistInteractions` 7, `topInteractions` 6, `trackSlashCommands` 6. Most are Prisma results →
+    `Prisma.XGetPayload<>` or a typed row interface. Of the 106 `as unknown as`, 72 are under
+    `src/bot/services/music` and `handlers/music`, where the plan permits them (moonlink's published
+    types do not match its runtime payloads); the honest next move is to consolidate those into the
+    one `music/moonlinkTypes.ts` adapter the plan asks for, not to delete them.
 - **3.4** ⬜ Not started. Measured: Prisma is called directly in 20+ files under `bot/`, and the
   plan explicitly says **not** to mass-move. This is enforced going forward instead.
 - **3.5** ✅ `src/images/html.ts` with a tested `escapeHtml` and `safeUrl`. 15 tests.
