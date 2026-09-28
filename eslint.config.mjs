@@ -60,4 +60,41 @@ export default tseslint.config(
       'no-empty': ['warn', { allowEmptyCatch: false }],
     },
   },
+
+  /**
+   * Architecture boundaries, enforced rather than described.
+   *
+   * Scoped deliberately. AGENTS.md section 9 rule 9 requires type-only imports
+   * across music modules; a value import there closes a runtime cycle, and the
+   * music DAG is where a chapter-position incident came from. So the music
+   * subtree is where a ban earns its keep.
+   *
+   * NOT scoped repo-wide: `commandDispatcher`. It appears in one measured cycle
+   * (userService), but that edge is `import type` and is erased at compile time.
+   * Banning it would force churn on correct code for no safety gain. The real
+   * constraint is the zero-runtime-cycle budget in scripts/check-import-cycles.ts.
+   */
+  {
+    files: ['src/bot/services/music/**/*.ts', 'src/bot/handlers/musicHandler.ts'],
+    // Test files legitimately import the module under test, and musicTypes is
+    // the leaf that everything is allowed to depend on.
+    ignores: [
+      'src/bot/services/music/musicTypes.ts',
+      'src/bot/services/music/**/*.test.ts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/musicService'],
+              message:
+                'Music modules must not import musicService: it is the composition root. Use type-only imports (AGENTS.md section 9 rule 9).',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

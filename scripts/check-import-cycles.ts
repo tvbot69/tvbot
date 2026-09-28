@@ -1,86 +1,97 @@
 /**
- * Fail if the number of circular dependencies increases.
+ * Fail if the number of import cycles increases.
  *
- * A ratchet, not a target: the count is recorded in the file and any increase
- * fails. The plan asks for zero cycles, and that is the goal, but a check that
- * starts red can only be made green by deleting the check.
+ * Runs madge TWICE, because there are two different questions and reporting
+ * one number for both makes the answer useless:
  *
- * Run: npm run deps:cycles
- * Wired into CI as a blocking step.
+ *   RUNTIME cycles  - `import type` edges excluded. These are real: they change
+ *                     module load order and are what a cycle actually costs.
+ *                     Budget: 0.
+ *   TYPE cycles     - including `import type`. A DTO type declared beside the
+ *                     implementation that produces it is normal and harmless,
+ *                     so these get a separate, looser budget.
+ *
+ * All four cycles madge reports by default turned out to be type-only on one
+ * side, so the runtime number is already 0. Reporting "4 cycles" without that
+ * distinction overstates the problem and produces a check nobody can act on.
+ *
+ * Run: npm run deps:cycles        (fails if either budget is exceeded)
+ *      npm run deps:cycles -- --report   (never fails; prints both numbers)
  */
-import { spawnSync } from 'node:child_process';
+import madge from 'madge';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Cycles that exist today. Lower this as they are fixed; never raise it. */
-const MAX_CYCLES = 4;
+/** RUNTIME cycles, type-only edges excluded. Must be 0. */
+const MAX_RUNTIME_CYCLES = 0;
+/** Cycles including `import type`. Real coupling, but not load-order risk. */
+const MAX_TOTAL_CYCLES = 4;
 
 const BUDGET_FILE = path.join(process.cwd(), 'scripts', 'cycle-budget.json');
-
-interface CycleResult {
-  cycles: number;
-  list: string[];
-}
+const REPORT_ONLY = process.argv.includes('--report');
 
 /**
- * Invoke madge through its local binary rather than `npx`.
+ * Run madge programmatically rather than shelling out.
  *
- * Two reasons. A spawned process has a different PATH, so `npx` is ENOENT here
- * even though it works from a shell. And madge EXITS NON-ZERO when it finds
- * cycles - which is the normal case we care about - so `execFileSync` throws
- * before the output can be read. `spawnSync` lets us read stdout either way.
+ * Two reasons. madge EXITS NON-ZERO when it finds cycles - the case we care
+ * about - so a spawned process throws before stdout can be read. And madge 8
+ * has no `--config` flag at all, so detective options can only be passed
+ * through the API.
  */
-const runMadge = (): CycleResult => {
-  const madgeBin = path.join(
-    process.cwd(),
-    'node_modules',
-    '.bin',
-    process.platform === 'win32' ? 'madge.cmd' : 'madge',
-  );
-  if (!fs.existsSync(madgeBin)) {
-    throw new Error(`madge not installed at ${madgeBin} - run npm ci`);
-  }
-  const proc = spawnSync(
-    madgeBin,
-    ['--circular', '--extensions', 'ts', '--ts-config', 'tsconfig.json', '--json', 'src'],
-    { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, shell: process.platform === 'win32' },
-  );
-  if (!proc.stdout || proc.stdout.trim() === '') {
-    throw new Error(`madge produced no output (stderr: ${proc.stderr?.slice(0, 400) ?? 'none'})`);
-  }
-  const parsed = JSON.parse(proc.stdout) as unknown;
-  // madge's --json is an ARRAY of cycle paths ("a > b > a"). Earlier versions
-  // emitted an object keyed by the same paths, so both shapes are accepted
-  // rather than silently reporting a list of "0, 1, 2, 3".
-  const list = Array.isArray(parsed)
-    ? parsed.map(String)
-    : Object.keys(parsed as Record<string, string[]>);
-  return { cycles: list.length, list };
+const runMadge = async (skipTypeImports: boolean): Promise<string[]> => {
+  const result = await madge(process.cwd() + '/src', {
+    circular: true,
+    fileExtensions: ['ts'],
+    tsConfig: path.join(process.cwd(), 'tsconfig.json'),
+    // excludeTestFiles keeps *.test.ts out; a test importing the module under
+    // test is not a production dependency edge.
+    excludeTestFiles: true,
+    detectiveOptions: { ts: { skipTypeImports } },
+  });
+  return result.circular();
 };
 
-const main = (): void => {
-  const { cycles, list } = runMadge();
-
-  if (cycles > MAX_CYCLES) {
-    console.error(`\nCIRCULAR DEPENDENCY RATCHET FAILED`);
-    console.error(`  allowed: ${MAX_CYCLES}`);
-    console.error(`  found:   ${cycles}`);
-    for (const c of list) console.error(`    ${c}`);
-    console.error(`\nDo not raise MAX_CYCLES to make this pass. Break a cycle instead.`);
-    process.exit(1);
+const main = async (): Promise<void> => {
+  if (!fs.existsSync(path.join(process.cwd(), 'node_modules', 'madge'))) {
+    throw new Error('madge is not installed - run npm ci');
   }
 
-  // Persist the live list so a reviewer can see which cycles remain and
-  // confirm a change did what it claimed.
+  const runtime = await runMadge(true);
+  const total = await runMadge(false);
+
+  console.log(`runtime cycles (type imports excluded): ${runtime.length}  (allowed ${MAX_RUNTIME_CYCLES})`);
+  for (const c of runtime) console.log(`    ${c}`);
+  console.log(`all cycles (including type imports):    ${total.length}  (allowed ${MAX_TOTAL_CYCLES})`);
+  for (const c of total) console.log(`    ${c}`);
+
   fs.writeFileSync(
     BUDGET_FILE,
-    `${JSON.stringify({ max: MAX_CYCLES, cycles, list }, null, 2)}\n`,
+    `${JSON.stringify(
+      { maxRuntime: MAX_RUNTIME_CYCLES, maxTotal: MAX_TOTAL_CYCLES, runtime, total },
+      null,
+      2,
+    )}\n`,
     'utf8',
   );
 
-  console.log(`circular dependencies: ${cycles} (allowed ${MAX_CYCLES})`);
-  for (const c of list) console.log(`  ${c}`);
-  if (cycles === 0) console.log('  none - the plan target is met');
+  if (REPORT_ONLY) return;
+
+  const failures: string[] = [];
+  if (runtime.length > MAX_RUNTIME_CYCLES) {
+    failures.push(`runtime cycles: ${runtime.length} > ${MAX_RUNTIME_CYCLES}`);
+  }
+  if (total.length > MAX_TOTAL_CYCLES) {
+    failures.push(`total cycles: ${total.length} > ${MAX_TOTAL_CYCLES}`);
+  }
+  if (failures.length) {
+    console.error('\nIMPORT CYCLE RATCHET FAILED');
+    for (const f of failures) console.error(`  ${f}`);
+    console.error('\nDo not raise the budget to make this pass. Break a cycle instead.');
+    process.exit(1);
+  }
 };
 
-main();
+main().catch((err: unknown) => {
+  console.error('import cycle check failed:', err instanceof Error ? err.message : err);
+  process.exit(1);
+});

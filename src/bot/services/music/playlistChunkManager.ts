@@ -1,7 +1,7 @@
 import { Logger } from '@domain/logger';
 import { spotifyUriToUrl } from '@domain/models/music/musicTrack';
 import type { Manager, Player, Track } from 'moonlink.js';
-import { MAX_QUEUE_TRACKS } from './musicService';
+import { MAX_QUEUE_TRACKS } from './musicConstants';
 import type { SpotifyScraperService, ScrapedTrack } from './spotifyScraperService';
 import type { SpotifyResolvedTrack } from './spotifyResolver';
 import type { Rung } from './youtubeHealth';

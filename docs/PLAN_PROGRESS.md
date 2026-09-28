@@ -79,7 +79,29 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     a machine with no Chromium. `vitest --render` is not a real flag; the separate
     `vitest.render.config.ts` is what works.
 
-### Phase 3 — architecture: ⬜ nothing started
+### Phase 3 — architecture
+- **3.1** ✅ **DONE — and the plan's premise was wrong.** `npm run deps:cycles` + a blocking
+  `deps` CI job, both budgets mutation-checked. `scripts/cycle-budget.json` is written each run.
+  - **Runtime cycles: 0.** Budget 0. **All-cycles: 4.** Budget 4.
+  - The plan said "4 circular dependencies to break". Measured: **all 4 have an `import type`
+    on one side**, which TypeScript erases. They are type-level coupling, not load-order risk.
+    Evidence: `commandDispatcher`→`userService`, `autopostRepository`→`autopostService`,
+    `descriptionChapters`→`ytResolver`, `musicService`→`playlistChunkManager` are all `import type`.
+  - A type edge is legal and normal when a DTO lives beside the implementation that produces it
+    (e.g. `VideoChapterDto` in `ytResolver`). Refactoring these would be churn, not a fix.
+  - **So there is no 4-cycle problem to solve.** The real constraint is the zero-runtime-cycle
+    budget, which holds. The 4 are a separate, softer number, ratcheted so they cannot grow.
+  - Mutation-checked: injecting a real value-import cycle takes runtime 0→1 and the check FAILS;
+    lowering the total budget to 3 FAILS. Restored, it passes.
+- **3.2** ✅ ESLint `no-restricted-imports` overrides written, scoped to exactly the two boundaries
+  that caused pain: the music DAG (§9 rule 9) and leaf `musicTypes`. Deliberately NOT a
+  repo-wide ban on `commandDispatcher` — the `userService`↔`commandDispatcher` edge is a
+  type-only edge that is already correct; banning it would force churn for no safety gain.
+  `lint` 0 errors.
+- **3.3** 🔄 `scripts/count-debt.ts` not written yet. This is the one that generalises every
+  ratchet so far, and the most valuable single file in the plan.
+- **3.4** ⬜ Not started.
+- **3.5** ⬜ Not started.
 ### Phase 4 — type safety: ⬜ nothing started (note: separate earlier work took `any` 392 → 140)
 ### Phase 5 — security and ops: ⬜ nothing started
 

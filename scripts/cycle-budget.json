@@ -1,10 +1,19 @@
 {
-  "max": 4,
-  "cycles": 4,
-  "list": [
-    "bot/services/userService.ts,bot/handlers/commandDispatcher.ts",
-    "bot/services/autopostService.ts,persistence/repositories/autopostRepository.ts",
-    "bot/services/music/ytResolver.ts,bot/services/music/descriptionChapters.ts",
-    "bot/services/music/musicService.ts,bot/services/music/playlistChunkManager.ts"
+  "maxRuntime": 0,
+  "maxTotal": 4,
+  "runtime": [],
+  "total": [
+    [
+      "bot/services/userService.ts",
+      "bot/handlers/commandDispatcher.ts"
+    ],
+    [
+      "bot/services/autopostService.ts",
+      "persistence/repositories/autopostRepository.ts"
+    ],
+    [
+      "bot/services/music/ytResolver.ts",
+      "bot/services/music/descriptionChapters.ts"
+    ]
   ]
 }
