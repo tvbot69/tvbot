@@ -110,8 +110,29 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     Restored → 136, passes.
   - `ts.isAnyKeyword` is internal and not exported by every TS version; the
     check uses `ts.SyntaxKind.AnyKeyword` after that threw.
-- **3.4** ⬜ Not started. Note: measured so far — Prisma is used directly in 20+ files under
-  `bot/`, and the plan explicitly says **not** to mass-move. Enforced going forward instead.
+- **3.2 (plan's 3.2) — lower layers must not import `@bot/*`** 🔄 **8 measured, 1 fixed.**
+  The earlier entry under 3.2 was about the music DAG; that is not what the plan's
+  3.2 says. Corrected here rather than quietly relabelled.
+  - ✅ `isPlaceholderImageUrl` → `src/domain/lastfmPlaceholder.ts`.
+    `recentTrackConverter` was pulling in the whole artwork cascade — Spotify, Deezer, Apple,
+    Prisma, cache — to ask whether a string was a known hash. `artworkService` re-exports it,
+    so **20 call sites changed zero lines** (the §6 facade pattern).
+    A test asserts **identity**, not behaviour: `expect(as.isPlaceholderImageUrl).toBe(p)`.
+    Behaviour tests would pass with two copies, which is the exact failure rule 2 prevents.
+  - ⬜ 3 remain and a type-only import cannot fix them — they are real runtime deps:
+    `lastfmApi`→`ConfigData` (static class), `lastfmApi`→`TelemetryService` (container-resolved
+    at call time), `lastFmRepository`→`CacheService` (an `@inject()` token). These need the
+    port route the plan describes: `ICache`/`ITelemetry` in domain, bound in the composition
+    root. Touches `startup.ts`, so it is its own task, not something to smuggle in.
+  - ⬜ 4 are `import type` (autopostRepository, iceberg/whoKnows/worldMap generators) — erased
+    at compile time, same finding as the 3.1 cycles. Harmless at runtime; deferred with the
+    reasoning recorded rather than silently ignored.
+- **3.3 (plan's 3.3) — one DI style** 🔄 `scripts/count-debt.ts` done (see above), but the
+  substantive part is untouched: `container.resolve` outside the allowlist (target <30),
+  and the module-scope side effects (`dns.setDefaultResultOrder` → `bot/index.ts`;
+  `prismaClient` validating env on import).
+- **3.4** ⬜ Not started. Measured: Prisma is called directly in 20+ files under `bot/`, and the
+  plan explicitly says **not** to mass-move. This is enforced going forward instead.
 - **3.5** ✅ `src/images/html.ts` with a tested `escapeHtml` and `safeUrl`. 15 tests.
   - 4 drifted copies collapsed to 1: `chartService`, `whoKnowsGenerator` (free functions removed)
     and `icebergGenerator` (its method now delegates to the shared one).
@@ -127,9 +148,7 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   - A test caught a real gap on first run: `https://ok.example https://evil.example` passed a
     naive `startsWith('https://')` while smuggling a second absolute URL. `safeUrl` now rejects
     any URL containing whitespace. Mutation-checked — removing the guard fails the test.
-- **3.3 (cont.)** ⬜ `container.resolve` outside the allowlist and the module-scope side effects
-  (`dns.setDefaultResultOrder`, `prismaClient` validating env on import) are still to do.
-### Phase 4 — type safety: ⬜ nothing started (note: separate earlier work took `any` 392 → 140)
+### Phase 4 — type safety: 🔄 earlier work took `any` 392 → **136** (AST-measured, see 3.3)
 ### Phase 5 — security and ops: ⬜ nothing started
 
 ## Definition of done: see the checklist at the bottom of `PLAN_B_PLUS_TO_A.md`.
@@ -148,6 +167,9 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | Dead-air class had no invariant test | Reading `onTrackStuck`'s 8 exit paths |
 | Both page-jump modals raced Discord's 3s window | Reading the handler; they awaited Last.fm first |
 | Production has **0 duplicate plays** in 303,424 rows | Task 1.2 measurement — the premise was right, the data is clean |
+| The 4 import "cycles" were **0 runtime cycles** | madge counted `import type` edges; 3 were type-only, the 1 real one was a constant imported from the wrong module |
+| `safeUrl` accepted `https://a https://b` | A hostile-input test written before the guard — not by reading the code |
+| Two "cycles" below `bot/` were one predicate in the wrong layer | Plan 3.2 named the file; reading the import showed a whole artwork cascade pulled in to test a hash |
 
 ## Mistakes I made, so they are not repeated
 
