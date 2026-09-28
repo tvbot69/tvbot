@@ -47,7 +47,8 @@ export class ArtistTrackInteractions {
       }
     }
 
-    const userService = container.resolve((await import('@bot/services/userService')).UserService) as any;
+    const { UserService } = await import('@bot/services/userService');
+    const userService = container.resolve(UserService);
     const user = await userService.getUserByDiscordId(targetUserId) ?? await userService.getUserByDiscordId(interaction.user.id);
     if (!user) { await interaction.reply({ content: 'Not registered.', flags: MessageFlags.Ephemeral }).catch(() => undefined); return; }
 

@@ -4,6 +4,7 @@ import { UserService } from '@bot/services/userService';
 import { ProfileService } from '@bot/services/profileService';
 import { ColorService } from '@bot/services/colorService';
 import { ProfileBuilders } from '@bot/builders/profileBuilders';
+import type { User } from '@domain/interfaces/iuserRepository';
 
 @injectable()
 export class ProfileInteractions {
@@ -44,7 +45,7 @@ export class ProfileInteractions {
         userId: 0,
         userNameLastFm: lastFmName,
         discordUserId: targetDiscordId !== '0' ? targetDiscordId : undefined,
-      } as any;
+      } as User;
     }
 
     let displayName = lastFmName;

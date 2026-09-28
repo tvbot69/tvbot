@@ -21,15 +21,15 @@ export class AppleMusicService {
       const response = await fetch(url.toString(), { signal: AbortSignal.timeout(5000) });
       if (!response.ok) return null;
 
-      const data = (await response.json()) as any;
+      const data = await response.json() as { results?: Array<{ trackName?: string; artistName?: string; collectionName?: string; trackViewUrl?: string; artworkUrl100?: string }> };
       const track = data?.results?.[0];
       if (!track) return null;
 
       return {
-        trackName: track.trackName,
-        artistName: track.artistName,
-        albumName: track.collectionName,
-        url: track.trackViewUrl,
+        trackName: track.trackName ?? '',
+        artistName: track.artistName ?? '',
+        albumName: track.collectionName ?? '',
+        url: track.trackViewUrl ?? '',
         artworkUrl: track.artworkUrl100 ? track.artworkUrl100.replace('100x100bb', '600x600bb') : undefined,
       };
     } catch (err) {
@@ -48,7 +48,7 @@ export class AppleMusicService {
       const response = await fetch(url.toString(), { signal: AbortSignal.timeout(5000) });
       if (!response.ok) return null;
 
-      const data = (await response.json()) as any;
+      const data = await response.json() as { results?: Array<{ collectionViewUrl?: string }> };
       const album = data?.results?.[0];
       return album?.collectionViewUrl ?? null;
     } catch (err) {
@@ -67,7 +67,7 @@ export class AppleMusicService {
       const response = await fetch(url.toString(), { signal: AbortSignal.timeout(5000) });
       if (!response.ok) return null;
 
-      const data = (await response.json()) as any;
+      const data = await response.json() as { results?: Array<{ artistLinkUrl?: string }> };
       const artist = data?.results?.[0];
       return artist?.artistLinkUrl ?? null;
     } catch (err) {

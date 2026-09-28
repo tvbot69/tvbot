@@ -175,7 +175,8 @@ export class TopInteractions {
         if (response.componentsV2Container) {
           await interaction.update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         } else {
-          await interaction.update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
+        await interaction.update({ embeds: response.buildEmbed(), components: response.buildComponents() }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
+
         }
         return;
       }

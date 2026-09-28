@@ -3,6 +3,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ContainerBuilder,
+  MessageActionRowComponentBuilder,
   EmbedBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
@@ -249,7 +250,7 @@ export class CrownBuilders {
           .setLabel('WhoKnows')
           .setStyle(ButtonStyle.Secondary),
       );
-      response.addButtonRow(0, row as any);
+      response.addButtonRow(0, row as ActionRowBuilder<MessageActionRowComponentBuilder>);
     }
 
     return response;

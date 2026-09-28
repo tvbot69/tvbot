@@ -3,6 +3,7 @@ import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { GenreService } from './genreService';
 import { CountryService } from './countryService';
 import { CacheService } from './cacheService';
+import { TimePeriod } from '@domain/enums/timePeriod';
 import type { TopArtist } from '@domain/models/topLists';
 
 export interface TasteItem {
@@ -145,8 +146,8 @@ export class TasteService {
     // Fetch top artists for both users (overall / 2-year)
     // For 2-year preset, Last.fm overall or top 1000 artists
     const [u1ArtistsRaw, u2ArtistsRaw] = await Promise.all([
-      this.lastfmRepo.getTopArtists(user1.userNameLastFm, 'overall' as any, 1000).catch(() => [] as TopArtist[]),
-      this.lastfmRepo.getTopArtists(user2.userNameLastFm, 'overall' as any, 1000).catch(() => [] as TopArtist[]),
+      this.lastfmRepo.getTopArtists(user1.userNameLastFm, TimePeriod.AllTime, 1000).catch(() => [] as TopArtist[]),
+      this.lastfmRepo.getTopArtists(user2.userNameLastFm, TimePeriod.AllTime, 1000).catch(() => [] as TopArtist[]),
     ]);
 
     const u1Map = new Map<string, number>();

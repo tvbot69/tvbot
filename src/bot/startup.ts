@@ -247,9 +247,9 @@ export const configureContainer = (): void => {
 
   // Guard against unhandled promise rejections from discord.js WebSocketManager.broadcast
   // when shards are reconnecting or not yet found in the sharding strategy.
-  const wsManager = client.ws as any;
+  const wsManager = client.ws as unknown as { broadcast?: (packet: unknown) => void; shards: Map<number, unknown>; _ws?: { send: (shardId: number, packet: unknown) => unknown } };
   if (wsManager && typeof wsManager.broadcast === 'function') {
-    wsManager.broadcast = (packet: any) => {
+    wsManager.broadcast = (packet: unknown) => {
       try {
         for (const shardId of wsManager.shards.keys()) {
           Promise.resolve(wsManager._ws?.send(shardId, packet)).catch((err: unknown) => {

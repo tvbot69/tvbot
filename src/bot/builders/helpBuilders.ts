@@ -3,6 +3,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  MessageActionRowComponentBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
@@ -381,7 +382,7 @@ export class HelpBuilders {
     }
 
     const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
-    response.addButtonRow(0, selectRow as any);
+    response.addButtonRow(0, selectRow as ActionRowBuilder<MessageActionRowComponentBuilder>);
 
     // Build Quick Action Buttons Row
     const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -417,7 +418,7 @@ export class HelpBuilders {
         .setDisabled(category === 'settings'),
     );
 
-    response.addButtonRow(1, buttonRow as any);
+    response.addButtonRow(1, buttonRow as ActionRowBuilder<MessageActionRowComponentBuilder>);
 
     return response;
   }

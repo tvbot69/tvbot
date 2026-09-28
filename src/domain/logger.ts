@@ -374,7 +374,7 @@ export class CustomLogger {
     };
   }
 
-  private print(level: string, badge: string, textColor: string, msgOrObj: Loggable, extraArgs: any[]): void {
+  private print(level: string, badge: string, textColor: string, msgOrObj: Loggable, extraArgs: unknown[]): void {
     const time = formatTimestamp();
     let message = '';
     let errObject: Error | undefined = undefined;
@@ -398,7 +398,7 @@ export class CustomLogger {
         const errLike = errField as { message?: unknown; stack?: unknown };
         errObject = errField instanceof Error ? errField : undefined;
         message =
-          extraArgs[0] ??
+          (typeof extraArgs[0] === 'string' ? extraArgs[0] : undefined) ??
           ((typeof errLike.message === 'string' && errLike.message) || 'Error occurred');
       } else if (msgField) {
         message = msgField as string;

@@ -7,6 +7,7 @@ import {
   ModalSubmitInteraction,
   TextInputBuilder,
   TextInputStyle,
+  type APIMessageTopLevelComponent,
 } from 'discord.js';
 import { singleton } from 'tsyringe';
 import { Logger } from '@domain/logger';
@@ -169,7 +170,7 @@ export class ComponentPaginatorService {
       // accident, reachable only through a cast, and a minor release could have
       // removed it with no compile error anywhere.
       await interaction.editReply({
-        components: [updatedContainer as any],
+        components: [updatedContainer as unknown as APIMessageTopLevelComponent],
         flags: MessageFlags.IsComponentsV2,
       });
     } catch (err) {

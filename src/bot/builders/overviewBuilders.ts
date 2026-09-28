@@ -76,7 +76,7 @@ export class OverviewBuilders {
     container.addActionRowComponents(buildPaginatorRow(page, totalPages, userNameLastFm, timeDescription));
 
     response.setComponentsV2Container(container);
-    (response as any)._overviewData = { userNameLastFm, displayName, timeDescription, overview };
+    response._overviewData = { userNameLastFm, displayName, timeDescription, overview };
     return response;
   }
 }

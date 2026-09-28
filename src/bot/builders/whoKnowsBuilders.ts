@@ -254,7 +254,7 @@ export class WhoKnowsBuilders {
       const initialContainer = buildContainerForPage(0);
       response.setComponentsV2Container(initialContainer);
 
-      (response as any)._paginatorSession = {
+      response._paginatorSession = {
         currentPage: 0,
         totalPages: pages.length,
         renderPage: (pageIdx: number) => buildContainerForPage(pageIdx),

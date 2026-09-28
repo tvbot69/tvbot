@@ -3,6 +3,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ContainerBuilder,
+  MessageActionRowComponentBuilder,
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
   SeparatorBuilder,
@@ -579,7 +580,7 @@ export class CountryBuilders {
     const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
     response.commandResponse = CommandResponse.Ok;
     response.setFile(imageBuffer, 'artist-map.png', `World artist map for ${displayName}`);
-    response.addButtonRow(0, selectRow as any);
+    response.addButtonRow(0, selectRow as ActionRowBuilder<MessageActionRowComponentBuilder>);
     response.setComponentsV2Container(container);
     return response;
   }

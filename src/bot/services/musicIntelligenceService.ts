@@ -384,7 +384,7 @@ export class MusicIntelligenceService {
       ...otherArtistsRaw.map((a) => a.name.toLowerCase().trim()),
     ])];
 
-    let dbArtists: any[] = [];
+    let dbArtists: Array<{ name: string; countryCode?: string | null; genres?: Array<{ name: string }> }> = [];
     if (allArtistNames.length > 0 && this.db.artist?.findMany) {
       try {
         const res = await this.db.artist.findMany({

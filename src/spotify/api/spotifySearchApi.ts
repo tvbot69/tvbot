@@ -523,8 +523,8 @@ export class SpotifySearchApi {
         return [];
       }
       if (!res.ok) return [];
-      const data: any = await res.json();
-      return (data.items ?? []).map((t: any) => t.name).filter(Boolean);
+      const data = await res.json() as { items?: Array<{ name?: string }> };
+      return (data.items ?? []).map((t) => t.name).filter((n): n is string => Boolean(n));
     } catch {
       return [];
     }

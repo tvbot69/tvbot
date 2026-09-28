@@ -170,11 +170,11 @@ export class WhoKnowsGenerator {
         const callerName =
           callerUser.discordName ||
           callerUser.lastFmUsername ||
-          (callerUser as any).userName ||
+          callerUser.userName ||
           'You';
         const callerPlays = (
           callerUser.playcount ??
-          (callerUser as any).plays ??
+          callerUser.plays ??
           0
         ).toLocaleString();
 

@@ -1,6 +1,17 @@
 import { Logger } from '@domain/logger';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 
+interface SpotifyEntity {
+  audioPreview?: { url?: string };
+  name?: string;
+  title?: string;
+  artists?: Array<{ name?: string }>;
+  subtitle?: string;
+  duration?: number;
+  coverArt?: { sources?: Array<{ url?: string }> };
+  image?: Array<{ url?: string }>;
+}
+
 interface SpotifySearchResponse {
   tracks?: {
     items?: Array<{
@@ -347,7 +358,7 @@ export class SpotifyScraperService {
       if (m?.[1]) {
         try {
           const data = JSON.parse(m[1]);
-          const entity: any = (data as any)?.props?.pageProps?.state?.data?.entity;
+          const entity = (data as { props?: { pageProps?: { state?: { data?: { entity?: SpotifyEntity } } } } })?.props?.pageProps?.state?.data?.entity;
           if (entity?.audioPreview?.url) {
             const previewUrl: string = entity.audioPreview.url;
             const trackName: string = entity.name ?? entity.title ?? 'Unknown';
@@ -389,14 +400,16 @@ export class SpotifyScraperService {
       if (Array.isArray(node)) { for (const v of node) visit(v); return; }
       const rec = node as Record<string, unknown>;
       // Direct track with audioPreview
-      if (rec.audioPreview && typeof (rec.audioPreview as any).url === 'string') {
+      const audioPreview = rec.audioPreview as { url?: string } | undefined;
+      const coverArt = rec.coverArt as { sources?: Array<{ url?: string }> } | undefined;
+      if (audioPreview && typeof audioPreview.url === 'string') {
         const title = (rec.title as string) ?? (rec.name as string);
         const subtitle = (rec.subtitle as string) ?? '';
-        if (title) candidates.push({ title, subtitle, preview: (rec.audioPreview as any).url, duration: Number((rec.duration as number) ?? 0), artwork: (rec.coverArt as any)?.sources?.[0]?.url, uri: rec.uri as string });
+        if (title) candidates.push({ title, subtitle, preview: audioPreview.url, duration: Number((rec.duration as number) ?? 0), artwork: coverArt?.sources?.[0]?.url, uri: rec.uri as string });
       }
       // Also check nested trackList
       if (rec.trackList && Array.isArray(rec.trackList)) {
-        for (const e of rec.trackList as any[]) visit(e);
+        for (const e of rec.trackList) visit(e);
       }
       for (const v of Object.values(rec)) visit(v);
     };

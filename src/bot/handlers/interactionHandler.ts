@@ -13,6 +13,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { GuildService } from '@bot/services/guild/guildService';
+import type { ComponentPaginatorSession } from '@bot/services/componentPaginatorService';
 import { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
 import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
 import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
@@ -580,8 +581,8 @@ export class InteractionHandler {
         const reply = await interaction.reply(payload);
         replyMsg = await reply.fetch().catch(() => null);
       }
-      if (replyMsg && (response as any)._paginatorSession) {
-        this.componentPaginatorService.registerSession(replyMsg.id, (response as any)._paginatorSession);
+      if (replyMsg && response._paginatorSession) {
+        this.componentPaginatorService.registerSession(replyMsg.id, response._paginatorSession as unknown as ComponentPaginatorSession);
       }
       if (response.autoDeleteSeconds && response.autoDeleteSeconds > 0) {
         const timeoutMs = response.autoDeleteSeconds * 1000;

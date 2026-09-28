@@ -750,7 +750,7 @@ export class MusicInteractions {
 
       if (result.loadType === 'error') {
         if (interaction.channel && 'send' in interaction.channel) {
-          await (interaction.channel as any).send({
+          await (interaction.channel as { send: (opts: { content: string }) => Promise<unknown> }).send({
             content: `❌ ${playErrorMessage(result.errorReason)}`,
           });
         }
@@ -767,8 +767,8 @@ export class MusicInteractions {
       );
 
       if (interaction.channel && 'send' in interaction.channel) {
-        await (interaction.channel as any).send(
-          addedResponse.toMessagePayload() as any
+        await (interaction.channel as { send: (opts: { content?: string; embeds?: unknown[]; components?: unknown[] }) => Promise<unknown> }).send(
+          addedResponse.toMessagePayload() as { content?: string; embeds?: unknown[]; components?: unknown[] }
         );
       }
       return;

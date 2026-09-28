@@ -55,7 +55,7 @@ export class ArtistTrackBuilders {
     container.addActionRowComponents(row);
 
     response.setComponentsV2Container(container);
-    (response as any)._atData = { artistName, tracks, totalArtistPlays, distinctCount };
+    response._atData = { artistName, tracks, totalArtistPlays, distinctCount };
     return response;
   }
 }

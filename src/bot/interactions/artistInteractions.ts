@@ -7,6 +7,7 @@ import { ArtistTrackService } from '@bot/services/artistTrackService';
 import { MusicBrainzService } from '@bot/services/musicBrainzService';
 import { GenreService } from '@bot/services/genreService';
 import { UserService } from '@bot/services/userService';
+import type { User } from '@domain/interfaces/iuserRepository';
 import { ColorService } from '@bot/services/colorService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
@@ -334,7 +335,7 @@ export class ArtistInteractions {
     }
   }
 
-  private async resolveTargetUser(targetDiscordId: string, fallbackDiscordId: string): Promise<any> {
+  private async resolveTargetUser(targetDiscordId: string, fallbackDiscordId: string): Promise<User | null> {
     const user = await this.userService.getUserByDiscordId(targetDiscordId);
     if (user) return user;
     return this.userService.getUserByDiscordId(fallbackDiscordId);

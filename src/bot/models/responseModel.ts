@@ -17,6 +17,9 @@ export class ResponseModel {
   public responseType: ResponseType = ResponseType.ComponentsV2;
   public referencedMusic?: ReferencedMusic;
   public _paginatorData?: Record<string, unknown>;
+  public _atData?: Record<string, unknown>;
+  public _paginatorSession?: Record<string, unknown>;
+  public _overviewData?: Record<string, unknown>;
   public emoteReactions: string[] = [];
   public embed: EmbedBuilder;
   public embedAuthorName?: string;
