@@ -158,6 +158,23 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   covered, but 5 files still hold raw queries: `playHistoryService` (8), `artistsService` (7),
   `trackService` (4), `albumService` (4), `musicIntelligenceService` (4). The CI step still
   fails for an environmental reason I have not yet isolated.
+- ✅ **CI fix: the scratch database was EMPTY.** The job-level `DATABASE_URL` points at
+  `tvbot`, so `prisma migrate deploy` migrated THAT; the test step then ran against
+  `tvbot_ci_test`, which had just been created and had no tables at all. Reproduced
+  locally (42P01 `relation "user_plays" does not exist`), then fixed by migrating the
+  scratch database before the suite runs.
+- ✅ **`npm run db:replay-keep`** builds the scratch schema and leaves it up, so
+  `npm run test:db` can be run locally against a real Postgres with one setup command.
+  `playRepository` 9/9 passes that way.
+- ⚠️ **`playHistoryService` (8 raw queries) is NOT covered yet.** A first pass at it failed
+  8/9 with 42804 on `time_played`. Running the SAME query verbatim outside the test passed,
+  so the fault is in the test harness setup, not the production query - most likely the
+  scratch `search_path` not applying to the pooled connection the service uses. Not
+  committed rather than committed broken. **This is the leading candidate for the next
+  session**, and it is worth noting the six `getYearOverview` queries all end in
+  `.catch(() => [])`, so ANY database error there is swallowed and the year chart silently
+  renders as zeros. That design hides exactly the failure this suite exists to catch, and it
+  should be revisited independently of the test.
 ### Phase 2 — test where the product lives
 - **2.1** ✅ `f062fc9` + `1d46170`. Real coverage is **49.00%**, not the 48.5% claimed — and not
   the 46.5% I first measured either. Two config bugs: `all` defaults to false, and the exclude
