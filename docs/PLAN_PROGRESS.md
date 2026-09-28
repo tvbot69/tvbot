@@ -188,6 +188,22 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   - Asserts the real shapes: NULL track lands under "Unknown Track", an empty album name is
     excluded, the 12-slot monthly array is indexed by calendar month (March = index 2),
     distinct artists are counted case-insensitively, and one user never sees another plays.
+- ✅ **`artistsService`: 9 more tests. 27/27 across three DB files against a real postgres.**
+  All seven raw queries, and the thing worth proving is the `LOWER(artist_name) = LOWER($n)`
+  comparison - a mock agrees with whatever the code does and cannot tell a case-sensitive
+  match from an insensitive one. Also asserted: `COUNT(*)` comes back as bigint and the map
+  really converts it to a number, NULL/empty names are dropped, and the global queries
+  aggregate across every user while the per-user ones do not.
+  - 🐛 **My first run had 8/9 fail with empty results, and the cause is worth recording:**
+    `ArtistsService` takes `prisma` as the FIFTH constructor parameter, not the first. Passing
+    it first compiles fine when the others are `as never`, and then every query fails inside
+    the service's own `catch { return [] }` - which is indistinguishable from "this user has no
+    plays". The same shape as the swapped-constructor bug in PLAN_PROGRESS: a positional
+    constructor and a silent catch together make a wiring mistake look like empty data.
+- ⚠️ **These DB tests are slow: 27 tests take ~83s**, because every test TRUNCATEs and that is
+  a full-table operation over a network connection. Locally that is a latency problem; in CI
+  it is a job-timeout risk, and the migrations job has a 15-minute budget. Worth watching on
+  the next CI run rather than assuming.
 ### Phase 2 — test where the product lives
 - **2.1** ✅ `f062fc9` + `1d46170`. Real coverage is **49.00%**, not the 48.5% claimed — and not
   the 46.5% I first measured either. Two config bugs: `all` defaults to false, and the exclude
