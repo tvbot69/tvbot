@@ -99,6 +99,107 @@ already-applied migration; add a new one instead.
 
 ## 3. How It Stays Under Free Plan Limits
 
-1. **Memory Cap**: The Node process will not exceed ~384MB heap.
+1. **Memory Cap**: The Node process will not exceed ~384MB heap. It is logged hourly — see [§4 Memory Observability](#4-memory-observability), which also records what is *not* measured.
 2. **Chromium Sandboxing**: Chromium runs in single-process mode, consuming ~60MB RAM only when generating image collages (`.c`, `.top`, `.wk`), releasing memory immediately when done.
 3. **No Database Polling**: The bot does not run 24/7 heavy database loops; all stats and exposure features trigger on event or via spaced cron schedules.
+
+---
+
+## 4. Memory Observability
+
+### 4.1 The constraint
+
+Railway's Starter container is **512MB**, and the Node heap is deliberately
+clamped below it:
+
+```
+npm start → node --max-old-space-size=384 dist/bot/index.js
+```
+
+The 384MB is a **V8 old-space ceiling for the Node process only**. It is not a
+budget for the container, and the container is not just Node:
+
+| Resident in the same 512MB | What it costs | Is it in `process.memoryUsage()`? |
+|---|---|---|
+| Node process (Discord.js, Prisma, caches, the 3k-entry LRU) | the 384MB clamp, plus buffers off-heap | **yes** — that is what the log line reports |
+| Chromium (Puppeteer child process) | ~60MB while a collage renders, released after | **no** — separate OS process |
+| Essentia WASM (`essentia.js`) | inside the heap + `arrayBuffers` | partially, as `arrayBuffers` |
+| Lavalink / Moonlink clients | sockets + decoded-track metadata in the heap | yes, as part of `heapUsed` |
+
+So read RSS as the **Node floor**, never as the container total. A container
+sitting near 512MB with `rss` reading 300MB is normal and expected: the
+difference is Chromium.
+
+### 4.2 The log line
+
+`src/domain/memoryReport.ts` samples the process, and `TimerService` fires it
+as the `memory-sample` job on the cron **`0 * * * *`** — once an hour, at the
+top of the hour, through the same `registerJob` machinery as every other sweep
+(no second interval). It is deliberately **not** an `onlyOwner` job: on a sharded
+deploy each shard has its own heap and only that shard can see it.
+
+Grep for it with:
+
+```
+railway logs 2>&1 | grep "Memory sample"
+```
+
+A real line (captured from a bare local `tsx` process, i.e. a floor with no
+Discord.js, Prisma or Lavalink loaded — the bot reads much higher):
+
+```
+[  ] INFO Memory sample {
+  rssMb: 53.2,
+  heapTotalMb: 12.5,
+  heapUsedMb: 8.1,
+  heapUsedPctOfCap: 2.11,
+  heapCapMb: 384,
+  externalMb: 3.6,
+  arrayBuffersMb: 1.2,
+  uptimeSeconds: 0.1449756,
+  uptime: '0s'
+}
+```
+
+How to read it:
+
+| Field | Meaning | What a bad number looks like |
+|---|---|---|
+| `rssMb` | Resident set of **this** process, excluding Chromium | climbing line by line across hours = a leak that GC is not reclaiming |
+| `heapUsedMb` | JS objects actually in use | a sawtooth is normal (GC); a rising floor is not |
+| `heapUsedPctOfCap` | `heapUsedMb` as a share of the 384MB clamp | sustained >80% means V8 will start GC-thrashing before Railway OOM-kills |
+| `heapTotalMb` | Heap V8 has *reserved* | normally larger than `heapUsedMb`; the gap is uncollected garbage |
+| `externalMb` / `arrayBuffersMb` | Buffers outside the JS heap — audio, images, WASM | rising with `arrayBuffersMb` means decoded media or PNG buffers are being retained |
+| `uptime` | `2d4h11m` — matches the `uptime` in a Docker restart | a young uptime plus high `rssMb` means "big at boot", not a leak |
+
+Two honest limits on these numbers:
+
+- `heapUsedPctOfCap` **can exceed 100**. `--max-old-space-size` bounds old space
+  only, while `heapUsed` also counts new space and the code space. Over 100 is
+  not a broken calculation.
+- The sample is a **point sample**, not a peak. A leak that spikes and is
+  collected between the hour marks will not appear here. That is the price of
+  keeping the volume at one line an hour.
+
+### 4.3 Measured peak: NOT YET MEASURED
+
+**There is no measured production peak yet.** The sampling ships in code, but it
+has not run on Railway, so no peak figure is recorded here — any number would be
+a guess presented as data.
+
+To fill this in after the first deploy that includes the sampler:
+
+1. Let the bot run at least 24 hours across its normal traffic (a weekday
+   evening and the 04:00–09:00 cron window matter most; that is when the index
+   queue and privacy purge run).
+2. `railway logs 2>&1 | grep "Memory sample"` and take the **maximum
+   `rssMb`** and **maximum `heapUsedPctOfCap`** across the window — those
+   maxima, not the last line, are the peak.
+3. Replace this paragraph with the real figures, the date range they cover, and
+   whether Chromium was rendering during the peak.
+
+Until then, treat the 384MB clamp and the 512MB container limit as design
+constraints, not as measurements. If Railway ever reports an OOM kill, the
+hourly samples in the preceding deploy are the first thing to read: a `rssMb`
+that climbed linearly says leak, a flat `rssMb` at a high value says the cap is
+simply too small for this workload.

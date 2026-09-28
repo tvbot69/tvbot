@@ -2,6 +2,7 @@ import { Manager, Connectors, type Node, type Player } from 'moonlink.js';
 import type { Client } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { getLavalinkNodes, type LavalinkNodeConfig } from '@config/lavalink';
+import { lavalinkEnableFlag, runtimeEnvironment } from '@config/musicEnv';
 import type { CacheService } from '../cacheService';
 import { MAX_QUEUE_TRACKS } from './musicConstants';
 
@@ -55,15 +56,15 @@ export class MoonlinkManager {
     // disables music even in production (push-heavy periods), 'true' enables
     // even locally. Unset defaults to enabled everywhere except local, where
     // staying dark prevents thundering herd on public nodes during rapid reloads.
-    const env = process.env.ENVIRONMENT ?? 'local';
-    const flag = process.env.ENABLE_LAVALINK;
+    const env = runtimeEnvironment();
+    const flag = lavalinkEnableFlag();
     if (flag === 'false') {
       this.lavalinkEnabled = false;
     } else {
       this.lavalinkEnabled = flag === 'true' || env !== 'local';
     }
     if (!this.lavalinkEnabled) {
-      Logger.info(`[Lavalink] Disabled (ENVIRONMENT=${env}, ENABLE_LAVALINK=${flag ?? 'unset'}) — skipping node connections.`);
+      Logger.info(`[Lavalink] Disabled (ENVIRONMENT=${env}, ENABLE_LAVALINK=${flag}) — skipping node connections.`);
       // Moonlink.js validates nodes array non-empty, so use a dummy that we never init()
       this.manager = new Manager({
         nodes: [{ identifier: 'dummy-disabled', host: '127.0.0.1', port: 2333, password: 'dummy', secure: false, retryAmount: 0, retryDelay: 60000 }],

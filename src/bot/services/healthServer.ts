@@ -5,6 +5,7 @@ import { Client } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { checkDatabaseHealth } from '@persistence/prismaClient';
 import { PuppeteerService } from '@images/generators/puppeteerService';
+import { healthPort } from '@config/runtimeEnv';
 
 export class HealthServer {
   private server: http.Server | null = null;
@@ -22,7 +23,7 @@ export class HealthServer {
 
   public start(port = 3000): void {
     if (this.server) return;
-    this.basePort = Number(process.env.HEALTH_PORT || process.env.PORT || port);
+    this.basePort = healthPort(port);
     this.port = this.basePort;
 
     this.server = http.createServer(async (req, res) => {

@@ -5,17 +5,24 @@ import path from 'path';
 import { ShardingManager } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
+import { shardCount, shardingEnabledFlag } from '@config/runtimeEnv';
 
 /**
  * Decides entry mode. Default is the current single-process worker (Railway,
  * dev, small bots). Set SHARDING_ENABLED=true (or SHARD_COUNT>1) to boot the
  * manager, which spawns one shardWorker process per shard.
+ *
+ * `env` stays injectable because `index.ts` calls this with no argument to
+ * read the real environment while the tests pass a literal - the read itself
+ * now lives in `runtimeEnv`, which is why this function no longer names
+ * `process.env` at all.
  */
-export const shouldShard = (env: NodeJS.ProcessEnv = process.env): boolean => {
-  if (env.SHARDING_ENABLED === 'true') return true;
-  if (env.SHARDING_ENABLED === 'false') return false;
-  const count = Number(env.SHARD_COUNT ?? '');
-  return Number.isFinite(count) && count > 1;
+export const shouldShard = (env?: NodeJS.ProcessEnv): boolean => {
+  const flag = shardingEnabledFlag(env);
+  if (flag === 'true') return true;
+  if (flag === 'false') return false;
+  const count = shardCount(env);
+  return count !== undefined && count > 1;
 };
 
 export const runShardManager = async (): Promise<ShardingManager> => {
@@ -25,8 +32,8 @@ export const runShardManager = async (): Promise<ShardingManager> => {
   }
 
   const totalShards: number | 'auto' = (() => {
-    const count = Number(process.env.SHARD_COUNT ?? '');
-    return Number.isFinite(count) && count > 0 ? Math.floor(count) : 'auto';
+    const count = shardCount();
+    return count !== undefined && count > 0 ? Math.floor(count) : 'auto';
   })();
 
   const manager = new ShardingManager(path.join(__dirname, 'shardWorker.js'), {

@@ -4,6 +4,7 @@ import { Client } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
 import { Statistics } from '@domain/statistics';
+import { logMemoryReport } from '@domain/memoryReport';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 import { UpdateQueueHandler } from '@bot/handlers/updateQueueHandler';
 import { UserUpdateQueueService } from './userUpdateQueueService';
@@ -75,6 +76,14 @@ export class TimerService {
       const snapshot = Statistics.snapshot();
       Logger.info({ stats: snapshot }, 'Statistics snapshot');
       container.resolve(LastfmErrorRateTracker).logAndReset();
+    });
+
+    // One sample per hour. Every shard reports its own process, so this is
+    // deliberately NOT an onlyOwner job: shard 1's heap is the one nobody else
+    // can see. No pre-existing hourly job existed to hook into, so this is its
+    // own entry rather than a second firing of statistics-log (which is */10).
+    this.registerJob('memory-sample', '0 * * * *', () => {
+      logMemoryReport();
     });
 
     this.registerJob('reconcile-index', '0 9 * * *', this.onlyOwner(async () => {

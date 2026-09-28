@@ -1,4 +1,5 @@
 import { Logger } from '@domain/logger';
+import { homeResolverToken, homeResolverUrl, resolverAlertWebhookUrl } from '@config/musicEnv';
 import { fetchDescriptionChapters } from './descriptionChapters';
 
 let pausedUntil = 0;
@@ -35,7 +36,7 @@ let lastMissAlertAt = 0;
 let lastPauseAlertAt = 0;
 
 function postAlert(text: string): void {
-  const url = (process.env.RESOLVER_ALERT_WEBHOOK_URL ?? '').trim();
+  const url = resolverAlertWebhookUrl();
   if (!url) return;
   void fetch(url, {
     method: 'POST',
@@ -78,9 +79,7 @@ function recordOutcome(miss: boolean): void {
 }
 
 export const resolverEnabled = (): boolean =>
-  !!process.env.HOME_RESOLVER_URL &&
-  !!process.env.HOME_RESOLVER_TOKEN &&
-  Date.now() >= pausedUntil;
+  !!homeResolverUrl() && !!homeResolverToken() && Date.now() >= pausedUntil;
 
 export interface VideoChapterDto {
   title: string;
@@ -183,8 +182,8 @@ const evictOldest = (m: Map<string, unknown>): void => {
  */
 async function getRugVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
   if (!resolverEnabled()) return null;
-  const base = process.env.HOME_RESOLVER_URL as string;
-  const token = process.env.HOME_RESOLVER_TOKEN as string;
+  const base = homeResolverUrl() as string;
+  const token = homeResolverToken() as string;
   try {
     const r = await fetch(`${base}/chapters?${new URLSearchParams({ id }).toString()}`, {
       headers: { authorization: token },
@@ -241,8 +240,8 @@ export async function resolveViaHome(id: string, meta?: ResolverMeta): Promise<s
   // Length-capped: URLs stay sane, server re-validates anyway.
   if (meta?.title?.trim()) params.set('title', meta.title.trim().slice(0, 200));
   if (meta?.artist?.trim()) params.set('artist', meta.artist.trim().slice(0, 200));
-  const base = process.env.HOME_RESOLVER_URL as string;
-  const token = process.env.HOME_RESOLVER_TOKEN as string;
+  const base = homeResolverUrl() as string;
+  const token = homeResolverToken() as string;
   const started = Date.now();
   try {
     const r = await fetch(`${base}/?${params.toString()}`, {

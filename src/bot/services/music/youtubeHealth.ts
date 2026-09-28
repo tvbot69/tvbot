@@ -1,3 +1,4 @@
+import { homeLadderMode, homePluginRung } from '@config/musicEnv';
 import { resolverEnabled } from './ytResolver';
 
 export type Rung = 'plugin' | 'resolver' | 'soundcloud';
@@ -11,8 +12,7 @@ export const HOME_NODE = 'Home';
  * unset) keeps the proven resolver-first order. Revert = unset the var.
  * Public nodes are never affected.
  */
-export const pluginTestMode = (): boolean =>
-  process.env.HOME_LADDER_MODE === 'plugin-first-test';
+export const pluginTestMode = (): boolean => homeLadderMode() === 'plugin-first-test';
 
 // Matches source-outage failures (login walls, bot checks, cipher death).
 // Anything else (user errors, network blips) must NOT trip the breaker.
@@ -139,7 +139,7 @@ export const ladderFor = (player: { node?: { identifier?: string } | null }): Ru
   // measured live; the outage + per-song breakers still cap the cost of a
   // miss to one failed try before falling through. Unset to revert.
   const trial = home && pluginTestMode();
-  const plugin = trial || (!home || (process.env.HOME_PLUGIN_RUNG ?? 'off') === 'on');
+  const plugin = trial || (!home || homePluginRung() === 'on');
   return healthFor(id).ladder({
     resolver: resolverEnabled() && home,
     plugin,

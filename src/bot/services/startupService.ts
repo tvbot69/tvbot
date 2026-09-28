@@ -18,6 +18,7 @@ import { QueueService } from './music/queueService';
 import { BotScrobblingService } from './music/botScrobblingService';
 
 import { errorMessage } from '@domain/discordErrors';
+import { skipSlashRegister } from '@config/runtimeEnv';
 
 @injectable()
 export class StartupService {
@@ -156,7 +157,7 @@ export class StartupService {
       Logger.debug('Skipping slash command registration on non-zero shard');
       return;
     }
-    if (process.env.SKIP_SLASH_REGISTER === 'true') {
+    if (skipSlashRegister()) {
       Logger.info('SKIP_SLASH_REGISTER=true — skipping slash command registration');
       return;
     }

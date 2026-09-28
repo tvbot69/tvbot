@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import { ConfigData } from '@bot/configurations/configData';
+import { redisUrl } from '@config/runtimeEnv';
 import { Logger } from '@domain/logger';
 
 import type { ICache } from '@domain/interfaces/icache';
@@ -20,7 +21,7 @@ export class CacheService implements ICache {
   constructor(maxEntries = DEFAULT_MAX_ENTRIES) {
     this.maxEntries = maxEntries;
 
-    const hasExplicitRedis = !!process.env.REDIS_URL;
+    const hasExplicitRedis = !!redisUrl();
     if (hasExplicitRedis) {
       try {
         this.redis = new Redis(ConfigData.Data.redis.url, {

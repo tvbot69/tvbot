@@ -240,6 +240,47 @@ const KINDS: Record<string, KindFn> = {
     }
     return n;
   },
+
+  /**
+   * `process.env` read outside `src/config`, in production code.
+   *
+   * Config discipline is not achievable by editing the files that exist today -
+   * it needs a rule, or the next contributor adds a tenth inline read and the
+   * count climbs back. `envValidator.ts` is the deliberate exception: it is the
+   * thing that validates env, so reading it is its job.
+   */
+  'process-env-outside-config': (program) => {
+    let n = 0;
+    for (const sf of program.getSourceFiles()) {
+      if (!isProduction(sf)) continue;
+      const p = path.resolve(sf.fileName).replace(/\\/g, '/');
+      if (p.includes('/src/config/')) continue;
+      if (p.includes('/src/tests/')) continue;
+      if (p.endsWith('/bot/configurations/envValidator.ts')) continue;
+      const rel = (p.split('/src/')[1] ?? p);
+      const visit = (node: ts.Node): void => {
+        // Match the `process.env` node itself, not the property read hanging
+        // off it. Testing the outer node for name === 'env' never matched
+        // `process.env.REDIS_URL`, whose own name is 'REDIS_URL' - which made
+        // this rule measure 0 and pass while reading nothing at all. A ratchet
+        // whose detector is broken is worse than no ratchet: it reports safety
+        // it has not checked.
+        if (
+          ts.isPropertyAccessExpression(node) &&
+          node.name.text === 'env' &&
+          ts.isIdentifier(node.expression) &&
+          node.expression.text === 'process'
+        ) {
+          n += 1;
+          const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+          record(rel, line + 1);
+        }
+        node.forEachChild(visit);
+      };
+      visit(sf);
+    }
+    return n;
+  },
 };
 
 /** Production source only: under src/, not a test, not a declaration. */
@@ -294,8 +335,13 @@ const loadBudgets = (): Record<string, number> => {
     );
   }
   const parsed = JSON.parse(fs.readFileSync(BUDGET_FILE, 'utf8')) as Record<string, number>;
+  // A brand-new kind has no entry yet, and the error below tells the user to run
+  // --set to record one. That path was unreachable: this check ran first and
+  // threw before applySets ever saw the argument, so the documented recovery
+  // could not work. Validate only the kinds the user is not about to set.
+  const beingSet = new Set(SET_ARGS.map((a) => a.slice('--set='.length).split('=')[0]));
   for (const kind of Object.keys(KINDS)) {
-    if (typeof parsed[kind] !== 'number') {
+    if (typeof parsed[kind] !== 'number' && !beingSet.has(kind)) {
       throw new Error(`debt budget has no entry for "${kind}" - record it with --set=${kind}=<n>`);
     }
   }

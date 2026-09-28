@@ -3,5 +3,6 @@
   "typed-catch": 0,
   "container-resolve-outside-root": 155,
   "container-resolve-in-constructor": 0,
-  "as-unknown-as": 101
+  "as-unknown-as": 101,
+  "process-env-outside-config": 0
 }

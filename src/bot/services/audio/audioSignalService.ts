@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import cp from 'child_process';
 import { Logger } from '@domain/logger';
+import { ffmpegPath, ffprobePath, setFfmpegPath, setFfprobePath } from '@config/runtimeEnv';
 
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
@@ -29,20 +30,26 @@ let resolvedFfmpeg: string | undefined;
 let resolvedFfprobe: string | undefined;
 
 try {
-  const candidatesFfmpeg = [process.env.FFMPEG_PATH, 'C:\\tools\\ffmpeg\\bin\\ffmpeg.exe', '/usr/bin/ffmpeg'].filter(Boolean) as string[];
+  const candidatesFfmpeg = [ffmpegPath(), 'C:\\tools\\ffmpeg\\bin\\ffmpeg.exe', '/usr/bin/ffmpeg'].filter(Boolean) as string[];
   for (const p of candidatesFfmpeg) if (fs.existsSync(p)) { resolvedFfmpeg = p; break; }
   if (!resolvedFfmpeg) {
     const pkg = (ffmpegStatic as { path?: string }).path ?? ffmpegStatic;
     if (typeof pkg === 'string') resolvedFfmpeg = pkg;
   }
-  const candidatesFfprobe = [process.env.FFPROBE_PATH, 'C:\\tools\\ffmpeg\\bin\\ffprobe.exe', '/usr/bin/ffprobe'].filter(Boolean) as string[];
+  const candidatesFfprobe = [ffprobePath(), 'C:\\tools\\ffmpeg\\bin\\ffprobe.exe', '/usr/bin/ffprobe'].filter(Boolean) as string[];
   for (const p of candidatesFfprobe) if (fs.existsSync(p)) { resolvedFfprobe = p; break; }
   if (!resolvedFfprobe) {
     const pkg = (ffprobeStatic as { path?: string }).path ?? ffprobeStatic;
     if (typeof pkg === 'string') resolvedFfprobe = pkg;
   }
-  if (resolvedFfmpeg) process.env.FFMPEG_PATH = resolvedFfmpeg;
-  if (resolvedFfprobe) process.env.FFPROBE_PATH = resolvedFfprobe;
+  // Publishing the resolved binaries back into the environment is load-bearing,
+  // not leftover: `voiceMessageService.getDuration` reads FFPROBE_PATH to hand a
+  // path to get-audio-duration, and on Windows its own `/usr/bin/ffprobe`
+  // fallback does not exist, so without this a voice message is stuck at the
+  // hardcoded 30s duration. The setters live in runtimeEnv so the key names
+  // are written in exactly one place.
+  if (resolvedFfmpeg) setFfmpegPath(resolvedFfmpeg);
+  if (resolvedFfprobe) setFfprobePath(resolvedFfprobe);
   ffmpeg = ffmpegFluent;
   if (resolvedFfmpeg) ffmpeg.setFfmpegPath(resolvedFfmpeg);
   if (resolvedFfprobe) ffmpeg.setFfprobePath(resolvedFfprobe);

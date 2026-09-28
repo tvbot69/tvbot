@@ -2,6 +2,7 @@ import util from 'util';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import { displayNodeEnv, isDebugLogging, isFileLoggingEnabled } from '@config/runtimeEnv';
 
 export interface LogContext {
   traceId?: string;
@@ -100,11 +101,10 @@ export class CustomLogger {
    * util.format + util.inspect + a synchronous disk append, on the hot path,
    * for logs nobody reads. Gate on the key the rest of the app actually uses.
    */
-  public isDebugEnabled =
-    process.env.LOG_LEVEL === 'debug' || (process.env.ENVIRONMENT ?? 'local') === 'local';
+  public isDebugEnabled = isDebugLogging();
   public boundContext?: LogContext;
   private logDir = path.resolve(process.cwd(), 'logs');
-  private fileLoggingEnabled = process.env.LOG_FILE !== 'false' && process.env.NODE_ENV !== 'test';
+  private fileLoggingEnabled = isFileLoggingEnabled();
   /**
    * File writes are buffered and flushed on an interval. `appendFileSync` per
    * line is 3+ blocking syscalls (existsSync/mkdirSync/append) on the event
@@ -193,7 +193,7 @@ export class CustomLogger {
       padBoxLine(`  ${ansi.brightCyan}${ansi.bold}   ██║    ╚████╔╝ ██████╔╝╚██████╔╝   ██║     ${ansi.reset}`, innerWidth),
       padBoxLine(`  ${ansi.brightCyan}${ansi.bold}   ╚═╝     ╚═══╝  ╚═════╝  ╚═════╝    ╚═╝   ${ansi.brightMagenta}v0.1.0${ansi.reset}`, innerWidth),
       padBoxLine('', innerWidth),
-      padBoxLine(`  ${ansi.brightWhite}✦ Environment${ansi.gray} : ${ansi.green}${process.env.NODE_ENV || 'development'}${ansi.reset}`, innerWidth),
+      padBoxLine(`  ${ansi.brightWhite}✦ Environment${ansi.gray} : ${ansi.green}${displayNodeEnv()}${ansi.reset}`, innerWidth),
       padBoxLine(`  ${ansi.brightWhite}✦ Node.js${ansi.gray}     : ${ansi.yellow}${process.version}${ansi.reset}`, innerWidth),
       padBoxLine(`  ${ansi.brightWhite}✦ Framework${ansi.gray}   : ${ansi.brightBlue}Discord.js v14 + Prisma + PostgreSQL${ansi.reset}`, innerWidth),
       padBoxLine(`  ${ansi.brightWhite}✦ Audio${ansi.gray}       : ${ansi.magenta}Moonlink + Essentia DSP${ansi.reset}`, innerWidth),

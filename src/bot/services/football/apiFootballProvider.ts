@@ -2,11 +2,15 @@ import { injectable } from 'tsyringe';
 import { Logger } from '@domain/logger';
 import type { FootballMatch, FootballMatchStatus, FootballTeam, LeagueOption } from '@domain/models/football/footballModels';
 import { errorMessage } from '@domain/discordErrors';
+import { apiFootballKey } from '@config/runtimeEnv';
 import type { ApiFootballFixturesResponse } from './footballApiModels';
 
 @injectable()
 export class ApiFootballProvider {
-  private readonly apiKey = process.env.API_FOOTBALL_KEY || '';
+  // Read at construction, exactly as the inline `process.env` read was: a
+  // long-lived provider should hold the key it was built with rather than
+  // re-reading it per request. '' when unconfigured.
+  private readonly apiKey = apiFootballKey();
   private readonly baseUrl = 'https://v3.football.api-sports.io';
 
   /**

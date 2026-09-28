@@ -4,6 +4,8 @@ import { createHash } from 'crypto';
 import { mkdirSync, rmSync } from 'fs';
 import path from 'path';
 import { Logger } from '@domain/logger';
+import { isProduction, puppeteerExecutablePath } from '@config/runtimeEnv';
+import { installBrowserRequestPolicy, type DenyLogger, type InterceptablePage } from '../browserRequestPolicy';
 
 export class PuppeteerService {
   private browser: Browser | null = null;
@@ -32,9 +34,18 @@ export class PuppeteerService {
   private static readonly RENDER_CACHE_TTL_MS = 3600000;
   private static readonly RENDER_CACHE_MAX = 20;
 
+  /**
+   * Distinct URLs the request policy has blocked, so one hostile cover URL
+   * cannot turn a 5s progress loop into a log flood. Capped; the overflow
+   * counter is reported once.
+   */
+  private readonly deniedUrls = new Set<string>();
+  private deniedOverflow = 0;
+  private static readonly MAX_LOGGED_DENIALS = 20;
+
   constructor() {
     // No persistent profile in dev — .puppeteer lock causes 40 chrome leak on tsx watch restarts
-    const isProd = process.env.ENVIRONMENT === 'production' || process.env.NODE_ENV === 'production';
+    const isProd = isProduction();
     if (isProd) {
       this.userDataDir = path.resolve(process.cwd(), '.puppeteer');
       try { mkdirSync(this.userDataDir, { recursive: true }); } catch { /* ignore */ }
@@ -81,7 +92,7 @@ export class PuppeteerService {
   public async preheatAsync(): Promise<void> {
     try {
       const browser = await this.ensureBrowser();
-      const page = await browser.newPage();
+      const page = await this.preparePage(browser);
       try {
         await page.setViewport({ width: 300, height: 300, deviceScaleFactor: 1 });
         await page.setContent(
@@ -105,8 +116,8 @@ export class PuppeteerService {
   }
 
   private async launchBrowser(dir: string | null): Promise<Browser> {
-    const isProd = process.env.ENVIRONMENT === 'production' || process.env.NODE_ENV === 'production';
-    const execPath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    const isProd = isProduction();
+    const execPath = puppeteerExecutablePath();
 
     return puppeteer.launch({
       headless: true,
@@ -117,7 +128,13 @@ export class PuppeteerService {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--disable-web-security',
+        // `--disable-web-security` used to sit here and is gone. Removing it is
+        // not free of doubt: a cross-origin `@font-face` IS CORS-gated, and
+        // pages/receipt.html loads its font from fm.bot, so this flag may have
+        // been the only reason that font ever rendered. Probed on 2026-09-28 —
+        // fm.bot returns `access-control-allow-origin: *`, and a Chromium
+        // launched without the flag reports the face as `loaded`. Nothing else
+        // in any page is a remote asset, so the flag bought nothing else.
         '--font-render-hinting=none',
         '--disable-background-networking',
         '--disable-background-timer-throttling',
@@ -135,6 +152,41 @@ export class PuppeteerService {
         ...(dir ? ['--disk-cache-size=33554432'] as string[] : []),
       ],
     });
+  }
+
+  /**
+   * A blocked subresource is an expected-but-notable outcome, not an error: the
+   * page's own onerror handlers already fall back to a placeholder. DEBUG, not
+   * WARN, because it happens on ordinary catalogue misses, and because WARN on
+   * every miss is exactly the noise that hides a real failure.
+   */
+  private readonly logDeniedRequest: DenyLogger = (url, reason) => {
+    if (this.deniedUrls.has(url)) return;
+    if (this.deniedUrls.size >= PuppeteerService.MAX_LOGGED_DENIALS) {
+      this.deniedOverflow++;
+      if (this.deniedOverflow === 1) {
+        Logger.debug(
+          `Puppeteer request policy: further blocked URLs suppressed after ${PuppeteerService.MAX_LOGGED_DENIALS} distinct entries`,
+        );
+      }
+      return;
+    }
+    this.deniedUrls.add(url);
+    Logger.debug(`Puppeteer request policy blocked ${url} — ${reason}`);
+  };
+
+  /**
+   * Arm request interception before anything navigates. Every page this service
+   * creates goes through here; `preheatAsync` included, because a page without
+   * the policy is a page that can reach the metadata endpoint.
+   */
+  private async preparePage(browser: Browser): Promise<Page> {
+    const page = await browser.newPage();
+    // Puppeteer's `Page` overloads are not structurally assignable to the
+    // two methods the policy uses; the cast is to that narrow interface, not to
+    // `any`, so a change on either side still fails the build.
+    await installBrowserRequestPolicy(page as unknown as InterceptablePage, this.logDeniedRequest);
+    return page;
   }
 
   private async ensureBrowser(): Promise<Browser> {
@@ -310,7 +362,7 @@ export class PuppeteerService {
     height: number,
   ): Promise<Buffer> {
     const browser = await this.ensureBrowser();
-    const page = await browser.newPage();
+    const page = await this.preparePage(browser);
     try {
       await page.setViewport({ width: width, height: height, deviceScaleFactor: 1 });
       await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 25000 });
@@ -359,7 +411,7 @@ export class PuppeteerService {
     height: number,
   ): Promise<Buffer> {
     const browser = await this.ensureBrowser();
-    const page = await browser.newPage();
+    const page = await this.preparePage(browser);
     try {
       await page.setViewport({ width: width, height: height, deviceScaleFactor: 1 });
       await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 35000 });

@@ -3,6 +3,7 @@ import fsSync from 'fs';
 import path from 'path';
 import { getAudioDurationInSeconds } from 'get-audio-duration';
 import { Logger } from '@domain/logger';
+import { ffprobePath as configuredFfprobePath } from '@config/runtimeEnv';
 
 /**
  * Preview URL hand-off between a command that resolves one and the button
@@ -61,7 +62,11 @@ export const getPreview = (id: string): string | undefined => {
 
 async function getDuration(oggPath: string): Promise<number> {
   try {
-    const ffprobePath = process.env.FFPROBE_PATH || (fsSync.existsSync('/usr/bin/ffprobe') ? '/usr/bin/ffprobe' : undefined);
+    // The configured path comes from audioSignalService's import-time
+    // resolution (see its write-back). Read lazily here, not at module scope:
+    // this file does not import audioSignalService, so on a cold import order
+    // the value may not be published yet.
+    const ffprobePath = configuredFfprobePath() || (fsSync.existsSync('/usr/bin/ffprobe') ? '/usr/bin/ffprobe' : undefined);
     const duration = Number(await getAudioDurationInSeconds(oggPath, ffprobePath));
     return Number.isFinite(duration) && duration > 0 ? duration : 30;
   } catch (err) {

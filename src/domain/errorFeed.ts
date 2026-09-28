@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from './fetchWithTimeout';
+import { errorWebhookUrl as configuredErrorWebhookUrl } from '@config/runtimeEnv';
 
 // Minimum gap between two feed posts with the same signature (spam guard).
 const THROTTLE_MS = 5 * 60 * 1000;
@@ -16,7 +17,10 @@ const signatureOf = (source: string, message: string): string =>
  * crash loop posts once per 5 minutes instead of flooding the channel.
  */
 export const reportFatalToDiscord = (source: string, err: unknown): void => {
-  const url = process.env.ERROR_WEBHOOK_URL?.trim();
+  // Read inside the function, never at module scope: this is called from
+  // uncaughtException/uncaughtRejection handlers, where a throw would replace a
+  // reported crash with an unreported one. An absent URL is a no-op.
+  const url = configuredErrorWebhookUrl();
   if (!url) return;
 
   const message = err instanceof Error ? err.message : String(err);

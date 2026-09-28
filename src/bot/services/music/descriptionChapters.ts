@@ -1,4 +1,5 @@
 import { Logger } from '@domain/logger';
+import { youtubeDataApiKey } from '@config/musicEnv';
 import type { VideoChapterDto } from './ytResolver';
 
 const FETCH_TIMEOUT_MS = 8_000;
@@ -90,7 +91,7 @@ const isWeakerTitle = (title: string): boolean =>
  */
 export async function fetchDescriptionChapters(id: string): Promise<VideoChapterDto[] | null> {
   if (!/^[\w-]{11}$/.test(id)) return null;
-  const key = (process.env.YOUTUBE_API_KEY ?? '').trim();
+  const key = youtubeDataApiKey();
   if (!key) return null;
   const now = Date.now();
 
