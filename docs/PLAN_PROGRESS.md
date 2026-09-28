@@ -88,6 +88,29 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     expression, so the detail queries group in a subquery; and an aggregate over an empty derived
     table returns one all-null row, which reads like a data problem rather than its absence
 
+### Inherited red: `db:verify-constraint` had been failing for 5 commits
+
+- 🐛 **CI was RED on `main` before this session started.** Runs 61-65 (through `6b3ceaa`, the
+  commit I inherited) all failed in the SAME step: "Verify the dedup constraint holds". Not
+  caused by the new work here - the failure predates it, and the earlier progress notes
+  recorded that step as passing, so it broke somewhere in the run they did not re-check.
+- **Root cause, found by reading the code rather than the log** (GitHub job logs need admin
+  rights, so there was no log to read): the script sent `BEGIN` and `ROLLBACK` as two
+  separate `$queryRawUnsafe` calls. **Prisma pools connections, so the two can land on
+  different connections** - there was no transaction at all, the probe inserts could
+  auto-commit, and the header's "safe against production, the ROLLBACK is unconditional"
+  claim was false. On a fresh CI database the skip path ran and the stray `ROLLBACK` then
+  errored on a connection that had never been given a transaction.
+  This is the same class as the `%ERRORLEVEL%` lesson above: a safety property asserted in
+  a comment, never executed.
+- ✅ Fixed with `prisma.$transaction(async tx => ...)`, the callback form, which pins one
+  connection for its lifetime and rolls back even when the callback throws. Failure paths
+  now `throw` instead of `return`, so a rejected control can never exit 0.
+- ✅ **Verified against the real production database:** control ACCEPTED, duplicate
+  REJECTED with 23505, and the transaction rolled back. `db:verify` is green end to end.
+- ✅ **Production checked for damage from the old broken runs:** 303,447 plays,
+  **0 duplicate keys, 0 extra rows**, index present and consistent. The stray inserts never
+  committed, which also means the constraint was never being observed at all before this.
 ### Phase 2 — test where the product lives
 - **2.1** ✅ `f062fc9` + `1d46170`. Real coverage is **49.00%**, not the 48.5% claimed — and not
   the 46.5% I first measured either. Two config bugs: `all` defaults to false, and the exclude
@@ -331,6 +354,7 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | A control insert in the constraint test was rejected | Assumed a new `user_play_id` makes a row distinct. The identity deliberately excludes the id, so it does not. The test now shifts the *identity* instead |
 | `album.getinfo` and `track.getinfo` disagree on the duration unit, and the code is right | A new test asserted both were ms. Probed the live API: album `284` (number, seconds), track `"284000"` (string, ms). A "unify these" cleanup would have introduced a real bug |
 | `artworkService` had 3 lint errors nobody ran | `--quiet` in the gates after a new ESLint rule |
+| **`db:verify-constraint` sent `BEGIN`/`ROLLBACK` as two pooled queries, so there was no transaction - and CI had been red for 5 commits** | Checking the Actions API instead of trusting the progress notes, then reading the script. The header claimed it was "safe against production" and it was not |
 
 ## Mistakes I made, so they are not repeated
 
