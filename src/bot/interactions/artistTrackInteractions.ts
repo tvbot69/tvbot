@@ -1,16 +1,18 @@
+import { inject, injectable , container} from 'tsyringe';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/artistTrackService';
 import { ColorService } from '@bot/services/colorService';
-import { container } from 'tsyringe';
 
+@injectable()
 export class ArtistTrackInteractions {
-  private readonly artistTrackService: ArtistTrackService;
-  private readonly colorService: ColorService;
 
-  constructor() {
-    this.artistTrackService = container.resolve(ArtistTrackService);
-    this.colorService = container.resolve(ColorService);
+  constructor(
+    @inject(ArtistTrackService)
+    private readonly artistTrackService: ArtistTrackService,
+    @inject(ColorService)
+    private readonly colorService: ColorService,
+  ) {
   }
 
   public async handle(interaction: ButtonInteraction): Promise<void> {

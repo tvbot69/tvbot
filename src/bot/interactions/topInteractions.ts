@@ -1,23 +1,25 @@
+import { inject, injectable , container} from 'tsyringe';
 import { ActionRowBuilder, ButtonInteraction, MessageFlags, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { TopBuilders } from '@bot/builders/topBuilders';
 import { resolveTopBuildersDeps } from '@bot/builders/topBuildersDeps';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { SettingService } from '@bot/services/settingService';
 import { ColorService } from '@bot/services/colorService';
-import { container } from 'tsyringe';
 import { registerModalHandler } from '@bot/interactions';
 import { Logger } from '@domain/logger';
 import { respondToModalWithPage } from './modalPageResponse';
 
+@injectable()
 export class TopInteractions {
-  private readonly lastfmRepository: LastFmRepository;
-  private readonly settingService: SettingService;
-  private readonly colorService: ColorService;
 
-  constructor() {
-    this.lastfmRepository = container.resolve(LastFmRepository);
-    this.settingService = container.resolve(SettingService);
-    this.colorService = container.resolve(ColorService);
+  constructor(
+    @inject(LastFmRepository)
+    private readonly lastfmRepository: LastFmRepository,
+    @inject(SettingService)
+    private readonly settingService: SettingService,
+    @inject(ColorService)
+    private readonly colorService: ColorService,
+  ) {
 
     // Jump modals — "Enter a page number (1-31)" as in fmbot (Fergun AddJumpButton)
     registerModalHandler('top-jump', async (interaction) => {

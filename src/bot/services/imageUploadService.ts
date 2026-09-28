@@ -1,13 +1,15 @@
-import { container } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import { Client, type Channel, TextChannel } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
 
+@injectable()
 export class ImageUploadService {
-  private readonly client: Client;
 
-  constructor() {
-    this.client = container.resolve(Client);
+  constructor(
+    @inject(Client)
+    private readonly client: Client,
+  ) {
   }
 
   public async uploadToStagingChannel(

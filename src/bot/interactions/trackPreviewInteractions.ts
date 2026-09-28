@@ -1,4 +1,4 @@
-import { container } from 'tsyringe';
+import { inject, injectable } from 'tsyringe';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { VoiceMessageService, getPreview } from '@bot/services/audio/voiceMessageService';
 import { downloadAndConvert } from '@bot/services/audio/audioSignalService';
@@ -7,11 +7,13 @@ import { Logger } from '@domain/logger';
 
 export const TRACK_PREVIEW_PREFIX = 'track-preview:';
 
+@injectable()
 export class TrackPreviewInteractions {
-  private readonly voiceService: VoiceMessageService;
 
-  constructor() {
-    this.voiceService = container.resolve(VoiceMessageService);
+  constructor(
+    @inject(VoiceMessageService)
+    private readonly voiceService: VoiceMessageService,
+  ) {
   }
 
   /**

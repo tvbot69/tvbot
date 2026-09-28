@@ -1,3 +1,4 @@
+import { inject, injectable , container} from 'tsyringe';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { ArtistBuilders } from '@bot/builders/artistBuilders';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
@@ -10,26 +11,27 @@ import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { prisma } from '@persistence/prismaClient';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
-import { container } from 'tsyringe';
 import { Logger } from '@domain/logger';
 
+@injectable()
 export class ArtistInteractions {
-  private readonly artistTrackService: ArtistTrackService;
-  private readonly musicBrainzService: MusicBrainzService;
-  private readonly genreService: GenreService;
-  private readonly userService: UserService;
-  private readonly colorService: ColorService;
-  private readonly spotifySearchApi: SpotifySearchApi;
-  private readonly lastfmRepository: LastFmRepository;
 
-  constructor() {
-    this.artistTrackService = container.resolve(ArtistTrackService);
-    this.musicBrainzService = container.resolve(MusicBrainzService);
-    this.genreService = container.resolve(GenreService);
-    this.userService = container.resolve(UserService);
-    this.colorService = container.resolve(ColorService);
-    this.spotifySearchApi = container.resolve(SpotifySearchApi);
-    this.lastfmRepository = container.resolve(LastFmRepository);
+  constructor(
+    @inject(ArtistTrackService)
+    private readonly artistTrackService: ArtistTrackService,
+    @inject(MusicBrainzService)
+    private readonly musicBrainzService: MusicBrainzService,
+    @inject(GenreService)
+    private readonly genreService: GenreService,
+    @inject(UserService)
+    private readonly userService: UserService,
+    @inject(ColorService)
+    private readonly colorService: ColorService,
+    @inject(SpotifySearchApi)
+    private readonly spotifySearchApi: SpotifySearchApi,
+    @inject(LastFmRepository)
+    private readonly lastfmRepository: LastFmRepository,
+  ) {
   }
 
   public async handle(interaction: ButtonInteraction): Promise<void> {

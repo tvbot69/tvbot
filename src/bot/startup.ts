@@ -425,7 +425,7 @@ export const configureContainer = (): void => {
   const puppeteerService = new PuppeteerService();
   const imageChartService = new ImageChartService(puppeteerService);
   const whoKnowsGenerator = new WhoKnowsGenerator(puppeteerService);
-  const imageUploadService = new ImageUploadService();
+  const imageUploadService = container.resolve(ImageUploadService);
   const chartService = new BotChartService(
     artworkService,
     lastFmRepository,
@@ -680,15 +680,15 @@ export const configureContainer = (): void => {
   const previewResolverService = new PreviewResolverService(appleMusicSearchApi, deezerApi, cache, spotifyScraperService, spotifySearchApi);
   const trackDetailsService = new TrackDetailsService(previewResolverService, essentiaService, spotifySearchApi);
   const overviewService = new OverviewService(genreService);
-  const topInteractions = new TopInteractions();
+  const topInteractions = container.resolve(TopInteractions);
   const voiceMessageService = new VoiceMessageService();
   const trackSlashCommands = new TrackSlashCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, colorService);
   const trackCommands = new TrackCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, lyricsService, colorService);
-  const trackPreviewInteractions = new TrackPreviewInteractions();
+  const trackPreviewInteractions = container.resolve(TrackPreviewInteractions);
   const artistTrackService = new ArtistTrackService();
   const artistTrackSlashCommands = new ArtistTrackSlashCommands(userService, artistTrackService, lastFmRepository, updateService);
   const artistTrackCommands = new ArtistTrackCommands(userService, artistTrackService, lastFmRepository, updateService);
-  const artistTrackInteractions = new ArtistTrackInteractions();
+  const artistTrackInteractions = container.resolve(ArtistTrackInteractions);
 
   container.registerInstance(EssentiaService, essentiaService);
   container.registerInstance(PreviewResolverService, previewResolverService);
@@ -714,7 +714,7 @@ export const configureContainer = (): void => {
   const musicBrainzService = new MusicBrainzService(cache);
   const artistCommands = new ArtistCommands(userService, artistTrackService, musicBrainzService, genreService, spotifySearchApi, lastFmRepository, updateService, artistsService);
   const artistSlashCommands = new ArtistSlashCommands(userService, artistTrackService, musicBrainzService, genreService, spotifySearchApi, lastFmRepository, updateService);
-  const artistInteractions = new ArtistInteractions();
+  const artistInteractions = container.resolve(ArtistInteractions);
 
   container.registerInstance(TopSlashCommands, topSlashCommands);
   container.registerInstance(OverviewSlashCommands, overviewSlashCommands);
@@ -991,11 +991,11 @@ export const configureContainer = (): void => {
     UpdateQueueHandler,
     new UpdateQueueHandler(userUpdateQueue, updateService),
   );
-  container.registerInstance(UserEventHandler, new UserEventHandler());
+  container.registerInstance(UserEventHandler, container.resolve(UserEventHandler));
 
   container.registerInstance(
     StartupService,
-    new StartupService(),
+    container.resolve(StartupService),
   );
 };
 

@@ -1,5 +1,5 @@
+import { inject, injectable , container} from 'tsyringe';
 import { createHash } from 'crypto';
-import { container } from 'tsyringe';
 import { Client, Events, ActivityType } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
@@ -19,21 +19,23 @@ import { BotScrobblingService } from './music/botScrobblingService';
 
 import { errorMessage } from '@domain/discordErrors';
 
+@injectable()
 export class StartupService {
-  private readonly client: Client;
-  private readonly timerService: TimerService;
-  private readonly puppeteerService: PuppeteerService;
-  private readonly guildService: GuildService;
-  private readonly moonlinkManager: MoonlinkManager;
-  private readonly healthServer: HealthServer;
 
-  constructor() {
-    this.client = container.resolve(Client);
-    this.timerService = container.resolve(TimerService);
-    this.puppeteerService = container.resolve(PuppeteerService);
-    this.guildService = container.resolve(GuildService);
-    this.moonlinkManager = container.resolve(MoonlinkManager);
-    this.healthServer = container.resolve(HealthServer);
+  constructor(
+    @inject(Client)
+    private readonly client: Client,
+    @inject(TimerService)
+    private readonly timerService: TimerService,
+    @inject(PuppeteerService)
+    private readonly puppeteerService: PuppeteerService,
+    @inject(GuildService)
+    private readonly guildService: GuildService,
+    @inject(MoonlinkManager)
+    private readonly moonlinkManager: MoonlinkManager,
+    @inject(HealthServer)
+    private readonly healthServer: HealthServer,
+  ) {
   }
 
   public async startAsync(): Promise<void> {
