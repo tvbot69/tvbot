@@ -111,6 +111,19 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 - ✅ **Production checked for damage from the old broken runs:** 303,447 plays,
   **0 duplicate keys, 0 extra rows**, index present and consistent. The stray inserts never
   committed, which also means the constraint was never being observed at all before this.
+- 🐛 **The ACTUAL cause of the red was a table name: the script queried `FROM "user"`, and
+  the mapped table is `users`.** That is 42P01 on every run, so the count query threw before
+  the skip could be reported. The transaction fix above was a genuine latent bug (a safety
+  claim that was false) but it was NOT why CI was red, and I first reported it as the cause.
+  Reading the code found the real one; no job log was available to say so.
+- ✅ Verified against the LIVE schema without executing anything (`EXPLAIN`): the SEED,
+  COPY, ROW and count statements all parse. The seed path is the branch CI exercises on an
+  empty database and production never reaches, so it had never run at all.
+- ⚠️ **Read the live schema; do not trust the Prisma model for column names.** Probing
+  `information_schema` showed `user_crowns(user_id, artist_name, current_playcount, ...)`
+  in snake_case, not the camelCase the Prisma client suggests, and there is no `genres`
+  table at all - genres live in `artist_genres`. Guessed column names produced five
+  convincing 42703 errors that were all mine, not the repo's.
 ### Phase 2 — test where the product lives
 - **2.1** ✅ `f062fc9` + `1d46170`. Real coverage is **49.00%**, not the 48.5% claimed — and not
   the 46.5% I first measured either. Two config bugs: `all` defaults to false, and the exclude

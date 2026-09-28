@@ -30,7 +30,7 @@ const prisma = new PrismaClient();
 const SEED = `
   INSERT INTO user_plays ("user_id", "time_played", "artist_name", "track_name", "play_source")
   SELECT u."user_id", now(), 'Constraint Probe', 'constraint probe track', 'LastFm'::"PlaySource"
-    FROM "user" u LIMIT 1
+    FROM users u LIMIT 1
   RETURNING "user_play_id", "user_id", "time_played", "artist_name", "track_name",
             "play_source"::text AS "play_source"`;
 
@@ -75,7 +75,7 @@ const main = async (): Promise<void> => {
       // Fresh CI database. Needs a user row to satisfy the FK, and there will
       // be none, so report the skip honestly rather than inventing a user.
       const users = await tx.$queryRawUnsafe<{ n: bigint }[]>(
-        `SELECT count(*) AS n FROM "user"`,
+        `SELECT count(*) AS n FROM users`,
       );
       if ((users[0]?.n ?? 0n) === 0n) {
         console.log(
