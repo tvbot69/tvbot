@@ -36,14 +36,14 @@ export class TrackSlashCommands implements ISlashCommandModule {
           .setDescription('Shows track scrobble stats and details for a user')
           .addStringOption(o => o.setName('track').setDescription('Track name (or "Artist | Track")').setRequired(false))
           .addStringOption(o => o.setName('artist').setDescription('Artist name (if not using "Artist | Track")').setRequired(false))
-          .addUserOption(o => o.setName('user').setDescription('The user whose track stats you want to check').setRequired(false)) as any,
+          .addUserOption(o => o.setName('user').setDescription('The user whose track stats you want to check').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.trackAsync(ctx),
       },
       {
         data: new SlashCommandBuilder()
           .setName('trackdetails')
           .setDescription('Shows metadata for current track or the one you\'re searching for')
-          .addStringOption(o => o.setName('track').setDescription('Track to search for (defaults to currently playing)').setRequired(false)) as any,
+          .addStringOption(o => o.setName('track').setDescription('Track to search for (defaults to currently playing)').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.trackDetailsAsync(ctx),
       },
       {
@@ -51,7 +51,7 @@ export class TrackSlashCommands implements ISlashCommandModule {
           .setName('love')
           .setDescription('Loves a track on Last.fm (defaults to currently playing)')
           .addStringOption(o => o.setName('track').setDescription('Track name (or "Artist | Track")').setRequired(false))
-          .addStringOption(o => o.setName('artist').setDescription('Artist name').setRequired(false)) as any,
+          .addStringOption(o => o.setName('artist').setDescription('Artist name').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.loveAsync(ctx),
       },
       {
@@ -59,14 +59,14 @@ export class TrackSlashCommands implements ISlashCommandModule {
           .setName('unlove')
           .setDescription('Removes the track from your Last.fm loved tracks')
           .addStringOption(o => o.setName('track').setDescription('Track name (or "Artist | Track")').setRequired(false))
-          .addStringOption(o => o.setName('artist').setDescription('Artist name').setRequired(false)) as any,
+          .addStringOption(o => o.setName('artist').setDescription('Artist name').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.unloveAsync(ctx),
       },
       {
         data: new SlashCommandBuilder()
           .setName('loved')
           .setDescription('Shows your or another user\'s loved tracks on Last.fm')
-          .addUserOption(o => o.setName('user').setDescription('The user whose loved tracks you want to view').setRequired(false)) as any,
+          .addUserOption(o => o.setName('user').setDescription('The user whose loved tracks you want to view').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.lovedAsync(ctx),
       },
       {
@@ -75,7 +75,7 @@ export class TrackSlashCommands implements ISlashCommandModule {
           .setDescription('Scrobbles a track to Last.fm')
           .addStringOption(o => o.setName('track').setDescription('Track name').setRequired(true))
           .addStringOption(o => o.setName('artist').setDescription('Artist name').setRequired(true))
-          .addStringOption(o => o.setName('album').setDescription('Album name (optional)').setRequired(false)) as any,
+          .addStringOption(o => o.setName('album').setDescription('Album name (optional)').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.scrobbleAsync(ctx),
       },
     ];

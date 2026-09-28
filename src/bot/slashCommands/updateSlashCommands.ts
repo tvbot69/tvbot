@@ -37,7 +37,7 @@ export class UpdateSlashCommands implements ISlashCommandModule {
               .setDescription('Type of update to perform')
               .addChoices(...updateChoices)
               .setRequired(false),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.updateAsync(ctx),
       },
     ];

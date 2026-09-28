@@ -154,7 +154,7 @@ export class TopInteractions {
           else if (action === 'last') targetPage = totalPages - 1;
           response = await TopBuilders.buildTopTracksResponse(resolveTopBuildersDeps(), userNameLastFm, displayName, items, timeSettings, targetPage, accentColor);
         }
-        await interaction.update({ embeds: response.buildEmbed() as any, components: response.buildComponents() as any }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
+        await interaction.update({ embeds: response.buildEmbed(), components: response.buildComponents() }).catch(async () => { await interaction.deferUpdate().catch(() => undefined); });
         return;
       }
       if (prefix === 'overview') {

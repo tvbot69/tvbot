@@ -89,7 +89,7 @@ export class GenreSlashCommands implements ISlashCommandModule {
                   .setDescription('Artist name')
                   .setRequired(true),
               ),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.handleGenreSlash(ctx),
       },
     ];

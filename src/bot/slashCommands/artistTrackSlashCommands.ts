@@ -26,7 +26,7 @@ export class ArtistTrackSlashCommands implements ISlashCommandModule {
   ) {
     this.commands = [
       {
-        data: new SlashCommandBuilder().setName('at').setDescription("Your top tracks for an artist").addStringOption(o => o.setName('artist').setDescription('Artist name (defaults to currently playing)').setRequired(false).setAutocomplete(true)) as any,
+        data: new SlashCommandBuilder().setName('at').setDescription("Your top tracks for an artist").addStringOption(o => o.setName('artist').setDescription('Artist name (defaults to currently playing)').setRequired(false).setAutocomplete(true)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.atAsync(ctx),
       },
     ];

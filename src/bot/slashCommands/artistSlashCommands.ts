@@ -58,7 +58,7 @@ export class ArtistSlashCommands implements ISlashCommandModule {
               .setName('tracks')
               .setDescription('Your top tracks for an artist')
               .addStringOption(o => o.setName('artist').setDescription('Artist name').setRequired(false).setAutocomplete(true)),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.handleSubcommandAsync(ctx),
       },
     ];

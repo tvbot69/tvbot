@@ -30,7 +30,7 @@ export class TasteSlashCommands implements ISlashCommandModule {
           )
           .addStringOption((opt) =>
             opt.setName('username').setDescription('Last.fm username to compare with').setRequired(false),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.tasteAsync(ctx),
       },
     ];

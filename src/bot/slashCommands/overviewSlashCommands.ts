@@ -23,7 +23,7 @@ export class OverviewSlashCommands implements ISlashCommandModule {
   ) {
     this.commands = [
       {
-        data: new SlashCommandBuilder().setName('overview').setDescription('Daily overview').addStringOption(o => o.setName('user').setDescription('User to show').setRequired(false)) as any,
+        data: new SlashCommandBuilder().setName('overview').setDescription('Daily overview').addStringOption(o => o.setName('user').setDescription('User to show').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.overviewAsync(ctx),
       },
     ];

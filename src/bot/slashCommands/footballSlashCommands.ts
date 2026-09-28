@@ -41,7 +41,7 @@ export class FootballSlashCommands implements ISlashCommandModule {
 
     this.commands = [
       {
-        data: builder as any,
+        data: builder as SlashCommandBuilder,
         executeAsync: (ctx) => this.matchesAsync(ctx),
       },
     ];

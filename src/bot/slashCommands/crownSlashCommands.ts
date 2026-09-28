@@ -37,7 +37,7 @@ export class CrownSlashCommands implements ISlashCommandModule {
           )
           .addIntegerOption((opt) =>
             opt.setName('page').setDescription('Page number').setMinValue(1).setRequired(false),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.crownsAsync(ctx),
       },
       {
@@ -49,7 +49,7 @@ export class CrownSlashCommands implements ISlashCommandModule {
           )
           .addUserOption((opt) =>
             opt.setName('user').setDescription('Compare with a specific user').setRequired(false),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.crownAsync(ctx),
       },
       {
@@ -58,7 +58,7 @@ export class CrownSlashCommands implements ISlashCommandModule {
           .setDescription('Leaderboard of top crown holders in this server')
           .addIntegerOption((opt) =>
             opt.setName('page').setDescription('Page number').setMinValue(1).setRequired(false),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.crownLbAsync(ctx),
       },
       {
@@ -67,7 +67,7 @@ export class CrownSlashCommands implements ISlashCommandModule {
           .setDescription('Admin command to seed/refresh crowns for this server')
           .addIntegerOption((opt) =>
             opt.setName('min_plays').setDescription('Minimum playcount threshold (default 30)').setMinValue(1).setRequired(false),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.crownSeedAsync(ctx),
       },
     ];

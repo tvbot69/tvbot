@@ -36,15 +36,15 @@ export class TopSlashCommands implements ISlashCommandModule {
   ) {
     this.commands = [
       {
-        data: new SlashCommandBuilder().setName('topartists').setDescription('Top artists for a time period').addStringOption(o => o.setName('period').setDescription('Time period').addChoices(...periodChoices).setRequired(false)).addStringOption(o => o.setName('user').setDescription('User to show (default: you)').setRequired(false)) as any,
+        data: new SlashCommandBuilder().setName('topartists').setDescription('Top artists for a time period').addStringOption(o => o.setName('period').setDescription('Time period').addChoices(...periodChoices).setRequired(false)).addStringOption(o => o.setName('user').setDescription('User to show (default: you)').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.topArtistsAsync(ctx),
       },
       {
-        data: new SlashCommandBuilder().setName('topalbums').setDescription('Top albums for a time period').addStringOption(o => o.setName('period').setDescription('Time period').addChoices(...periodChoices).setRequired(false)).addStringOption(o => o.setName('user').setDescription('User to show (default: you)').setRequired(false)) as any,
+        data: new SlashCommandBuilder().setName('topalbums').setDescription('Top albums for a time period').addStringOption(o => o.setName('period').setDescription('Time period').addChoices(...periodChoices).setRequired(false)).addStringOption(o => o.setName('user').setDescription('User to show (default: you)').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.topAlbumsAsync(ctx),
       },
       {
-        data: new SlashCommandBuilder().setName('toptracks').setDescription('Top tracks for a time period').addStringOption(o => o.setName('period').setDescription('Time period').addChoices(...periodChoices).setRequired(false)).addStringOption(o => o.setName('user').setDescription('User to show (default: you)').setRequired(false)) as any,
+        data: new SlashCommandBuilder().setName('toptracks').setDescription('Top tracks for a time period').addStringOption(o => o.setName('period').setDescription('Time period').addChoices(...periodChoices).setRequired(false)).addStringOption(o => o.setName('user').setDescription('User to show (default: you)').setRequired(false)) as SlashCommandBuilder,
         executeAsync: (ctx) => this.topTracksAsync(ctx),
       },
     ];

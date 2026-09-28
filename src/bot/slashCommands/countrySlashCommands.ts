@@ -114,7 +114,7 @@ export class CountrySlashCommands implements ISlashCommandModule {
                   .setDescription('User to show (default: yourself)')
                   .setRequired(false),
               ),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.handleCountrySlash(ctx),
       },
       {
@@ -133,7 +133,7 @@ export class CountrySlashCommands implements ISlashCommandModule {
               .setName('user')
               .setDescription('User to show (default: yourself)')
               .setRequired(false),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.handleTopCountriesSlash(ctx),
       },
       {
@@ -159,7 +159,7 @@ export class CountrySlashCommands implements ISlashCommandModule {
               .setName('user')
               .setDescription('User to show (default: yourself)')
               .setRequired(false),
-          ) as any,
+          ) as SlashCommandBuilder,
         executeAsync: (ctx) => this.handleCountryChartSlash(ctx),
       },
     ];
