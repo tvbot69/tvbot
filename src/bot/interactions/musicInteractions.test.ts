@@ -2,6 +2,13 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { GuildMember, type ButtonInteraction, type StringSelectMenuInteraction } from 'discord.js';
 import { MusicInteractions } from './musicInteractions';
+import { MusicBuilders } from '@bot/builders/musicBuilders';
+
+const makeMember = () => {
+  const member = Object.create(GuildMember.prototype);
+  Object.defineProperty(member, 'voice', { value: { channel: { id: 'vc' } } });
+  return member;
+};
 
 describe('MusicInteractions control-row hardening', () => {
   const makeMember = () => {
@@ -289,5 +296,1091 @@ describe('MusicInteractions lyric rebuilds', () => {
   it('returns null when karaoke is disabled or lines are missing', () => {
     expect(lyricWindowFor(lyricSvc({ karaoke: false }))).toBeNull();
     expect(lyricWindowFor(lyricSvc({ lines: null }))).toBeNull();
+  });
+});
+
+describe('MusicInteractions.handleButton entry guards', () => {
+  const makeMember = (inVoice: boolean) => {
+    const member = Object.create(GuildMember.prototype);
+    Object.defineProperty(member, 'voice', { value: inVoice ? { channel: { id: 'vc' } } : undefined });
+    return member;
+  };
+
+  const makeButton = (customId: string, userId: string, member: unknown, over: Record<string, unknown> = {}) =>
+    ({
+      customId,
+      guildId: 'g1',
+      user: { id: userId, tag: `${userId}#1` },
+      member,
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      followUp: vi.fn(async () => undefined),
+      editReply: vi.fn(async () => undefined),
+      deferReply: vi.fn(async () => undefined),
+      message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
+      ...over,
+    }) as unknown as ButtonInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+      followUp: ReturnType<typeof vi.fn>;
+      editReply: ReturnType<typeof vi.fn>;
+      deferReply: ReturnType<typeof vi.fn>;
+    };
+
+  const makeSvc = (queue: unknown) => ({
+    getQueueInfo: vi.fn(() => queue),
+    canControlPlayback: vi.fn(() => true),
+  });
+
+  const makeInteractions = (svc: unknown) =>
+    new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+
+  it('rejects a press outside a server', async () => {
+    const mi = makeInteractions(makeSvc(null));
+    const press = makeButton('music:control:skip', 'u1', makeMember(true), { guildId: null });
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('only be used in a server');
+  });
+
+  it('rejects a press from a member not in a voice channel', async () => {
+    const mi = makeInteractions(makeSvc(null));
+    const press = makeButton('music:control:skip', 'u1', makeMember(false));
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('must be in a voice channel');
+  });
+});
+
+describe('MusicInteractions search cancel', () => {
+  const makeButton = () =>
+    ({
+      customId: 'music:search:cancel',
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      message: { id: 'msg-1', embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
+    }) as unknown as ButtonInteraction & {
+      deferUpdate: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    };
+
+  it('drops the stored results and deletes the search message', async () => {
+    const mi = new MusicInteractions(
+      { getQueueInfo: vi.fn(() => null), canControlPlayback: vi.fn(() => true) } as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    const press = makeButton();
+    mi.storeSearchResults('msg-1', [{ title: 'T', author: 'A', uri: 'https://x', source: 'youtube' } as never]);
+
+    await mi.handleButton(press);
+
+    const store = (mi as unknown as { activeSearches: { get: (k: string) => Promise<unknown> } }).activeSearches;
+    expect(await store.get('msg-1')).toBeUndefined();
+    expect(press.message.delete).toHaveBeenCalledTimes(1);
+    expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MusicInteractions view buttons', () => {
+  const makeButton = (over: Record<string, unknown> = {}) =>
+    ({
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      followUp: vi.fn(async () => undefined),
+      message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
+      ...over,
+    }) as unknown as ButtonInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+      followUp: ReturnType<typeof vi.fn>;
+    };
+
+  const makeSvc = (queue: unknown) => ({
+    getQueueInfo: vi.fn(() => queue),
+    canControlPlayback: vi.fn(() => true),
+  });
+
+  const makeInteractions = (svc: unknown) =>
+    new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+
+  const playingQueue = {
+    current: { title: 'Airbag', author: 'Radiohead', uri: 'https://yt/abc', source: 'youtube', duration: 258000 },
+    position: 1000,
+    isPaused: false,
+    loopMode: 'off',
+    tracks: [],
+  };
+
+  it('view_nowplaying updates a Components V2 message in place', async () => {
+    const mi = makeInteractions(makeSvc(playingQueue));
+    const press = makeButton({ customId: 'music:control:view_nowplaying' });
+
+    await mi.handleButton(press);
+
+    expect(press.update).toHaveBeenCalledTimes(1);
+    expect(press.message.delete).not.toHaveBeenCalled();
+    expect(press.followUp).not.toHaveBeenCalled();
+  });
+
+  it('view_nowplaying swaps a legacy message instead of morphing it into V2', async () => {
+    const mi = makeInteractions(makeSvc(playingQueue));
+    const press = makeButton({
+      customId: 'music:control:view_nowplaying',
+      message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => false } },
+    });
+
+    await mi.handleButton(press);
+
+    expect(press.update).not.toHaveBeenCalled();
+    expect(press.message.delete).toHaveBeenCalledTimes(1);
+    expect(press.followUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('view_nowplaying replies when nothing is playing', async () => {
+    const mi = makeInteractions(makeSvc(null));
+    const press = makeButton({ customId: 'music:control:view_nowplaying' });
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
+    expect(press.update).not.toHaveBeenCalled();
+  });
+
+  it('view_queue updates with the queue card', async () => {
+    const tracks = Array.from({ length: 3 }, (_, i) => ({ title: `T${i}`, author: 'A', duration: 180000 }));
+    const mi = makeInteractions(makeSvc({ ...playingQueue, tracks }));
+    const press = makeButton({ customId: 'music:control:view_queue' });
+
+    await mi.handleButton(press);
+
+    expect(press.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('view_queue replies when nothing is playing', async () => {
+    const mi = makeInteractions(makeSvc(null));
+    const press = makeButton({ customId: 'music:control:view_queue' });
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
+  });
+});
+
+describe('MusicInteractions lyrics button', () => {
+  const makeButton = () =>
+    ({
+      customId: 'music:control:lyrics',
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      deferReply: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      editReply: vi.fn(async () => undefined),
+      message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
+    }) as unknown as ButtonInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferReply: ReturnType<typeof vi.fn>;
+      editReply: ReturnType<typeof vi.fn>;
+    };
+
+  const makeSvc = (queue: unknown) => ({
+    getQueueInfo: vi.fn(() => queue),
+    canControlPlayback: vi.fn(() => true),
+  });
+
+  const makeInteractions = (svc: unknown, lyrics: unknown) =>
+    new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      lyrics as never,
+    );
+
+  const queue = {
+    current: { title: 'Airbag', author: 'Radiohead', uri: 'https://yt/abc', source: 'youtube' },
+    position: 0,
+    isPaused: false,
+    loopMode: 'off',
+    tracks: [],
+  };
+
+  it('replies when nothing is playing', async () => {
+    const mi = makeInteractions(makeSvc(null), { getLyrics: vi.fn(async () => null) });
+    const press = makeButton();
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
+    expect(press.editReply).not.toHaveBeenCalled();
+  });
+
+  it('reports a lookup miss instead of rendering an empty card', async () => {
+    const lyricsSvc = { getLyrics: vi.fn(async () => null) };
+    const mi = makeInteractions(makeSvc(queue), lyricsSvc);
+    const press = makeButton();
+
+    await mi.handleButton(press);
+
+    expect(lyricsSvc.getLyrics).toHaveBeenCalledWith('Airbag', 'Radiohead');
+    expect((press.editReply.mock.calls[0]![0] as { content: string }).content).toContain('Could not find lyrics for: **Airbag**');
+  });
+
+  it('renders found lyrics through editReply', async () => {
+    const lyricsSvc = { getLyrics: vi.fn(async () => ({ title: 'Airbag', artist: 'Radiohead', plainLyrics: 'In an interstellar burst' })) };
+    const mi = makeInteractions(makeSvc(queue), lyricsSvc);
+    const press = makeButton();
+
+    await mi.handleButton(press);
+
+    expect(press.editReply).toHaveBeenCalledTimes(1);
+  });
+
+  it('truncates lyrics longer than 4000 characters', async () => {
+    const longLyrics = 'la'.repeat(2100);
+    const lyricsSvc = { getLyrics: vi.fn(async () => ({ title: 'Airbag', artist: 'Radiohead', plainLyrics: longLyrics })) };
+    const spy = vi.spyOn(MusicBuilders, 'buildLyricsResponse');
+    const mi = makeInteractions(makeSvc(queue), lyricsSvc);
+    const press = makeButton();
+
+    await mi.handleButton(press);
+
+    const passed = spy.mock.calls[0]![2] as string;
+    expect(passed).toContain('Lyrics truncated');
+    expect(passed.length).toBeLessThan(longLyrics.length);
+  });
+});
+
+describe('MusicInteractions filters button and reset', () => {
+  const makeButton = (customId: string) =>
+    ({
+      customId,
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
+    }) as unknown as ButtonInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    };
+
+  const queue = {
+    current: { title: 'Airbag', author: 'Radiohead', uri: 'https://yt/abc', source: 'youtube' },
+    position: 0,
+    isPaused: false,
+    loopMode: 'off',
+    tracks: [],
+    activeFilters: [] as string[],
+  };
+
+  it('open_filters updates with the filters panel', async () => {
+    const svc = { getQueueInfo: vi.fn(() => queue), canControlPlayback: vi.fn(() => true) };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+
+    await mi.handleButton(makeButton('music:control:open_filters'));
+
+    expect(svc.getQueueInfo).toHaveBeenCalled();
+    expect(mi).toBeDefined();
+  });
+
+  it('open_filters replies when nothing is playing', async () => {
+    const svc = { getQueueInfo: vi.fn(() => null), canControlPlayback: vi.fn(() => true) };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    const press = makeButton('music:control:open_filters');
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
+  });
+
+  it('filter:reset clears filters and rebuilds the panel', async () => {
+    const svc = {
+      getQueueInfo: vi.fn(() => ({ ...queue, activeFilters: ['bassboost'] })),
+      canControlPlayback: vi.fn(() => true),
+      clearFilters: vi.fn(async () => undefined),
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    const press = makeButton('music:filter:reset');
+
+    await mi.handleButton(press);
+
+    expect(svc.clearFilters).toHaveBeenCalledWith('g1');
+    expect(press.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('filter:reset defers when the queue is gone', async () => {
+    const svc = {
+      getQueueInfo: vi.fn(() => null),
+      canControlPlayback: vi.fn(() => true),
+      clearFilters: vi.fn(async () => undefined),
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    const press = makeButton('music:filter:reset');
+
+    await mi.handleButton(press);
+
+    expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+    expect(press.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('MusicInteractions queue pagination', () => {
+  const makeButton = (customId: string) =>
+    ({
+      customId,
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
+    }) as unknown as ButtonInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    };
+
+  const queue = {
+    current: { title: 'Airbag', author: 'Radiohead', uri: 'https://yt/abc', source: 'youtube' },
+    position: 0,
+    isPaused: false,
+    loopMode: 'off',
+    tracks: Array.from({ length: 25 }, (_, i) => ({ title: `Track ${i + 1}`, author: 'A', duration: 180000 })),
+    activeFilters: [],
+  };
+
+  const build = () => {
+    const svc = { getQueueInfo: vi.fn(() => queue), canControlPlayback: vi.fn(() => true) };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    return { svc, mi };
+  };
+
+  it('replies when nothing is playing', async () => {
+    const svc = { getQueueInfo: vi.fn(() => null), canControlPlayback: vi.fn(() => true) };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    const press = makeButton('music:queue:first');
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
+  });
+
+  it('renders the first page on music:queue:first', async () => {
+    const spy = vi.spyOn(MusicBuilders, 'buildQueueResponse');
+    const { mi } = build();
+
+    await mi.handleButton(makeButton('music:queue:first'));
+
+    expect(spy).toHaveBeenCalledWith(queue, 1, 10, 0xff0000);
+  });
+
+  it('renders the last page on music:queue:last', async () => {
+    const spy = vi.spyOn(MusicBuilders, 'buildQueueResponse');
+    const { mi } = build();
+
+    await mi.handleButton(makeButton('music:queue:last'));
+
+    expect(spy).toHaveBeenCalledWith(queue, 3, 10, 0xff0000);
+  });
+
+  it('renders an explicit page on music:queue:page:N', async () => {
+    const spy = vi.spyOn(MusicBuilders, 'buildQueueResponse');
+    const { mi } = build();
+
+    await mi.handleButton(makeButton('music:queue:page:2'));
+
+    expect(spy).toHaveBeenCalledWith(queue, 2, 10, 0xff0000);
+  });
+});
+
+describe('MusicInteractions playback controls', () => {
+  const makeButton = (customId: string) =>
+    ({
+      customId,
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
+    }) as unknown as ButtonInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    };
+
+  const baseQueue = {
+    current: { title: 'Airbag', author: 'Radiohead', uri: 'https://yt/abc', source: 'youtube', duration: 258000 },
+    position: 1000,
+    isPaused: false,
+    loopMode: 'off',
+    tracks: [{ title: 'Next' }],
+    activeFilters: [] as string[],
+  };
+
+  const build = (over: Record<string, unknown>) => {
+    const svc = {
+      getQueueInfo: vi.fn(() => baseQueue),
+      canControlPlayback: vi.fn(() => true),
+      ...over,
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    return { svc: svc as unknown as Record<string, unknown>, mi };
+  };
+
+  it('pause_resume resumes a paused queue', async () => {
+    const { svc, mi } = build({
+      getQueueInfo: vi.fn(() => ({ ...baseQueue, isPaused: true })),
+      resume: vi.fn(async () => undefined),
+      pause: vi.fn(async () => undefined),
+    });
+
+    await mi.handleButton(makeButton('music:control:pause_resume'));
+
+    expect(svc.resume).toHaveBeenCalledWith('g1');
+    expect(svc.pause).not.toHaveBeenCalled();
+  });
+
+  it('pause_resume pauses a playing queue', async () => {
+    const { svc, mi } = build({
+      resume: vi.fn(async () => undefined),
+      pause: vi.fn(async () => undefined),
+    });
+
+    await mi.handleButton(makeButton('music:control:pause_resume'));
+
+    expect(svc.pause).toHaveBeenCalledWith('g1');
+    expect(svc.resume).not.toHaveBeenCalled();
+  });
+
+  it('pause_resume defers when the queue vanished after the toggle', async () => {
+    const svc = {
+      getQueueInfo: vi.fn()
+        .mockReturnValueOnce(baseQueue)
+        .mockReturnValueOnce(baseQueue)
+        .mockReturnValueOnce(null),
+      canControlPlayback: vi.fn(() => true),
+      pause: vi.fn(async () => undefined),
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    const press = makeButton('music:control:pause_resume');
+
+    await mi.handleButton(press);
+
+    expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+    expect(press.update).not.toHaveBeenCalled();
+  });
+
+  it('skip rebuilds the card on success', async () => {
+    const { svc, mi } = build({ skip: vi.fn(async () => true) });
+
+    await mi.handleButton(makeButton('music:control:skip'));
+
+    expect(svc.skip).toHaveBeenCalledWith('g1');
+  });
+
+  it('skip deletes the card when the queue is empty afterwards', async () => {
+    const svc = {
+      getQueueInfo: vi.fn()
+        .mockReturnValueOnce(baseQueue)
+        .mockReturnValueOnce(null),
+      canControlPlayback: vi.fn(() => true),
+      skip: vi.fn(async () => true),
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      { getLyrics: vi.fn(async () => null) } as never,
+    );
+    const press = makeButton('music:control:skip');
+
+    await mi.handleButton(press);
+
+    expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+    expect(press.message.delete).toHaveBeenCalledTimes(1);
+    expect(press.update).not.toHaveBeenCalled();
+  });
+
+  it('skip replies when there is nothing to skip', async () => {
+    const { mi } = build({ skip: vi.fn(async () => false) });
+    const press = makeButton('music:control:skip');
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('Nothing to skip.');
+  });
+
+  it('previous rebuilds the card on success', async () => {
+    const { svc, mi } = build({ previous: vi.fn(async () => true) });
+
+    await mi.handleButton(makeButton('music:control:previous'));
+
+    expect(svc.previous).toHaveBeenCalledWith('g1');
+  });
+
+  it('previous replies when history is empty', async () => {
+    const { mi } = build({ previous: vi.fn(async () => false) });
+    const press = makeButton('music:control:previous');
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe(
+      'No previous track in history to replay.',
+    );
+  });
+
+  it('shuffle rebuilds the card on success', async () => {
+    const { svc, mi } = build({ shuffle: vi.fn(async () => true) });
+
+    await mi.handleButton(makeButton('music:control:shuffle'));
+
+    expect(svc.shuffle).toHaveBeenCalledWith('g1');
+  });
+
+  it('shuffle replies when the queue is too small', async () => {
+    const { mi } = build({ shuffle: vi.fn(async () => false) });
+    const press = makeButton('music:control:shuffle');
+
+    await mi.handleButton(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('Queue is too small to shuffle.');
+  });
+
+  it('clear rebuilds the card', async () => {
+    const { svc, mi } = build({ clear: vi.fn(() => undefined) });
+
+    await mi.handleButton(makeButton('music:control:clear'));
+
+    expect(svc.clear).toHaveBeenCalledWith('g1');
+  });
+
+  it('loop rebuilds the card', async () => {
+    const { svc, mi } = build({ cycleLoop: vi.fn(() => undefined) });
+
+    await mi.handleButton(makeButton('music:control:loop'));
+
+    expect(svc.cycleLoop).toHaveBeenCalledWith('g1');
+  });
+
+  it('vol_down steps the volume down by 10', async () => {
+    const { svc, mi } = build({ adjustVolume: vi.fn(() => undefined) });
+
+    await mi.handleButton(makeButton('music:control:vol_down'));
+
+    expect(svc.adjustVolume).toHaveBeenCalledWith('g1', -10);
+  });
+
+  it('vol_up steps the volume up by 10', async () => {
+    const { svc, mi } = build({ adjustVolume: vi.fn(() => undefined) });
+
+    await mi.handleButton(makeButton('music:control:vol_up'));
+
+    expect(svc.adjustVolume).toHaveBeenCalledWith('g1', 10);
+  });
+
+  it('stop stops playback and deletes the card', async () => {
+    const { svc, mi } = build({ stop: vi.fn(async () => undefined) });
+    const press = makeButton('music:control:stop');
+
+    await mi.handleButton(press);
+
+    expect(svc.stop).toHaveBeenCalledWith('g1');
+    expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+    expect(press.message.delete).toHaveBeenCalledTimes(1);
+    expect(press.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('MusicInteractions.updateCardOrDefer', () => {
+  const makeInteraction = (updateImpl: () => Promise<void>) =>
+    ({
+      update: vi.fn(updateImpl),
+      deferUpdate: vi.fn(async () => undefined),
+    }) as unknown as ButtonInteraction & {
+      update: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+    };
+
+  const mi = new MusicInteractions(
+    {} as never,
+    {} as never,
+    {} as never,
+  );
+  const call = (interaction: ButtonInteraction, payload: unknown) =>
+    (
+      mi as unknown as {
+        updateCardOrDefer: (i: ButtonInteraction, p: unknown) => Promise<void>;
+      }
+    ).updateCardOrDefer(interaction, payload);
+
+  it('falls back to deferUpdate when the card is already gone (10008)', async () => {
+    const press = makeInteraction(async () => {
+      throw Object.assign(new Error('Unknown Message'), { code: 10008 });
+    });
+
+    await call(press, { content: 'x' });
+
+    expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows edit failures that are not Unknown Message', async () => {
+    const press = makeInteraction(async () => {
+      throw Object.assign(new Error('Invalid Form Body'), { code: 50035 });
+    });
+
+    await expect(call(press, { content: 'x' })).rejects.toMatchObject({ code: 50035 });
+    expect(press.deferUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('MusicInteractions.handleSelectMenu entry guards', () => {
+  const makeSelect = (over: Record<string, unknown> = {}) =>
+    ({
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      values: [],
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      message: { embeds: [], flags: { has: () => true } },
+      ...over,
+    }) as unknown as StringSelectMenuInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+    };
+
+  const mi = new MusicInteractions(
+    { getQueueInfo: vi.fn(() => null), canControlPlayback: vi.fn(() => true) } as never,
+    { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+    {} as never,
+  );
+
+  it('rejects a press outside a server', async () => {
+    const press = makeSelect({ guildId: null });
+
+    await mi.handleSelectMenu(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('only be used in a server');
+  });
+
+  it('rejects a press from a member not in a voice channel', async () => {
+    const member = Object.create(GuildMember.prototype);
+    Object.defineProperty(member, 'voice', { value: undefined });
+    const press = makeSelect({ member });
+
+    await mi.handleSelectMenu(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('must be in a voice channel');
+  });
+});
+
+describe('MusicInteractions filter select menu', () => {
+  const makeSelect = (values: string[]) =>
+    ({
+      customId: 'music:filter:select',
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      values,
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      followUp: vi.fn(async () => undefined),
+      message: { embeds: [], flags: { has: () => true } },
+    }) as unknown as StringSelectMenuInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+      followUp: ReturnType<typeof vi.fn>;
+    };
+
+  const queue = {
+    current: { title: 'Airbag', author: 'Radiohead', uri: 'https://yt/abc', source: 'youtube' },
+    position: 0,
+    isPaused: false,
+    loopMode: 'off',
+    tracks: [],
+    activeFilters: [] as string[],
+  };
+
+  const build = (over: Record<string, unknown>) => {
+    const svc = {
+      getQueueInfo: vi.fn(() => queue),
+      canControlPlayback: vi.fn(() => true),
+      setFilter: vi.fn(async () => ({ applied: true, replaced: [] as string[] })),
+      ...over,
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      {} as never,
+    );
+    return { svc: svc as unknown as Record<string, unknown>, mi };
+  };
+
+  it('defers when the selection is empty', async () => {
+    const { svc, mi } = build({});
+    const press = makeSelect([]);
+
+    await mi.handleSelectMenu(press);
+
+    expect(svc.setFilter).not.toHaveBeenCalled();
+    expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('replies when nothing is playing', async () => {
+    const { mi } = build({ getQueueInfo: vi.fn(() => null) });
+    const press = makeSelect(['bassboost']);
+
+    await mi.handleSelectMenu(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
+  });
+
+  it('turns a filter on when it is not active', async () => {
+    const { svc, mi } = build({});
+    const press = makeSelect(['bassboost']);
+
+    await mi.handleSelectMenu(press);
+
+    expect(svc.setFilter).toHaveBeenCalledWith('g1', 'bassboost', true);
+    expect(press.update).toHaveBeenCalledTimes(1);
+    expect(press.followUp).not.toHaveBeenCalled();
+  });
+
+  it('turns a filter off when it is already active', async () => {
+    const { svc, mi } = build({
+      getQueueInfo: vi.fn(() => ({ ...queue, activeFilters: ['bassboost'] })),
+    });
+    const press = makeSelect(['bassboost']);
+
+    await mi.handleSelectMenu(press);
+
+    expect(svc.setFilter).toHaveBeenCalledWith('g1', 'bassboost', false);
+  });
+
+  it('follows up when the audio node refuses the filter', async () => {
+    const { mi } = build({
+      setFilter: vi.fn(async () => ({ applied: false, replaced: [] })),
+    });
+    const press = makeSelect(['bassboost']);
+
+    await mi.handleSelectMenu(press);
+
+    expect((press.followUp.mock.calls[0]![0] as { content: string }).content).toContain(
+      "Couldn't apply **bassboost**",
+    );
+  });
+
+  it('follows up when the filter replaces another EQ preset', async () => {
+    const { mi } = build({
+      setFilter: vi.fn(async () => ({ applied: true, replaced: ['nightcore'] })),
+    });
+    const press = makeSelect(['bassboost']);
+
+    await mi.handleSelectMenu(press);
+
+    expect((press.followUp.mock.calls[0]![0] as { content: string }).content).toContain(
+      'EQ presets don\'t stack',
+    );
+  });
+});
+
+describe('MusicInteractions chapter seek validation', () => {
+  const makeSelect = (values: string[]) =>
+    ({
+      customId: 'music:chapters:seek:0',
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      values,
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      editReply: vi.fn(async () => undefined),
+      followUp: vi.fn(async () => undefined),
+      message: { embeds: [], flags: { has: () => true } },
+    }) as unknown as StringSelectMenuInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+    };
+
+  const chapters = [
+    { title: 'Intro', startMs: 0 },
+    { title: 'Verse', startMs: 60000 },
+  ];
+
+  const build = () => {
+    const svc = {
+      getQueueInfo: vi.fn(() => ({ current: { title: 'T', author: 'A', uri: 'https://x' }, position: 0 })),
+      getPlayer: vi.fn(() => ({ get: (k: string) => (k === 'chapters' ? chapters : undefined) })),
+      canControlPlayback: vi.fn(() => true),
+      seek: vi.fn(async () => 60000),
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      {} as never,
+    );
+    return { svc: svc as unknown as Record<string, unknown>, mi };
+  };
+
+  it('reports expired chapters on a non-numeric selection', async () => {
+    const { svc, mi } = build();
+    const press = makeSelect(['abc']);
+
+    await mi.handleSelectMenu(press);
+
+    expect(svc.seek).not.toHaveBeenCalled();
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('no longer available');
+  });
+
+  it('reports expired chapters on an out-of-range index', async () => {
+    const { svc, mi } = build();
+    const press = makeSelect(['99']);
+
+    await mi.handleSelectMenu(press);
+
+    expect(svc.seek).not.toHaveBeenCalled();
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('no longer available');
+  });
+});
+
+describe('MusicInteractions queue quick remove', () => {
+  const makeSelect = (values: string[]) =>
+    ({
+      customId: 'music:queue:quick_remove',
+      guildId: 'g1',
+      user: { id: 'u1' },
+      member: makeMember(),
+      values,
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      followUp: vi.fn(async () => undefined),
+      message: { embeds: [], flags: { has: () => true } },
+    }) as unknown as StringSelectMenuInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+      followUp: ReturnType<typeof vi.fn>;
+    };
+
+  const queue = {
+    current: { title: 'Airbag', author: 'Radiohead', uri: 'https://yt/abc', source: 'youtube' },
+    position: 0,
+    isPaused: false,
+    loopMode: 'off',
+    tracks: [{ title: 'Keep', author: 'A', duration: 180000 }],
+    activeFilters: [] as string[],
+  };
+
+  const build = (over: Record<string, unknown>) => {
+    const svc = {
+      getQueueInfo: vi.fn(() => queue),
+      canControlPlayback: vi.fn(() => true),
+      remove: vi.fn(() => ({ title: 'Keep' })),
+      ...over,
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      {} as never,
+    );
+    return { svc: svc as unknown as Record<string, unknown>, mi };
+  };
+
+  it('denies non-requesters', async () => {
+    const { mi } = build({ canControlPlayback: vi.fn(() => false) });
+    const press = makeSelect(['1']);
+
+    await mi.handleSelectMenu(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('Only the requester');
+  });
+
+  it('defers on a non-numeric selection', async () => {
+    const { svc, mi } = build({});
+    const press = makeSelect(['abc']);
+
+    await mi.handleSelectMenu(press);
+
+    expect(svc.remove).not.toHaveBeenCalled();
+    expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rebuilds the queue and follows up when a track is removed', async () => {
+    const { svc, mi } = build({});
+    const press = makeSelect(['1']);
+
+    await mi.handleSelectMenu(press);
+
+    expect(svc.remove).toHaveBeenCalledWith('g1', 0);
+    expect(press.update).toHaveBeenCalledTimes(1);
+    expect((press.followUp.mock.calls[0]![0] as { content: string }).content).toContain('Removed **Keep**');
+  });
+
+  it('does not follow up when removal fails', async () => {
+    const { mi } = build({ remove: vi.fn(() => null) });
+    const press = makeSelect(['1']);
+
+    await mi.handleSelectMenu(press);
+
+    expect(press.update).toHaveBeenCalledTimes(1);
+    expect(press.followUp).not.toHaveBeenCalled();
+  });
+});
+
+describe('MusicInteractions search select menu', () => {
+  const track = {
+    title: 'Airbag',
+    author: 'Radiohead',
+    uri: 'https://yt/abc',
+    source: 'youtube',
+    artworkUrl: 'https://img/a.png',
+  };
+
+  const makeSelect = () =>
+    ({
+      customId: 'music:search:select',
+      guildId: 'g1',
+      channelId: 'ch1',
+      user: { id: 'u1', tag: 'u1#1', displayAvatarURL: () => 'https://img/u.png' },
+      member: makeMember(),
+      values: ['0'],
+      reply: vi.fn(async () => undefined),
+      deferUpdate: vi.fn(async () => undefined),
+      update: vi.fn(async () => undefined),
+      followUp: vi.fn(async () => undefined),
+      editReply: vi.fn(async () => undefined),
+      message: { id: 'msg-9', embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
+      channel: { send: vi.fn(async () => undefined) },
+    }) as unknown as StringSelectMenuInteraction & {
+      reply: ReturnType<typeof vi.fn>;
+      deferUpdate: ReturnType<typeof vi.fn>;
+      message: { delete: ReturnType<typeof vi.fn> };
+      channel: { send: ReturnType<typeof vi.fn> };
+    };
+
+  const build = (playResult: unknown) => {
+    const svc = {
+      getQueueInfo: vi.fn(() => ({
+        current: track,
+        position: 0,
+        isPaused: false,
+        loopMode: 'off',
+        tracks: [track],
+        totalTracks: 1,
+        activeFilters: [],
+      })),
+      canControlPlayback: vi.fn(() => true),
+      play: vi.fn(async () => playResult),
+    };
+    const mi = new MusicInteractions(
+      svc as never,
+      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
+      {} as never,
+    );
+    return { svc: svc as unknown as Record<string, unknown>, mi };
+  };
+
+  it('replies when the search results expired', async () => {
+    const { mi } = build({ loadType: 'loaded' });
+    const press = makeSelect();
+
+    await mi.handleSelectMenu(press);
+
+    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toContain('Search results expired');
+  });
+
+  it('plays the chosen track, deletes the search message, and clears the cache', async () => {
+    const { svc, mi } = build({ loadType: 'loaded', positionInQueue: 1, totalTracksAdded: 1 });
+    const press = makeSelect();
+    mi.storeSearchResults('msg-9', [track as never]);
+
+    await mi.handleSelectMenu(press);
+
+    expect(svc.play).toHaveBeenCalledWith(
+      'g1',
+      'vc',
+      'ch1',
+      'https://yt/abc',
+      { id: 'u1', tag: 'u1#1', avatarUrl: 'https://img/u.png' },
+      { title: 'Airbag', author: 'Radiohead', artworkUrl: 'https://img/a.png', source: 'youtube' },
+    );
+    expect(press.message.delete).toHaveBeenCalledTimes(1);
+    expect(press.channel.send).toHaveBeenCalledTimes(1);
+
+    const store = (mi as unknown as { activeSearches: { get: (k: string) => Promise<unknown> } }).activeSearches;
+    expect(await store.get('msg-9')).toBeUndefined();
+  });
+
+  it('posts an error message when the play result fails', async () => {
+    const { mi } = build({ loadType: 'error', errorReason: 'no-nodes' });
+    const press = makeSelect();
+    mi.storeSearchResults('msg-9', [track as never]);
+
+    await mi.handleSelectMenu(press);
+
+    expect((press.channel.send.mock.calls[0]![0] as { content: string }).content).toContain('❌');
+    expect(press.message.delete).toHaveBeenCalledTimes(1);
   });
 });

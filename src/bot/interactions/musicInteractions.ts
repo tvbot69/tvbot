@@ -479,7 +479,7 @@ export class MusicInteractions {
 
     // Playback control: Shuffle
     if (customId === 'music:control:shuffle') {
-      const success = this.musicService.shuffle(guildId);
+      const success = await this.musicService.shuffle(guildId);
       if (success) {
         const updatedQueue = this.musicService.getQueueInfo(guildId);
         if (updatedQueue) {
