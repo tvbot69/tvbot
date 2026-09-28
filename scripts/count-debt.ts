@@ -64,8 +64,9 @@ const KINDS: Record<string, KindFn> = {
       const text = sf.getFullText();
       // Prefer the AST: a string containing ": any" is not an escape.
       void text;
+      const rel = (sf.fileName.split('/src/')[1] ?? sf.fileName).replace(/\\/g, '/');
       sf.forEachChild((node) => {
-        n += countAnyNodes(node);
+        n += countAnyNodes(node, (line) => record(rel, line), sf);
       });
     }
     return n;
@@ -123,6 +124,9 @@ const KINDS: Record<string, KindFn> = {
           node.expression.expression.text === 'container'
         ) {
           n += 1;
+          const rel = (p.split('/src/')[1] ?? p).replace(/\\/g, '/');
+          const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+          record(rel, line + 1);
         }
         node.forEachChild(visit);
       };
@@ -222,7 +226,12 @@ const KINDS: Record<string, KindFn> = {
           const inner = node.expression;
           if (ts.isAsExpression(inner)) {
             const t = inner.type.getText(sf);
-            if (/^(unknown|any)$/.test(t)) n += 1;
+            if (/^(unknown|any)$/.test(t)) {
+              n += 1;
+              const rel = (sf.fileName.split('/src/')[1] ?? sf.fileName).replace(/\\/g, '/');
+              const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+              record(rel, line + 1);
+            }
           }
         }
         node.forEachChild(visit);
@@ -243,14 +252,30 @@ const isProduction = (sf: ts.SourceFile): boolean => {
   return true;
 };
 
-/** Count escape sites in one subtree. */
-const countAnyNodes = (node: ts.Node): number => {
+/**
+ * Count escape sites in one subtree, reporting each line.
+ *
+ * The reporter is a parameter rather than a global so the count and the
+ * location list are derived from the SAME walk - a separate pass could
+ * disagree and `--where` would point at lines the total does not include.
+ */
+const countAnyNodes = (
+  node: ts.Node,
+  report?: (line: number) => void,
+  sf?: ts.SourceFile,
+): number => {
   let n = 0;
   // SyntaxKind.AnyKeyword, not ts.isAnyKeyword - the latter is internal and
   // is not exported by every supported TypeScript version.
-  if (node.kind === ts.SyntaxKind.AnyKeyword) n += 1;
+  if (node.kind === ts.SyntaxKind.AnyKeyword) {
+    n += 1;
+    if (report && sf) {
+      const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+      report(line + 1);
+    }
+  }
   node.forEachChild((child) => {
-    n += countAnyNodes(child);
+    n += countAnyNodes(child, report, sf);
   });
   return n;
 };

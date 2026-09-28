@@ -191,6 +191,7 @@ finish an item, tick it. If you un-finish one, untick it and say why in
 - [x] `container.resolve` outside the composition root < 30. *(the eager count is 0 and
       ratcheted there; the 155 lazy total is treated as informational — see 3.3 in
       PLAN_PROGRESS.md for why `<30` was the wrong target)*
-- [ ] Type escapes < 80, with a ratchet in CI. *(now 236 combined: 130 `any` + 106
-      `as unknown as`. Target 80.)*
+- [ ] Type escapes < 80, with a ratchet in CI. *(now **231**: 130 `any` + 101
+      `as unknown as`. Target 80. The moonlink adapter is 1 file in; 67 `as unknown as`
+      remain under `services/music` and `handlers/music`)*
 - [x] README claims match reality. Root has no agent handoff files.

@@ -13,6 +13,14 @@ import type { BotScrobblingService } from '@bot/services/music/botScrobblingServ
 import { chapterKeyFor, clientFailuresText, fingerprintFor } from './cardFingerprint';
 import type { LyricWindow } from '@bot/services/music/syncedLyrics';
 import type { ChapterCard } from '@bot/services/music/videoChapters';
+import {
+  artTimingNumber,
+  artTimingOutcome,
+  moonlinkArtTiming,
+  moonlinkClock,
+  moonlinkSourceName,
+  moonlinkTrackKey,
+} from '@bot/services/music/moonlinkTypes';
 
 /** Post-seek catch-up grace before normal recovery machinery resumes. */
 const SEEK_GRACE_WINDOW_MS = 300000;
@@ -206,14 +214,10 @@ export class MusicEventListeners {
       // outcome, and this marks first card render. Correlate ~10-15
       // normal tracks from the Railway logs before optimizing further.
       try {
-        const curRec = (player.current ?? track) as unknown as {
-          _artLookupStartedAt?: unknown;
-          _artLookupResolvedAt?: unknown;
-          _artLookupOutcome?: unknown;
-        };
-        const lookupStarted = typeof curRec._artLookupStartedAt === 'number' ? curRec._artLookupStartedAt : null;
-        const resolvedAt = typeof curRec._artLookupResolvedAt === 'number' ? curRec._artLookupResolvedAt : null;
-        const outcome = typeof curRec._artLookupOutcome === 'string' ? curRec._artLookupOutcome : 'no-lookup';
+        const curRec = moonlinkArtTiming(player.current ?? track);
+        const lookupStarted = artTimingNumber(curRec, '_artLookupStartedAt');
+        const resolvedAt = artTimingNumber(curRec, '_artLookupResolvedAt');
+        const outcome = artTimingOutcome(curRec);
         const now = Date.now();
         Logger.info(
           {
@@ -299,7 +303,7 @@ export class MusicEventListeners {
    */
   public onPlayerSeek(player: Player, position: number): void {
     try {
-      const cur = player.current as unknown as { position?: unknown; time?: unknown } | null;
+      const cur = moonlinkClock(player.current);
       if (cur) {
         cur.position = position;
         cur.time = Date.now();
@@ -348,7 +352,7 @@ export class MusicEventListeners {
       const playedMs = startedAt > 0 ? Date.now() - startedAt : 0;
       const duration = track.duration || 0;
       if (duration > 90000 && playedMs > 0 && playedMs < Math.min(60000, duration * 0.5)) {
-        const source = (track as unknown as { sourceName?: string }).sourceName ?? 'unknown';
+        const source = moonlinkSourceName(track);
         Logger.warn(
           { guildId: player.guildId, track: track.title, source, playedMs, duration },
           `[Music] Track ended after ${(playedMs / 1000).toFixed(0)}s of ${(duration / 1000).toFixed(0)}s — likely a preview cut.`,
@@ -388,11 +392,11 @@ export class MusicEventListeners {
 
     // Guard against double-skip: Moonlink may already have advanced past this track
     // while our async fallback search was in flight.
-    const failedKey = track.encoded ?? track.uri ?? track.identifier;
+    const failedKey = moonlinkTrackKey(track) ?? '';
     const stillCurrent = (): boolean => {
-      const cur = player.current as unknown as { encoded?: string; uri?: string; identifier?: string } | null;
-      if (!cur) return false;
-      return (cur.encoded ?? cur.uri ?? cur.identifier) === failedKey;
+      const currentKey = moonlinkTrackKey(player.current);
+      if (currentKey === undefined) return false;
+      return currentKey === failedKey;
     };
 
     // Seek-stall recovery: a stall within seconds of a USER seek is usually
@@ -563,9 +567,9 @@ export class MusicEventListeners {
     // own, which may complete while our async fallback search is in flight.
     const failedKey = track.encoded ?? track.uri ?? track.identifier;
     const stillCurrent = (): boolean => {
-      const cur = player.current as unknown as { encoded?: string; uri?: string; identifier?: string } | null;
-      if (!cur) return false;
-      return (cur.encoded ?? cur.uri ?? cur.identifier) === failedKey;
+      const currentKey = moonlinkTrackKey(player.current);
+      if (currentKey === undefined) return false;
+      return currentKey === failedKey;
     };
     const skipPastFailed = async (): Promise<void> => {
       if (!stillCurrent()) return;

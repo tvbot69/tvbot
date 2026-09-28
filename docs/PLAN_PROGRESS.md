@@ -7,7 +7,7 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **1373** (149 files) | — |
+| Tests | 1085 | **1399** (150 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **49.82%** | ≥65% |
 | Branch coverage | 68.6% claimed | **68.83%** | — |
 | `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **130 + 106**, see `scripts/count-debt.ts` | <80 combined |
@@ -248,6 +248,30 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   - A test caught a real gap on first run: `https://ok.example https://evil.example` passed a
     naive `startsWith('https://')` while smuggling a second absolute URL. `safeUrl` now rejects
     any URL containing whitespace. Mutation-checked — removing the guard fails the test.
+- **Phase 4 — `as unknown as` 106 → **101**, first tranche of the moonlink adapter.**
+  - ✅ **`scripts/count-debt.ts --where` was BROKEN for 4 of its 5 kinds.** `record()` was
+    called from exactly one rule, so `--where` printed nothing for either escape kind — the
+    two numbers the plan most wants reduced. Wired it into `explicit-any`,
+    `as-unknown-as` and `container-resolve-outside-root`, deriving the location from the
+    **same AST walk** as the count so the two cannot disagree. A ratchet you cannot locate
+    is a ratchet you cannot act on, and this one silently printed nothing.
+  - ✅ **`src/bot/services/music/moonlinkTypes.ts`** — the adapter the plan asks for, holding
+    the casts that are genuinely Moonlink's fault (its published types do not match its
+    runtime payloads). Narrowing helpers that return primitives or plain objects, so a caller
+    gets a real type and a renamed field is a compile error at the call site.
+  - ✅ `musicEventListeners` **10 → 5** casts (art-timing reads, the seek clock write-back,
+    the preview-cut source label, and both track-identity reads).
+  - ⚠️ **`moonlinkClock` must return the LIVE record, not a copy** — `onPlayerSeek` writes
+    `position`/`time` onto it and Moonlink reads them, so copying would make every seek
+    silently do nothing with a green suite. Mutation-checked: swapping it for a spread copy
+    fails the suite.
+  - ✅ 26 tests, **4/4 mutations caught** (live-vs-copy, empty-string identity, the Map
+    guard, and the null normalisation below).
+  - 🐛 **A test caught a real inconsistency in the new adapter**: `moonlinkNodePool` declared
+    `| undefined` but returned `null`, leaking a value every caller would guard twice. Fixed
+    in the adapter, not the test.
+  - ⬜ Remaining: 67 of the 101 are still music. `moonlinkManager` 4, `playlistChunkManager` 6,
+    `musicSearchLadder` 4, `musicBuilders` 9, `musicEventListeners` 5, and ~39 elsewhere.
 ### Phase 4 — type safety: 🔄 earlier work took `any` 392 → **136** (AST-measured, see 3.3)
 ### Phase 5 — security and ops: ⬜ nothing started
 
