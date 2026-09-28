@@ -25,7 +25,9 @@
     "db:count-duplicates": "tsx scripts/count-duplicate-plays.ts",
     "test:render": "vitest run --config vitest.render.config.ts",
     "deps:cycles": "tsx scripts/check-import-cycles.ts",
-    "debt": "tsx scripts/count-debt.ts"
+    "debt": "tsx scripts/count-debt.ts",
+    "db:check-index": "tsx scripts/check-user-plays-index.ts",
+    "db:migration-logs": "tsx scripts/migration-failure-logs.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
