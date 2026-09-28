@@ -1,6 +1,7 @@
 {
-  "explicit-any": 136,
+  "explicit-any": 135,
   "typed-catch": 0,
   "container-resolve-outside-root": 155,
-  "container-resolve-in-constructor": 0
+  "container-resolve-in-constructor": 0,
+  "as-unknown-as": 106
 }

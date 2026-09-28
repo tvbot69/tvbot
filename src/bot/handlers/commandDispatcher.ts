@@ -1,3 +1,4 @@
+import { replyChannel, fetchableChannel } from '@domain/interfaces/discordChannel';
 import {
   type Message,
   type TextBasedChannel,
@@ -82,7 +83,7 @@ export class CommandDispatcher {
         `CommandDispatcher: Missing 'Embed Links' permission | ${message.author.username} / ${message.author.id} | ${message.guild?.name ?? 'DM'} / ${message.guildId}`
       );
       if ('send' in channel) {
-        await (channel as unknown as { send: (m: Record<string, unknown>) => Promise<unknown> }).send({
+        await replyChannel(channel).send({
           content: '⚠️ I need the **Embed Links** permission in this channel to display responses.',
           allowedMentions: { parse: [] },
         }).catch(() => undefined);
@@ -152,9 +153,12 @@ export class CommandDispatcher {
 
     if (previousResponseId && 'messages' in channel) {
       try {
-        const existingMsg = await (channel as unknown as { messages: { fetch: (id: string) => Promise<Message> } }).messages.fetch(previousResponseId);
+        const existingMsg = await fetchableChannel(channel).messages.fetch(previousResponseId);
         if (existingMsg) {
-          sentMessage = await existingMsg.edit(payload as any);
+          // `edit` returns the edited message; the caller only needs it to know
+          // the response was delivered, so the domain port returns `unknown`
+          // rather than a cast back to a discord.js Message.
+          sentMessage = (await existingMsg.edit(payload)) as Message;
         }
       } catch {
         // If edit fails (e.g. message deleted), fall back to sending new message
@@ -163,13 +167,13 @@ export class CommandDispatcher {
     }
 
     if (!sentMessage && 'send' in channel) {
-      sentMessage = (await (channel as unknown as { send: (m: Record<string, unknown>) => Promise<Message> }).send(payload).catch(async (err) => {
+      sentMessage = (await replyChannel(channel).send(payload).catch(async (err) => {
         const code = (err as { code?: number })?.code;
         Logger.error({ err, code }, `Failed to send command response for .${commandName}`);
         // Silence is the worst outcome: the user typed a command and got
         // nothing at all, with no hint that anything happened. A 50035 here
         // means the payload was too large.
-        await (channel as unknown as { send: (m: Record<string, unknown>) => Promise<unknown> })
+        await replyChannel(channel)
           .send({
             content:
               code === 50035
@@ -270,7 +274,7 @@ export class CommandDispatcher {
         .setColor(DiscordConstants.LastFmColorRed)
         .setDescription(apologyText);
 
-      await (message.channel as unknown as { send: (m: Record<string, unknown>) => Promise<unknown> }).send({
+      await replyChannel(message.channel).send({
         embeds: [errorEmbed],
         allowedMentions: { parse: [] },
       }).catch(() => undefined);

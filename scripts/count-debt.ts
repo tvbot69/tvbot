@@ -201,6 +201,37 @@ const KINDS: Record<string, KindFn> = {
     }
     return n;
   },
+
+  /**
+   * `as unknown as T` in production code.
+   *
+   * The plan allows these in exactly one place - a moonlink type adapter,
+   * because moonlink's published types do not match what it actually sends at
+   * runtime. Everywhere else, `as unknown as` is the loudest possible way to
+   * say "I have not checked this".
+   *
+   * 117 today. The honest reduction is not "type it properly everywhere" but
+   * "move the ones that are genuinely moonlink's problem into the adapter, and
+   * delete the rest".
+   */
+  'as-unknown-as': (program) => {
+    let n = 0;
+    for (const sf of program.getSourceFiles()) {
+      if (!isProduction(sf)) continue;
+      const visit = (node: ts.Node): void => {
+        if (ts.isAsExpression(node)) {
+          const inner = node.expression;
+          if (ts.isAsExpression(inner)) {
+            const t = inner.type.getText(sf);
+            if (/^(unknown|any)$/.test(t)) n += 1;
+          }
+        }
+        node.forEachChild(visit);
+      };
+      visit(sf);
+    }
+    return n;
+  },
 };
 
 /** Production source only: under src/, not a test, not a declaration. */

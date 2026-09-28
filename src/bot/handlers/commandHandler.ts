@@ -1,4 +1,5 @@
 import { inject, injectable } from 'tsyringe';
+import { replyChannel, typingChannel } from '@domain/interfaces/discordChannel';
 import { Client, Events, MessageFlags, type Message } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { Statistics } from '@domain/statistics';
@@ -112,7 +113,7 @@ export class CommandHandler {
                 ?? (message.guildId ? await this.colorService.getAccentColorAsync(message.guildId) : undefined);
               const giveUpResp = GameBuilders.buildGameGiveUpResponse(ended, accentColor);
               if (giveUpResp.componentsV2Container && message.channel.isTextBased() && 'send' in message.channel) {
-                await (message.channel as unknown as { send: (msg: Record<string, unknown>) => Promise<unknown> }).send({
+                await replyChannel(message.channel).send({
                   components: [giveUpResp.componentsV2Container],
                   flags: MessageFlags.IsComponentsV2,
                   allowedMentions: { parse: [] },
@@ -141,7 +142,7 @@ export class CommandHandler {
               accentColor,
             );
             if (wonResp.componentsV2Container && message.channel.isTextBased() && 'send' in message.channel) {
-              await (message.channel as unknown as { send: (msg: Record<string, unknown>) => Promise<unknown> }).send({
+              await replyChannel(message.channel).send({
                 components: [wonResp.componentsV2Container],
                 flags: MessageFlags.IsComponentsV2,
                 allowedMentions: { parse: [] },
@@ -175,7 +176,7 @@ export class CommandHandler {
           .setDescription(
             `Unknown command \`${prefix}${commandName}\`. Use \`${prefix}help\` to see what is available.`,
           );
-        await (message.channel as unknown as { send: (m: Record<string, unknown>) => Promise<unknown> }).send({
+        await replyChannel(message.channel).send({
           embeds: [embed],
           allowedMentions: { parse: [] },
         }).catch(() => undefined);
@@ -190,7 +191,7 @@ export class CommandHandler {
         const embed = new EmbedBuilder()
           .setColor(DiscordConstants.WarningColorOrange)
           .setDescription(`⏳ You are using commands too fast! Please slow down (${rateLimit.retryAfterSeconds ?? 8}s cooldown).`);
-        await (message.channel as unknown as { send: (m: Record<string, unknown>) => Promise<unknown> }).send({
+        await replyChannel(message.channel).send({
           embeds: [embed],
           allowedMentions: { parse: [] },
         }).catch(() => undefined);
@@ -216,14 +217,14 @@ export class CommandHandler {
 
     const typingInterval = message.channel.isTextBased() && 'sendTyping' in message.channel
       ? setInterval(() => {
-          (message.channel as unknown as { sendTyping: () => Promise<void> })
+          typingChannel(message.channel)
             .sendTyping()
             .catch(() => undefined);
         }, 8000)
       : null;
 
     if (message.channel.isTextBased() && 'sendTyping' in message.channel) {
-      await (message.channel as unknown as { sendTyping: () => Promise<void> })
+      await typingChannel(message.channel)
         .sendTyping()
         .catch(() => undefined);
     }
