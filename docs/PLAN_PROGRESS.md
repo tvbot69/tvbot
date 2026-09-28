@@ -7,16 +7,24 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **3792** (204 files) | — |
+| Tests | 1085 | **3954 passed / 114 skipped** (212 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
 | Branch coverage | 68.6% claimed | **77.48%** | — |
-| `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 75** | <80 combined ✅ |
+| `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 76** (budget 101) | <80 combined ✅ |
 | `catch (err: any)` | 37 | **0** | 0 |
+| `process.env` outside config (prod) | 36 | **0** | 0 |
+| `bot/` files importing `@prisma/client` | 17 | **15** (ratchet, budget 17) | non-increasing ✅ |
 | `container.resolve` outside composition root | ~300 | **155** (0 eager) | informational |
 | Import cycles | 4 | **0 runtime** / 3 type-only | 0 runtime |
 | Lower layers importing `@bot/*` | 6+ | **0 value** / 4 type-only | 0 value |
 | `@ts-ignore` | 0 | **0** | 0 |
-| Lint errors | 143 | **0** | 0 |
+| Lint errors | 143 | **0** (351 warnings) | 0 |
+
+> The 114 skipped tests are the real-Postgres suite. They have **never executed** — this machine
+> has no Docker, no local Postgres and no `psql`, and `DATABASE_URL` points at production
+> Railway. Every one of them has been written, committed and reasoned about, and not one line of
+> it has touched a database. They run in CI, and CI is the first execution. Read the 2.3 findings
+> below with that in mind: they are *static* conclusions about queries that have never run.
 
 ## Status
 
@@ -513,8 +521,35 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     `src/bot/services/music` and `handlers/music`, where the plan permits them (moonlink's published
     types do not match its runtime payloads); the honest next move is to consolidate those into the
     one `music/moonlinkTypes.ts` adapter the plan asks for, not to delete them.
-- **3.4** ⬜ Not started. Measured: Prisma is called directly in 20+ files under `bot/`, and the
-  plan explicitly says **not** to mass-move. This is enforced going forward instead.
+- **3.4** ✅ Ratcheted, and two files came off the list by being touched. The plan's rule
+  ("new code must not add direct Prisma calls in `bot/`") was unenforceable as prose, so it is
+  now a counter: `prisma-client-import-in-bot`, budget **17**, measuring **15**.
+  - Counts **files**, not call sites. There are 135 `prisma.` calls, but the debt the plan
+    describes is architectural — `bot/` knowing the schema — and that is a property of a file.
+  - Verified by injection, not assumed: adding one import to `cacheService.ts` reported
+    `18 > 17` and failed. Any import declaration counts, *including type-only*, which is why
+    `AbuseFilterService` no longer mentions the module even in a type position — its client
+    param is `ConstructorParameters<typeof AbuseFlagRepository>[0]`, which cannot drift and
+    reintroduces no schema knowledge into `bot/`.
+  - Moved: `AbuseFilterService` → `AbuseFlagRepository` (6 methods, typed
+    `AbuseFlagUserRow`/`AbuseVelocityRow`); `FmFooterResolver` → `FmFooterRepository`
+    (6 queries moved verbatim, `null` kept distinct from a real `0`).
+  - **All 59 pre-existing tests in both files pass unmodified.** No public signature moved and
+    `isFlagged` stays synchronous. The `Loved`/`TrackPlays` coupling at
+    `fmFooterResolver.ts:97` was observed and *preserved* — not fixed, not newly pinned.
+  - `container-resolve-outside-root` held at 155: six resolves swapped for six. The repository
+    is resolved lazily inside each task, not hoisted, so an unusable dependency still fails
+    inside the per-task `catch` rather than outside it.
+  - ⬜ Not done, deliberately: the other 15 files. The plan forbids a mass-move, and moving
+    15 untested query surfaces to hit a number is how a refactor becomes an outage. The
+    ratchet makes the debt visible and non-increasing; each file leaves the list when it is
+    next touched.
+- **3.4 follow-on** ⬜ **DoD 2.3's "28 of 28 raw queries" is an under-count, and I am the reason.**
+  The two abuse velocity aggregates are `$queryRaw` **tagged templates**, not
+  `$queryRawUnsafe`, so the harness never counted them. Nothing in this tree has ever
+  executed that `GROUP BY user_id HAVING COUNT(*)` against Postgres. Not fixed here — it
+  needs the harness decision, not a drive-by, and a BigInt arriving where `Set<number>` is
+  expected would fail the whole scan behind a single `Logger.error`.
 - **3.5** ✅ `src/images/html.ts` with a tested `escapeHtml` and `safeUrl`. 15 tests.
   - 4 drifted copies collapsed to 1: `chartService`, `whoKnowsGenerator` (free functions removed)
     and `icebergGenerator` (its method now delegates to the shared one).
@@ -577,7 +612,64 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   - ⬜ Remaining: 67 of the 101 are still music. `moonlinkManager` 4, `playlistChunkManager` 6,
     `musicSearchLadder` 4, `musicBuilders` 9, `musicEventListeners` 5, and ~39 elsewhere.
 ### Phase 4 — type safety: 🔄 earlier work took `any` 392 → **136** (AST-measured, see 3.3)
-### Phase 5 — security and ops: ⬜ nothing started
+### Phase 5 — security and ops: ✅ 5.1, 5.2, 5.3 all done
+
+- **5.1** ✅ Puppeteer request policy. Removed `--disable-web-security` — and **proved** it
+  unneeded rather than assuming: the only remote asset is the receipt font, a cross-origin
+  `@font-face` that is CORS-gated, so the flag was the one plausible justification.
+  `fm.bot` returns `access-control-allow-origin: *` and `document.fonts` reports the face
+  loaded either way.
+  - New `src/images/browserRequestPolicy.ts`: dot-anchored allowlist for the image CDNs actually
+    used, denying `file:`, `http:`, loopback, RFC1918 and `169.254/16` (cloud metadata).
+    Installed on **all four** page-creation sites before navigation, not just the main one.
+  - Dot-anchored, not `endsWith`: `evilscdn.co` ends with `scdn.co` and is
+    attacker-registrable. My own test caught this.
+  - The allowlist gained two hosts the brief missed, both forced by measurement: `fm.bot`
+    (the receipt fetches its font at render time) and `lastfm-img.freetls.fastly.net` (a real
+    second Last.fm shard). `data:` is delegated to the already-tested `safeUrl` rather than
+    re-derived, so the SVG rejection cannot drift.
+  - 58 unit tests, no Chromium. **8/8 mutations caught.** M1 initially *survived* because the
+    range check and the allowlist overlap — those tests were decoration, so direct
+    `isPrivateOrLoopbackHost` tests were added.
+- **5.2** ✅ **36 production `process.env` reads → 0.** New `src/config/runtimeEnv.ts` and
+  `src/config/musicEnv.ts`, 18 keys, all lazy and total so a config module can never break
+  boot. Accessors take an injectable env, so they are provably reading env rather than caching
+  a constant.
+  - Deliberately **not** trimmed in 3 places, each because trimming changes behaviour:
+    `!!HOME_RESOLVER_URL` is true for `'   '` (trimming silently disables the resolver rung);
+    the two ladder-mode compares stay untrimmed so `' plugin-first-test '` stays off.
+  - `SHARDING_ENABLED` is a tri-state, not a boolean: absent defers to `SHARD_COUNT`, and
+    collapsing it would let an unset flag override `SHARD_COUNT=4`.
+  - The ffmpeg write-back in `audioSignalService` is load-bearing and is the **only** producer
+    of `FFPROBE_PATH`; removed, every voice message silently falls back to a hardcoded 30s.
+    Preserved via `setFfmpegPath`/`setFfprobePath`.
+  - One deliberate behaviour change, flagged: `healthPort` now rejects a malformed or
+    out-of-range value. `Number('abc')` was `NaN` and `NaN` went into `server.listen()`, so a
+    typo in `HEALTH_PORT` took the health endpoint down at boot.
+  - New ratchet `process-env-outside-config`, budget **0**; `envValidator.ts` exempt because
+    validating env is its job.
+- **5.3** ✅ `src/domain/memoryReport.ts` — rss, heapTotal/Used, external, arrayBuffers,
+  heapUsed as a pct of the 384MB cap, uptime. INFO hourly on a new `'0 * * * *'` job: there was
+  no existing hourly sweep to hook, and piggybacking on `statistics-log` would have produced 6
+  lines an hour. Deliberately **not** `onlyOwner` — each shard's heap is only visible to that
+  shard. Wrapped in nested `try/catch` so a throwing logger cannot take down the timer. 21
+  tests, no test waits an hour. `RAILWAY.md` §4 added, with the peak marked
+  **NOT YET MEASURED** rather than invented.
+- **Phase 5 honest limits.** Nothing here was verified at runtime: ffmpeg resolution, the
+  write-back and voice-message duration are untestable without a real voice path. Chromium's
+  RSS is deliberately not in `process.memoryUsage()`, so container usage and `rss` will keep
+  disagreeing — documented, not papered over. The memory peak needs a real deploy and 24h of
+  traffic. The puppeteer policy is proven by unit tests plus one Chromium render pass, **not**
+  against hostile input.
+- **I broke my own ratchet first, twice.** `process-env-outside-config` measured **0 on
+  creation** because the detector tested the *outer* property-access node for `name === 'env'`;
+  for `process.env.REDIS_URL` that node's name is `REDIS_URL`, so it matched nothing and the
+  rule reported safety it had never checked. Caught by injecting a read and seeing it pass;
+  now blocks with `+1 WORSE`. **A ratchet with a broken detector is worse than no ratchet.**
+  Second time: a `git checkout` meant to drop the probe reverted a *real* fix alongside it, and
+  the ratchet is what noticed. Also fixed `--set`, which could not record a new debt kind at
+  all — `loadBudgets` validated every kind before `applySets` ran, so the error message's own
+  recovery advice was unreachable.
 
 ## Definition of done: see the checklist at the bottom of `PLAN_B_PLUS_TO_A.md`.
 
