@@ -24,6 +24,21 @@ export interface MusicBrainzArtistData {
 
 const CACHE_TTL_SECONDS = 86400 * 30; // 30 days
 
+/** The subset of the MusicBrainz search/lookup payloads this service reads. */
+interface MbzSearchArtist { id: string; name: string }
+interface MbzSearchResponse { artists?: MbzSearchArtist[] }
+interface MbzRelation { url?: { resource?: string } }
+interface MbzLookup {
+  area?: { name?: string };
+  'begin-area'?: { name?: string };
+  country?: string;
+  type?: string;
+  gender?: string;
+  disambiguation?: string;
+  'life-span'?: { begin?: string };
+  relations?: MbzRelation[];
+}
+
 @injectable()
 export class MusicBrainzService {
   constructor(@inject(CacheService) private readonly cache: CacheService) {}
@@ -41,8 +56,8 @@ export class MusicBrainzService {
       });
 
       if (!searchRes.ok) return null;
-      const searchJson = (await searchRes.json()) as any;
-      const artists = searchJson.artists as any[];
+      const searchJson = (await searchRes.json()) as MbzSearchResponse;
+      const artists = searchJson.artists;
       if (!artists || artists.length === 0) return null;
 
       const exact = artists.find(a => a.name.toLowerCase() === artistName.toLowerCase()) ?? artists[0]!;
@@ -55,7 +70,7 @@ export class MusicBrainzService {
       });
 
       if (!lookupRes.ok) return null;
-      const lookupJson = (await lookupRes.json()) as any;
+      const lookupJson = (await lookupRes.json()) as MbzLookup;
 
       const data: MusicBrainzArtistData = {
         mbid,
@@ -74,7 +89,7 @@ export class MusicBrainzService {
         }
       }
 
-      const relations = lookupJson.relations as any[];
+      const relations = lookupJson.relations;
       if (Array.isArray(relations)) {
         for (const rel of relations) {
           const resource = rel.url?.resource as string;

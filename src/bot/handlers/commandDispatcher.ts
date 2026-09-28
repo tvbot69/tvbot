@@ -7,7 +7,16 @@ import {
   EmbedBuilder,
   type GuildTextBasedChannel,
 } from 'discord.js';
+/**
+ * A response may carry a paginator session, attached by whichever builder
+ * produced it. Checked rather than cast, so this adds no type escape and
+ * a differently-shaped response is simply skipped.
+ */
+const hasPaginatorSession = (v: unknown): v is { _paginatorSession: ComponentPaginatorSession } =>
+  typeof v === 'object' && v !== null && '_paginatorSession' in v &&
+  (v as { _paginatorSession?: unknown })._paginatorSession !== undefined;
 import { container } from 'tsyringe';
+import type { ComponentPaginatorSession } from '@bot/services/componentPaginatorService';
 import { Logger } from '@domain/logger';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ResponseModel } from '@bot/models/responseModel';
@@ -193,11 +202,11 @@ export class CommandDispatcher {
           if (oldest) this.commandResponseMessageMap.delete(oldest);
         }
 
-        if ((response as any)._paginatorSession) {
+        if (hasPaginatorSession(response)) {
           try {
             const { ComponentPaginatorService } = await import('@bot/services/componentPaginatorService');
             if (container.isRegistered(ComponentPaginatorService)) {
-              container.resolve(ComponentPaginatorService).registerSession(sentMessage.id, (response as any)._paginatorSession);
+              container.resolve(ComponentPaginatorService).registerSession(sentMessage.id, response._paginatorSession);
             }
           } catch {
             // ignore

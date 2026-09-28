@@ -4,6 +4,18 @@ import { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
 
 const isPlaceholder = (url?: string): boolean => !!url && isPlaceholderImageUrl(url);
 
+/**
+ * Last.fm sends `artist` and `album` either as a bare string or as an
+ * object whose NAME LIVES UNDER `#text`. That hash-prefixed key is XML
+ * residue from the original API, and a fixture written as `{ name }` passes
+ * tests the real payload fails. Typed here so the shape is checked rather
+ * than reached for with `as any`.
+ */
+interface NamedRef {
+  name?: string;
+  '#text'?: string;
+  mbid?: string;
+}
 export class TrackConverter {
   public static pickLargestImage(images?: LfmImage[]): string | undefined {
     if (!images || images.length === 0) {
@@ -24,15 +36,15 @@ export class TrackConverter {
     const artistName =
       typeof track.artist === 'string'
         ? track.artist
-        : (track.artist as any)?.name ?? (track.artist as any)?.['#text'] ?? '';
+        : (track.artist as NamedRef | undefined)?.name ?? (track.artist as NamedRef | undefined)?.['#text'] ?? '';
     const artistMbid =
       typeof track.artist === 'string'
         ? undefined
-        : track.artist.mbid || (track.artist as any)?.mbid || undefined;
+        : track.artist.mbid || (track.artist as NamedRef | undefined)?.mbid || undefined;
     const albumName =
       typeof track.album === 'string'
         ? track.album
-        : (track.album as any)?.name ?? (track.album as any)?.['#text'] ?? '';
+        : (track.album as NamedRef | undefined)?.name ?? (track.album as NamedRef | undefined)?.['#text'] ?? '';
 
     return {
       name: track.name,

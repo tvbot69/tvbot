@@ -1,6 +1,8 @@
 import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
 import type { IUserUpdateQueue } from '@domain/interfaces/iuserUpdateQueue';
 import { UpdateType } from '@domain/enums/updateType';
+// The Prisma enum types, so writing these columns is checked rather than cast.
+import type { data_source, privacy_level } from '@prisma/client';
 import type { ReferencedMusic } from '@domain/models/referencedMusic';
 import { CommandDispatcher } from '@bot/handlers/commandDispatcher';
 import { CacheService } from './cacheService';
@@ -296,16 +298,16 @@ export class UserService {
     return parts.filter(Boolean).join(' • ');
   }
 
-  public async getAccentColor(_user?: any, _guild?: any): Promise<number> {
+  public async getAccentColor(_user?: unknown, _guild?: unknown): Promise<number> {
     return 0xb90000; // LastFmRed fallback
   }
 
   public async getRankAsync(user?: User | null): Promise<string> {
     if (!user) return 'User';
-    return (user as any).userType || 'User';
+    return user.userType ?? 'User';
   }
 
-  public async getUserTitleAsync(_guild: any, user: User): Promise<string> {
+  public async getUserTitleAsync(_guild: unknown, user: User): Promise<string> {
     return user.userNameLastFm;
   }
 
@@ -337,7 +339,7 @@ export class UserService {
     const pLevel = privacyLevel.toLowerCase() === 'hide' || privacyLevel.toLowerCase() === 'server' ? 'Hide' : 'Default';
     const updated = await this.db.user.update({
       where: { userId },
-      data: { privacyLevel: pLevel as any },
+      data: { privacyLevel: pLevel as privacy_level },
     }).catch(() => null);
     if (updated) {
       await this.cache.delete(`user-discord:${updated.discordUserId}`);
@@ -348,7 +350,7 @@ export class UserService {
   public async setDataSource(userId: number, dataSource: string): Promise<string> {
     const updated = await this.db.user.update({
       where: { userId },
-      data: { dataSource: dataSource as any },
+      data: { dataSource: dataSource as data_source },
     }).catch(() => null);
     if (updated) {
       await this.cache.delete(`user-discord:${updated.discordUserId}`);

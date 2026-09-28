@@ -334,7 +334,7 @@ export class ArtworkService {
     }
     if (!result && !SpotifySearchApi.isRateLimited()) {
       try {
-        let albums: any[] = [];
+        let albums: Awaited<ReturnType<SpotifySearchApi['searchAlbums']>> = [];
         try {
           albums = await this.spotifyApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`, 10);
         } catch {
@@ -345,7 +345,7 @@ export class ArtworkService {
         }
 
         let match = albums.find((a) =>
-          a.artists?.some((art: any) => matchesArtistName(art.name, artistName)),
+          a.artists?.some((art) => matchesArtistName(art.name, artistName)),
         );
         if (!match && albums[0] && matchesArtistName(albums[0].artists?.[0]?.name ?? '', artistName)) {
           match = albums[0];
@@ -357,7 +357,7 @@ export class ArtworkService {
           // Only a verified artist match is accepted — never the first result.
           const retryAlbums = await this.spotifyApi.searchAlbums(cleanAlbum, 10);
           const retryMatch = retryAlbums.find((a) =>
-            a.artists?.some((art: any) => matchesArtistName(art.name, artistName)),
+            a.artists?.some((art) => matchesArtistName(art.name, artistName)),
           );
           url = pickLargest(retryMatch?.images);
         }
@@ -374,7 +374,7 @@ export class ArtworkService {
 
     if (!result) {
       try {
-        let albums: any[] = [];
+        let albums: Awaited<ReturnType<DeezerApi['searchAlbums']>> = [];
         try {
           albums = await this.deezerApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`);
         } catch {

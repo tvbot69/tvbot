@@ -1,5 +1,5 @@
 {
-  "explicit-any": 130,
+  "explicit-any": 109,
   "typed-catch": 0,
   "container-resolve-outside-root": 155,
   "container-resolve-in-constructor": 0,
