@@ -217,6 +217,8 @@ import { LyricStatusService } from './services/lyricStatusService';
 import { ExposedService } from './services/exposedService';
 import { ExposedCommands } from './textCommands/lastfm/exposedCommands';
 import { ExposedSlashCommands } from './slashCommands/exposedSlashCommands';
+import type { ICache } from '@domain/interfaces/icache';
+import { ICACHE } from '@domain/interfaces/icache';
 
 export const configureContainer = (): void => {
   const settings = ConfigData.Data;
@@ -267,6 +269,9 @@ export const configureContainer = (): void => {
   container.registerInstance(LastfmErrorRateTracker, errorRateTracker);
   container.registerInstance(SettingService, settingService);
   container.registerInstance(CacheService, cache);
+  // Bind the narrow port too, so src/ can depend on the cache capability
+  // without importing the implementation from @bot/* (plan 3.2).
+  container.registerInstance<ICache>(ICACHE, cache);
   container.registerInstance(ComponentInteractionTracker, componentTracker);
   container.registerInstance(ComponentPaginatorService, componentPaginatorService);
 

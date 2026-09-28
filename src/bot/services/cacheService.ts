@@ -2,6 +2,7 @@ import Redis from 'ioredis';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
 
+import type { ICache } from '@domain/interfaces/icache';
 interface MemoryEntry {
   value: unknown;
   expiresAt: number | null;
@@ -10,7 +11,7 @@ interface MemoryEntry {
 const DEFAULT_MAX_ENTRIES = 3000;
 const SWEEP_INTERVAL_MS = 60000;
 
-export class CacheService {
+export class CacheService implements ICache {
   private readonly memory: Map<string, MemoryEntry> = new Map();
   private readonly maxEntries: number;
   private readonly sweepInterval: NodeJS.Timeout | null = null;

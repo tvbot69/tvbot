@@ -44,7 +44,8 @@ import { TrackConverter } from '@lastfm/converters/recentTrackConverter';
 import { UserConverter } from '@lastfm/converters/userConverter';
 import { TopListConverter } from '@lastfm/converters/topListConverter';
 import { InfoConverter } from '@lastfm/converters/infoConverter';
-import { CacheService } from '@bot/services/cacheService';
+import type { ICache } from '@domain/interfaces/icache';
+import { ICACHE } from '@domain/interfaces/icache';
 
 const FAILURE_DELAY_MS = [500, 2500, 5000, 10000, 25000];
 
@@ -52,11 +53,11 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 export class LastFmRepository implements ILastfmRepository {
   private readonly api: LastfmApi;
-  private readonly cache?: CacheService;
+  private readonly cache?: ICache;
 
   constructor(
     @inject(LastfmApi) api: LastfmApi,
-    @inject(CacheService) cache?: CacheService,
+    @inject(ICACHE) cache?: ICache,
   ) {
     this.api = api;
     this.cache = cache;
