@@ -3,6 +3,7 @@ import path from 'path';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { PuppeteerService } from './puppeteerService';
 
+import { escapeHtml } from '../html';
 export interface WhoKnowsStatItem {
   value: string | number;
   label: string;
@@ -30,12 +31,7 @@ export interface WhoKnowsImageParams {
   footerItemLabel?: string;
 }
 
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+
 
 const formatCompact = (num: number): string => {
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;

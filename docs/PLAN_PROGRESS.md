@@ -110,8 +110,25 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     Restored → 136, passes.
   - `ts.isAnyKeyword` is internal and not exported by every TS version; the
     check uses `ts.SyntaxKind.AnyKeyword` after that threw.
-- **3.4** ⬜ Not started.
-- **3.5** ⬜ Not started.
+- **3.4** ⬜ Not started. Note: measured so far — Prisma is used directly in 20+ files under
+  `bot/`, and the plan explicitly says **not** to mass-move. Enforced going forward instead.
+- **3.5** ✅ `src/images/html.ts` with a tested `escapeHtml` and `safeUrl`. 15 tests.
+  - 4 drifted copies collapsed to 1: `chartService`, `whoKnowsGenerator` (free functions removed)
+    and `icebergGenerator` (its method now delegates to the shared one).
+  - **Honest severity, not inflated:** the gap was **latent, not live**. All current attributes
+    are double-quoted (`src="${...}"`), so the three copies that stopped at `"` could not be
+    broken out of. The drift only becomes stored XSS the day someone writes `href='${...}'`.
+    Consolidating removes the question; it did not fix an exploit.
+  - `safeUrl` is **not** "https only" as the plan specified, because https-only breaks this
+    codebase: `receiptGenerator` builds `data:image/png;base64,...` at runtime and the render
+    tests feed 1x1 `data:image/gif`. So: https, or `data:image/(png|jpe?g|gif|webp)`.
+    `data:image/svg+xml` and `data:text/html` rejected — SVG carries script.
+    Plain `http` rejected as mixed content.
+  - A test caught a real gap on first run: `https://ok.example https://evil.example` passed a
+    naive `startsWith('https://')` while smuggling a second absolute URL. `safeUrl` now rejects
+    any URL containing whitespace. Mutation-checked — removing the guard fails the test.
+- **3.3 (cont.)** ⬜ `container.resolve` outside the allowlist and the module-scope side effects
+  (`dns.setDefaultResultOrder`, `prismaClient` validating env on import) are still to do.
 ### Phase 4 — type safety: ⬜ nothing started (note: separate earlier work took `any` 392 → 140)
 ### Phase 5 — security and ops: ⬜ nothing started
 

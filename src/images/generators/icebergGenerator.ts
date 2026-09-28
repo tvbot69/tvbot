@@ -2,6 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import { PuppeteerService } from './puppeteerService';
 import type { IcebergData } from '@bot/services/musicIntelligenceService';
 
+import { escapeHtml } from '../html';
 @injectable()
 export class IcebergGenerator {
   constructor(
@@ -9,13 +10,9 @@ export class IcebergGenerator {
   ) {}
 
   private escapeHtml(str: string): string {
-    return (str || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+    return escapeHtml(str || '');
   }
+
 
   public async generateIceberg(data: IcebergData): Promise<Buffer> {
     const tierMeta = [

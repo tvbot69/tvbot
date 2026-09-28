@@ -3,12 +3,8 @@ import path from 'path';
 import type { ChartItem, ChartSettings } from '@images/models/chartModels';
 import { PuppeteerService } from './puppeteerService';
 
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+import { escapeHtml } from '../html';
+
 
 let cachedFontCss: string | null = null;
 function getFontCss(): string {
