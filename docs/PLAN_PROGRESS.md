@@ -139,22 +139,29 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   - ⬜ 4 `import type` remain (autopostRepository, iceberg/whoKnows/worldMap generators). Erased
     at compile time, same finding as the 3.1 cycles. Now **excluded** from the invariant test
     rather than silently ignored.
-- **3.3 (plan's 3.3) — one DI style** 🔄 **229 → 160** `container.resolve` outside the
-  composition roots. Ratchet live and CI-blocking; budget lowered as work lands.
-  - ✅ `interactionHandler` 37, `artistInteractions` 7, `startupService` 6, `topInteractions` 3,
-    `userEventHandler` 2, `artistTrackInteractions` 2, `commandHandler` 11,
-    `trackPreviewInteractions` 1, `imageUploadService` 1 — all now `@injectable()` with
-    `@inject()` parameter properties, resolved by `startup.ts`.
-  - ✅ `count-debt.ts` grew a kind, not a repo: `container-resolve-outside-root`. The 4th ratchet
-    is a function. It **refused to invent a budget** for the new kind and demanded `--set`.
-    AST count is 160; a regex said fewer because it also matched a `container.resolve` that exists
-    only inside a comment in `telemetry.ts`.
+- **3.3 (plan's 3.3) — one DI style** 🔄 **Eager `container.resolve` is now 0.** Total outside
+  the composition roots: 296 → **155**, all of it lazy and method-level.
+  - ✅ Budgets, all CI-blocking via `npm run debt`:
+    `container-resolve-in-constructor` **0** · `container-resolve-outside-root` **155** ·
+    `explicit-any` **136** · `typed-catch` **0**
+  - ✅ Converted: `interactionHandler` 37, `commandHandler` 11, `artistInteractions` 7,
+    `startupService` 6, `topInteractions` 3, `userEventHandler` 2, `artistTrackInteractions` 2,
+    `clientLogHandler` 3, `trackPreviewInteractions` 1, `imageUploadService` 1.
+    All now `@injectable()` + `@inject()` parameter properties, resolved by `startup.ts`.
+  - ✅ Two debt kinds, not two scripts — the whole reason `count-debt.ts` exists. It **refused
+    to invent a budget** for each new kind and demanded `--set`.
+  - ✅ `--where` prints offenders. A ratchet you cannot locate is a ratchet you cannot act on,
+    and it is what found the two leftover resolves described below.
   - ✅ Module-scope `dns.setDefaultResultOrder` removed from `lastfmApi`; only the 3 real
     entrypoints keep it (`index`, `shardManager`, `shardWorker` — the last two are forked).
-  - ⬜ Still 160, mostly **lazy** resolves inside methods (`fmFooterResolver` 13, `shutdownService`
-    10, `playCommands` 10, `userSlashCommands` 10). Some of these are *correct* — a shutdown hook
-    or a health check genuinely should not force eager construction. Splitting "wrong" from
-    "deliberate" is the next task; a blanket count target of <30 may be the wrong goal.
+  - ⬜ **The plan's `<30` target needs rethinking, and that is a judgement call, not a chore.**
+    Of the 155 remaining, only a handful are in constructors. The rest are resolves inside
+    methods, and many are **deliberately lazy**: `fmFooterResolver` resolves `PrismaClient`
+    only when the "artist plays" footer is enabled; `shutdownService` and `healthServer`
+    should not force eager construction at boot. Converting those would *cost* startup work
+    for features that may never run. The real architectural debt — eager construction hiding
+    the wiring graph — is **0**. Recommendation: ratchet the eager count at 0 (done) and treat
+    the total as informational, rather than driving it to 30 for its own sake.
 - **3.4** ⬜ Not started. Measured: Prisma is called directly in 20+ files under `bot/`, and the
   plan explicitly says **not** to mass-move. This is enforced going forward instead.
 - **3.5** ✅ `src/images/html.ts` with a tested `escapeHtml` and `safeUrl`. 15 tests.
@@ -199,6 +206,8 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | `shardManager`/`shardWorker` also set DNS order | Invariant caught them; they are real forked-process entrypoints, allowlisted by name with the reason |
 | `commandDispatch.test.ts` passed with its 11 constructor args **in the wrong order** | Swapping two stubs left it 2/2 green — the inline `as never` literals made every argument mutually assignable. Fixed by naming each stub with its real type, so a swap is now TS2345 |
 | A codemod reported "converted 37" having removed nothing | Signature rewrite succeeded, assignment-removal regex matched nothing, and the result still compiled. The debt ratchet was the only thing that noticed |
+| Two files I had *just* converted still had a `container.resolve` in the constructor | `--where` on the ratchet. Assigning to a parameter property compiles, so the build stayed green both times |
+| A new ratchet kind reported 6 eager resolves; **one was a false positive** | `topInteractions` registers an async modal handler *inside* its constructor, so a resolve inside that arrow runs on click, not at construction. Added a function boundary the traversal will not cross |
 | `artworkService` had 3 lint errors nobody ran | `--quiet` in the gates after a new ESLint rule |
 
 ## Mistakes I made, so they are not repeated
