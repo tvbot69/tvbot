@@ -32,6 +32,7 @@
     "db:verify-constraint": "tsx scripts/verify-dedup-constraint.ts",
     "db:verify": "npm run db:check-index && npm run db:verify-index-expr && npm run db:verify-constraint",
     "db:verify-missing-tables": "tsx scripts/verify-missing-tables-migration.ts",
+    "db:verify-schema-drift": "tsx scripts/verify-schema-drift.ts",
     "db:replay-fresh": "tsx scripts/replay-migrations-fresh.ts",
     "db:verify-live-matches": "tsx scripts/verify-live-matches-migration.ts",
     "test:db": "vitest run --config vitest.db.config.ts",

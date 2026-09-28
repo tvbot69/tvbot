@@ -239,6 +239,39 @@ jobs:
       - name: Database is at the expected version
         run: npx prisma migrate status --schema src/persistence/prisma/schema.prisma
 
+      # The gate for the bug that started this: schema.prisma declared 20 columns
+      # that NO migration in this history ever created, and nothing noticed. The
+      # Prisma client is generated FROM the schema, so it emitted SQL for a column
+      # the database had never had and the first real query died with P2022. It
+      # was found only when the raw-SQL tests below first ran against a real
+      # Postgres - i.e. it was found by luck.
+      #
+      # Nothing else in this workflow can catch it. `prisma generate` reads only
+      # the schema, tsc reads only the schema, `npm test` mocks the database, and
+      # `migrate deploy` validates each migration on its own terms without ever
+      # asking whether the SUM of them is the schema.
+      #
+      # SHADOW_DATABASE_URL, not DATABASE_URL: `--from-migrations` replays the
+      # migrations folder into a throwaway database and Prisma RESETS whatever
+      # database it is given. Pointing it at `tvbot` would wipe the database the
+      # remaining steps in this job read from. Hence the separate `tvbot_ci_shadow`.
+      # The gate falls back to diffing DATABASE_URL directly when no shadow URL is
+      # present, and to a database-free columns-and-indexes check when neither
+      # exists - and it says loudly which of the three it ran.
+      #
+      # --selftest runs first and is blocking. The strict comparison below parses
+      # `prisma migrate diff` output, and a parser that stops recognising a
+      # statement shape reports "clean" forever - the exact failure this step
+      # exists to prevent. Running only the gate would leave that parser
+      # unverified by anything.
+      - name: Create the shadow database
+        run: PGPASSWORD=tvbot psql -h localhost -U tvbot -d tvbot -c "CREATE DATABASE tvbot_ci_shadow"
+
+      - name: Schema matches the migrations
+        run: npm run db:verify-schema-drift -- --selftest && npm run db:verify-schema-drift
+        env:
+          SHADOW_DATABASE_URL: postgresql://tvbot:tvbot@localhost:5432/tvbot_ci_shadow?schema=public
+
       # A functional index can only be judged by being built, so verify the
       # expression and the constraint against the real column types here rather
       # than in production. Runs against a throwaway TEMP table.
