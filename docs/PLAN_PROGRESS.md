@@ -210,6 +210,19 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   globs used `/` so on Windows **141 test files were counted as untested product code**.
   A third: **14 deleted files** survived as source-map sources under `dist/` and were scored 0%.
   Ratchet verified to block. Thresholds now lines/statements 49, branches 68.5, functions 50.
+- **2.2** ✅ **`albumService` 16% -> 47.1% lines; the project crossed 50% for the first time.**
+  Global: **49.82% -> 50.22%** lines/statements, branches 68.83% -> **69.03%**, functions
+  50.65% -> **50.93%**. Ratchet raised to 50 / 68.8 / 50.8 / 50.
+  - 23 tests over `searchAlbum` (~350 lines, the entry point for every album command) and the
+    Spotify-supplement path. **4/4 mutations caught.**
+  - Grammar assertions use inputs that break a naive parse: "Juno Reactor - Aeroplane -
+    Flanger" must split on the FIRST hyphen, "OK Computer BY Radiohead" puts the artist on the
+    right, and "By The Way" is a real album title that must NOT be read as the separator.
+  - 🐛 **My first version was 4/9 broken in an instructive way.** I asserted the parsed artist
+    via `getOrCreateArtist`, but that receives the RESOLVED name Last.fm returns, which
+    overrides whatever was typed - so the test could not fail however the input was parsed. It
+    now reads `getAlbumInfo`, which is called with the parsed pair. Same family as "a test that
+    re-implements the logic it tests", reached from the other side.
 - **2.2** 🔄 **This session: 3 core files, 154 tests, all mutation-checked.**
   - `lastFmRepository.contract.test.ts` — **85 tests. 11.92% → 93.57% lines, 12% → 100% functions.**
     Covers auth, user info, the retry path, info lookups, search, friends, all three top-list
