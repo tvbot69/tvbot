@@ -30,12 +30,11 @@ const NONE_TTL_SECONDS = 600;
  */
 const INCONCLUSIVE_TTL_SECONDS = 90;
 const FRESHNESS_WINDOW_MS = 90 * 24 * 3600 * 1000;
-const LASTFM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
-
-export const isPlaceholderImageUrl = (url?: string | null): boolean => {
-  if (!url) return true;
-  return url.includes(LASTFM_PLACEHOLDER_HASH);
-};
+// Canonical implementation lives in domain so lower layers can call it without
+// importing @bot/*. Re-exported here so the ~20 existing call sites are
+// unchanged. See src/domain/lastfmPlaceholder.ts and AGENTS.md rule 2.
+export { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
+import { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
 
 const isValidImageUrl = (url?: string | null): boolean => !!url && !isPlaceholderImageUrl(url);
 

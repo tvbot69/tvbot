@@ -1,6 +1,6 @@
 import type { LfmImage, RecentTrackLfm } from '@lastfm/models/recentTracksLfm';
 import type { RecentTrack } from '@domain/models/recentTrack';
-import { isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
 
 const isPlaceholder = (url?: string): boolean => !!url && isPlaceholderImageUrl(url);
 
