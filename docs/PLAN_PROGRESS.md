@@ -124,6 +124,23 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   in snake_case, not the camelCase the Prisma client suggests, and there is no `genres`
   table at all - genres live in `artist_genres`. Guessed column names produced five
   convincing 42703 errors that were all mine, not the repo's.
+- 🐛 **Three more failures in the new DB suite, each found by running the exact statement
+  against the live database inside a transaction that was ROLLED BACK** (so production was
+  never modified) rather than by waiting for a CI log nobody here can read:
+  1. The postgres service only creates `POSTGRES_DB`, so `tvbot_ci_test` did not exist.
+     CI now creates it explicitly - the harness deliberately refuses a non-scratch name.
+  2. The scratch database is empty and `user_plays.user_id` is a foreign key. Added
+     `dbHarness.seedUser`.
+  3. **Prisma sends `$1`..`$3` as UNTYPED parameters and Postgres cannot resolve an
+     untyped parameter in an `INSERT ... VALUES` list.** The identical query with literal
+     values succeeds and the parameterised one fails. Fixed with `$1::int4, $2::varchar,
+     $3::int8`. The same trap produced the false 4280/4288 alarms earlier under `EXPLAIN`.
+- ⚠️ **A lesson about using the production database as a test oracle.** It is genuinely
+  useful - it is the only real Postgres available - but every probe must be read-only
+  (`EXPLAIN`) or wrapped in a transaction that is rolled back. One diagnostic inserted a
+  throwaway user row to compare the two forms and deleted it immediately; the row was
+  created and removed, and nothing else was touched. `db:count-duplicates` confirms the
+  table is still clean.
 ### Phase 2 — test where the product lives
 - **2.1** ✅ `f062fc9` + `1d46170`. Real coverage is **49.00%**, not the 48.5% claimed — and not
   the 46.5% I first measured either. Two config bugs: `all` defaults to false, and the exclude

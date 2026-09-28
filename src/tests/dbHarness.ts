@@ -70,9 +70,14 @@ export const connect = async (): Promise<PrismaClient | null> => {
  */
 export const seedUser = async (prisma: PrismaClient, userId: number): Promise<void> => {
   await prisma.$executeRawUnsafe(
+    // The ::int4 / ::varchar / ::int8 casts are LOAD-BEARING, not decoration.
+    // Prisma sends $1..$3 as untyped parameters, and Postgres cannot resolve an
+    // untyped parameter in an INSERT VALUES list, so the uncast form fails while
+    // the identical query with literal values succeeds. Found by running both
+    // against the live database inside a transaction that was rolled back.
     // discord_user_id is a BIGINT: a non-numeric literal is 22P02 at runtime.
     `INSERT INTO users ("user_id", "user_name_last_fm", "discord_user_id")
-     VALUES ($1, $2, $3) ON CONFLICT ("user_id") DO NOTHING`,
+     VALUES ($1::int4, $2::varchar, $3::int8) ON CONFLICT ("user_id") DO NOTHING`,
     userId,
     `db_user_${userId}`,
     String(BigInt(userId) * 1000n),
