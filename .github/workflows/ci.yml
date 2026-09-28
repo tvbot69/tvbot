@@ -250,3 +250,18 @@ jobs:
 
       - name: Verify the index exists and the data is clean
         run: npm run db:check-index
+
+      # The raw queries. 28 `$queryRawUnsafe` calls were unexecuted until now:
+      # a renamed column or a GROUP BY Postgres rejects is a RUNTIME failure
+      # with a green build and a green unit suite, because the unit tests mock
+      # the database. This job already has a real Postgres with every migration
+      # applied, so it is the only place these can be proven.
+      #
+      # TEST_DATABASE_URL, not DATABASE_URL: dbHarness REFUSES any database
+      # whose name does not look like a scratch database, because the tests
+      # TRUNCATE every table. Setting it to a real one must not be possible by
+      # accident.
+      - name: Raw SQL against a real database
+        run: npm run test:db
+        env:
+          TEST_DATABASE_URL: postgresql://tvbot:tvbot@localhost:5432/tvbot_ci_test?schema=public

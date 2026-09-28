@@ -119,7 +119,31 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
     swap compiled clean and was caught by **12 tests** instead. Comment corrected to say so.
   - Remaining: `crownInteractions`, `countryInteractions`, and the rest of the 34-file
     text-command layer, which still has **zero** test files. Target ≥60% per file, global ≥60%.
-- **2.3** ⬜ Not started.
+- **2.3** 🔄 **Infrastructure + the first repository done. The queries now have a home;
+  the coverage of them is 1 of 6 files.**
+  - ✅ `vitest.db.config.ts` + `npm run test:db`, a third suite alongside unit and render.
+    Skips cleanly with a clear message when there is no database, so `npm test` stays
+    runnable with no services. Serial (`fileParallelism: false`) because the tests share one
+    schema.
+  - ✅ `src/tests/dbHarness.ts` — one place that resolves the URL, skips, connects and
+    truncates.
+  - ✅ **The harness REFUSES any database that does not look like a scratch database.**
+    `resetTables` deletes every row, and a developer .env holds the real `DATABASE_URL`, so
+    "pasted the wrong variable" is a realistic accident. The refusal is hard, not a warning,
+    and it is covered by 11 tests that use the REAL production URL shape (`/railway`) as a
+    must-refuse case. **2/2 mutations caught** (disabling the check, and widening the regex).
+  - ✅ `playRepository.db.test.ts` — 9 tests on a real database: chunking across three
+    chunks (1201 rows, no loss or duplication), the dedup constraint (same batch twice → N
+    not 2N), the `NULLS NOT DISTINCT` case that a plain unique index would let through, and
+    the play-source default. This is the plan's 1.2 acceptance criterion, now executable.
+  - ✅ CI: the existing `migrations` job (which already has postgres:16 and every migration
+    applied) now runs `npm run test:db` against `tvbot_ci_test`.
+  - ⚠️ **NOT verified locally: there is no Docker and no local Postgres on this machine,**
+    so the 9 query tests have never executed. They are written against the schema and
+    typecheck, and CI is where they first run. If they fail there, the failure is real and
+    the fix is in the test or the query — not in the threshold.
+  - ⬜ Remaining: `playHistoryService` (8 raw calls), `artistsService` (7), `trackService` (4),
+    `albumService` (4), `musicIntelligenceService` (4), `playRepository` (1).
 - **2.4** ✅ Split the suite so the unit run needs no browser. Measured rather than trusted: the
   plan said 7 browser tests, and **3 files** actually launch Chromium —
   `chartService.render.test.ts` (x2) and `whoKnowsGenerator.render.test.ts`. The two

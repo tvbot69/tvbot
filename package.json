@@ -33,7 +33,8 @@
     "db:verify": "npm run db:check-index && npm run db:verify-index-expr && npm run db:verify-constraint",
     "db:verify-missing-tables": "tsx scripts/verify-missing-tables-migration.ts",
     "db:replay-fresh": "tsx scripts/replay-migrations-fresh.ts",
-    "db:verify-live-matches": "tsx scripts/verify-live-matches-migration.ts"
+    "db:verify-live-matches": "tsx scripts/verify-live-matches-migration.ts",
+    "test:db": "vitest run --config vitest.db.config.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
