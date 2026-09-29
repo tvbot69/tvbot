@@ -1,6 +1,7 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { LastFmRepository } from './lastFmRepository';
+import { LastFmRepository, LastFmUnavailableError } from './lastFmRepository';
+import { LastfmApiError } from '@domain/models/lastfmError';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import type { ICache } from '@domain/interfaces/icache';
 
@@ -15,7 +16,19 @@ import type { ICache } from '@domain/interfaces/icache';
  * Fixtures follow the captured shapes in `lastFmRepository.recentTracks.test.ts`
  * (AGENTS.md section 11): every count is a STRING, `artist` may arrive as a bare
  * string, and a one-entry list arrives unwrapped.
+ *
+ * WHAT A FAILURE MEANS, PINNED BOTH WAYS. These tests used to say "returns null
+ * rather than throwing when the call fails" and threw a bare `Error`. That
+ * pinned the defect: a Last.fm 5xx and a deleted account produced the same
+ * `null`, so the bot told users their friend had been removed whenever
+ * Last.fm had a bad minute. A "not found" code is a real answer and is
+ * returned; anything else raises `LastFmUnavailableError`. Both directions are
+ * asserted below, because a test that only checks the happy half cannot tell
+ * the fix from the bug.
  */
+
+const notFound = (): LastfmApiError => new LastfmApiError(6, 'User not found');
+
 
 const PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';
 
@@ -138,11 +151,20 @@ describe('LastFmRepository.getUserInfo', () => {
     expect(user?.country).toBeUndefined();
   });
 
-  it('returns null rather than throwing when the call fails', async () => {
+  it('returns null when Last.fm says the user does not exist', async () => {
     const { repo } = makeRepo(() => {
-      throw new Error('error 6: user not found');
+      throw notFound();
     });
     await expect(repo.getUserInfo('ghost')).resolves.toBeNull();
+  });
+
+  it('raises rather than reporting a deleted user when Last.fm is merely down', async () => {
+    // The single worst case in the repo: a timeout used to return null, and
+    // every caller read that as "this account no longer exists".
+    const { repo } = makeRepo(() => {
+      throw new LastfmApiError(-1, 'Network error or timeout while contacting Last.fm');
+    });
+    await expect(repo.getUserInfo('DreadRock')).rejects.toBeInstanceOf(LastFmUnavailableError);
   });
 });
 
@@ -304,11 +326,24 @@ describe('LastFmRepository info lookups', () => {
     ['getArtistInfo', (r: LastFmRepository) => r.getArtistInfo('Mond')],
     ['getAlbumInfo', (r: LastFmRepository) => r.getAlbumInfo('A', 'B')],
     ['getTrackInfo', (r: LastFmRepository) => r.getTrackInfo('T', 'A')],
-  ])('%s returns null rather than throwing when the call fails', async (_label, invoke) => {
+  ])('%s returns null when Last.fm says "not found"', async (_label, invoke) => {
     const { repo } = makeRepo(() => {
-      throw new Error('error 6');
+      throw notFound();
     });
     await expect(invoke(repo)).resolves.toBeNull();
+  });
+
+  it.each([
+    ['getArtistInfo', (r: LastFmRepository) => r.getArtistInfo('Mond')],
+    ['getAlbumInfo', (r: LastFmRepository) => r.getAlbumInfo('A', 'B')],
+    ['getTrackInfo', (r: LastFmRepository) => r.getTrackInfo('T', 'A')],
+  ])('%s raises rather than pretending the artist does not exist', async (_label, invoke) => {
+    // The load-bearing half. A 5xx here used to return null, and every caller
+    // read that as "this artist/album/track is not in Last.fm".
+    const { repo } = makeRepo(() => {
+      throw new LastfmApiError(-1, 'Network error or timeout while contacting Last.fm');
+    });
+    await expect(invoke(repo)).rejects.toBeInstanceOf(LastFmUnavailableError);
   });
 });
 
@@ -365,11 +400,26 @@ describe('LastFmRepository search', () => {
     ['searchArtists', (r: LastFmRepository) => r.searchArtists('x')],
     ['searchAlbums', (r: LastFmRepository) => r.searchAlbums('x')],
     ['searchTracks', (r: LastFmRepository) => r.searchTracks('x')],
-  ])('%s returns an empty list rather than throwing when the call fails', async (_label, invoke) => {
+  ])('%s returns an empty list when Last.fm says "not found"', async (_label, invoke) => {
     const { repo } = makeRepo(() => {
-      throw new Error('boom');
+      throw notFound();
     });
     await expect(invoke(repo)).resolves.toEqual([]);
+  });
+
+  it.each([
+    ['searchArtists', (r: LastFmRepository) => r.searchArtists('x')],
+    ['searchAlbums', (r: LastFmRepository) => r.searchAlbums('x')],
+    ['searchTracks', (r: LastFmRepository) => r.searchTracks('x')],
+  ])('%s raises rather than returning an empty search that looks like a real answer', async (_label, invoke) => {
+    const { repo } = makeRepo(() => {
+      // A 5xx-shaped code, not 6/7/8. Codes 6-8 are genuine "no such thing"
+      // answers and correctly return []; anything else is Last.fm failing.
+      throw new LastfmApiError(-1, 'Network error or timeout while contacting Last.fm');
+    });
+    // An empty search box is indistinguishable from "nothing matches", which is
+    // what a user reads when Last.fm is down rather than when it has no data.
+    await expect(invoke(repo)).rejects.toBeInstanceOf(LastFmUnavailableError);
   });
 });
 
@@ -395,11 +445,19 @@ describe('LastFmRepository.getUserFriends', () => {
     await expect(repo.getUserFriends('DreadRock')).resolves.toEqual([]);
   });
 
-  it('returns an empty list rather than throwing when the call fails', async () => {
+  it('returns an empty list when Last.fm says the user does not exist', async () => {
     const { repo } = makeRepo(() => {
-      throw new Error('boom');
+      throw notFound();
     });
     await expect(repo.getUserFriends('DreadRock')).resolves.toEqual([]);
+  });
+
+  it('raises rather than claiming the user has no friends when Last.fm is down', async () => {
+    // An empty friend list is what a user with zero friends looks like.
+    const { repo } = makeRepo(() => {
+      throw new LastfmApiError(-1, 'Network error or timeout while contacting Last.fm');
+    });
+    await expect(repo.getUserFriends('DreadRock')).rejects.toBeInstanceOf(LastFmUnavailableError);
   });
 });
 

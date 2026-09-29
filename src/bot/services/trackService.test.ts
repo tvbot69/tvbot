@@ -393,43 +393,6 @@ describe('TrackService.getArtistUserTracks', () => {
   });
 });
 
-describe('TrackService.audioFeatureAnalysisComparisonString', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const overview = {
-    total: 10,
-    average: { danceability: 0.65, energy: 0.8, valence: 0.45, tempo: 128, acousticness: 0.15 },
-  };
-
-  it('returns a message when no audio features are available', () => {
-    const { service } = build();
-    const empty = { total: 0, average: { danceability: 0, energy: 0, valence: 0, tempo: 0, acousticness: 0 } };
-    expect(service.audioFeatureAnalysisComparisonString(empty)).toBe('No audio features available.');
-  });
-
-  it('formats all features without previous data', () => {
-    const { service } = build();
-    const result = service.audioFeatureAnalysisComparisonString(overview);
-    expect(result).toContain('**Danceability**: **65%**');
-    expect(result).toContain('**Energy**: **80%**');
-    expect(result).toContain('**Valence (Happiness)**: **45%**');
-    expect(result).toContain('**Acousticness**: **15%**');
-    expect(result).toContain('**Tempo**: **128 BPM**');
-  });
-
-  it('includes delta when previous data is available', () => {
-    const { service } = build();
-    const previous = {
-      total: 10,
-      average: { danceability: 0.55, energy: 0.7, valence: 0.5, tempo: 120, acousticness: 0.2 },
-    };
-    const result = service.audioFeatureAnalysisComparisonString(overview, previous);
-    expect(result).toContain('+10%');
-    expect(result).toContain('+8 from 120 BPM');
-    expect(result).toContain('-5%');
-  });
-});
-
 describe('TrackService.getLatestTracks', () => {
   beforeEach(() => vi.clearAllMocks());
 

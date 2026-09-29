@@ -18,6 +18,7 @@ import type {
   TrackInfo,
 } from '@domain/models/musicInfo';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
+import { LastfmApiError } from '@domain/models/lastfmError';
 import type {
   RecentTracksResponseLfm,
 } from '@lastfm/models/recentTracksLfm';
@@ -50,6 +51,58 @@ import { ICACHE } from '@domain/interfaces/icache';
 const FAILURE_DELAY_MS = [500, 2500, 5000, 10000, 25000];
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Last.fm error codes that mean "this thing genuinely does not exist".
+ *
+ * Everything else - a 5xx, a timeout, a rate limit - is Last.fm being
+ * UNAVAILABLE, which is a completely different thing to tell a user. Code 6
+ * is "user not found", 7 is "album not found", 8 is "artist not found". The
+ * synthetic -1 is this repo's own "network error or timeout" from lastfmApi.
+ */
+const NOT_FOUND_CODES = new Set([6, 7, 8]);
+
+/**
+ * TRUE when Last.fm answered, and the answer was "no such thing".
+ *
+ * The distinction matters because every method in this class returns `null` or
+ * `[]` for both cases, so before this existed a Last.fm outage was
+ * indistinguishable from a deleted account - the bot would confidently tell
+ * someone their friend had been removed. A network failure is not an answer.
+ */
+const isNotFound = (err: unknown): boolean =>
+  err instanceof LastfmApiError && NOT_FOUND_CODES.has(err.code);
+
+/**
+ * The `null` a caller gets when Last.fm could not be reached at all.
+ *
+ * Thrown rather than returned so it cannot be mistaken for "does not exist":
+ * a `catch` that returns `null` without calling this is the bug this whole
+ * helper exists to prevent.
+ */
+export class LastFmUnavailableError extends Error {
+  constructor(
+    public readonly method: string,
+    public readonly cause: unknown,
+  ) {
+    super(`Last.fm unavailable during ${method}: ${(cause as Error)?.message ?? String(cause)}`);
+    this.name = 'LastFmUnavailableError';
+  }
+}
+
+/**
+ * The single place a Last.fm failure becomes a caller-visible result.
+ *
+ * A genuine "no such artist" is a legitimate empty answer and is returned.
+ * Anything else means Last.fm failed, which is logged at ERROR and raised as
+ * `LastFmUnavailableError` so the caller can render an error instead of an
+ * empty list that looks like real data.
+ */
+const orUnavailable = <T>(method: string, err: unknown, absent: T): T => {
+  if (isNotFound(err)) return absent;
+  Logger.error({ method, err: (err as Error)?.message ?? String(err) }, `Last.fm ${method} failed and was not a "not found" answer`);
+  throw new LastFmUnavailableError(method, err);
+};
 
 export class LastFmRepository implements ILastfmRepository {
   private readonly api: LastfmApi;
@@ -120,8 +173,10 @@ export class LastFmRepository implements ILastfmRepository {
         user: userName,
       });
       return UserConverter.convertUserInfo(response);
-    } catch {
-      return null;
+    } catch (err) {
+      // Code 6 is a real "no such user". Anything else is Last.fm failing, and
+      // returning null for that told callers a deleted account had been deleted.
+      return orUnavailable('user.getinfo', err, null);
     }
   }
 
@@ -214,8 +269,8 @@ export class LastFmRepository implements ILastfmRepository {
         ...(username ? { username: username } : {}),
       });
       return InfoConverter.convertArtistInfo(response);
-    } catch {
-      return null;
+    } catch (err) {
+      return orUnavailable('artist.getinfo', err, null);
     }
   }
 
@@ -231,8 +286,8 @@ export class LastFmRepository implements ILastfmRepository {
         ...(username ? { username: username } : {}),
       });
       return InfoConverter.convertAlbumInfo(response);
-    } catch {
-      return null;
+    } catch (err) {
+      return orUnavailable('album.getinfo', err, null);
     }
   }
 
@@ -248,8 +303,8 @@ export class LastFmRepository implements ILastfmRepository {
         ...(username ? { username: username } : {}),
       });
       return InfoConverter.convertTrackInfo(response);
-    } catch {
-      return null;
+    } catch (err) {
+      return orUnavailable('track.getinfo', err, null);
     }
   }
 
@@ -265,8 +320,8 @@ export class LastFmRepository implements ILastfmRepository {
         mbid: a.mbid || undefined,
         url: a.url || undefined,
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      return orUnavailable('artist.search', err, []);
     }
   }
 
@@ -284,8 +339,8 @@ export class LastFmRepository implements ILastfmRepository {
         mbid: a.mbid || undefined,
         url: a.url || undefined,
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      return orUnavailable('album.search', err, []);
     }
   }
 
@@ -303,8 +358,8 @@ export class LastFmRepository implements ILastfmRepository {
         mbid: t.mbid || undefined,
         url: t.url || undefined,
       }));
-    } catch {
-      return [];
+    } catch (err) {
+      return orUnavailable('track.search', err, []);
     }
   }
 
@@ -329,8 +384,10 @@ export class LastFmRepository implements ILastfmRepository {
       return friends.map((f) =>
         UserConverter.convertUserInfo({ user: f }),
       );
-    } catch {
-      return [];
+    } catch (err) {
+      // An empty friend list is indistinguishable from "you have no friends",
+      // so a Last.fm outage must not be allowed to produce one.
+      return orUnavailable('user.getfriends', err, []);
     }
   }
 

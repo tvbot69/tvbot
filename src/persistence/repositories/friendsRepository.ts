@@ -4,6 +4,7 @@ import type { Friend, User } from '@persistence/domain/models/user';
 import { FriendType } from '@domain/enums/friendType';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 import { UserType, DataSource } from '@persistence/domain/models/user';
+import { Logger } from '@domain/logger';
 
 function userTypeFromEntity(value: string): UserType {
   if (value === 'Contributor') return UserType.Contributor;
@@ -123,7 +124,10 @@ export class FriendsRepository implements IFriendsRepository {
     try {
       await this.prisma.friend.delete({ where: { friendId: friendId } });
       return true;
-    } catch {
+    } catch (err) {
+      // Logged because the caller cannot distinguish this from "already gone",
+      // and a delete that failed is indistinguishable from one that never ran.
+      Logger.error(`removeFriend(${friendId}) failed: ${(err as Error)?.message ?? err}`);
       return false;
     }
   }

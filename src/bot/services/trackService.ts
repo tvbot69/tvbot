@@ -361,30 +361,6 @@ export class TrackService {
     }
   }
 
-  public audioFeatureAnalysisComparisonString(current: AudioFeaturesOverview, previous?: AudioFeaturesOverview): string {
-    if (current.total === 0) return 'No audio features available.';
-    const lines: string[] = [];
-
-    const formatFeature = (label: string, curVal: number, prevVal?: number, isPercent = true) => {
-      const curStr = isPercent ? `${Math.round(curVal * 100)}%` : `${curVal} BPM`;
-      if (prevVal !== undefined && previous && previous.total > 0) {
-        const delta = isPercent ? Math.round((curVal - prevVal) * 100) : curVal - prevVal;
-        const sign = delta > 0 ? `+${delta}` : `${delta}`;
-        const prevStr = isPercent ? `${Math.round(prevVal * 100)}%` : `${prevVal} BPM`;
-        return `**${label}**: **${curStr}** (${sign}${isPercent ? '%' : ''} from ${prevStr})`;
-      }
-      return `**${label}**: **${curStr}**`;
-    };
-
-    lines.push(formatFeature('Danceability', current.average.danceability, previous?.average.danceability));
-    lines.push(formatFeature('Energy', current.average.energy, previous?.average.energy));
-    lines.push(formatFeature('Valence (Happiness)', current.average.valence, previous?.average.valence));
-    lines.push(formatFeature('Acousticness', current.average.acousticness, previous?.average.acousticness));
-    lines.push(formatFeature('Tempo', current.average.tempo, previous?.average.tempo, false));
-
-    return lines.join('\n');
-  }
-
   /**
    * Autocomplete: Recent tracks in last 2 days
    */
@@ -517,15 +493,4 @@ export class TrackService {
       return [];
     }
   }
-}
-
-export interface AudioFeaturesOverview {
-  total: number;
-  average: {
-    danceability: number;
-    energy: number;
-    valence: number;
-    tempo: number;
-    acousticness: number;
-  };
 }

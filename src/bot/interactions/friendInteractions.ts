@@ -227,7 +227,17 @@ export class FriendInteractions {
 
     await interaction.deferUpdate().catch(() => undefined);
 
-    await this.friendsService.removeFriend(friendId);
+    // A failed delete must not look like a successful one: the row is still
+    // there, so re-rendering the list alone would show the user no evidence
+    // that anything went wrong.
+    const removed = await this.friendsService.removeFriend(friendId);
+    if (!removed) {
+      await interaction.followUp({
+        content: 'Could not remove that friend. Please try again.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
 
     const friends = await this.friendsService.getFriendsByUserId(user.userId);
     const context = await this.buildContext(interaction);

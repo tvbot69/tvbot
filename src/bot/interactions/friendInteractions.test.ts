@@ -96,6 +96,7 @@ const mkButton = (customId: string, over: Record<string, unknown> = {}) =>
     deferUpdate: vi.fn(async () => undefined),
     update: vi.fn(async () => undefined),
     editReply: vi.fn(async () => undefined),
+    followUp: vi.fn(async () => undefined),
     ...over,
   }) as unknown as ButtonInteraction & {
     isRepliable: ReturnType<typeof vi.fn>;
@@ -103,6 +104,7 @@ const mkButton = (customId: string, over: Record<string, unknown> = {}) =>
     deferUpdate: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     editReply: ReturnType<typeof vi.fn>;
+    followUp: ReturnType<typeof vi.fn>;
   };
 
 const mkSelect = (customId: string, values: string[], over: Record<string, unknown> = {}) =>
@@ -612,6 +614,27 @@ describe('FriendInteractions — response building for the builder-backed branch
     expect(friendsService.removeFriend).toHaveBeenCalledWith(7);
     expect(friendsService.getFriendsByUserId).toHaveBeenCalledWith(OWNER_USER_ID);
     expect(spy.mock.calls[0]![2]).toBe(1);
+  });
+
+  it('tells the user when a delete failed, instead of silently re-rendering the list', async () => {
+    // The delete returning false is the ONLY signal that the row is still
+    // there. Re-rendering the list alone shows the friend back with no
+    // indication anything went wrong, so the failure has to be explicit.
+    const { fi } = build({
+      friendsService: { removeFriend: vi.fn(async () => false) },
+    });
+    const spy = spyBuilder();
+    const press = mkButton('friends:delete:7:1');
+
+    await fi.handleButton(press);
+
+    expect(press.followUp).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(press.followUp).mock.calls[0]![0]).toMatchObject({
+      content: expect.stringContaining('Could not remove'),
+    });
+    // No rebuild: the list is unchanged and showing it implies success.
+    expect(spy).not.toHaveBeenCalled();
+    expect(press.editReply).not.toHaveBeenCalled();
   });
 
   it('propagates a selected type of NaN when the select value is not numeric', async () => {

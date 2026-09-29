@@ -1,0 +1,162 @@
+# Plan: Reach A tier
+
+Replaces `PLAN_B_PLUS_TO_A.md`. That plan is kept for history, not followed.
+
+## Why this plan exists
+
+The previous plan defined A tier as a checklist of ratchet counts and ended at 8/9 boxes
+ticked with the work still incomplete. Two things went wrong:
+
+1. **The headline metric was bad.** `silent-failure-default = 604` counts catch blocks, not
+   bugs. Cutting it to 400 by grouping catches scores identically to cutting it to 100, and
+   the first version is cosmetic. Optimising it would have been worse than not doing it.
+2. **It was not a plan, it was a progress report.** It measured what had been done rather
+   than deciding what to do next, so the number never moved and two days produced no
+   movement on the scoreboard even though real bugs were being fixed.
+
+This plan does the opposite. It names defects that make the bot lie to a user, orders them
+by how much a user is hurt, and deletes the 604 entirely rather than pretending to reduce it.
+
+## What "A tier" means here
+
+The bot never tells a user a confident falsehood. Three concrete properties, each
+independently checkable:
+
+- **A1. No query is silent.** Code that reads the database and cannot read it says so.
+  No `.catch(() => [])` on a data path.
+- **A2. No dead feature presents itself as working.** A feature either works or is gone.
+- **A3. Every query that can run has been run.** A query that has never executed against a
+  real database is a query that has never been tested.
+
+A3 is already true: `raw-query-without-db-test = 0`. That was Phase 6.1 and it is done.
+
+## The work, in order of how much a user is hurt
+
+### A-tier 1 — A1, the silent-failure queue (the real work)
+
+The 604 sites are not equal. The ones that matter share one shape: **a failure becomes a
+plausible wrong answer rather than an absence.** An empty list is honest; a chart showing
+`0` plays is a lie, and the user cannot tell which they got.
+
+Ranked by blast radius:
+
+1. **`lastFmRepository` — 10 sites where a Last.fm 5xx becomes "this user does not exist."**
+   Worst class in the repo. A timeout is indistinguishable from a deleted account, and the
+   bot will confidently tell someone their friend is gone. Every one of these must distinguish
+   "Last.fm failed" from "Last.fm said no."
+2. **`playHistoryService.getYearOverview` — 6 raw queries, each becoming a confident zero.**
+   The year chart renders as all-zeros after any database error, with no indication that
+   anything failed. A user looking at a year chart has no way to know they are looking at
+   nothing.
+3. **`streakService` and the leaderboard services** — same shape, smaller surface.
+
+Each fix: log the error at WARN, and make the failure visible to the caller rather than
+defaulting it away. Not "log and still return a default" — that keeps the lie. Return a
+distinguishable failure, or render an explicit error state.
+
+**Ratchet:** `silent-failure-default` is now **595, budget 595**, and it only falls. The 604
+count is not deleted from the tooling — it stays as a cheap regression net for new silent
+catches — but it is no longer the target. A site leaving it is not a win unless it was on the
+user-facing list below.
+
+**Measured so far: 604 to 595.** The 9 removed are all in `lastFmRepository`, and they are the
+highest-value sites in the repo.
+
+**A-tier 1 progress — `lastFmRepository`, done.**
+
+Every read method returned `null` or `[]` for both "Last.fm says no such thing" and "Last.fm
+is down", so a bad minute at Last.fm was indistinguishable from a deleted account. New
+`orUnavailable` helper: a real not-found code (6, 7, 8) is returned as the empty answer it
+is; anything else is logged at ERROR and raised as `LastFmUnavailableError`.
+
+Converted 9 methods: `getUserInfo`, `getArtistInfo`, `getAlbumInfo`, `getTrackInfo`,
+`searchArtists`, `searchAlbums`, `searchTracks`, `getUserFriends`, and the session lookup.
+`getAuthToken` was left alone deliberately — a failed token fetch has no "user" to lie about
+and its caller already handles `null`.
+
+**Four tests asserted the bug and were replaced, not weakened.** They said "returns null
+rather than throwing when the call fails" and threw a bare `Error`, which pinned the defect.
+Each is now a pair: a not-found code returns the empty answer, and a transport failure raises.
+Asserting only the happy half cannot tell the fix from the bug, so both directions are tested.
+
+**Call-safety verified, not assumed.** 41 call sites across 17 files now receive a throw
+where they previously received a lie. `commandHandler` catches at the message boundary and
+`interactionHandler` catches and replies "something went wrong", so a Last.fm outage cannot
+crash a command or leave an interaction unacknowledged — it downgrades from a confident wrong
+answer to a visible error. This was the main risk of the change and it was checked rather than
+hoped for.
+
+**Next:** `playHistoryService.getYearOverview` — 6 raw queries, each becoming a confident zero.
+
+
+**Definition of done for this tier:** a Last.fm 5xx in a test produces a visible error, and
+the year chart says "could not load" instead of "0 plays."
+
+### A-tier 2 — A2, the orphaned audio-features feature — **DONE**
+
+`trackService.getAverageTrackAudioFeaturesForTopTracks` selected five columns that do not
+exist on `tracks`, behind `.catch(() => [])`, so it returned zeros to every user silently
+since it was written.
+
+**Measured, and this changed the decision:** the query is already gone. What remained was
+`audioFeatureAnalysisComparisonString`, a pure formatter, and it has **zero production
+callers** — only its own unit test. So this was not "add five columns or repair the query."
+The feature was already dead code that was never wired up.
+
+Decision: **deleted.** The formatter, the `AudioFeaturesOverview` interface, and its three
+tests. Adding a migration and five columns to serve a feature with no caller is a net loss.
+This satisfies A2 at lower cost than the old plan assumed, and the old plan's framing here
+was simply wrong.
+
+### A-tier 3 — the A-class site — **DONE**
+
+`friendsRepository.removeFriend` caught a failed delete, returned `false`, logged nothing, and
+`friendInteractions.ts:230` discarded the result. A friend removal that failed re-rendered the
+list, which still showed the friend — the user saw their own click do nothing, with no error.
+
+Fixed at both ends: the repository now logs at ERROR, and the caller replies "Could not remove
+that friend" and does not rebuild the list, because showing an unchanged list implies success.
+Mutation-checked: disabling the caller's check turns the new test red.
+
+### A-tier 4 — A3, the last unexecuted query
+
+`raw-query-without-db-test` reads 0, but that number is only as good as the audit that
+produced it. Two known gaps from earlier rounds:
+
+- The `$queryRaw` **tagged templates** were not counted by the first audit (35 raw queries
+  were missed this way once already).
+- `prismaClient.db.test.ts` covers the singleton; the harness itself is untested against a
+  real connection pool.
+
+Re-run the audit with both shapes counted, mutation-check the detector, and fix whatever it
+finds.
+
+**Definition of done:** a detector that provably fails when a query is added, and zero
+uncovered queries.
+
+## What is explicitly not in this plan
+
+- **The 604 count is deleted, not reduced.** It measured catch blocks. Chasing it would be
+  motion. Replaced by a smaller, honest count of the sites that actually lie.
+- **`as unknown as` (76), `container.resolve` (155), the 15 bot-to-Prisma files.** All
+  ratcheted, all non-increasing, all architecturally fine. Not a user-facing risk. Leave them.
+- **Coverage percentage.** 66.73% lines, ratcheted, above target. It has never once found a
+  bug in this repo that the DB suite did not find faster.
+- **Lint warnings** (351). Zero errors, ratcheted, non-blocking by design.
+
+## Honest limits
+
+- **Nothing here has run against the live bot.** No voice, no audio, no ffmpeg, no real
+  Discord. The memory peak is still NOT YET MEASURED. Every claim in this plan is about
+  code, verified by tests, not about production behaviour.
+- **The DB suite is green per-file but the full 518-test run needs CI's disposable
+  postgres:16.** A hosted pooler wedges on it (per-file client pools plus a truncate per
+  test exhaust the pooler and Prisma blocks with no error). That CI run is the gate for
+  every claim in this plan.
+- **A-tier 1 will not finish in a day.** It is roughly 17 sites in `lastFmRepository` plus 6
+  in `getYearOverview`, and each needs a test that proves a 5xx no longer becomes a wrong
+  answer. This is the work that was always there. The old plan hid it inside a count.
+
+## Progress
+
+Tracked in `PLAN_PROGRESS.md`. Metrics that are re-measured, never carried forward on trust.
