@@ -1,8 +1,10 @@
 import 'reflect-metadata';
-import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { ArtistRepository } from './artistRepository';
 import { connect, resetTables, skipReason, useScratchSchema } from '../../tests/dbHarness';
+import { normaliseSql, recordRawQueries } from '../../tests/dbRawQueryObserver';
+import type { RawQueryRecorder } from '../../tests/dbRawQueryObserver';
 
 /**
  * The ONE raw query in artistRepository.ts - L51-53, the case-insensitive
@@ -44,23 +46,41 @@ const suite = skip ? describe.skip : describe;
 let prisma: PrismaClient | null = null;
 let repo: ArtistRepository | null = null;
 
-/** Runs `body` with the client's `$queryRaw` observed, always restoring it. */
-const countTwinQueries = async <T>(body: () => Promise<T>): Promise<{ result: T; twinQueries: number }> => {
-  const spy = vi.spyOn(prisma!, '$queryRaw');
-  try {
-    const result = await body();
-    return { result, twinQueries: spy.mock.calls.length };
-  } finally {
-    spy.mockRestore();
-  }
-};
+/**
+ * The twins statement, as Prisma builds it out of the tagged template in
+ * `getOrCreateArtistsBulk`. Written out rather than derived from the
+ * repository, so a rewrite of that query - `LIKE` for `= ANY`, say - has to be
+ * acknowledged here instead of passing silently.
+ */
+const TWIN_SQL = 'SELECT artist_id AS "artistId", name FROM artists WHERE UPPER(name) = ANY(?)';
+
+/**
+ * The recorder the repository is BUILT ON, which is the whole point.
+ *
+ * The first version of this file counted the twin pass with
+ * `vi.spyOn(prisma, '$queryRaw')`, and that installs a mock on the exact object
+ * under test. From the first `countTwinQueries` call onwards the real method was
+ * gone, so every later real query in the test died - the repository's own, and
+ * the fixture's seeding and assertions - with
+ * `this.prisma.$queryRaw is not a function`. 35 failures across this file,
+ * albumRepository.db.test.ts and trackRepository.db.test.ts, one cause.
+ *
+ * `recordRawQueries` hands back a client the repository can hold while this file
+ * keeps the real one for seeding and asserting, and it forwards every call to
+ * the real method rather than answering it. So `raw` below is not a count of
+ * mock invocations: it is the statement the database was actually asked, with
+ * the values it was bound and the rows it sent back. See
+ * src/tests/dbRawQueryObserver.ts.
+ */
+let recorder: RawQueryRecorder | null = null;
 
 suite('ArtistRepository raw query against a real database', () => {
   beforeAll(async () => {
     prisma = await connect();
     if (prisma) {
       await useScratchSchema(prisma);
-      repo = new ArtistRepository(prisma);
+      recorder = recordRawQueries(prisma);
+      repo = new ArtistRepository(recorder.client);
     }
   });
 
@@ -77,14 +97,20 @@ suite('ArtistRepository raw query against a real database', () => {
     it('returns the existing ProperCase row instead of creating a lowercase twin', async () => {
       const existing = await prisma!.artist.create({ data: { name: 'Mac DeMarco' } });
 
-      const { result: map, twinQueries } = await countTwinQueries(() =>
-        repo!.getOrCreateArtistsBulk(['mac demarco']),
-      );
+      const { result: map, raw } = await recorder!.run(() => repo!.getOrCreateArtistsBulk(['mac demarco']));
 
       expect(map.get('mac demarco')).toBe(existing.artistId);
-      // The exact pass missed (Prisma `in` is case-sensitive), so this run is
-      // the only proof the query actually executed rather than being dead code.
-      expect(twinQueries).toBe(1);
+      // The exact pass missed (Prisma `in` is case-sensitive), so this is the
+      // only run in which the twins statement can be reached at all. Asserting
+      // the statement AND the row it returned is what proves the query is not
+      // dead code: a count of 1 would also be satisfied by any raw call, and the
+      // id in the map would still be the freshly created twin's if this pass had
+      // returned nothing.
+      expect(raw).toHaveLength(1);
+      expect(normaliseSql(raw[0]!.sql)).toBe(TWIN_SQL);
+      // The JS array bound as ONE Postgres array parameter, not interpolated.
+      expect(raw[0]!.values).toEqual([['MAC DEMARCO']]);
+      expect(raw[0]!.result).toEqual([{ artistId: existing.artistId, name: 'Mac DeMarco' }]);
       expect(await prisma!.artist.count()).toBe(1);
     });
 
@@ -102,12 +128,14 @@ suite('ArtistRepository raw query against a real database', () => {
     it('does not run the query at all when the exact pass already matched', async () => {
       await prisma!.artist.create({ data: { name: 'radiohead' } });
 
-      const { result: map, twinQueries } = await countTwinQueries(() =>
-        repo!.getOrCreateArtistsBulk(['radiohead']),
-      );
+      const { result: map, raw } = await recorder!.run(() => repo!.getOrCreateArtistsBulk(['radiohead']));
 
       expect(map.get('radiohead')).toBeTypeOf('number');
-      expect(twinQueries).toBe(0);
+      // The map cannot tell you this: the twins pass with an empty `missing`
+      // list would answer with the same id. That the repository never even
+      // OPENED the statement is the claim, and only a recorder that ran the real
+      // query can make it.
+      expect(raw).toEqual([]);
       expect(await prisma!.artist.count()).toBe(1);
     });
 
@@ -183,9 +211,9 @@ suite('ArtistRepository raw query against a real database', () => {
     });
 
     it('returns an empty map for no input without touching the database', async () => {
-      const { result, twinQueries } = await countTwinQueries(() => repo!.getOrCreateArtistsBulk([]));
+      const { result, raw } = await recorder!.run(() => repo!.getOrCreateArtistsBulk([]));
       expect(result.size).toBe(0);
-      expect(twinQueries).toBe(0);
+      expect(raw).toEqual([]);
       expect(await prisma!.artist.count()).toBe(0);
     });
 

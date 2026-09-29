@@ -270,8 +270,21 @@ suite('CrownRepository raw queries against a real database', () => {
 
   describe('getUserCrowns (L186)', () => {
     it('returns an empty list for a user with no crowns', async () => {
-      await seedCrown({ artistName: 'Radiohead' });
+      // The crown has to belong to somebody ELSE, and until 2026-09-29 it did
+      // not: `seedCrown` defaults `user` to the primary `userId`, so this seeded
+      // the very user it then asked about and asserted an empty list for. The
+      // query is right - `WHERE c.guild_id = $1 AND c.user_id = $2 AND
+      // c.active = $3` is scoped per user, which is what the method is FOR - and
+      // the fixture was asserting the opposite of the row it had just written.
+      // The "no crowns" case is a crown that exists in the guild under a
+      // different holder, so that is what gets seeded. The second assertion is
+      // there so the fixture cannot silently rot back into seeding userId.
+      const other = userId + 7000;
+      await seedUser(prisma!, other);
+      await seedCrown({ artistName: 'Radiohead', user: other });
+
       await expect(repo!.getUserCrowns(guildId, userId)).resolves.toEqual([]);
+      await expect(repo!.getUserCrowns(guildId, other)).resolves.toHaveLength(1);
     });
 
     it('returns an empty list for a non-numeric guild id', async () => {
@@ -484,7 +497,11 @@ suite('CrownRepository raw queries against a real database', () => {
   describe('seedCrownsForGuild (L292)', () => {
     it('seeds nothing when the guild has no indexed artists', async () => {
       await expect(repo!.seedCrownsForGuild(guildId)).resolves.toBe(0);
-      await expect(prisma!.userCrown.count()).toBe(0);
+      // The await is load-bearing. Without it `expect` is handed a PrismaPromise,
+      // `.toBe(0)` inspects the promise OBJECT, and the failure reads
+      // "expected { catch, finally, requestTransaction, ... } to be 0" - a dump
+      // of the ORM, not a statement about crowns.
+      expect(await prisma!.userCrown.count()).toBe(0);
     });
 
     it('seeds nothing for a non-numeric guild id', async () => {

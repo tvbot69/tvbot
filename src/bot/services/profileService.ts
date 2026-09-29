@@ -144,7 +144,7 @@ export class ProfileService {
             DATE_TRUNC('month', time_played) AS month_date,
             COUNT(*)::int AS play_count,
             COALESCE(SUM(ms_played), 0)::bigint AS total_ms
-          FROM public.user_plays
+          FROM user_plays
           WHERE user_id = ${targetUser.userId}
           GROUP BY month_date
           ORDER BY month_date DESC
@@ -173,7 +173,7 @@ export class ProfileService {
             DATE_TRUNC('year', time_played) AS year_date,
             COUNT(*)::int AS play_count,
             COALESCE(SUM(ms_played), 0)::bigint AS total_ms
-          FROM public.user_plays
+          FROM user_plays
           WHERE user_id = ${targetUser.userId}
           GROUP BY year_date
           ORDER BY year_date DESC

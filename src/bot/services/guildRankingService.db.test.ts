@@ -229,6 +229,12 @@ suite('GuildRankingService raw queries against a real database', () => {
       });
 
       it('sums playcount and counts distinct listeners, from user_artists', async () => {
+        // BOTH listeners have to be in the guild. The chart joins `guild_users`,
+        // so the primary user's rollup is invisible here until `join` says so -
+        // which is what the test two above pins on purpose. Seeding the rollup
+        // without the membership made this assert a total of 12 with one
+        // listener, for a query that was behaving exactly as designed.
+        await join(userId);
         const second = await member(1);
         const boc = await artist('Boards of Canada');
         await topArtist(userId, boc, 'Boards of Canada', 30);
@@ -263,6 +269,13 @@ suite('GuildRankingService raw queries against a real database', () => {
         // Worth knowing: this is why the genre branch below joins on
         // `UPPER(a.name) = UPPER(ua.name)` while the artist branch does not. The
         // artist chart genuinely can list the same artist twice.
+        //
+        // `member(1)` joins the SECOND listener only, so the primary user needs
+        // its own `join`: the chart is scoped by `guild_users`, and without it
+        // the 'Boards of Canada' half of the expected list below simply was not
+        // in the result. Both spellings have to be guild members for this to be
+        // the two-row chart rather than a one-row chart.
+        await join(userId);
         const second = await member(1);
         const boc = await artist('Boards of Canada');
         await topArtist(userId, boc, 'Boards of Canada', 30);

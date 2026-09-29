@@ -118,9 +118,10 @@ suite('GenreService raw queries against a real database', () => {
   beforeEach(async () => {
     if (!prisma) return;
     await resetTables(prisma);
-    // abuse_flags is deliberately NOT in dbHarness.resetTables' list and three of
-    // these queries read it. Clearing it here is what stops a flag written by one
-    // test from suppressing a user in the next.
+    // resetTables truncates abuse_flags as of 2026-09-29; it used to be the one
+    // table it missed, and this line was the per-file workaround for that. Kept
+    // because a flag written by one test suppressing a user in the next is the
+    // exact failure it prevents, and a free DELETE is cheaper than a re-run.
     await prisma.abuseFlag.deleteMany({});
     await prisma.guild.create({ data: { guildId: GUILD, guildName: 'genre db test' } });
     userId += 1;
@@ -470,7 +471,11 @@ suite('GenreService raw queries against a real database', () => {
       await prisma!.guildUser.create({
         data: { guildId: OTHER_GUILD, userId: elsewhere, whoKnowsWhitelisted: true },
       });
-      await topArtist(elsewhere, await withGenres('Aphex Twin', ['idm']), 'Aphex Twin', 900);
+      // `artist()`, NOT `withGenres()`: seedGenreGuild above already attached 'idm'
+      // to this artist, and `artist_genres` is UNIQUE on (artist_id, name), so
+      // withGenres would be a second insert of a row that exists - P2002. The
+      // genre is a property of the artist, and the artist is the same one.
+      await topArtist(elsewhere, await artist('Aphex Twin'), 'Aphex Twin', 900);
       expect((await service!.getGuildTopGenresAllTime(GUILD_ID))[0]?.totalPlaycount).toBe(42);
       expect((await service!.getGuildTopGenresAllTime(OTHER_GUILD.toString()))[0]?.totalPlaycount).toBe(900);
     });

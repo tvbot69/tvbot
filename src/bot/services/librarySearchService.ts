@@ -35,7 +35,7 @@ export class LibrarySearchService {
           WITH ranked AS (
             SELECT name, playcount,
                    CAST(ROW_NUMBER() OVER (ORDER BY playcount DESC) AS int) AS rank
-            FROM public.user_artists
+            FROM user_artists
             WHERE user_id = ${userId}
           )
           SELECT name, playcount, rank
@@ -56,9 +56,9 @@ export class LibrarySearchService {
           WITH ranked AS (
             SELECT ua.name, a.name AS artist_name, ua.playcount,
                    CAST(ROW_NUMBER() OVER (ORDER BY ua.playcount DESC) AS int) AS rank
-            FROM public.user_albums ua
-            JOIN public.albums ab ON ua.album_id = ab.album_id
-            JOIN public.artists a ON ab.artist_id = a.artist_id
+            FROM user_albums ua
+            JOIN albums ab ON ua.album_id = ab.album_id
+            JOIN artists a ON ab.artist_id = a.artist_id
             WHERE ua.user_id = ${userId}
           )
           SELECT name, artist_name, playcount, rank
@@ -80,9 +80,9 @@ export class LibrarySearchService {
           WITH ranked AS (
             SELECT ut.name, a.name AS artist_name, ut.playcount,
                    CAST(ROW_NUMBER() OVER (ORDER BY ut.playcount DESC) AS int) AS rank
-            FROM public.user_tracks ut
-            JOIN public.tracks t ON ut.track_id = t.track_id
-            JOIN public.artists a ON t.artist_id = a.artist_id
+            FROM user_tracks ut
+            JOIN tracks t ON ut.track_id = t.track_id
+            JOIN artists a ON t.artist_id = a.artist_id
             WHERE ut.user_id = ${userId}
           )
           SELECT name, artist_name, playcount, rank
@@ -102,7 +102,7 @@ export class LibrarySearchService {
       case SearchTab.Plays: {
         const rows = await prisma.$queryRaw<Array<{ track_name: string | null; album_name: string | null; artist_name: string; time_played: Date }>>`
           SELECT track_name, album_name, artist_name, time_played
-          FROM public.user_plays
+          FROM user_plays
           WHERE user_id = ${userId}
             AND (artist_name || ' ' || COALESCE(album_name, '') || ' ' || COALESCE(track_name, '')) ILIKE ${pattern}
           ORDER BY time_played DESC

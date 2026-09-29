@@ -126,13 +126,26 @@ export const seedPlays = async (prisma: PrismaClient, plays: PlayFixture[]): Pro
   }
 };
 
-/** Truncate every table the tests write to, so runs are independent. */
+/**
+ * Truncate every table the tests write to, so runs are independent.
+ *
+ * `abuse_flags` was MISSING from this list, and it is the most-written table in
+ * the whole `*.db.test.ts` suite (20 call sites across 6 files). `user_id` is the
+ * PRIMARY KEY, so a file that seeds a flag and never truncates the table dies
+ * with P2002 on the second insert - and then, worse, leaks a LIVE flag forward
+ * into a later test that reuses the same id and silently sees an empty chart.
+ * That is exactly what CI hit on 2026-09-29: guildRankingService.db.test.ts
+ * failed 7 tests, 5 of them from this one omission.
+ *
+ * The lesson is the shape of the list: a per-file `deleteMany` is a workaround
+ * that only the file that remembered it gets. If you seed a table, add it HERE.
+ */
 export const resetTables = async (prisma: PrismaClient): Promise<void> => {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
       user_plays, user_artists, user_albums, user_tracks, guild_users,
       user_crowns, friends, bot_scrobble_opt_ins, guild_autoposts,
-      artist_genres, albums, tracks, artists, users, guilds
+      artist_genres, albums, tracks, artists, users, guilds, abuse_flags
     RESTART IDENTITY CASCADE
   `);
 };

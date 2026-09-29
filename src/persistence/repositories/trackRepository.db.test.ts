@@ -1,8 +1,10 @@
 import 'reflect-metadata';
-import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { TrackRepository } from './trackRepository';
 import { connect, resetTables, skipReason, useScratchSchema } from '../../tests/dbHarness';
+import { normaliseSql, recordRawQueries } from '../../tests/dbRawQueryObserver';
+import type { RawQueryRecorder } from '../../tests/dbRawQueryObserver';
 
 /**
  * The ONE raw query in trackRepository.ts - L76-78, the case-insensitive "twins"
@@ -36,6 +38,16 @@ const suite = skip ? describe.skip : describe;
 let prisma: PrismaClient | null = null;
 let repo: TrackRepository | null = null;
 
+/**
+ * The twins statement, as Prisma builds it out of the tagged template in
+ * `getOrCreateTracksBulk`. Written out rather than derived, so a rewrite of the
+ * query - `LIKE` for `= ANY`, say - has to be acknowledged here instead of
+ * passing silently.
+ */
+const TWIN_SQL =
+  'SELECT track_id AS "trackId", name, artist_id AS "artistId" FROM tracks' +
+  ' WHERE artist_id = ANY(?) AND UPPER(name) = ANY(?)';
+
 /** Distinct artists per test: `artists.name` is UNIQUE, so names must differ. */
 let artistSeq = 0;
 const seedArtist = async (name?: string): Promise<number> => {
@@ -44,23 +56,31 @@ const seedArtist = async (name?: string): Promise<number> => {
   return row.artistId;
 };
 
-/** Runs `body` with the client's `$queryRaw` observed, always restoring it. */
-const countTwinQueries = async <T>(body: () => Promise<T>): Promise<{ result: T; twinQueries: number }> => {
-  const spy = vi.spyOn(prisma!, '$queryRaw');
-  try {
-    const result = await body();
-    return { result, twinQueries: spy.mock.calls.length };
-  } finally {
-    spy.mockRestore();
-  }
-};
+/**
+ * The recorder the repository is BUILT ON.
+ *
+ * The first version of this file counted the twin pass with
+ * `vi.spyOn(prisma, '$queryRaw')`, which installs a mock on the exact object
+ * under test: from the first call onwards the real method was gone and every
+ * later real query in the test - the repository's, and this file's own seeding
+ * and assertions - threw `this.prisma.$queryRaw is not a function`. 35 failures
+ * across the three bulk-repository files, one cause.
+ *
+ * `recordRawQueries` gives the repository a client of its own while this file
+ * keeps the real one, and forwards every call to the real method instead of
+ * answering it. So `raw` is the statement the database was asked, the values it
+ * was bound and the rows it returned - not a tally of mock invocations. See
+ * src/tests/dbRawQueryObserver.ts.
+ */
+let recorder: RawQueryRecorder | null = null;
 
 suite('TrackRepository raw query against a real database', () => {
   beforeAll(async () => {
     prisma = await connect();
     if (prisma) {
       await useScratchSchema(prisma);
-      repo = new TrackRepository(prisma);
+      recorder = recordRawQueries(prisma);
+      repo = new TrackRepository(recorder.client);
     }
   });
 
@@ -78,14 +98,23 @@ suite('TrackRepository raw query against a real database', () => {
       const artistId = await seedArtist('Radiohead');
       const existing = await prisma!.track.create({ data: { artistId, name: 'Airbag' } });
 
-      const { result: map, twinQueries } = await countTwinQueries(() =>
+      const { result: map, raw } = await recorder!.run(() =>
         repo!.getOrCreateTracksBulk([{ trackName: 'AIRBAG', artistId }]),
       );
 
       expect(map.get(`${artistId}|airbag`)).toBe(existing.trackId);
       // The exact pass missed (`name: { in: ['airbag'] }` is case-sensitive), so
-      // this call count is the only evidence the query is not dead code.
-      expect(twinQueries).toBe(1);
+      // this is the only run in which the twins statement is reachable at all.
+      // Asserting the statement, both bound arrays and the row that came back
+      // is what proves it is not dead code - a count of 1 would also be
+      // satisfied by any raw call, and the map would still hold the freshly
+      // created lowercase track's id if this pass had returned nothing.
+      expect(raw).toHaveLength(1);
+      expect(normaliseSql(raw[0]!.sql)).toBe(TWIN_SQL);
+      // Artist ids and names are TWO separate Postgres array parameters, which
+      // is a claim about Prisma's serialiser rather than about Postgres.
+      expect(raw[0]!.values).toEqual([[artistId], ['AIRBAG']]);
+      expect(raw[0]!.result).toEqual([{ trackId: existing.trackId, name: 'Airbag', artistId }]);
       expect(await prisma!.track.count()).toBe(1);
     });
 
@@ -129,12 +158,15 @@ suite('TrackRepository raw query against a real database', () => {
       const artistId = await seedArtist('Radiohead');
       const existing = await prisma!.track.create({ data: { artistId, name: 'airbag' } });
 
-      const { result: map, twinQueries } = await countTwinQueries(() =>
+      const { result: map, raw } = await recorder!.run(() =>
         repo!.getOrCreateTracksBulk([{ trackName: 'airbag', artistId }]),
       );
 
       expect(map.get(`${artistId}|airbag`)).toBe(existing.trackId);
-      expect(twinQueries).toBe(0);
+      // The map cannot carry this claim: an empty `missing` list would make the
+      // twins pass answer with the same id. That the statement was never OPENED
+      // is the point, and only a recorder running the real query can show it.
+      expect(raw).toEqual([]);
       expect(await prisma!.track.count()).toBe(1);
     });
 
@@ -195,9 +227,9 @@ suite('TrackRepository raw query against a real database', () => {
     });
 
     it('returns an empty map for an empty batch without touching the database', async () => {
-      const { result, twinQueries } = await countTwinQueries(() => repo!.getOrCreateTracksBulk([]));
+      const { result, raw } = await recorder!.run(() => repo!.getOrCreateTracksBulk([]));
       expect(result.size).toBe(0);
-      expect(twinQueries).toBe(0);
+      expect(raw).toEqual([]);
       expect(await prisma!.track.count()).toBe(0);
     });
 

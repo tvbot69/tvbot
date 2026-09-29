@@ -170,8 +170,11 @@ suite('WhoKnowsRepository raw queries against a real database', () => {
     it('matches the artist name case-insensitively', async () => {
       await seedGuildMember(userId);
       await seedUserArtistRow(userId, 'Radiohead', 30);
-      await expect(repo!.getIndexedUsersForArtist(guildId, 'radiohead')).toHaveLength(1);
-      await expect(repo!.getIndexedUsersForArtist(guildId, 'RADIOHEAD')).toHaveLength(1);
+      // The await is load-bearing. `expect(promise).toHaveLength(1)` inspects the
+      // PROMISE object synchronously and fails with "expected Promise{...} to have
+      // property 'length'" - a statement about the ORM, not about the leaderboard.
+      expect((await repo!.getIndexedUsersForArtist(guildId, 'radiohead'))).toHaveLength(1);
+      expect((await repo!.getIndexedUsersForArtist(guildId, 'RADIOHEAD'))).toHaveLength(1);
     });
 
     it('sums a users case-variant rows into one entry instead of ranking them twice', async () => {
@@ -258,13 +261,13 @@ suite('WhoKnowsRepository raw queries against a real database', () => {
       await seedGuildMember(userId);
       await seedUserArtistRow(userId, 'Radiohead', 10);
       await flag(userId, new Date(Date.now() - DAY * 1000));
-      await expect(repo!.getIndexedUsersForArtist(guildId, 'Radiohead')).toHaveLength(1);
+      expect((await repo!.getIndexedUsersForArtist(guildId, 'Radiohead'))).toHaveLength(1);
     });
 
     it('counts a zero-play row as a leaderboard entry, because the aggregate has no lower bound', async () => {
       await seedGuildMember(userId);
       await seedUserArtistRow(userId, 'Radiohead', 0);
-      await expect(repo!.getIndexedUsersForArtist(guildId, 'Radiohead')).toEqual([{ userId, playcount: 0 }]);
+      expect((await repo!.getIndexedUsersForArtist(guildId, 'Radiohead'))).toEqual([{ userId, playcount: 0 }]);
     });
   });
 
@@ -470,7 +473,7 @@ suite('WhoKnowsRepository raw queries against a real database', () => {
       await seedNamedUser(friend, 'alice');
       await prisma!.friend.create({ data: { userId, lastFmUserName: 'alice', friendUserId: friend } });
       await seedUserArtistRow(friend, 'Radiohead', 40);
-      await expect(repo!.getFriendUsersForArtist(userId, 'radiohead')).toHaveLength(1);
+      expect((await repo!.getFriendUsersForArtist(userId, 'radiohead'))).toHaveLength(1);
     });
 
     it('ignores the optional guildId argument', async () => {

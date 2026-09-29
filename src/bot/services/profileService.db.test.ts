@@ -1,8 +1,10 @@
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { ProfileService } from './profileService';
-import { connect, resetTables, seedUser, scratchSchema, skipReason, useScratchSchema } from '../../tests/dbHarness';
+import { connect, resetTables, seedUser, skipReason, useScratchSchema } from '../../tests/dbHarness';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { LastFmUser } from '@domain/models/lastFmUser';
 import type { User } from '@persistence/domain/models/user';
@@ -12,16 +14,17 @@ import { PrivacyLevel } from '@domain/enums/privacyLevel';
 /**
  * BOTH raw queries in profileService.ts, executed by a real Postgres:
  *
- *   getProfileHistory  L142-152  month rollup,  `FROM public.user_plays`, LIMIT 6
- *   getProfileHistory  L171-180  year rollup,   `FROM public.user_plays`, no LIMIT
+ *   getProfileHistory  L142-152  month rollup,  `FROM user_plays`, LIMIT 6
+ *   getProfileHistory  L171-180  year rollup,   `FROM user_plays`, no LIMIT
  *
- * ** BOTH QUERIES ARE PINNED TO `public`. ** Read this before pointing the suite
- * at a non-public scratch schema. dbHarness isolates by `SET search_path`, and a
- * schema-qualified `FROM public.user_plays` ignores `search_path` entirely, so
- * the two agree only when the scratch schema IS `public` - which is what CI
- * configures (`TEST_DATABASE_URL=...?schema=public`). The query blocks below are
- * `describe.skipIf(!SCRATCH_IS_PUBLIC)` for that reason, the same guard
- * librarySearchService.db.test.ts uses for its four `public.`-pinned queries.
+ * Both are UNQUALIFIED on purpose. They were `FROM public.user_plays`, and a
+ * schema qualifier bypasses `search_path` entirely, so the two only agreed when
+ * the scratch schema happened to BE `public` - which is what CI configures
+ * (`TEST_DATABASE_URL=...?schema=public`) and therefore why the defect was
+ * invisible here until the scratch schema was read properly. Against any other
+ * schema the harness seeds the scratch tables and these two read `public`
+ * instead, which is silent rather than loud: an empty history card, not an
+ * error. The qualifier is now ratcheted shut at the bottom of this file.
  *
  * WHY THIS FILE IS NOT PARROTTING. Both queries sit inside a bare
  *
@@ -33,7 +36,9 @@ import { PrivacyLevel } from '@domain/enums/privacyLevel';
  * same value at the call site: an empty history. That is the exact shape that
  * hid the `albumService` bug for the life of the query, and it is why the tests
  * below seed real `user_plays` rows and assert the history comes back POPULATED
- * rather than asserting the SQL text.
+ * rather than asserting the SQL text. It is also why a failure here reads
+ * `expected [] to deeply equal [...]` and not the Postgres error underneath:
+ * read that as "the query returned nothing OR threw", not as "no rows".
  *
  * A LATENT BUG, REPORTED NOT PINNED. `time_played` is `timestamptz`, so
  * `DATE_TRUNC('month', time_played)` truncates in the SESSION timezone, and the
@@ -48,12 +53,6 @@ import { PrivacyLevel } from '@domain/enums/privacyLevel';
 
 const skip = skipReason();
 const suite = skip ? describe.skip : describe;
-
-/**
- * True when the scratch schema and the schema these two queries hardcode are the
- * same one. Undefined means no `?schema=` in the URL, i.e. plain `public`.
- */
-const SCRATCH_IS_PUBLIC = (scratchSchema() ?? 'public') === 'public';
 
 let prisma: PrismaClient | null = null;
 let service: ProfileService | null = null;
@@ -202,7 +201,7 @@ suite('ProfileService raw queries against a real database', () => {
     });
   });
 
-  describe.skipIf(!SCRATCH_IS_PUBLIC)('the month rollup (L142)', () => {
+  describe('the month rollup (L142)', () => {
     it('returns the month, the play count and the real listening time', async () => {
       await seedPlay({ timePlayed: inMonth(2023, 2, 10), msPlayed: 60_000 });
       await seedPlay({ timePlayed: inMonth(2023, 2, 20), msPlayed: 60_000 });
@@ -285,7 +284,7 @@ suite('ProfileService raw queries against a real database', () => {
     });
   });
 
-  describe.skipIf(!SCRATCH_IS_PUBLIC)('the year rollup (L171)', () => {
+  describe('the year rollup (L171)', () => {
     it('leads with an all-time row and then lists the years newest first', async () => {
       await seedPlay({ timePlayed: inMonth(2023, 2, 10), msPlayed: 60_000 });
       await seedPlay({ timePlayed: inMonth(2024, 6, 10), msPlayed: 60_000 });
@@ -381,28 +380,44 @@ suite('ProfileService raw queries against a real database', () => {
       expect(stats?.years[0]?.playCount).toBe(1);
     });
   });
+});
 
-  describe.skipIf(!SCRATCH_IS_PUBLIC)('the schema these two queries are pinned to', () => {
-    it('reads public explicitly, so search_path cannot redirect it away from the seeded rows', async () => {
-      await seedPlay({ timePlayed: inMonth(2023, 2, 10), msPlayed: 60_000 });
-
-      // Point the connection's search_path somewhere useless. A
-      // schema-qualified query is unaffected; an unqualified one would fail
-      // outright. That is the whole difference, and it is why a scratch schema
-      // other than public would make this suite read the wrong tables.
-      //
-      // One honest caveat, inherited from librarySearchService.db.test.ts: `SET`
-      // lands on whichever pooled connection Prisma picks, so this cannot PROVE
-      // the qualification - it can only fail if the query turns out to depend on
-      // search_path, which is the failure worth catching. The property itself is
-      // the `public.` prefix in the source.
-      await prisma!.$executeRawUnsafe('SET search_path TO pg_catalog');
-      try {
-        const stats = await history();
-        expect(stats?.months).toHaveLength(1);
-      } finally {
-        await prisma!.$executeRawUnsafe('SET search_path TO public');
-      }
-    });
+/**
+ * THE RATCHET, replacing a test that asserted the defect.
+ *
+ * This file used to carry `reads public explicitly, so search_path cannot
+ * redirect it away from the seeded rows` - a test that set `search_path` to
+ * `pg_catalog` and asserted the query still found the seeded rows. It passed,
+ * and it was pinning the BUG: a schema-qualified `FROM public.user_plays` does
+ * ignore `search_path`, so the query was reading the one schema the harness is
+ * least able to isolate. `dbHarness` exists precisely so the suite can run in a
+ * scratch schema against a server it must not touch, and the qualifier made the
+ * two mechanisms agree only when the scratch schema happened to be `public`.
+ *
+ * The SQL experiment was also the wrong instrument, and its own comment said so:
+ * `SET search_path` lands on whichever pooled connection Prisma picks, so it can
+ * only fail if the query turns out to DEPEND on search_path. It cannot prove the
+ * absence of a dependency, which is the half that was broken. So the property is
+ * asserted on the source, where it is deterministic and needs no database.
+ *
+ * A plain `describe`, not `suite`: it is outside the skip wrapper, so it runs in
+ * the default `npm test` as well as the real-Postgres job.
+ */
+describe('profileService raw SQL is not pinned to a schema', () => {
+  it('qualifies no table with `public.`, so search_path decides which one it reads', () => {
+    // `process.cwd()` rather than `import.meta.url`: this project compiles to
+    // CommonJS, where `import.meta` is a type error, and both vitest configs are
+    // invoked from the repo root. A wrong root makes `readFileSync` throw, which
+    // is the failure mode we want - never a silent pass over zero bytes.
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/bot/services/profileService.ts'),
+      'utf8',
+    );
+    // Comments are stripped first: this file's own prose names the qualifier it
+    // is ratcheting, and a grep that trips over its own documentation is a grep
+    // nobody trusts.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    const offenders = [...code.matchAll(/\b(public)\s*\./g)].map((m) => m[0]);
+    expect(offenders).toEqual([]);
   });
 });

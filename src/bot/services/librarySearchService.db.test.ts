@@ -1,11 +1,12 @@
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { LibrarySearchService, SearchTab } from './librarySearchService';
 import {
   connect,
   resetTables,
-  scratchSchema,
   seedPlays,
   seedUser,
   skipReason,
@@ -30,13 +31,14 @@ import {
  * this file is allowed to be a test OF.
  *
  * ONE PROPERTY OF THIS FILE WORTH READING TWICE: all four queries are written
- * as `FROM public.user_artists` and friends, so they are schema-qualified and
- * `search_path` cannot redirect them. dbHarness isolates the suite by setting
- * `search_path` to a scratch schema, and those two mechanisms agree only when
- * the scratch schema IS `public` - which is what CI configures. Pointed at a
- * non-public scratch schema, the harness would seed into the scratch tables and
- * these four queries would read `public` instead. That is asserted below rather
- * than assumed, and it is the reason the search_path experiment is gated.
+ * UNQUALIFIED - `FROM user_artists`, `FROM user_plays` and friends. They were
+ * `FROM public.user_artists`, and a schema qualifier bypasses `search_path`
+ * entirely, so the harness seeding the scratch tables and the query reading
+ * `public` agree only when the scratch schema happens to BE `public` - which is
+ * what CI configures, and therefore why the defect was invisible until the
+ * scratch schema was read properly. Pointed at a non-public scratch schema the
+ * suite would seed rows these four queries cannot see, and the failure would be
+ * an empty search box rather than an error. Ratcheted shut at the bottom.
  */
 
 const skip = skipReason();
@@ -73,13 +75,8 @@ vi.mock('@persistence/prismaClient', () => ({
   }),
 }));
 
-/**
- * True when the scratch schema and the schema these four queries hardcode are
- * the same one. Undefined means no `?schema=` in the URL, i.e. plain `public`.
- */
-const SCRATCH_IS_PUBLIC = (scratchSchema() ?? 'public') === 'public';
-
 const EPOCH = Date.UTC(2022, 4, 1, 0, 0, 0);
+
 /**
  * Distinct instants, derived arithmetically from one epoch.
  *
@@ -207,9 +204,12 @@ suite('LibrarySearchService raw queries against a real database', () => {
 
     it('matches case-insensitively, because the predicate is ILIKE', async () => {
       await seedTopArtist(userId, 'Radiohead', 100);
-      await expect(service!.search(userId, 'radiohead', SearchTab.Artists)).toHaveLength(1);
-      await expect(service!.search(userId, 'RADIO', SearchTab.Artists)).toHaveLength(1);
-      await expect(service!.search(userId, 'HeAd', SearchTab.Artists)).toHaveLength(1);
+      // The await is load-bearing. `expect(promise).toHaveLength(1)` inspects the
+      // PROMISE object synchronously and fails with "expected Promise{...} to have
+      // property 'length'" - a statement about the ORM, not about the search.
+      expect((await service!.search(userId, 'radiohead', SearchTab.Artists))).toHaveLength(1);
+      expect((await service!.search(userId, 'RADIO', SearchTab.Artists))).toHaveLength(1);
+      expect((await service!.search(userId, 'HeAd', SearchTab.Artists))).toHaveLength(1);
     });
 
     it('treats a % in the query as a wildcard, so it matches everything', async () => {
@@ -221,7 +221,7 @@ suite('LibrarySearchService raw queries against a real database', () => {
       // changes.
       await seedTopArtist(userId, 'Radiohead', 100);
       await seedTopArtist(userId, 'Portishead', 90);
-      await expect(service!.search(userId, '%', SearchTab.Artists)).toHaveLength(2);
+      expect((await service!.search(userId, '%', SearchTab.Artists))).toHaveLength(2);
     });
 
     it('never leaks another user library', async () => {
@@ -302,7 +302,7 @@ suite('LibrarySearchService raw queries against a real database', () => {
       // The concatenation is `artist || ' ' || album`, so the space between them
       // is searchable. A query of "Radiohead Kid" only matches because of it.
       await seedTopAlbum(userId, 'Kid A', 'Radiohead', 100);
-      await expect(service!.search(userId, 'Radiohead Kid', SearchTab.Albums)).toHaveLength(1);
+      expect((await service!.search(userId, 'Radiohead Kid', SearchTab.Albums))).toHaveLength(1);
     });
 
     it('ranks against the whole album library, not the filtered set', async () => {
@@ -345,7 +345,7 @@ suite('LibrarySearchService raw queries against a real database', () => {
 
     it('matches the artist name as well as the track name', async () => {
       await seedTopTrack(userId, 'Airbag', 'Radiohead', 100);
-      await expect(service!.search(userId, 'Radiohead', SearchTab.Tracks)).toHaveLength(1);
+      expect((await service!.search(userId, 'Radiohead', SearchTab.Tracks))).toHaveLength(1);
     });
 
     it('takes the primary from user_tracks and the secondary from artists, so the two can disagree', async () => {
@@ -457,27 +457,42 @@ suite('LibrarySearchService raw queries against a real database', () => {
       await expect(service!.search(userId, 'anything', SearchTab.Plays)).resolves.toEqual([]);
     });
   });
+});
 
-  describe.skipIf(!SCRATCH_IS_PUBLIC)('the schema the queries are pinned to', () => {
-    // Gated because it asserts a property of a `public` schema, and a non-public
-    // scratch schema would make the harness seed tables these queries cannot see.
-    it('reads public explicitly, so search_path cannot redirect it away from the seeded rows', async () => {
-      await seedTopArtist(userId, 'Radiohead', 100);
-      // Point the connection's search_path somewhere useless. A schema-qualified
-      // query is unaffected; an unqualified one would fail outright. That is the
-      // whole difference, and it is why a scratch schema other than public would
-      // make this suite read the wrong tables.
-      //
-      // One honest caveat: `SET` lands on whichever pooled connection Prisma
-      // picks, so this cannot PROVE the qualification - it can only fail if the
-      // query turns out to depend on search_path, which is the failure worth
-      // catching. The property itself is the `public.` prefix in the source.
-      await prisma!.$executeRawUnsafe('SET search_path TO pg_catalog');
-      try {
-        await expect(service!.search(userId, 'Radiohead', SearchTab.Artists)).resolves.toHaveLength(1);
-      } finally {
-        await prisma!.$executeRawUnsafe('SET search_path TO public');
-      }
-    });
+/**
+ * THE RATCHET, replacing a test that asserted the defect.
+ *
+ * This file used to carry `reads public explicitly, so search_path cannot
+ * redirect it away from the seeded rows`, gated behind `SCRATCH_IS_PUBLIC`. It
+ * passed, and it was pinning the BUG: a schema-qualified `FROM public.user_artists`
+ * does ignore `search_path`, so the four queries were reading the one schema
+ * dbHarness exists to isolate the suite from. The gate also meant a non-public
+ * scratch schema silently dropped these queries instead of testing them.
+ *
+ * The SQL experiment was also the wrong instrument, and its own comment said so:
+ * `SET search_path` lands on whichever pooled connection Prisma picks, so it can
+ * only fail if the query turns out to DEPEND on search_path. It cannot prove the
+ * absence of a dependency, which is the half that was broken. So the property is
+ * asserted on the source, where it is deterministic and needs no database.
+ *
+ * A plain `describe`, not `suite`: it is outside the skip wrapper, so it runs in
+ * the default `npm test` as well as the real-Postgres job.
+ */
+describe('librarySearchService raw SQL is not pinned to a schema', () => {
+  it('qualifies no table with `public.`, so search_path decides which one it reads', () => {
+    // `process.cwd()` rather than `import.meta.url`: this project compiles to
+    // CommonJS, where `import.meta` is a type error, and both vitest configs are
+    // invoked from the repo root. A wrong root makes `readFileSync` throw, which
+    // is the failure mode we want - never a silent pass over zero bytes.
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/bot/services/librarySearchService.ts'),
+      'utf8',
+    );
+    // Comments are stripped first: this file's own prose names the qualifier it
+    // is ratcheting, and a grep that trips over its own documentation is a grep
+    // nobody trusts.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    const offenders = [...code.matchAll(/\b(public)\s*\./g)].map((m) => m[0]);
+    expect(offenders).toEqual([]);
   });
 });

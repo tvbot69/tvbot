@@ -118,8 +118,10 @@ suite('CountryService raw queries against a real database', () => {
   beforeEach(async () => {
     if (!prisma) return;
     await resetTables(prisma);
-    // abuse_flags is deliberately NOT in dbHarness.resetTables' list and three of
-    // these queries read it.
+    // resetTables truncates abuse_flags as of 2026-09-29; it used to be the one
+    // table it missed, and this line was the per-file workaround. Kept because a
+    // flag written by one test suppressing a user in the next is the exact
+    // failure it prevents, and a free DELETE is cheaper than a re-run.
     await prisma.abuseFlag.deleteMany({});
     await prisma.guild.create({ data: { guildId: GUILD, guildName: 'country db test' } });
     userId += 1;

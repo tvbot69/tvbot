@@ -79,10 +79,10 @@ suite('AbuseFlagRepository raw queries against a real database', () => {
   beforeEach(async () => {
     if (!prisma) return;
     await resetTables(prisma);
-    // abuse_flags is deliberately NOT in dbHarness.resetTables' list, and both
-    // this file and whoKnowsRepository's aggregates read it. Clearing it here
-    // is what stops a flag written by one test from suppressing a user in the
-    // next one - a leak that would show up as a flaky "should be excluded".
+    // resetTables truncates abuse_flags as of 2026-09-29; it used to be the one
+    // table it missed, and this line was the per-file workaround for that. Kept
+    // because a flag written by one test suppressing a user in the next is the
+    // exact failure it prevents, and a free DELETE is cheaper than a re-run.
     await prisma!.abuseFlag.deleteMany({});
     userId += 1;
     await seedUser(prisma!, userId);
