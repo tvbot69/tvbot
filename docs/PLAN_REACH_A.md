@@ -809,9 +809,42 @@ not model, so a future test cannot assert against a query shape the double silen
 **Not verified.** No live bot, no real Discord, no real Redis, no real database failure. The
 call-graph result is a lower bound: ~5% of local call edges were not resolvable, and a discard
 behind one of them would be invisible. Reachability through `registerModalHandler` and behind a
-computed `container.resolve` key was reasoned, not booted. `gh` was installed this session to
-read CI, but authentication needs the user, so **the build and real-Postgres jobs for the four
-pushed commits remain unobserved** — still the outstanding gate for every claim in this plan.
+computed `container.resolve` key was reasoned, not booted.
+
+### The outstanding gate is closed — CI observed green on `3bb4afa`
+
+This plan's standing caveat was that the DB suite only ever ran per-file against a hosted
+database, and that the full run needed CI's disposable `postgres:16`. **That is now observed.**
+`gh` was installed this session but needs interactive authentication, so the run was read through
+the **unauthenticated REST API** — the repo is public, so no token is required for run, job and
+step status. All seven jobs green:
+
+| job | result | what it proves |
+|---|---|---|
+| `build (tsc typecheck)` | success | the build `npm test` does not do |
+| `tests (vitest)` + `Coverage ratchet` | success | the suite, and coverage not regressed |
+| `lint` | success | 0 errors |
+| `debt ratchet` | success | no ratchet moved up |
+| `import cycles (ratchet)` | success | the DAG is still acyclic |
+| `render tests (needs Chromium)` | success | the one job that runs real Puppeteer |
+| `migrations apply to a real postgres` | success | **every query this plan touched has now executed against a real database** |
+
+That last job is the one that matters, and it is not a formality: *Apply every migration*,
+*Database is at the expected version*, *Schema matches the migrations*, *Verify the dedup index
+expression builds*, *Verify the dedup constraint holds*, *Verify the index exists and the data is
+clean*, and *Raw SQL against a real database* all passed in 87 seconds.
+
+**What CI does not change, and this is the honest limit that remains.** Every A1 and A2 claim is
+still a claim about code plus mocked tests; CI ran those same mocked tests, and added a real
+Postgres for the SQL. **Nothing has observed a real Last.fm outage, a real Discord outage, a real
+Redis failure, or the live bot.** "A Last.fm 5xx now produces a visible error instead of an empty
+taste table" is verified by the code and by mocks. Confirming it means watching Railway during an
+actual failure — a gate no test can close, and the honest reason to keep reading the logs by hand.
+
+**A2 is now closed on evidence rather than on one worked example.** That makes **A tier: A1, A2 and
+A3 all have the evidence behind them**, with the four reported-not-deleted product decisions above
+(the `.wrapped` alias, `/searchdb`, `/localization numberformat`, the `AiJudgeService` name, the
+channel-disable gate) explicitly left to the user rather than quietly closed by an agent.
 
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 

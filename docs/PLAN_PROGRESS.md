@@ -1041,6 +1041,26 @@ before starting work. **Update this file at the end of every task**, before the 
   - ⚠️ **`gh` was installed this session and still is not authenticated** (device flow needs the
     user), so **the build and real-Postgres jobs for the four pushed commits remain unobserved.**
     That is still the outstanding gate for every claim in this plan.
+- ✅ **RESOLVED — CI observed green on `3bb4afa`, all 7 jobs, including real Postgres.** The
+    outstanding gate for this entire plan is closed. `gh` needed interactive authentication, so it
+    was read through the **unauthenticated REST API** instead (the repo is public, so no token is
+    needed for run/job/step status). Recorded because it unblocks itself:
+    - `build (tsc typecheck)` **success** — the build that `npm test` does not do.
+    - `tests (vitest)` **success**, and `Coverage ratchet` **success**.
+    - `lint` **success**, `debt ratchet` **success**, `import cycles (ratchet)` **success**.
+    - `render tests (needs Chromium)` **success** — the one job that runs real Puppeteer.
+    - **`migrations apply to a real postgres` success**, 17:46:51 → 17:48:18, and this is the one
+      that matters most here: *Apply every migration*, *Database is at the expected version*,
+      *Schema matches the migrations*, *Verify the dedup index expression builds*, *Verify the
+      dedup constraint holds*, *Verify the index exists and the data is clean*, *Raw SQL against a
+      real database*. Every query this plan touched has now executed against a real database.
+  - **What CI does NOT change, and this is the remaining honest limit.** Every A1 and A2 claim is
+    still a claim about code plus mocked tests. CI ran those same mocked tests plus a real
+    Postgres for the SQL. **Nothing has observed a real Last.fm outage, a real Discord outage, a
+    real Redis failure or the live bot.** "A Last.fm 5xx now produces a visible error instead of an
+    empty taste table" is verified by the code and by mocks; confirming it means watching Railway
+    during an actual failure. That is the only gate that remains, and it cannot be closed by any
+    test.
 
 **Two detectors were themselves defective, and both were found by mutation rather than by reading.**
 
