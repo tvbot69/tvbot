@@ -113,6 +113,9 @@ export class MusicTrackArtwork {
       const parsed = this.spotifyResolver.parseSpotifyUrl(uri);
       return parsed?.type === 'track' ? parsed.id : undefined;
     } catch {
+      // CORRECT AS IS: a URI this resolver cannot parse has no track id, so
+      // the by-id leg is skipped and the name cascade runs instead. Returning
+      // undefined never claims "this track has no cover".
       return undefined;
     }
   }
@@ -176,10 +179,17 @@ export class MusicTrackArtwork {
           for (const lead of candidates) {
             if (!lead) continue;
             const pic = await svc.getArtistImageUrl(lead, t).catch(() => null);
+            // CORRECT AS IS: one candidate artist picture failing is a rung
+            // failing — the loop tries the next candidate, then the lookup ends
+            // in the "miss" branch, which holds the previous cover rather than
+            // painting a wrong image.
             if (pic) return pic;
           }
           return null;
         } catch {
+          // CORRECT AS IS: a cascade leg that throws is treated as "no art
+          // found", and the caller holds the previous cover. It never rejects
+          // into playback, and never trips the pause/alert machinery.
           return null;
         }
       })();
@@ -219,6 +229,10 @@ export class MusicTrackArtwork {
                 this.notifyCardArt(notifyGuildId);
               }
             })
+            // CORRECT AS IS: the late leg is a bonus, not a dependency. The
+            // `lookup` promise above never rejects (its own catch returns
+            // null), so this catch is belt-and-braces; swallowing it keeps a
+            // late rejection from becoming an unhandled rejection.
             .catch(() => undefined);
         }
       } finally {
@@ -260,6 +274,10 @@ export class MusicTrackArtwork {
               }
               return await svc.getTrackCoverUrl(entry.spTrack.name, entry.spTrack.artist);
             } catch {
+              // CORRECT AS IS: warmup is a pure cache prefill. A failed leg
+              // leaves the memory cache cold and nothing else — the track is
+              // still resolved and backfilled at play time, so this cannot
+              // affect what the listener hears.
               return null;
             }
           })();

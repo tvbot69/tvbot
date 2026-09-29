@@ -185,7 +185,11 @@ export class MusicPlaybackControls {
               player.filters.disable(other);
               replaced.push(other);
             } catch {
-              // ignore — enable below decides
+              // CORRECT AS IS: a disable that throws leaves the other EQ
+              // preset on, so the audible cost is the concatenated-EQ mud
+              // documented on EQ_EXCLUSIVE_GROUP — never a wrong number on the
+              // card: `replaced` only lists what really was switched off, and
+              // the apply() below still decides the result the user is told.
             }
           }
         }

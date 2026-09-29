@@ -220,6 +220,9 @@ export class SpotifyScraperService {
         const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/);
         let data: unknown = null;
         if (m?.[1]) {
+          // CORRECT AS IS: unparseable JSON means this page carries no data,
+          // so `continue` moves to the next URL in the list. Falling through to
+          // the puppeteer scrape is the intended last resort.
           try { data = JSON.parse(m[1]); } catch { /* ignore */ }
         }
         if (!data) continue;
@@ -250,6 +253,12 @@ export class SpotifyScraperService {
             }
           } catch {}
         }
+        // CORRECT AS IS: an item count we never learned is not proof the
+        // playlist ENDS here. The whole page is one shard, and every sibling
+        // read in this file treats an unreadable answer as "unknown" and moves
+        // to the next strategy. Claiming `hasMore: false` would make the chunk
+        // manager log "streaming complete" for a 500-track playlist that
+        // yielded 100 — a confident total that was never read.
         if (totalMatch?.[1]) {
           const parsed = parseInt(totalMatch[1], 10);
           if (!isNaN(parsed) && parsed > total) total = parsed;
@@ -324,6 +333,10 @@ export class SpotifyScraperService {
       }
     } catch { /* ignore */ }
     // Fallback via spclient search suggest
+    // CORRECT AS IS: a failed embed fetch is a rung failing — the spclient
+    // rung below still runs, and previewResolverService then tries Apple and
+    // Deezer. Nothing is written to cache on the way out, so a network blip
+    // cannot be read later as "this track has no preview".
     try {
       const token = await this.getWebPlayerToken();
       if (token) {
@@ -390,6 +403,9 @@ export class SpotifyScraperService {
         }
       }
     } catch { /* ignore */ }
+    // CORRECT AS IS: null here is a MISS, not a verdict. previewResolverService
+    // falls through to Apple and Deezer and caches only a success, so a failed
+    // embed fetch cannot become "no preview exists" anywhere downstream.
     return null;
   }
 
@@ -461,6 +477,8 @@ export class SpotifyScraperService {
         const page = await browser.newPage();
         await page.setUserAgent(this.userAgent);
         await page.goto(`https://open.spotify.com/playlist/${playlistId}`, { waitUntil: 'networkidle2', timeout: 15000 });
+        // CORRECT AS IS: the row selector never appeared (Spotify's markup
+        // moved), so the scroll loop below still tries to bring it into view.
         await page.waitForSelector('[data-testid="tracklist-row"]', { timeout: 8000 }).catch(() => null);
         const neededRows = offset + limit;
         for (let i = 0; i < Math.ceil(neededRows / 25) + 2; i++) {
@@ -500,6 +518,10 @@ export class SpotifyScraperService {
           nextOffset: offset + tracks.length < total ? offset + tracks.length : null,
         };
       } finally {
+        // CORRECT AS IS: a browser that will not close is leaked memory, not
+        // leaked data. The caller's `catch` at the bottom returns null and the
+        // next strategy runs either way; throwing here would replace that
+        // with an unhandled rejection from the `finally` block.
         await browser.close().catch(() => undefined);
       }
     } catch (err) {

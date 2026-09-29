@@ -25,6 +25,19 @@ export const PAGINATOR_MODAL_PREFIX = 'comp_page_jump';
 
 @singleton()
 export class ComponentPaginatorService {
+  // CORRECT AS IS, and it is worth saying once for the whole class: this
+  // service performs NO data read. The page content is produced by the caller's
+  // `renderPage`, so there is no query here that could fail and be reported as
+  // an empty table. Every remaining `.catch(() => undefined)` in this file is
+  // Discord interaction plumbing - acknowledging a press, opening a modal,
+  // answering an invalid page number - and each of those is either a
+  // best-effort write to a response that has already been consumed or a
+  // validation reply whose failure means Discord is unreachable too. None of
+  // them can substitute a wrong value for a right one, because none of them
+  // produce a value.
+  //
+  // The only two places an unreachable source can surface are the two
+  // `renderPage` calls, and both are documented at the site.
   private readonly sessions = new Map<string, ComponentPaginatorSession>();
   private cleanupTimer: NodeJS.Timeout | null = null;
 
@@ -109,13 +122,29 @@ export class ComponentPaginatorService {
       return true;
     }
 
-    session.currentPage = targetPage;
+    // CORRECT AS IS for the message itself: a page that cannot be fetched must
+    // not destroy the page the user is already looking at, and it does not.
+    // `renderPage` is supplied by the caller, so an unreachable source reaches
+    // here as a throw - a `SourceUnavailableError` from a database read, a
+    // `LastFmUnavailableError` from a scrobble read, whatever the card happens
+    // to need. The catch acknowledges with `deferUpdate()`, which does NOT edit
+    // the message, so the visible page is byte-for-byte what it was. A dead
+    // button is a lesser lie than a rendered "no results", and this is it.
+    //
+    // The `session.currentPage` assignment BELOW the `update()` is load-bearing,
+    // not cosmetic. It used to sit above the `try`, so a failed render left the
+    // session claiming a page the message was not showing: the cursor and the
+    // pixels disagreed, and the next press computed its target from the phantom
+    // page - skipping a page of real rows with no indication anything had gone
+    // wrong. The cursor now tracks what is actually on screen, which is the
+    // same rule `handleJumpModal` already followed at its own assignment.
     try {
       const updatedContainer = await session.renderPage(targetPage);
       await interaction.update({
         components: [updatedContainer],
         flags: MessageFlags.IsComponentsV2,
       });
+      session.currentPage = targetPage;
     } catch (err) {
       Logger.error({ err, messageId, targetPage }, 'Failed to render paginator page');
       await interaction.deferUpdate().catch(() => undefined);
@@ -175,7 +204,12 @@ export class ComponentPaginatorService {
       });
     } catch (err) {
       Logger.error({ err, messageId, targetPage }, 'Failed to update jump page');
-      // Already deferred, so edit the existing response rather than replying twice.
+      // CORRECT AS IS, and this is the one place in the file that already SAYS
+      // SO rather than staying quiet: the catch replies 'Failed to update page.'
+      // on the deferred response, so a user who jumped to a page that could not
+      // be fetched is told, rather than being left with a dead button. The
+      // cursor is committed after `renderPage` resolves, so a failure leaves
+      // the session on the page the user is still looking at.
       await interaction.editReply({ content: 'Failed to update page.' }).catch(() => undefined);
     }
   }

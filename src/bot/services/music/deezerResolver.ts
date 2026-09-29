@@ -28,6 +28,9 @@ export class DeezerResolver {
       const host = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`).hostname.toLowerCase();
       return SHARE_HOSTS.has(host.replace(/^www\./, ''));
     } catch {
+      // CORRECT AS IS: an unparseable string is not a Deezer link, and
+      // parseDeezerUrl's regex has already said so. play() then treats the
+      // input as a search query, which is the correct reading of junk.
       return false;
     }
   }
@@ -60,6 +63,12 @@ export class DeezerResolver {
         if (DEEZER_URL_REGEX.test(candidate)) return candidate;
         current = candidate;
       } catch {
+        // CORRECT AS IS: the hop loop is bounded at 5 and a dead fetch is the
+        // end of this attempt. The caller resolves to null and play() falls
+        // through to the normal search path, so the track is still looked for.
+        // NOTE: the warn above says "not a Deezer URL or share target", which
+        // misattributes a network failure — the user-facing outcome is the
+        // same, only the operator's diagnosis differs.
         return null;
       }
     }
@@ -190,6 +199,10 @@ export class DeezerResolver {
     const artistId = Number(id);
     const [artist, items] = await Promise.all([
       Number.isFinite(artistId) ? this.deezerApi.getArtist(artistId).catch(() => null) : Promise.resolve(null),
+      // CORRECT AS IS (getArtist): the artist record is presentation only —
+      // the top-tracks list below is the playable part. A failed artist read
+      // still enqueues those tracks, with the title and cover falling back to
+      // the first track's own artist.
       this.deezerApi.getArtistTop(id),
     ]);
     if (!artist && items.length === 0) return null;

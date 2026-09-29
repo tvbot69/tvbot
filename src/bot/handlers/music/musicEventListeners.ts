@@ -180,12 +180,19 @@ export class MusicEventListeners {
     try {
       const channel =
         this.client.channels.cache.get(player.textChannelId) ??
+        // CORRECT AS IS: a failed channel fetch means no card this track, and
+        // `if (!channel …) return` above turns that into "no card posted" —
+        // absence, never a card with wrong content. The next trackStart posts
+        // its own.
         (await this.client.channels.fetch(player.textChannelId).catch(() => null));
       if (!channel || !channel.isTextBased() || !('send' in channel)) return;
 
       // Delete previous Now Playing card to keep chat clean
       const prevMsgId = player.get<string>('nowPlayingMessageId');
       if (prevMsgId && 'messages' in channel) {
+        // CORRECT AS IS: a card that will not delete is cosmetic clutter. The
+        // new card is posted either way, and the new message id overwrites the
+        // stored one below, so nothing is re-pointed at a dead message.
         await (channel as unknown as { messages: { delete: (id: string) => Promise<unknown> } })
           .messages.delete(prevMsgId)
           .catch(() => undefined);
@@ -257,6 +264,10 @@ export class MusicEventListeners {
               embeds: response.buildEmbed(),
               components: response.buildComponents(),
             })
+            // CORRECT AS IS: no card at all is the only outcome left. `sent`
+            // stays null, so the fingerprint sync and the boundary timers are
+            // skipped rather than armed against a card nobody can see — the
+            // card is decoration and must not drive playback state.
             .catch(() => null);
         });
 
@@ -330,6 +341,10 @@ export class MusicEventListeners {
     if (endMsgId && endChannelId) {
       void (async () => {
         try {
+          // CORRECT AS IS: both steps are card teardown after the song ended.
+          // A failed fetch or delete leaves the old card in the channel — a
+          // stale embed, not a wrong one. The state that matters
+          // (forgetNowPlaying above) has already been cleared either way.
           const channel = await this.client.channels.fetch(endChannelId).catch(() => null);
           if (channel && 'messages' in channel) {
             await (channel as unknown as { messages: { delete: (id: string) => Promise<unknown> } })
@@ -422,6 +437,11 @@ export class MusicEventListeners {
         player.current.time = Date.now();
       }
       await player.seek(pos).catch(() => undefined);
+      // CORRECT AS IS: this branch returns either way — a rejected re-seek is
+      // treated as "issued", not as a miss, so it must NOT fall through into
+      // the alternate-upload machinery (that would burn fallback budget on a
+      // healthy upload, the thing this branch exists to avoid). Moonlink's own
+      // strike/recovery still owns the track from here.
       return;
     }
 
@@ -463,6 +483,10 @@ export class MusicEventListeners {
         `[Music] Giving up on stuck "${track.title}" after repeated failures.`,
       );
       if (stillCurrent() && player.queue.size > 0) {
+        // CORRECT AS IS: a refused skip leaves the poison track in place, but
+        // the circuit breaker above has already decided this song is not
+        // retried, and Moonlink's own strike handling still applies — nothing
+        // here is reported to the user as a position or count.
         await player.skip().catch(() => undefined);
       }
       return;
@@ -689,6 +713,10 @@ export class MusicEventListeners {
         this.inactivityTimeouts.delete(player.guildId);
         if (player.queue.isEmpty && !player.playing) {
           Logger.info(`[Music] Inactivity timeout: disconnecting player in guild ${player.guildId}`);
+          // CORRECT AS IS: the idle window has elapsed and the queue is empty
+          // and idle, so the state is the same whether or not the REST teardown
+          // answers. The timer entry is gone either way; re-arming it would
+          // fight the 24/7 and autoplay paths that read the same map.
           player.destroy('Inactivity timeout').catch(() => undefined);
         }
       }, INACTIVITY_DISCONNECT_MS);
@@ -721,6 +749,9 @@ export class MusicEventListeners {
     const prevMsgId = player.get<string>('nowPlayingMessageId');
     if (prevMsgId && player.textChannelId) {
       try {
+        // CORRECT AS IS: cosmetic only, and the player is being destroyed —
+        // nothing here can resurrect it or alter what is played. A surviving
+        // card is stale, not wrong.
         const channel = await this.client.channels.fetch(player.textChannelId).catch(() => null);
         if (channel && 'messages' in channel) {
           await (channel as unknown as { messages: { delete: (id: string) => Promise<unknown> } })

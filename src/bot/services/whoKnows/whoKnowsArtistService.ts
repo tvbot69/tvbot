@@ -61,6 +61,37 @@ export class WhoKnowsArtistService {
       if (gu?.discordUserId && discordGuild) {
         let member = discordGuild.members.cache.get(gu.discordUserId);
         if (!member) {
+          // CORRECT AS IS for the card, and it is not a database read: this is a
+          // Discord API call for a display name, and the fallback is
+          // `gu.userNameLastFm` - a real stored name, not a fabricated one. The
+          // leaderboard itself (rows, playcounts, and the listener/play/avg
+          // footer) never passes through this catch. Those numbers come from
+          // `getIndexedUsersForArtist` at line 54, which is deliberately NOT
+          // wrapped, so a database outage there propagates to the command
+          // boundary and the user gets "Could not reach the database" instead of
+          // a table of zeroes. Raising here would delete a complete leaderboard
+          // of real people because one nickname could not be fetched, and the
+          // dominant reason this catch fires is a member who has genuinely left
+          // the server - an absence, not an outage.
+          //
+          // KNOWN DEFECT, DELIBERATELY LEFT VISIBLE RATHER THAN PAPERED OVER -
+          // there is one real consequence, and this round does not own the fix.
+          // On failure `memberRoles` stays `undefined`, and
+          // `CrownService.getAndUpdateCrownForArtist` reads that as
+          // `u.roles ?? []` (crownService.ts:60) and then drops the user from
+          // crown eligibility. So in a guild that has configured `crownRoles`
+          // (`.crownroles`), a transient Discord failure can silently remove a
+          // real listener from crown contention and hand the crown to the next
+          // user down: a permanent, named claim about two people produced from
+          // a role list that was never read. This is the same shape of lie that
+          // `crownService.liveRecheckUnavailable.test.ts` exists to close on the
+          // Last.fm side, and the `catch` below at line 134 is the boundary that
+          // makes that one safe - which is precisely why raising here would be
+          // the wrong trade. The fix needs a tri-state on `WhoKnowsUser.roles`
+          // ("no roles" versus "roles unknown") and a matching change in
+          // `crownService`; neither file is in this round's ownership, and
+          // guessing at an error-code shape from `members.fetch` would be worse
+          // than leaving the seam visible.
           try { member = await discordGuild.members.fetch(gu.discordUserId); } catch { /* fallback */ }
         }
         displayName = member?.displayName;
@@ -132,7 +163,27 @@ export class WhoKnowsArtistService {
           }
         }
       } catch {
-        // Crown calculation failure should never crash WhoKnows
+        // CORRECT AS IS: a crown the bot could not compute must render as NO
+        // crown, never as a wrong one, and that is what happens. `crownModel`
+        // stays null, so the caller derives no `crownMessage` and nobody gets
+        // `hasCrown` - the card shows a real leaderboard of real playcounts
+        // with no crown marker. That is an absence the user can see and re-run,
+        // not a fabricated claim about who leads.
+        //
+        // This is also deliberately the boundary the deliberate signal lands
+        // on. `CrownService.getHolderLivePlaycount` raises rather than treating
+        // an unreachable Last.fm as "the holder is not ahead", and this catch is
+        // where that raise is absorbed, so the card survives the outage without
+        // ever showing a crown nobody verified. Pinned through this real caller
+        // by `crownService.liveRecheckUnavailable.test.ts`, which asserts both
+        // the null and that `replaceCrown` was never called.
+        //
+        // Not narrowed to `isSourceUnavailable`, and that is not an oversight:
+        // every failure reaching here lands in the same direction - no crown, no
+        // marker - so a narrowed catch and a blanket one would render
+        // identically, while the blanket one also covers a plain driver error
+        // from `getCurrentCrown`. There is no version of narrowing that is
+        // safer than what is already here.
       }
     }
 

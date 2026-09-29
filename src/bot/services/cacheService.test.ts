@@ -85,4 +85,73 @@ describe('CacheService', () => {
       vi.useRealTimers();
     }
   });
+
+  describe('Redis promotion', () => {
+    /**
+     * Installs a fake Redis on the private field; no client is opened. The
+     * returned store lets a test retire the Redis key so a later `get` cannot
+     * re-promote it and mask a local expiry.
+     */
+    const withRedis = (ttl: () => Promise<number>) => {
+      const store = { gone: false };
+      (cache as unknown as { redis: unknown }).redis = {
+        status: 'ready',
+        get: async () => (store.gone ? null : JSON.stringify('from-redis')),
+        ttl,
+      };
+      return store;
+    };
+
+    afterEach(() => {
+      (cache as unknown as { redis: unknown }).redis = null;
+    });
+
+    it('promotes with the REMAINING ttl so a finite entry cannot become permanent', async () => {
+      const store = withRedis(async () => 30);
+      expect(await cache.get('promo')).toBe('from-redis');
+      expect(cache.size()).toBe(1);
+
+      vi.useFakeTimers();
+      try {
+        vi.advanceTimersByTime(31000);
+        store.gone = true;
+        // Served from memory until the remaining TTL ran out, then gone — a
+        // permanent promotion would answer 'from-redis' here.
+        expect(await cache.get('promo')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does NOT promote when the remaining ttl cannot be read', async () => {
+      // Redis died between the GET and the TTL. The value is still served —
+      // what must not happen is caching it as "no expiry", which is how a
+      // 10-minute negative artwork marker froze for the life of the process.
+      withRedis(async () => {
+        throw new Error('connection reset');
+      });
+      expect(await cache.get('promo')).toBe('from-redis');
+      expect(cache.size()).toBe(0);
+    });
+
+    it('does NOT promote a key that vanished between the GET and the TTL (-2)', async () => {
+      withRedis(async () => -2);
+      expect(await cache.get('promo')).toBe('from-redis');
+      expect(cache.size()).toBe(0);
+    });
+
+    it('promotes as permanent only when Redis says there is no expiry (-1)', async () => {
+      withRedis(async () => -1);
+      expect(await cache.get('promo')).toBe('from-redis');
+      expect(cache.size()).toBe(1);
+      // Still readable after any amount of local time: -1 really is permanent.
+      vi.useFakeTimers();
+      try {
+        vi.advanceTimersByTime(600000);
+        expect(await cache.get('promo')).toBe('from-redis');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

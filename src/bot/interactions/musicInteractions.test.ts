@@ -174,14 +174,16 @@ describe('MusicInteractions chapter jump', () => {
     { title: 'KICK OUT', startMs: 465000 },
   ];
 
-  const makeSvc = (opts: { chapters?: unknown; requesterId?: string; seekResult?: number | null } = {}) => ({
+  const makeSvc = (opts: { chapters?: unknown; requesterId?: string; seekResult?: number | null; nothingPlaying?: boolean } = {}) => ({
     getQueueInfo: vi.fn(() => ({
-      current: {
-        title: 'Travis Scott - Live',
-        author: 'gloss',
-        uri: 'https://youtube.com/watch?v=abc',
-        requester: opts.requesterId ? { id: opts.requesterId } : undefined,
-      },
+      current: opts.nothingPlaying
+        ? undefined
+        : {
+            title: 'Travis Scott - Live',
+            author: 'gloss',
+            uri: 'https://youtube.com/watch?v=abc',
+            requester: opts.requesterId ? { id: opts.requesterId } : undefined,
+          },
       position: 0,
     })),
     getPlayer: vi.fn(() => ({
@@ -240,7 +242,7 @@ describe('MusicInteractions chapter jump', () => {
     expect((select.reply.mock.calls[0]![0] as { content: string }).content).toContain('requester');
   });
 
-  it('reports a failed seek', async () => {
+  it('reports a refused seek without claiming nothing is playing', async () => {
     const svc = makeSvc({ seekResult: null });
     const mi = makeInteractions(svc);
     const select = makeSelect('music:chapters:seek:0', 'u1', ['1']);
@@ -249,7 +251,24 @@ describe('MusicInteractions chapter jump', () => {
 
     expect(select.editReply).not.toHaveBeenCalled();
     expect(select.followUp).toHaveBeenCalledTimes(1);
-    expect((select.followUp.mock.calls[0]![0] as { content: string }).content).toBe('No track is currently playing.');
+    // A stream or an unknown duration refuses the seek while the track is
+    // still playing — "No track is currently playing." would be false.
+    const content = (select.followUp.mock.calls[0]![0] as { content: string }).content;
+    expect(content).toContain('Could not seek');
+    expect(content).not.toContain('No track is currently playing');
+  });
+
+  it('still says nothing is playing when the track really is gone', async () => {
+    const svc = makeSvc({ seekResult: null, nothingPlaying: true });
+    const mi = makeInteractions(svc);
+    const select = makeSelect('music:chapters:seek:0', 'u1', ['1']);
+
+    await mi.handleSelectMenu(select);
+
+    expect(select.followUp).toHaveBeenCalledTimes(1);
+    expect((select.followUp.mock.calls[0]![0] as { content: string }).content).toBe(
+      'No track is currently playing.',
+    );
   });
 
   it('accepts the second select row (26+ chapters)', async () => {

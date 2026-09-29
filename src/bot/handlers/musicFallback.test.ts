@@ -1811,6 +1811,24 @@ describe('direct SoundCloud URL plays + transport reporting', () => {
     expect(noteRestFailure).not.toHaveBeenCalled();
   });
 
+  it('reports all-nodes-dead YouTube URL plays as an error, not empty', async () => {
+    const { svc, search } = playManager(async () => {
+      throw new Error('Request error: ');
+    });
+    const res = await svc.play('g-sc', 'vc', 'tc', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', { id: 'u1' } as never);
+    // "No tracks found for: <url>" on a REST-dead node is a lie about the
+    // track's existence — the SoundCloud twin above already forbids it.
+    expect(res.loadType).toBe('error');
+    expect(search).toHaveBeenCalled();
+  });
+
+  it('keeps a genuine YouTube URL miss as empty (no node cooling)', async () => {
+    const { svc, noteRestFailure } = playManager(async () => ({ loadType: 'search', tracks: [] }));
+    const res = await svc.play('g-sc', 'vc', 'tc', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', { id: 'u1' } as never);
+    expect(res.loadType).toBe('empty');
+    expect(noteRestFailure).not.toHaveBeenCalled();
+  });
+
   it('ladder with every search dead (timeout-null) reports transportError, not a miss', async () => {
     const { svc, player } = playManager(async () => null, (exclude) =>
       exclude.includes('Home') ? undefined : { identifier: 'Home' },

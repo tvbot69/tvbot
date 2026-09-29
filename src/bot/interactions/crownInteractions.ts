@@ -16,6 +16,7 @@ import { WhoKnowsCommands } from '@bot/textCommands/guild/whoKnowsCommands';
 import { CrownCommands } from '@bot/textCommands/guild/crownCommands';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import type { CrownViewType } from '@domain/models/crownModels';
+import { Logger } from '@domain/logger';
 
 @injectable()
 export class CrownInteractions {
@@ -24,6 +25,60 @@ export class CrownInteractions {
     @inject(UserService) private readonly userService: UserService,
     @inject(ColorService) private readonly colorService: ColorService,
   ) {}
+
+  /**
+   * The name behind a crown-card button, or `null` when it cannot be read.
+   *
+   * The two buttons carry DIFFERENT things. `buildCrownDuelResponse` writes
+   * `artist-whoknows:${artistId}` - a bare numeric Artist row id, not a name -
+   * and the Crown button is written back as `artist-crown:${artistName}` from
+   * whatever this method returned last time.
+   *
+   * So "fall back to `decodeURIComponent`", which is what this used to do on a
+   * failed lookup, is not a fallback to a name: decoding "42" yields "42", and
+   * the who-knows card was then rendered for an artist called "42" AND that
+   * wrong name was stamped into the Crown button's customId, where it survives
+   * every later press of a message that is never re-rendered. A read that could
+   * not answer is not evidence of an artist, so it is reported instead.
+   *
+   * The card is a nav target, so a failure leaves the card the user is looking
+   * at untouched and says why ephemerally. `followUp` once deferred (the ack
+   * guard may have won the race) and `reply` before it.
+   */
+  private async resolveArtistName(interaction: ButtonInteraction, raw: string): Promise<string | null> {
+    const decoded = decodeURIComponent(raw);
+    if (!/^\d+$/.test(raw)) {
+      // The name was carried in the customId. Nothing to read, nothing to fail.
+      return decoded;
+    }
+    try {
+      const artistRepo = container.resolve(ArtistRepository);
+      const artist = await artistRepo.getArtistById(parseInt(raw, 10));
+      if (artist) {
+        return artist.name;
+      }
+      // The query RAN and the row is gone. Also not an artist called "42" -
+      // and distinct from a failure, so it gets its own message.
+      Logger.warn({ artistId: raw }, 'Crown card button names an artist row that no longer exists');
+      await this.respondEphemeral(interaction, 'That artist is no longer available.');
+      return null;
+    } catch (err) {
+      Logger.warn({ err, artistId: raw }, 'Could not read the artist behind a crown card button');
+      await this.respondEphemeral(interaction, 'Could not load that artist. Please try again in a moment.');
+      return null;
+    }
+  }
+
+  private async respondEphemeral(interaction: ButtonInteraction, content: string): Promise<void> {
+    if (!interaction.isRepliable()) {
+      return;
+    }
+    if (interaction.deferred || interaction.replied) {
+      await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    } else {
+      await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    }
+  }
 
   public async handleSelectMenu(interaction: StringSelectMenuInteraction): Promise<void> {
     const customId = interaction.customId;
@@ -41,6 +96,13 @@ export class CrownInteractions {
 
       const targetUser = await this.userService.getUserByDiscordId(targetDiscordId);
       if (!targetUser) {
+        // CORRECT AS IS. `null` is the repository's honest "this Discord id is
+        // not a registered user", not a failed read - a failed read raises
+        // (see `resolveArtistName` for the other end of this file), and
+        // `crownService.getUserCrowns` does not wrap an outage in an empty
+        // list. There is no crown card to draw for an unregistered user, and
+        // the picker's own message stays on screen either way. No wrong number
+        // is produced; inventing a card here would be the worse answer.
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }
@@ -115,19 +177,25 @@ export class CrownInteractions {
   public async handleButton(interaction: ButtonInteraction): Promise<void> {
     const customId = interaction.customId;
 
+    // No local catch, deliberately. `crownService.getUserCrowns`,
+    // `getGuildLeaderboard`, `WhoKnowsCommands.whoKnowsArtistForName` and
+    // `CrownCommands.crownAsync` all RAISE when a source fails, and this class
+    // has no write path of its own - so there is nothing here that could turn a
+    // raise into something that looks like a successful crown change. Letting
+    // the throw reach `interactionHandler.onInteractionCreated` is what gets it
+    // named ("Could not reach the database"). A catch added here would be the
+    // regression that file documents, in the one place that must not have it.
+    //
+    // The `interaction.update().catch(() => deferUpdate())` pairs below are
+    // CORRECT AS IS: they are Discord transport, not a data source, and the
+    // recorded trade for a nav target that cannot render is to leave the page
+    // the user is looking at alone.
+
     // 1) Handle WhoKnows button click from crown duel embed
     if (customId.startsWith('artist-whoknows:')) {
       const raw = customId.slice('artist-whoknows:'.length);
-      let artistName = decodeURIComponent(raw);
-      if (/^\d+$/.test(raw)) {
-        try {
-          const artistRepo = container.resolve(ArtistRepository);
-          const artist = await artistRepo.getArtistById(parseInt(raw, 10));
-          if (artist) artistName = artist.name;
-        } catch {
-          // fallback to decodeURIComponent
-        }
-      }
+      const artistName = await this.resolveArtistName(interaction, raw);
+      if (artistName === null) return;
 
       await interaction.deferUpdate().catch(() => undefined);
 
@@ -173,16 +241,8 @@ export class CrownInteractions {
     // 2) Handle Crown button click to toggle back to crown duel embed
     if (customId.startsWith('artist-crown:')) {
       const raw = customId.slice('artist-crown:'.length);
-      let artistName = decodeURIComponent(raw);
-      if (/^\d+$/.test(raw)) {
-        try {
-          const artistRepo = container.resolve(ArtistRepository);
-          const artist = await artistRepo.getArtistById(parseInt(raw, 10));
-          if (artist) artistName = artist.name;
-        } catch {
-          // fallback to decodeURIComponent
-        }
-      }
+      const artistName = await this.resolveArtistName(interaction, raw);
+      if (artistName === null) return;
 
       await interaction.deferUpdate().catch(() => undefined);
 

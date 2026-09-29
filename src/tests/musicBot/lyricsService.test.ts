@@ -124,5 +124,29 @@ describe('LyricsService', () => {
       const result = await lyricsService.getLyrics('NonExistentSong123456');
       expect(result).toBeNull();
     });
+
+    it('does NOT cache a negative verdict when every provider failed to answer', async () => {
+      // A 404 IS an answer and is cached (see above). A thrown fetch is not:
+      // caching "no lyrics" from a run where all four legs timed out froze
+      // that verdict for an hour after a ten-second outage.
+      const fetchMock = vi
+        .spyOn(globalThis, 'fetch')
+        .mockRejectedValue(new Error('network down'));
+
+      expect(await lyricsService.getLyrics('Orion', 'Metallica')).toBeNull();
+
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          name: 'Orion',
+          artistName: 'Metallica',
+          plainLyrics: 'And master of ceremony, propinquity',
+          instrumental: false,
+        }),
+      } as unknown as Response);
+
+      const second = await lyricsService.getLyrics('Orion', 'Metallica');
+      expect(second?.plainLyrics).toContain('propinquity');
+    });
   });
 });

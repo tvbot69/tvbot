@@ -87,6 +87,10 @@ export class MusicInteractions {
         queue?.current?.artworkUrl,
       ).card;
     } catch {
+      // CORRECT AS IS: no chapter card means the card is rebuilt WITHOUT a
+      // chapter block. A failed read drops decoration — the safe direction,
+      // since a stale card here would name a chapter the position has already
+      // passed (the reason this method re-derives rather than reads a store).
       return null;
     }
   }
@@ -106,6 +110,9 @@ export class MusicInteractions {
       if (!queue || !lines || lines.length === 0) return null;
       return lyricWindowAt(lines, Math.max(0, queue.position));
     } catch {
+      // CORRECT AS IS: null renders the card with no lyric window. A failed
+      // read must not print a wrong line, and karaoke is decoration — it never
+      // gates playback or the pause/alert machinery.
       return null;
     }
   }
@@ -278,6 +285,10 @@ export class MusicInteractions {
         return;
       }
       if (!this.claimControlPress(guildId, customId)) {
+        // CORRECT AS IS: the first press already did the work; this one only
+        // has to be ACKNOWLEDGED so Discord does not show "interaction
+        // failed". A failed ack changes no playback state and no number the
+        // user reads.
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }
@@ -292,6 +303,10 @@ export class MusicInteractions {
     if (customId === 'music:search:cancel') {
       this.activeSearches.delete(interaction.message.id);
       this.activeSearches.delete(interaction.user.id);
+      // CORRECT AS IS: both calls are acknowledgement/teardown only. The
+      // search results are already dropped above, so the user gets no stale
+      // menu either way — at worst the click is unacked and the message stays
+      // as an inert embed.
       await interaction.deferUpdate().catch(() => undefined);
       await interaction.message.delete().catch(() => undefined);
       return;
@@ -311,6 +326,8 @@ export class MusicInteractions {
         // Legacy message (filters panel, queue view) cannot morph into a
         // Components V2 card via update — Discord rejects the mixed format.
         // Swap the message instead: same card, no error, no clutter.
+        // CORRECT AS IS: the followUp is NOT swallowed — if the swap fails
+        // the user sees the error instead of a silently unacknowledged click.
         await interaction.deferUpdate().catch(() => undefined);
         await interaction.message.delete().catch(() => undefined);
         await interaction.followUp(response.toMessagePayload() as unknown as Parameters<ButtonInteraction['followUp']>[0]);
@@ -451,6 +468,11 @@ export class MusicInteractions {
           const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
           await this.updateCardOrDefer(interaction, response.toMessagePayload());
         } else {
+          // CORRECT AS IS: the skip already happened and its own trackStart
+          // posts a fresh card, so this only has to stop the dead card
+          // responding. A failed delete leaves the old card on screen, which
+          // is stale but not a wrong number — and the message stays
+          // unclickable rather than acting on a dead queue.
           await interaction.deferUpdate().catch(() => undefined);
           await interaction.message.delete().catch(() => undefined);
         }
@@ -549,6 +571,9 @@ export class MusicInteractions {
     // Playback control: Stop
     if (customId === 'music:control:stop') {
       await this.musicService.stop(guildId);
+      // CORRECT AS IS: stop() already ran and is not in doubt here — the two
+      // calls are acknowledgement and card teardown for a card whose player is
+      // gone. Worst case an empty card survives, which is stale, not wrong.
       await interaction.deferUpdate().catch(() => undefined);
       await interaction.message.delete().catch(() => undefined);
       return;
@@ -579,6 +604,8 @@ export class MusicInteractions {
         return;
       }
       if (!this.claimControlPress(guildId, customId)) {
+        // CORRECT AS IS: as in handleButton — acknowledgement only, the
+        // duplicate press is dropped on purpose (double-seek, double-filter).
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }
@@ -602,6 +629,10 @@ export class MusicInteractions {
 
       const isCurrentlyEnabled = queue.activeFilters.includes(selectedFilter);
       const result = await this.musicService.setFilter(guildId, selectedFilter, !isCurrentlyEnabled);
+      // CORRECT AS IS: these two notices are best-effort by design, and the
+      // PANEL below is rebuilt from `updatedQueue.activeFilters` — the live
+      // player state — so what the user reads about which filters are on is
+      // re-derived after the call, never carried over from `queue` above.
       if (!result.applied) {
         await interaction.followUp({
           content: `Couldn't apply **${selectedFilter}** on the audio node. Try again in a few seconds.`,
@@ -640,11 +671,27 @@ export class MusicInteractions {
       }
 
       const chapter = chapters[idx]!;
+      // CORRECT AS IS: acknowledged before the (slow) seek so the router's
+      // 2.5s auto-defer cannot make the edit below throw. A failed ack here
+      // changes nothing about the seek, which is driven from the chapter list
+      // already validated above.
       await interaction.deferUpdate().catch(() => undefined);
       const appliedMs = await this.musicService.seek(guildId, Math.floor(chapter.startMs / 1000));
       if (appliedMs === null) {
+        // seek() answers null for FOUR different reasons (no player, no
+        // track, live stream, unknown duration) and only one of them means
+        // "nothing is playing". Telling a listener whose chapter jump was
+        // refused that nothing is playing is a false statement about playback
+        // state — the track is right there. Only claim silence when there is
+        // genuinely no current track.
+        const stillPlaying = this.musicService.getQueueInfo(guildId)?.current;
         await interaction
-          .followUp({ content: 'No track is currently playing.', ephemeral: true })
+          .followUp({
+            content: stillPlaying
+              ? `Could not seek to that chapter on **${stillPlaying.title}** — live streams and tracks with no known length cannot be seeked.`
+              : 'No track is currently playing.',
+            ephemeral: true,
+          })
           .catch(() => undefined);
         return;
       }
@@ -663,6 +710,11 @@ export class MusicInteractions {
       );
       await interaction
         .editReply(response.toMessagePayload() as unknown as Parameters<ButtonInteraction['editReply']>[0])
+        // CORRECT AS IS: the seek already happened and the live card swapped
+        // through the seek path; this only re-renders the select menu. A failed
+        // edit leaves the menu showing the OLD marker — stale, and it does not
+        // claim a position the player never reached (that is what `landed`
+        // above protects).
         .catch(() => undefined);
       return;
     }
@@ -746,6 +798,10 @@ export class MusicInteractions {
       this.activeSearches.delete(interaction.user.id);
 
       // Delete the search embed message
+      // CORRECT AS IS: the play below already ran, so the result reply below
+      // is what the user reads. A surviving menu is inert — its entries were
+      // deleted from the store above, so a re-click answers "Search results
+      // expired" rather than queueing something twice.
       await interaction.message.delete().catch(() => undefined);
 
       if (result.loadType === 'error') {

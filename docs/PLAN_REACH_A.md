@@ -526,6 +526,103 @@ re-throw means a who-knows card shows **no crown at all** during a scoped Last.f
 an honest absence rather than a wrong crown, and strictly better than the alternative, but it is
 a visible regression for that card and the lead's call to confirm.
 
+### A-tier 1i — the remaining 500, in four clusters
+
+The laundering audit could only see callers of methods that **raise**. The other ~520 sites wrap
+raw Prisma calls, so they never raise and nothing above them can save them. Four agents, four
+disjoint file sets, ranked by blast radius. **Of roughly 150 sites adjudicated, 13 were fixed
+and the rest were left alone with the reason inline** — which is the expected ratio by this point
+in the phase, and the reason the count is not the target.
+
+**Two more lies the debt list could not rank, both found by reading rather than counting:**
+
+- 🐛 **`crownInteractions`: a failed artist lookup rendered a card for an artist called "42".**
+  `buildCrownDuelResponse` writes `artist-whoknows:${artistId}` — a bare numeric Artist row id,
+  not a name — and the catch "fell back to `decodeURIComponent`". Decoding `"42"` yields `"42"`.
+  The who-knows card was then built for an artist literally named 42, and **that wrong name was
+  stamped into the Crown button's `customId`**, where it survives every later press of a message
+  that is never re-rendered. Permanent, in a file no debt list pointed at.
+- 🐛 **`componentPaginatorService`: the cursor was committed before the page was fetched.** So a
+  failed render left the session claiming a page the message was not showing, and the next press
+  computed its target from the phantom page — **silently skipping a page of real rows.** The
+  assignment moved below `update()`. The page the user is looking at is still never destroyed on
+  a failed fetch; that part was already the recorded correct trade.
+
+**`userService`: seven identical `[returns null]` setters, and the worst shape in the set.** A
+failed settings write replied **"Timezone updated to Europe/London"** over a row that was never
+written, and the previous value stayed live from cache for the full 300s TTL — so it goes
+*stale* rather than merely wrong, and nothing errors or logs. The seven differed in exactly two
+ways (column, echoed value) and are now one `writeUserSetting`. The one test that pinned it was
+titled *"returns the requested value and skips the eviction when the write fails"* and its
+comment called the swallow deliberate. **That was the bug.**
+
+**`playHistoryService:234` resolved the open question of which direction a `[returns 0]` site
+fails in — this one is the confident zero, not the omitted clause.** `buildArtistPaceResponse`
+*divides* by the result and then prints "No plays found on <artist> in the last 30 days", a
+statement about what the user did, for someone who may have played the artist 400 times. The two
+guild leaderboards rendered `[]` as **"No members found with plays in this server yet"** — a
+claim about every member of a real server. Its helper was generalised from `(label, run)` to
+`(method, label, run)` because a log line saying "while building the year overview" about a guild
+leaderboard is itself a confident wrong diagnosis. The six `getYearOverview` labels are
+byte-identical afterwards.
+
+**The boundary asymmetry, confirmed and closed.** The component boundary named its source
+(`interactionHandler.ts:370`); **neither command boundary did**, so the same outage produced
+"Could not reach Last.fm" for a button and a generic "something went wrong" for `.top`, asking
+the user to retry a command that cannot succeed. Both text and slash now name it. And the
+`!interaction.deferred` gate that the previous commit removed had **travelled with the pattern
+into three more files** — `albumInteractions`, `friendInteractions`, and (a different shape) the
+crown resolver — all reproduced verbatim. One of the two friend catches is a **write**
+(`removeFriend`), and its neighbour already carried a comment saying a failed delete must not
+look like a successful one: true for `false`, false for a throw.
+
+**The music module: 108 sites reviewed, 4 claims false, 4 real defects, 104 left alone.** The
+adjudication prompts predicted most would be correct — chapter state is decoration, a ladder rung
+returns `null` for the next rung, teardown errors arrive after Discord already decided the
+outcome. That held. The four that did not:
+
+1. **`musicService`: a pasted YouTube URL with every node down became `loadType:'empty'`, and
+   the user was told "No tracks found for: <url>".** The SoundCloud branch 20 lines above already
+   had the correct `null → 'error'` / `tracks: [] → 'empty'` pair, with two tests naming the
+   contract. The URL path had no such pair, so the asymmetry was the bug.
+2. **`cacheService`: a `redis.ttl()` failure between GET and TTL produced a permanent
+   in-process cache entry.** The file's own comment describes that exact promotion as the bug
+   that once froze negative artwork markers "for the life of the process" — and the guard had a
+   hole on its own failure path. Now a three-state return: finite, genuinely no expiry, unknown.
+3. **`lyricsService`: a 10-second provider outage froze "no lyrics" for an hour.** A negative
+   cache entry is now written only if a provider actually answered. The existing 404 test (all
+   legs say "no") is a real answer and must still cache — it does.
+4. **`musicInteractions`: `seek()` returns `null` for four different reasons**, and the reply said
+   "No track is currently playing" for all of them. The old assertion **encoded the lie**.
+
+**One more defect found and deliberately NOT fixed**, because the fix is not in the file: a
+`guild.members.fetch` failure leaves `WhoKnowsUser.roles` undefined, `crownService` reads that as
+"no roles", and **a transient Discord failure can hand the crown to the next user down** — the
+same class as the Last.fm live-recheck lie already fixed, on the Discord side. Raising would
+delete a complete leaderboard of real people, and the dominant reason that catch fires is a
+member who genuinely left, which is an absence. A correct fix needs a tri-state on
+`WhoKnowsUser.roles` ("no roles" vs "roles unknown") plus a matching change in `crownService`,
+and it needs to distinguish Discord's unknown-member from a 5xx by error code, which could not be
+verified from source. **Documented in place so the seam is visible.** The same agent also flagged
+`prefixService.getPrefix`, which swallows and returns `.`, so during an outage a guild with a
+custom prefix sees "Unknown command `.foo`" — a plausible wrong answer at the very top of the text
+path, in a file nobody owned.
+
+**Gates, lead alone: `tsc --noEmit` clean, 4334 passed + 516 db skipped = 4850 (263 files), lint
+0 errors / 351 warnings, `silent-failure-default` 513 against budget 604.** The batch produced 13
+typecheck errors and 1 lint error, all fixed by the lead: 6 were `interaction.followUp(payload)`
+failing on the discord.js overload — an extracted `payload` variable loses contextual typing
+while the inline literal the rest of each file already uses compiles clean — and 7 were the
+**zero-arg-mock tuple trap**, now hit for the third time in this project: `mock.calls[0][1]` on a
+`vi.fn(async () => …)` is a compile error that vitest never reports.
+
+**And I used the one tool the handoff says corrupts files.** Fixing those 7 test errors I reached
+for PowerShell `-replace` + `Set-Content` rather than the edit tool. Verified afterwards rather
+than assumed: 196 lines unchanged, no BOM, LF, trailing newline present, and exactly the 4
+intended sites matched. It was fine this time, and the handoff's warning is about a different
+occasion. **The correct move is still the edit tool, and the correct response to having used the
+wrong one is to prove the file is intact, not to hope.**
+
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 
 `raw-query-without-db-test` reads 0, but that number was only as good as the audit behind it. Two

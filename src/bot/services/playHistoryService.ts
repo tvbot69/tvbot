@@ -22,24 +22,32 @@ const LAST_LISTENED_EXCLUSION_MS = 30 * 60 * 1000; // 30 minutes
  * worst failure shape available: a confident wrong answer the user has no way
  * to distrust.
  *
- * There is no "not found" case to separate out the way Last.fm has one. Every
- * one of these six queries is an aggregate over `user_plays`, and an aggregate
+ * There is no "not found" case to split out the way Last.fm has one. Every
+ * one of these queries is an aggregate over `user_plays`, and an aggregate
  * with no matching rows succeeds with a shorter result - it never errors. So
- * empty IS the answer, and an error is always an error.
+ * empty IS the answer, and an error is always an error. The same is true of the
+ * `count` below it: a count that runs and matches nothing SUCCEEDS with 0, so
+ * raising cannot reach the genuine zero.
+ *
+ * `(method, label)` rather than a bare label because it now also covers methods
+ * that are not `getYearOverview`, and a log line that says "while building the
+ * year overview" about a guild leaderboard is a confident wrong diagnosis - the
+ * exact thing this helper exists to stop.
  */
 const orDatabaseUnavailable = async <T>(
+  method: string,
   label: string,
-  run: () => Promise<Array<T>>,
-): Promise<Array<T>> => {
+  run: () => Promise<T>,
+): Promise<T> => {
   try {
     return await run();
   } catch (err) {
     Logger.error(
-      { query: label, err: (err as Error)?.message ?? String(err) },
-      `Database unavailable while building the year overview (${label}); refusing to render it as zero plays`,
+      { query: `${method}:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${method} (${label}); refusing to render it as a default`,
     );
     throw new SourceUnavailableError(
-      `playHistoryService.getYearOverview:${label}`,
+      `playHistoryService.${method}:${label}`,
       err,
       'Database unavailable',
     );
@@ -223,17 +231,34 @@ export class PlayHistoryService {
     days: number,
   ): Promise<number> {
     const cutoff = new Date(Date.now() - days * 86400 * 1000);
-    try {
-      return await this.db.userPlay.count({
+    // THE CONFIDENT-ZERO DIRECTION, and the reason this site is not the same as
+    // an omitted clause. `buildArtistPaceResponse` DIVIDES by whatever this
+    // returns (`avgPerDay = periodPlays / days`) and then either prints "No
+    // plays found on <artist> in the last 30 days to estimate pace" - a
+    // statement about what the user did - or computes a completion date from it.
+    // So `catch { return 0 }` did not drop a number from the card, it
+    // REPLACED it with a zero the builder prints as fact, for a user who may
+    // well have played the artist 400 times in the window.
+    //
+    // Raising cannot break the genuine zero, and that is the half worth stating:
+    // a `count` that runs and matches no rows SUCCEEDS with 0, so "the user did
+    // not listen to this artist in this window" never reaches the catch. Only a
+    // query that could not run does.
+    //
+    // Both callers (`artistPaceSlashAsync` in the slash and text command
+    // families) have no local try, and both sit behind the command boundary
+    // (`commandHandler.ts:243` -> a visible apology, `interactionHandler.ts:355`
+    // -> "Could not reach the database"). A raise is a visible failure; a 0 is
+    // a wrong answer.
+    return orDatabaseUnavailable('getArtistPlaycountForDays', 'artistPlaycountWindow', () =>
+      this.db.userPlay.count({
         where: {
           userId,
           timePlayed: { gte: cutoff },
           artistName: { equals: artistName, mode: 'insensitive' },
         },
-      });
-    } catch {
-      return 0;
-    }
+      }),
+    );
   }
 
   public async getYearOverview(userId: number, year: number): Promise<YearOverviewData> {
@@ -242,7 +267,7 @@ export class PlayHistoryService {
     const prevStartDate = new Date(Date.UTC(year - 1, 0, 1));
 
     // Top Artists
-    const artistsRaw = await orDatabaseUnavailable('topArtists', () =>
+    const artistsRaw = await orDatabaseUnavailable('getYearOverview', 'topArtists', () =>
       this.db.$queryRawUnsafe<Array<{ artist_name: string; playcount: bigint }>>(`
       SELECT artist_name, COUNT(*)::bigint AS playcount
       FROM user_plays
@@ -253,7 +278,7 @@ export class PlayHistoryService {
     `, userId, startDate, endDate));
 
     // Top Tracks
-    const tracksRaw = await orDatabaseUnavailable('topTracks', () =>
+    const tracksRaw = await orDatabaseUnavailable('getYearOverview', 'topTracks', () =>
       this.db.$queryRawUnsafe<Array<{ track_name: string; artist_name: string; playcount: bigint }>>(`
       SELECT COALESCE(track_name, 'Unknown Track') AS track_name, artist_name, COUNT(*)::bigint AS playcount
       FROM user_plays
@@ -264,7 +289,7 @@ export class PlayHistoryService {
     `, userId, startDate, endDate));
 
     // Top Albums
-    const albumsRaw = await orDatabaseUnavailable('topAlbums', () =>
+    const albumsRaw = await orDatabaseUnavailable('getYearOverview', 'topAlbums', () =>
       this.db.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
       SELECT album_name, artist_name, COUNT(*)::bigint AS playcount
       FROM user_plays
@@ -276,7 +301,7 @@ export class PlayHistoryService {
     `, userId, startDate, endDate));
 
     // Total plays & distinct artists
-    const totalsRaw = await orDatabaseUnavailable('totals', () =>
+    const totalsRaw = await orDatabaseUnavailable('getYearOverview', 'totals', () =>
       this.db.$queryRawUnsafe<Array<{ total_plays: bigint; total_artists: bigint }>>(`
       SELECT COUNT(*)::bigint AS total_plays, COUNT(DISTINCT LOWER(artist_name))::bigint AS total_artists
       FROM user_plays
@@ -284,7 +309,7 @@ export class PlayHistoryService {
     `, userId, startDate, endDate));
 
     // Previous year total
-    const prevTotalsRaw = await orDatabaseUnavailable('previousYearTotals', () =>
+    const prevTotalsRaw = await orDatabaseUnavailable('getYearOverview', 'previousYearTotals', () =>
       this.db.$queryRawUnsafe<Array<{ total_plays: bigint }>>(`
       SELECT COUNT(*)::bigint AS total_plays
       FROM user_plays
@@ -292,7 +317,7 @@ export class PlayHistoryService {
     `, userId, prevStartDate, startDate));
 
     // Monthly breakdown (1-12)
-    const monthlyRaw = await orDatabaseUnavailable('monthlyBreakdown', () =>
+    const monthlyRaw = await orDatabaseUnavailable('getYearOverview', 'monthlyBreakdown', () =>
       this.db.$queryRawUnsafe<Array<{ month: number; count: bigint }>>(`
       SELECT EXTRACT(MONTH FROM time_played)::int AS month, COUNT(*)::bigint AS count
       FROM user_plays
@@ -346,12 +371,21 @@ export class PlayHistoryService {
   }
 
   public async getGuildPlayLeaderboard(guildId: string): Promise<GuildLeaderboardEntry[]> {
-    const raw = await this.db.$queryRawUnsafe<Array<{
-      discord_user_id: bigint;
-      user_name_last_fm: string;
-      display_name: string | null;
-      playcount: bigint;
-    }>>(`
+    // `[]` is not "nobody here listens to anything" - that is what the builder
+    // says with it. An empty leaderboard is the honest answer to "which guild
+    // members have plays", and it is what an outage must not be able to produce.
+    // No `BigInt()` coercion happens in JS here (the cast is `$1::bigint`,
+    // inside Postgres), so there is no caller-side SyntaxError to separate out
+    // the way `parseGuildId` does in `genreService`: the only source of a bad id
+    // is a caller that should not exist, and it now gets a visible error rather
+    // than a silently empty chart.
+    const raw = await orDatabaseUnavailable('getGuildPlayLeaderboard', 'guildPlayTotals', () =>
+      this.db.$queryRawUnsafe<Array<{
+        discord_user_id: bigint;
+        user_name_last_fm: string;
+        display_name: string | null;
+        playcount: bigint;
+      }>>(`
       SELECT u.discord_user_id, u.user_name_last_fm, u.user_name_last_fm AS display_name, COUNT(p.user_play_id)::bigint AS playcount
       FROM guild_users gu
       JOIN users u ON u.user_id = gu.user_id
@@ -360,7 +394,7 @@ export class PlayHistoryService {
       GROUP BY u.discord_user_id, u.user_name_last_fm
       ORDER BY playcount DESC
       LIMIT 100
-    `, guildId).catch(() => []);
+    `, guildId));
 
     return raw.map(r => ({
       discordUserId: r.discord_user_id.toString(),
@@ -371,12 +405,16 @@ export class PlayHistoryService {
   }
 
   public async getGuildTimeLeaderboard(guildId: string): Promise<GuildLeaderboardEntry[]> {
-    const raw = await this.db.$queryRawUnsafe<Array<{
-      discord_user_id: bigint;
-      user_name_last_fm: string;
-      display_name: string | null;
-      total_minutes: bigint;
-    }>>(`
+    // Same reasoning as `getGuildPlayLeaderboard`: the builder renders `[]` as
+    // "No members found with plays in this server yet", which is a claim about
+    // every member of a real server rather than an absence of data.
+    const raw = await orDatabaseUnavailable('getGuildTimeLeaderboard', 'guildPlayMinutes', () =>
+      this.db.$queryRawUnsafe<Array<{
+        discord_user_id: bigint;
+        user_name_last_fm: string;
+        display_name: string | null;
+        total_minutes: bigint;
+      }>>(`
       SELECT u.discord_user_id, u.user_name_last_fm, u.user_name_last_fm AS display_name,
         ROUND(SUM(COALESCE(p.ms_played, 210000)) / 60000)::bigint AS total_minutes
       FROM guild_users gu
@@ -386,7 +424,7 @@ export class PlayHistoryService {
       GROUP BY u.discord_user_id, u.user_name_last_fm
       ORDER BY total_minutes DESC
       LIMIT 100
-    `, guildId).catch(() => []);
+    `, guildId));
 
     return raw.map(r => ({
       discordUserId: r.discord_user_id.toString(),

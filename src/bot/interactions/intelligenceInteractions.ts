@@ -19,6 +19,22 @@ export class IntelligenceInteractions {
   public async handleButton(interaction: ButtonInteraction): Promise<void> {
     const customId = interaction.customId;
 
+    // CORRECT AS IS, and the reason is the absence of a catch.
+    // `MusicIntelligenceService.getGuildAffinity`, `getDiscoveries` and
+    // `getListeningGaps` raise when the database is unreachable. There is no
+    // local `try` here, so that raise reaches
+    // `interactionHandler.onInteractionCreated`, which names the source to the
+    // presser. A local catch is what turns a precise failure into a generic
+    // one, and the one class it would swallow is `SourceUnavailableError` -
+    // the exact signal that says "do not render a card from nothing".
+    //
+    // The `parts.length` early returns below guard a malformed customId, which
+    // is a caller bug rather than a data source, and `guild.members.fetch()
+    // .catch(() => null)` falling back to the Last.fm username is a designed
+    // degradation of a Discord read, not a wrong number. The
+    // `update().catch(() => deferUpdate())` triples are transport, and a nav
+    // target that cannot render must leave the page the user is on alone.
+
     if (customId.startsWith('affinity-page:')) {
       await this.handleAffinityPage(interaction);
       return;

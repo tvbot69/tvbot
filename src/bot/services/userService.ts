@@ -2,14 +2,47 @@ import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
 import type { IUserUpdateQueue } from '@domain/interfaces/iuserUpdateQueue';
 import { UpdateType } from '@domain/enums/updateType';
 // The Prisma enum types, so writing these columns is checked rather than cast.
-import type { data_source, privacy_level } from '@prisma/client';
+import type { Prisma, data_source, privacy_level } from '@prisma/client';
 import type { ReferencedMusic } from '@domain/models/referencedMusic';
 import { CommandDispatcher } from '@bot/handlers/commandDispatcher';
 import { CacheService } from './cacheService';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
 import type { PrismaClient } from '@prisma/client';
 
 const USER_CACHE_TTL_SECONDS = 300;
+
+/**
+ * A settings write that could not run is not a settings write.
+ *
+ * Seven methods below ended in `.catch(() => null)` on `db.user.update`, so a
+ * dropped connection produced the one answer a user has no way to check: the
+ * command still replied "Timezone updated to `Europe/London`" or "Your default
+ * WhoKnows mode has been set to **Image**" over a row that was never written.
+ *
+ * It is worse than a wrong number, because it is a wrong number about the user's
+ * OWN settings, and it also goes stale: the cache entry is keyed on the row the
+ * write would have RETURNED, so a swallowed failure skips the eviction and leaves
+ * the previous value live for the full five-minute TTL while the user has been
+ * told the new one is in effect. Nothing errors, nothing is logged, and the two
+ * disagree.
+ *
+ * Same rule as `orDatabaseUnavailable` in `playHistoryService`, `genreService`,
+ * `countryService` and `albumService`: a query that runs and finds nothing is a
+ * real answer, and a query that never ran is a failure.
+ */
+const orDatabaseUnavailable = async <T>(method: string, run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: method, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${method}; refusing to report the setting as saved`,
+    );
+    throw new SourceUnavailableError(`userService.${method}`, err, 'Database unavailable');
+  }
+};
 
 export interface MilestoneProgress {
   currentMilestone: number;
@@ -41,6 +74,31 @@ export class UserService {
 
   private get db(): PrismaClient {
     return this.prisma ?? defaultPrisma;
+  }
+
+  /**
+   * The one shape shared by all seven settings writers, so the next one cannot
+   * grow its own `.catch`.
+   *
+   * They differ in exactly two ways: the column they write, and the value they
+   * echo back to the caller. The part that matters is identical in all seven -
+   * write, then evict the cache entry for the row the write RETURNED (not the
+   * requested `userId`, which is a different number and cannot find the key).
+   *
+   * The eviction sits deliberately OUTSIDE the guarded write and is not itself
+   * guarded: `CacheService.delete` clears memory first and swallows its own Redis
+   * error, so it cannot reject. Wrapping it would only relabel a write that
+   * landed as a failure, which is the same lie from the other direction.
+   */
+  private async writeUserSetting(
+    method: string,
+    userId: number,
+    data: Prisma.UserUncheckedUpdateInput,
+  ): Promise<void> {
+    const updated = await orDatabaseUnavailable(method, () =>
+      this.db.user.update({ where: { userId }, data }),
+    );
+    await this.cache.delete(`user-discord:${updated.discordUserId}`);
   }
 
   public async getUserByDiscordId(discordUserId: string): Promise<User | null> {
@@ -199,6 +257,13 @@ export class UserService {
       Intl.DateTimeFormat(undefined, { timeZone: cleanTz });
       return cleanTz;
     } catch {
+      // CORRECT AS IS. This is not a query and not a source failure: `Intl`
+      // rejecting a zone is `setTimeZone` validating the STRING the user typed,
+      // and `UTC` is the value that gets written AND the value the command then
+      // echoes back ("Timezone updated to `UTC`"). The reply is therefore true
+      // and the user can see exactly what was stored. Raising would turn a typo
+      // into an exception; the failure direction here is already an honest
+      // absence with a visible value attached.
       return 'UTC';
     }
   }
@@ -314,80 +379,38 @@ export class UserService {
   // --- Settings & User lifecycle ---
   public async setTimeZone(userId: number, timeZone: string): Promise<string> {
     const resolved = this.resolveTimeZone(timeZone);
-    const updated = await this.db.user.update({
-      where: { userId },
-      data: { timeZone: resolved },
-    }).catch(() => null);
-    if (updated) {
-      await this.cache.delete(`user-discord:${updated.discordUserId}`);
-    }
+    await this.writeUserSetting('setTimeZone', userId, { timeZone: resolved });
     return resolved;
   }
 
   public async setNumberFormat(userId: number, format: string): Promise<string> {
-    const updated = await this.db.user.update({
-      where: { userId },
-      data: { numberFormat: format },
-    }).catch(() => null);
-    if (updated) {
-      await this.cache.delete(`user-discord:${updated.discordUserId}`);
-    }
+    await this.writeUserSetting('setNumberFormat', userId, { numberFormat: format });
     return format;
   }
 
   public async setPrivacyLevel(userId: number, privacyLevel: string): Promise<string> {
     const pLevel = privacyLevel.toLowerCase() === 'hide' || privacyLevel.toLowerCase() === 'server' ? 'Hide' : 'Default';
-    const updated = await this.db.user.update({
-      where: { userId },
-      data: { privacyLevel: pLevel as privacy_level },
-    }).catch(() => null);
-    if (updated) {
-      await this.cache.delete(`user-discord:${updated.discordUserId}`);
-    }
+    await this.writeUserSetting('setPrivacyLevel', userId, { privacyLevel: pLevel as privacy_level });
     return pLevel === 'Hide' ? 'Server' : 'Global';
   }
 
   public async setDataSource(userId: number, dataSource: string): Promise<string> {
-    const updated = await this.db.user.update({
-      where: { userId },
-      data: { dataSource: dataSource as data_source },
-    }).catch(() => null);
-    if (updated) {
-      await this.cache.delete(`user-discord:${updated.discordUserId}`);
-    }
+    await this.writeUserSetting('setDataSource', userId, { dataSource: dataSource as data_source });
     return dataSource;
   }
 
   public async setWhoKnowsMode(userId: number, mode: number): Promise<number> {
-    const updated = await this.db.user.update({
-      where: { userId },
-      data: { whoKnowsMode: mode },
-    }).catch(() => null);
-    if (updated) {
-      await this.cache.delete(`user-discord:${updated.discordUserId}`);
-    }
+    await this.writeUserSetting('setWhoKnowsMode', userId, { whoKnowsMode: mode });
     return mode;
   }
 
   public async setResponseMode(userId: number, mode: number): Promise<number> {
-    const updated = await this.db.user.update({
-      where: { userId },
-      data: { mode: mode },
-    }).catch(() => null);
-    if (updated) {
-      await this.cache.delete(`user-discord:${updated.discordUserId}`);
-    }
+    await this.writeUserSetting('setResponseMode', userId, { mode });
     return mode;
   }
 
   public async setCoverType(userId: number, coverType: number): Promise<number> {
-    const updated = await this.db.user.update({
-      where: { userId },
-      data: { coverType: coverType },
-    }).catch(() => null);
-    if (updated) {
-      await this.cache.delete(`user-discord:${updated.discordUserId}`);
-    }
+    await this.writeUserSetting('setCoverType', userId, { coverType });
     return coverType;
   }
 

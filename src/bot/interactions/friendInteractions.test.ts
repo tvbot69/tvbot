@@ -122,6 +122,7 @@ const mkSelect = (customId: string, values: string[], over: Record<string, unkno
     replied: false,
     deferred: false,
     reply: vi.fn(async () => undefined),
+    followUp: vi.fn(async () => undefined),
     deferUpdate: vi.fn(async () => undefined),
     update: vi.fn(async () => undefined),
     editReply: vi.fn(async () => undefined),
@@ -129,6 +130,7 @@ const mkSelect = (customId: string, values: string[], over: Record<string, unkno
   }) as unknown as StringSelectMenuInteraction & {
     isRepliable: ReturnType<typeof vi.fn>;
     reply: ReturnType<typeof vi.fn>;
+    followUp: ReturnType<typeof vi.fn>;
     deferUpdate: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     editReply: ReturnType<typeof vi.fn>;
@@ -731,7 +733,9 @@ describe('FriendInteractions.handleButton — error path', () => {
     expect(press.reply).not.toHaveBeenCalled();
   });
 
-  it('does not reply when the interaction was already replied to', async () => {
+  it('uses followUp when the interaction was already answered rather than deferred', async () => {
+    // Same intent, corrected: `reply` is the wrong verb once the interaction
+    // has been answered, but not answering it at all is worse still.
     const { fi } = build({
       friendsService: {
         getFriendsByUserId: vi.fn(async () => {
@@ -743,10 +747,21 @@ describe('FriendInteractions.handleButton — error path', () => {
 
     await fi.handleButton(press);
 
+    expect(press.followUp).toHaveBeenCalledWith({
+      content: 'Something went wrong processing this interaction.',
+      flags: MessageFlags.Ephemeral,
+    });
     expect(press.reply).not.toHaveBeenCalled();
   });
 
-  it('does not reply when the interaction was already deferred', async () => {
+  it('reports a post-defer failure with followUp instead of going silent', async () => {
+    // REPLACED. This used to read `does not reply when the interaction was
+    // already deferred` and asserted only that `reply` was not called - which is
+    // satisfied by silence as well as by a followUp, so it pinned the bug
+    // instead of the behaviour. The state it constructed (`deferred: true`) is
+    // exactly the state `handleOverview` puts the interaction in before it
+    // reads, so the old assertion was describing "a read that failed produces
+    // no message at all" and calling it correct.
     const { fi } = build({
       friendsService: {
         getFriendsByUserId: vi.fn(async () => {
@@ -758,7 +773,10 @@ describe('FriendInteractions.handleButton — error path', () => {
 
     await fi.handleButton(press);
 
-    expect(press.reply).not.toHaveBeenCalled();
+    expect(press.followUp).toHaveBeenCalledWith({
+      content: 'Something went wrong processing this interaction.',
+      flags: MessageFlags.Ephemeral,
+    });
   });
 
   it('swallows an error raised by the ephemeral fallback reply itself', async () => {
@@ -832,7 +850,10 @@ describe('FriendInteractions.handleSelectMenu — error path', () => {
     expect(press.reply).not.toHaveBeenCalled();
   });
 
-  it('does not reply when the select interaction was already deferred', async () => {
+  it('reports a post-defer WRITE failure with followUp instead of going silent', async () => {
+    // REPLACED, same reason as the button path above. This one is worse: the
+    // failure is in `setFriendType`, a write, so the user had a selection they
+    // were told nothing about and a card that still showed the old type.
     const { fi } = build({
       friendsService: {
         setFriendType: vi.fn(async () => {
@@ -846,7 +867,10 @@ describe('FriendInteractions.handleSelectMenu — error path', () => {
 
     await fi.handleSelectMenu(press);
 
-    expect(press.reply).not.toHaveBeenCalled();
+    expect(press.followUp).toHaveBeenCalledWith({
+      content: 'Something went wrong processing this interaction.',
+      flags: MessageFlags.Ephemeral,
+    });
   });
 
   it('swallows an error raised by the ephemeral fallback reply itself', async () => {

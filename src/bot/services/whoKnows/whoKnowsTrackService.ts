@@ -75,6 +75,21 @@ export class WhoKnowsTrackService {
       if (gu?.discordUserId && discordGuild) {
         let member = discordGuild.members.cache.get(gu.discordUserId);
         if (!member) {
+          // CORRECT AS IS: a Discord API call for a display name, not a
+          // database read, and the fallback is `gu.userNameLastFm` - a real
+          // stored name. Playcount, rank, and the listener/play/avg footer never
+          // pass through this catch; they come from `getIndexedUsersForTrack` at
+          // line 63, which is deliberately unwrapped so a database outage
+          // propagates to the command boundary and the user is told, rather than
+          // being shown "Nobody in this server has listened to this".
+          //
+          // Unlike the identical catch in `whoKnowsArtistService`, the degraded
+          // `memberRoles` has NO consumer here: no crown service is wired to the
+          // track path, and `whoKnowsBuilders` never reads `.roles`. So the
+          // only reachable outcome is the Last.fm name in place of the member's
+          // nickname, plus a `roles: undefined` that nothing ever inspects.
+          // Raising would delete a complete leaderboard of real people over a
+          // nickname, which is the worse lie in the other direction.
           try { member = await discordGuild.members.fetch(gu.discordUserId); } catch { /* fallback */ }
         }
         displayName = member?.displayName;

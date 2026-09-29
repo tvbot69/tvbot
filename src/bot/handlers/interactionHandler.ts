@@ -516,9 +516,19 @@ export class InteractionHandler {
         guildId: interaction.guildId,
         shardId: interaction.guild?.shardId ?? 0,
       });
+      // Same reasoning as the component catch 150 lines above, and the same
+      // reasoning as `CommandDispatcher.handleCommandException`: a source that
+      // did not answer is a known, retryable condition, and telling the user
+      // "something went wrong, try again later" for it asks them to retry a
+      // command that will fail identically. It also collapses a Last.fm
+      // outage and a genuine defect into the same sentence, which is the one
+      // thing the reference ID is supposed to let a report resolve.
+      const apologyText = isSourceUnavailable(err)
+        ? `Could not reach ${isLastFmUnavailable(err) ? 'Last.fm' : 'the database'}. Please try again in a moment.\n*Reference ID: \`${referenceId}\`*`
+        : `Sorry, something went wrong while executing that command. Please try again later.\n*Reference ID: \`${referenceId}\`\``;
       const errorResponse = GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
-        `Sorry, something went wrong while executing that command. Please try again later.\n*Reference ID: \`${referenceId}\`*`,
+        apologyText,
       );
       await this.sendResponse(interaction, errorResponse);
     } finally {

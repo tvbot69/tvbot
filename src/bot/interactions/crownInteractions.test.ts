@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { container } from 'tsyringe';
+import { MessageFlags } from 'discord.js';
 import { CrownInteractions } from './crownInteractions';
 import { CrownBuilders } from '@bot/builders/crownBuilders';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
@@ -40,6 +41,7 @@ const makeButton = (customId: string, over: Record<string, unknown> = {}) =>
     guildId: 'g1',
     user: { id: 'caller1' },
     guild: { name: 'TestGuild', members: { cache: new Map() } },
+    isRepliable: vi.fn(() => true),
     reply: vi.fn(async () => undefined),
     deferUpdate: vi.fn(async () => undefined),
     update: vi.fn(async () => undefined),
@@ -48,6 +50,7 @@ const makeButton = (customId: string, over: Record<string, unknown> = {}) =>
     message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
     ...over,
   }) as unknown as ButtonInteraction & {
+    isRepliable: ReturnType<typeof vi.fn>;
     reply: ReturnType<typeof vi.fn>;
     deferUpdate: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -295,10 +298,19 @@ describe('CrownInteractions.handleButton — artist-whoknows', () => {
     expect(whoKnowsCommands.whoKnowsArtistForName).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to decoded name when ArtistRepository throws', async () => {
+  it('does NOT use the raw id as an artist name when ArtistRepository throws', async () => {
+    // REPLACED. The old test was `falls back to decoded name when
+    // ArtistRepository throws` and asserted only that `whoKnowsArtistForName`
+    // was called - which the bug satisfies, because the bug is that the
+    // CUSTOM ID is decoded into a name. `buildCrownDuelResponse` writes
+    // `artist-whoknows:${artistId}`, a bare numeric row id, so "falling back
+    // to decodeURIComponent" is not a fallback to a name: it produced a
+    // who-knows card for an artist called "42", and stamped that same wrong
+    // name into the Crown button's customId, where it survives every later
+    // press of a message that is never re-rendered.
     const { ci } = build();
     const whoKnowsCommands = {
-      whoKnowsArtistForName: vi.fn(async () => ({
+      whoKnowsArtistForName: vi.fn(async (_ctx: unknown, _name: string) => ({
         isComponentsV2: true,
         componentsV2Container: {},
         addButtonRow: vi.fn(),
@@ -318,7 +330,12 @@ describe('CrownInteractions.handleButton — artist-whoknows', () => {
     const press = makeButton('artist-whoknows:42');
     await ci.handleButton(press);
 
-    expect(whoKnowsCommands.whoKnowsArtistForName).toHaveBeenCalledTimes(1);
+    expect(whoKnowsCommands.whoKnowsArtistForName).not.toHaveBeenCalled();
+    expect(press.editReply).not.toHaveBeenCalled();
+    expect(press.reply).toHaveBeenCalledWith({
+      content: 'Could not load that artist. Please try again in a moment.',
+      flags: MessageFlags.Ephemeral,
+    });
   });
 
   it('uses legacy editReply path when response is not ComponentsV2', async () => {
@@ -415,7 +432,11 @@ describe('CrownInteractions.handleButton — artist-crown', () => {
     expect(args).toEqual(['Radiohead']);
   });
 
-  it('falls back to decoded name when ArtistRepository throws', async () => {
+  it('does NOT pass the raw id as an artist name to the crown command when ArtistRepository throws', async () => {
+    // REPLACED, and the worse of the pair. The old test was `falls back to
+    // decoded name when ArtistRepository throws` and asserted
+    // `crownAsync.mock.calls[0][1]` EQUALS `['42']` - it pinned the bug exactly,
+    // asserting that a failed read produces a crown card for the string "42".
     const { ci } = build();
     const crownCommands = {
       crownAsync: vi.fn(async (_ctx: unknown, _args: string[]) => ({
@@ -437,8 +458,12 @@ describe('CrownInteractions.handleButton — artist-crown', () => {
     const press = makeButton('artist-crown:42');
     await ci.handleButton(press);
 
-    const args = crownCommands.crownAsync.mock.calls[0]![1] as string[];
-    expect(args).toEqual(['42']);
+    expect(crownCommands.crownAsync).not.toHaveBeenCalled();
+    expect(press.editReply).not.toHaveBeenCalled();
+    expect(press.reply).toHaveBeenCalledWith({
+      content: 'Could not load that artist. Please try again in a moment.',
+      flags: MessageFlags.Ephemeral,
+    });
   });
 
   it('uses legacy editReply path when response is not ComponentsV2', async () => {

@@ -54,6 +54,7 @@ const mkButton = (customId: string, over: Record<string, unknown> = {}) =>
     replied: false,
     deferred: false,
     reply: vi.fn(async () => undefined),
+    followUp: vi.fn(async () => undefined),
     deferUpdate: vi.fn(async () => undefined),
     update: vi.fn(async () => undefined),
     editReply: vi.fn(async () => undefined),
@@ -61,6 +62,7 @@ const mkButton = (customId: string, over: Record<string, unknown> = {}) =>
   }) as unknown as ButtonInteraction & {
     isRepliable: ReturnType<typeof vi.fn>;
     reply: ReturnType<typeof vi.fn>;
+    followUp: ReturnType<typeof vi.fn>;
     deferUpdate: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
     editReply: ReturnType<typeof vi.fn>;
@@ -288,14 +290,23 @@ describe('AlbumInteractions — search result not found', () => {
     ['album-info', `album-info:42:${TARGET_ID}:${CALLER_ID}`],
     ['album-tracks', `album-tracks:42:${TARGET_ID}:${CALLER_ID}`],
     ['album-cover', `album-cover:42:${TARGET_ID}:${CALLER_ID}:motion`],
-  ])('defers then returns silently for a null result on the %s branch', async (_label, customId) => {
+  ])('deferUpdate, build nothing, and SAY the album was not found on the %s branch', async (_label, customId) => {
+    // REPLACED. This used to be `defers then returns silently for a null result`
+    // and asserted only the defer and the absence of a card - so the missing
+    // half, that the user was told nothing at all, was invisible to it. A
+    // `null` from `searchAlbum` is a real answer, and this file already answers
+    // the two neighbouring misses out loud ("Album record not found.").
     const { ai } = build({ albumService: { searchAlbum: vi.fn(async () => null) } });
     const spies = spyAllBuilders();
-    const press = mkButton(customId);
+    const press = mkButton(customId, { deferred: true });
 
     await ai.handleAlbumButton(press);
 
     expect(press.deferUpdate).toHaveBeenCalledTimes(1);
+    expect(press.followUp).toHaveBeenCalledWith({
+      content: 'I could not find that album.',
+      flags: MessageFlags.Ephemeral,
+    });
     expect(spies.info).not.toHaveBeenCalled();
     expect(spies.tracks).not.toHaveBeenCalled();
     expect(spies.cover).not.toHaveBeenCalled();
@@ -507,7 +518,10 @@ describe('AlbumInteractions.handleAlbumButton — error path', () => {
     expect(press.reply).not.toHaveBeenCalled();
   });
 
-  it('does not reply when the interaction was already replied to', async () => {
+  it('uses followUp when the interaction was already replied to', async () => {
+    // REPLACED, same reason as the deferred case above: "not `reply`" was
+    // satisfied by saying nothing. An answered interaction is still answerable
+    // once, via followUp.
     const { ai } = build({
       albumService: {
         getAlbumById: vi.fn(async () => {
@@ -519,10 +533,19 @@ describe('AlbumInteractions.handleAlbumButton — error path', () => {
 
     await ai.handleAlbumButton(press);
 
+    expect(press.followUp).toHaveBeenCalledWith({
+      content: 'Something went wrong processing this interaction.',
+      flags: MessageFlags.Ephemeral,
+    });
     expect(press.reply).not.toHaveBeenCalled();
   });
 
-  it('does not reply when the interaction was already deferred', async () => {
+  it('reports a post-defer failure with followUp instead of going silent', async () => {
+    // REPLACED. This used to read `does not reply when the interaction was
+    // already deferred` and asserted only that `reply` was not called, which
+    // silence satisfies just as well as a followUp. The state it built
+    // (`deferred: true`) is exactly what `handleAlbumInfo` sets before it
+    // reads, so the assertion was pinning "a failed read produces no message".
     const { ai } = build({
       albumService: {
         getAlbumById: vi.fn(async () => {
@@ -534,7 +557,10 @@ describe('AlbumInteractions.handleAlbumButton — error path', () => {
 
     await ai.handleAlbumButton(press);
 
-    expect(press.reply).not.toHaveBeenCalled();
+    expect(press.followUp).toHaveBeenCalledWith({
+      content: 'Something went wrong processing this interaction.',
+      flags: MessageFlags.Ephemeral,
+    });
   });
 
   it('swallows an error raised by the ephemeral fallback reply itself', async () => {

@@ -367,7 +367,17 @@ export class MusicService {
         } catch {
           urlRes = null;
         }
-        if (!urlRes?.tracks || urlRes.tracks.length === 0) {
+        // `null` means NO node answered — every attempt threw or timed out.
+        // That is not the same as a node answering "no results", and reporting
+        // it as 'empty' rendered "No tracks found for: <url>" on a
+        // tower-uplink stall, i.e. a transport failure rendered as "this track
+        // does not exist". The SoundCloud branch above already refuses to make
+        // that distinction up (null -> 'error'), and the ladder itself carries
+        // the same transport-vs-miss rule; this path was the odd one out.
+        if (urlRes === null) {
+          return { loadType: 'error', totalTracksAdded: 0, positionInQueue: 0 };
+        }
+        if (!urlRes.tracks || urlRes.tracks.length === 0) {
           return { loadType: 'empty', totalTracksAdded: 0, positionInQueue: 0 };
         }
         if (urlRes.loadType === 'playlist') {
@@ -915,6 +925,11 @@ export class MusicService {
         }
         const entry = list.shift()!;
         const found = await this.resolvePlaylistTrack(player, entry.spTrack).catch(() => null);
+        // CORRECT AS IS: a resolve that throws is a resolve that did not
+        // produce a track, and is counted as a miss by the consecutive-miss
+        // brake below. Nothing was queued, so nothing needs undoing, and the
+        // channel notice says "could not be resolved" — never "does not
+        // exist". A resolved entry still adopts and enqueues normally.
         if (!this.getPlayer(guildId)) {
           this.pendingSpotify.delete(guildId);
           return;
@@ -961,6 +976,10 @@ export class MusicService {
     if (added > 0) {
       const player = this.getPlayer(guildId);
       if (player && !player.playing && !player.paused) {
+        // CORRECT AS IS: the queue was refilled after a drain, so the one job
+        // left is starting it. A refused start() is a voice/REST refusal — the
+        // tracks stay queued and visible, so the queue count the user sees is
+        // true, and the next play/trackEnd trigger tries again.
         await player.play().catch(() => undefined);
       }
     }
@@ -1230,7 +1249,10 @@ export class MusicService {
         try {
           player.queue.add(track);
         } catch {
-          // Best effort restore.
+          // CORRECT AS IS: restoring the dropped tracks is best effort on a
+          // path that has ALREADY failed (skip() returned false) and already
+          // answers the user "invalid position". Throwing here would replace
+          // that answer with an unhandled rejection.
         }
       }
       return false;
@@ -1242,6 +1264,9 @@ export class MusicService {
     const found = await this.resolvePlaylistTrack(player, entry.spTrack).catch(() => null);
     const live = this.getPlayer(guildId);
     const liveList = this.pendingSpotify.get(guildId);
+    // CORRECT AS IS: a throw or a miss both land here, BEFORE any mutation,
+    // so refusing the jump leaves the queue exactly as it was — the promise
+    // this method makes ("a miss refuses with the queue untouched").
     if (!found || !live || !liveList) return false;
     // The player may have been replaced entirely while we resolved.
     if (live !== player || isDestroyedPlayer(live)) return false;
@@ -1325,6 +1350,8 @@ export class MusicService {
     const entry = pending[i - size];
     if (!entry) return false;
     const found = await this.resolvePlaylistTrack(player, entry.spTrack).catch(() => null);
+    // CORRECT AS IS: like jumpToCombined, the resolve happens before any
+    // mutation, so a throw or a miss refuses the move with the queue intact.
     if (!found) return false;
     const live = this.getPlayer(guildId);
     const liveList = this.pendingSpotify.get(guildId);

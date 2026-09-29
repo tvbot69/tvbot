@@ -18,12 +18,14 @@ import { PrivacyLevel } from '@domain/enums/privacyLevel';
  *     service falls back to the module-level singleton from
  *     `@persistence/prismaClient` - which would open a real connection on the
  *     first `this.db.user.count()`. Every test here injects a prisma double.
- *  2. The `setX` family shares one shape: write, and on success evict the
- *     cache entry for the row that was returned. The eviction uses
- *     `updated.discordUserId` rather than the requested userId, which is the
- *     only thing that can find the right `user-discord:` key. That is asserted
- *     everywhere, because a write that skips the eviction leaves the old value
- *     live for five minutes with no error anywhere.
+ *  2. The `setX` family shares one shape: write, evict the cache entry for the
+ *     row that was returned, and return the requested value - and RAISE when
+ *     the write could not run, because the command's "updated" reply is a claim
+ *     about the user's own settings. The eviction uses `updated.discordUserId`
+ *     rather than the requested userId, which is the only thing that can find
+ *     the right `user-discord:` key. That is asserted everywhere, because a
+ *     write that skips the eviction leaves the old value live for five minutes
+ *     with no error anywhere.
  */
 
 const USER_TTL = 300;
@@ -571,12 +573,30 @@ describe('UserService settings writers', () => {
     expect(userUpdate).toHaveBeenCalledWith({ where: { userId: 1 }, data: { timeZone: 'UTC' } });
   });
 
-  it('returns the requested value and skips the eviction when the write fails', async () => {
-    // The command reports success to the user even when the write is lost, so
-    // there is nothing to evict - and the throw is swallowed on purpose.
+  it('raises and skips the eviction when the write cannot run', async () => {
+    // This test used to assert the opposite: it pinned `resolves.toBe(...)` over
+    // a rejected write, and called the swallow deliberate. That WAS the bug.
+    // `.settimezone` replied "Timezone updated to `Europe/London`" over a row
+    // that was never written, and because the eviction is keyed on the row the
+    // write would have returned, the OLD value stayed live for the full 300s
+    // TTL while the user believed the new one was in effect. The pair now: a
+    // failure raises, and a write that RUNS still reports the honest value.
     const { service, cache } = build({ userUpdate: Promise.reject(new Error('db down')) });
-    await expect(service.setTimeZone(1, 'Europe/London')).resolves.toBe('Europe/London');
+    await expect(service.setTimeZone(1, 'Europe/London')).rejects.toThrow(/Database unavailable/);
     expect(cache.delete).not.toHaveBeenCalled();
+  });
+
+  it('still reports the value it wrote, and evicts, when the write ran', async () => {
+    // The other half of the pair. Without it, "always throws" would pass the
+    // test above, and the fix would have traded a confident lie for a confident
+    // failure - users could never save a setting at all.
+    const { service, userUpdate, cache } = build();
+    await expect(service.setTimeZone(1, 'Europe/London')).resolves.toBe('Europe/London');
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { userId: 1 },
+      data: { timeZone: 'Europe/London' },
+    });
+    expect(cache.delete).toHaveBeenCalledWith('user-discord:900000000000000001');
   });
 
   it('writes and evicts the number format', async () => {

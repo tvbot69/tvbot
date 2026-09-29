@@ -78,26 +78,45 @@ export class CacheService implements ICache {
           // re-fetched — and the 5-minute guild/command-disabled settings
           // froze for the life of the process (invisible across shards).
           const remaining = await this.remainingTtlSeconds(key);
-          this.setMemory(key, parsed, remaining ?? undefined);
+          // `undefined` = the TTL could NOT be read, which is not the same as
+          // "no expiry". Promoting on that path would re-create the exact
+          // permanent-entry bug the call above exists to prevent, and only
+          // when Redis fails mid-read — so serve the value and cache nothing
+          // rather than cache it forever.
+          if (remaining !== undefined) this.setMemory(key, parsed, remaining ?? undefined);
           return parsed;
         }
       } catch {
+        // A Redis read failure is a cache MISS, not an absence: the caller
+        // recomputes and re-populates. Returning null here never writes a
+        // negative marker, so it cannot freeze "no cover / disabled" for a
+        // later reader.
         return null;
       }
     }
     return null;
   }
 
-  /** Seconds left on a Redis key, or null when it has no expiry. */
-  private async remainingTtlSeconds(key: string): Promise<number | null> {
-    if (!this.redis) return null;
+  /**
+   * Seconds left on a Redis key.
+   *
+   * Three outcomes, and conflating them is the bug this signature exists to
+   * prevent: a number (finite TTL, safe to promote), `null` (Redis says the key
+   * has NO expiry, so permanent is the truth), and `undefined` (we could not
+   * find out — the TTL call threw, or the key vanished between the GET and the
+   * TTL read). Only the third must not be cached.
+   */
+  private async remainingTtlSeconds(key: string): Promise<number | null | undefined> {
+    if (!this.redis) return undefined;
     try {
       const ttl = await this.redis.ttl(key);
-      // -1 = no expiry, -2 = key gone. A vanished key must not be cached at
-      // all, so report "no TTL known" and let the caller's value stand.
-      return ttl > 0 ? ttl : null;
+      if (ttl > 0) return ttl;
+      // -1 = genuinely no expiry. -2 = key already gone: nothing was read, so
+      // report "unknown" rather than "permanent" and let the value stand.
+      return ttl === -1 ? null : undefined;
     } catch {
-      return null;
+      // Redis unreachable between the GET and the TTL: unknown, not permanent.
+      return undefined;
     }
   }
 
@@ -112,6 +131,9 @@ export class CacheService implements ICache {
           await this.redis.set(key, JSON.stringify(value));
         }
       } catch {
+        // CORRECT AS IS: memory already holds the value (setMemory above ran
+        // first, unconditionally). A failed Redis write costs cross-process
+        // visibility until the key's TTL, not correctness in this process.
         return;
       }
     }
@@ -158,6 +180,11 @@ export class CacheService implements ICache {
       try {
         await this.redis.del(key);
       } catch {
+        // CORRECT AS IS: the local delete above already happened, so this
+        // process is consistent. A surviving Redis key can only be re-read by
+        // another shard, and only until its own TTL expires — the
+        // alternative (throwing) would make callers treat a delete as failed
+        // and re-cache the same value.
         return;
       }
     }
@@ -214,6 +241,10 @@ export class CacheService implements ICache {
     return this.redisExec(async (r) => {
       const added = await r.sadd(key, member);
       if (added === 1) {
+        // CORRECT AS IS: the member is already in the set — SADD is what the
+        // dedup answer depends on. A failed EXPIRE only means the KEY outlives
+        // its ttl, so the member stays de-duplicated; the opposite (ignoring a
+        // failed SADD) would report "already seen" for something never stored.
         await r.expire(key, ttlSeconds).catch(() => undefined);
         return true;
       }
@@ -272,6 +303,9 @@ export class CacheService implements ICache {
           this.redis.disconnect();
         }
       } catch {
+        // CORRECT AS IS: shutdown. The connection is being abandoned anyway
+        // and `this.redis = null` below drops the reference, so nothing this
+        // process believes can outlive it.
         // ignore disconnect errors during shutdown
       }
       this.redis = null;

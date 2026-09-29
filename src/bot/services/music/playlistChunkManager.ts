@@ -141,6 +141,10 @@ export class PlaylistChunkManager {
       }
       if (player.queue.size > 0) {
         if (!player.playing && !player.paused) {
+          // CORRECT AS IS: tracks are on the queue, so the drain loop's job is
+          // done. A refused start() is a voice/REST refusal the next play
+          // command retries — swallowing it here cannot lose or reorder
+          // anything, which is what the rest of this loop is protecting.
           await player.play().catch(() => undefined);
         }
         return;
@@ -167,6 +171,9 @@ export class PlaylistChunkManager {
       await this.fetchNext(guildId);
       const landed = this.manager.players.get(guildId);
       if (landed && landed.queue.size > 0 && !landed.playing && !landed.paused) {
+        // CORRECT AS IS: unlike the early-return above, a refused start here
+        // falls through to the next loop iteration, so the bounded retry /
+        // deadline logic still owns the recovery.
         await landed.play().catch(() => undefined);
       }
     }
@@ -303,6 +310,11 @@ export class PlaylistChunkManager {
                   });
                   return found ? { t, found } : null;
                 } catch {
+                  // CORRECT AS IS: a resolver throw is counted as one
+                  // unresolvable track and the batch continues. The channel
+                  // notice is worded "could not be resolved and were skipped",
+                  // which is true of a throw as well as a miss — it never says
+                  // the track does not exist, and it is not cached.
                   return null;
                 }
               }
@@ -310,6 +322,10 @@ export class PlaylistChunkManager {
                 const r = await manager.search({ query: `${t.artist} - ${t.name}`, source: 'youtube' });
                 return { t, r };
               } catch {
+                // CORRECT AS IS: this is the no-resolver fallback (raw
+                // YouTube search). A throw counts as one skipped track, the
+                // same treatment the ladder path above gets, so a dead node
+                // skips tracks instead of aborting the whole chunk.
                 return null;
               }
             },

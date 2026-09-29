@@ -20,6 +20,17 @@ import type {
  */
 type AnyComponentInteraction = ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction;
 
+// Every `catch` in this file is the feature, not a bug - see the module note
+// above. Acknowledging inside Discord's 3s window is the whole job of this
+// module, and the only way to do that is to treat "already acknowledged" and
+// "token expired" as non-events. None of these can produce a wrong number, a
+// wrong card, or a confident answer: at worst the press is lost, which is
+// strictly better than the alternative this file exists to prevent, the bot
+// showing "This application did not respond" on a command that then ran to
+// completion into the void. CORRECT AS IS - do not add a `Logger.error` or a
+// user-facing message to any of them; the caller has already answered or
+// already cannot.
+
 /** Defer an update/edit. Never throws, even if already acknowledged. */
 export const deferUpdateSafe = async (interaction: AnyComponentInteraction): Promise<void> => {
   try {

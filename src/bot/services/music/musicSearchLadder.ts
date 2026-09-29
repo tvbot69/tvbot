@@ -272,6 +272,10 @@ export class MusicSearchLadder {
       // and a dead node must not cost double latency before the fallback.
       res = await this.searchWithTimeout({ query: `"${isrc}"`, source: 'youtube' }, 5000);
     } catch {
+      // CORRECT AS IS: the ISRC rung failing is a rung failing. `null` here
+      // only means "no exact-recording hit from this rung", so the caller runs
+      // the fuzzy title search below — it is never reported as "this track
+      // does not exist", and the node is already cooled by searchWithTimeout.
       return null;
     }
     const hit = res?.tracks?.[0];

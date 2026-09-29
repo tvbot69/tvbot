@@ -9,6 +9,31 @@ import { Logger } from '@domain/logger';
 
 export const ALBUM_BUTTON_PREFIXES = ['album-info:', 'album-tracks:', 'album-cover:'];
 
+/**
+ * Ephemeral note that leaves the card the user is looking at alone.
+ *
+ * The `!interaction.deferred` gate this used to carry is the exact regression
+ * `interactionHandler.onInteractionCreated` documents and fixed: all three
+ * handlers below call `deferUpdate()` BEFORE they read, precisely so a slow
+ * source is acknowledged inside Discord's 3s window - so the one failure that
+ * most needed a reply (a press that failed halfway through) was the one failure
+ * that got silence. A `SourceUnavailableError` from `getAlbumById` or
+ * `searchAlbum` therefore rendered as a button press that did nothing at all.
+ *
+ * `followUp` is the right verb once deferred and `reply` before it, and
+ * neither rewrites the components, so the album card the user opened survives.
+ */
+const respondEphemeral = async (interaction: ButtonInteraction, content: string): Promise<void> => {
+  if (!interaction.isRepliable()) {
+    return;
+  }
+  if (interaction.deferred || interaction.replied) {
+    await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+  } else {
+    await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+  }
+};
+
 @injectable()
 export class AlbumInteractions {
   private readonly albumService: AlbumService;
@@ -38,9 +63,7 @@ export class AlbumInteractions {
       }
     } catch (err) {
       Logger.error({ err }, `Error handling album interaction: ${customId}`);
-      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: 'Something went wrong processing this interaction.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
-      }
+      await respondEphemeral(interaction, 'Something went wrong processing this interaction.');
     }
   }
 
@@ -71,6 +94,14 @@ export class AlbumInteractions {
     );
 
     if (!result) {
+      // `null` here is an honest answer - Last.fm has no such album, or the
+      // artist row the id pointed at has no name to search with - and this file
+      // already says so for the two misses above. It used to `return` instead,
+      // after `deferUpdate()`, so the press produced no card and no message:
+      // the user cannot tell "that album does not exist" from "the button is
+      // broken", and the message they were looking at stays on screen saying
+      // nothing happened. Say it, ephemerally, without touching that message.
+      await respondEphemeral(interaction, 'I could not find that album.');
       return;
     }
 
@@ -114,6 +145,7 @@ export class AlbumInteractions {
     );
 
     if (!result) {
+      await respondEphemeral(interaction, 'I could not find that album.');
       return;
     }
 
@@ -156,6 +188,7 @@ export class AlbumInteractions {
     );
 
     if (!result) {
+      await respondEphemeral(interaction, 'I could not find that album.');
       return;
     }
 

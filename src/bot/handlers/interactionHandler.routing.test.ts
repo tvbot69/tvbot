@@ -1015,6 +1015,63 @@ describe('InteractionHandler slash command execution', () => {
     expect(payload.embeds[0]?.data?.description).toContain('ref123');
   });
 
+  it('names the source when a slash command raises a Last.fm outage', async () => {
+    // The component catch 150 lines above already did this. The slash catch did
+    // not, so the SAME outage produced "Could not reach Last.fm" for a button
+    // press and "Sorry, something went wrong while executing that command"
+    // for a slash command - and the second tells the user to retry something
+    // that cannot succeed while Last.fm is down.
+    const { handler } = build();
+    stubCommand(new LastFmUnavailableError('lastFmRepository.getTopArtists', new Error('HTTP 503')));
+    const interaction = makeSlash('wiki');
+
+    await dispatch(handler, interaction);
+
+    const payload = interaction.editReply.mock.calls[0]?.[0] as {
+      embeds: Array<{ data?: { description?: string } }>;
+    };
+    const description = payload.embeds[0]?.data?.description ?? '';
+    expect(description).toContain('Could not reach Last.fm');
+    expect(description).toMatch(/try again in a moment/i);
+    expect(description).not.toMatch(/something went wrong/i);
+    expect(description).toContain('ref123');
+  });
+
+  it('names the database when a slash command raises our own Postgres', async () => {
+    const { handler } = build();
+    stubCommand(
+      new SourceUnavailableError('playRepository.getUserPlays', new Error('ECONNREFUSED'), 'Database unavailable'),
+    );
+    const interaction = makeSlash('wiki');
+
+    await dispatch(handler, interaction);
+
+    const payload = interaction.editReply.mock.calls[0]?.[0] as {
+      embeds: Array<{ data?: { description?: string } }>;
+    };
+    const description = payload.embeds[0]?.data?.description ?? '';
+    expect(description).toContain('Could not reach the database');
+    expect(description).not.toMatch(/something went wrong/i);
+  });
+
+  it('still reports a genuine defect with the generic text', async () => {
+    // The other half of the pair. "Could not reach the database, try again" on
+    // a TypeError is a worse lie than the generic sentence: it tells the user
+    // their retry is futile and hides the defect behind a source name.
+    const { handler } = build();
+    stubCommand(new TypeError("Cannot read properties of undefined (reading 'id')"));
+    const interaction = makeSlash('wiki');
+
+    await dispatch(handler, interaction);
+
+    const payload = interaction.editReply.mock.calls[0]?.[0] as {
+      embeds: Array<{ data?: { description?: string } }>;
+    };
+    const description = payload.embeds[0]?.data?.description ?? '';
+    expect(description).toMatch(/something went wrong while executing that command/i);
+    expect(description).not.toMatch(/could not reach/i);
+  });
+
   it('passes the resolved context to the command, not the raw interaction', async () => {
     const { handler } = build();
     const executeAsync = stubCommand(new ResponseModel());

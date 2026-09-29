@@ -78,11 +78,19 @@ export class VoiceLifecycle {
           if (player.current) {
             player.set('kickedPosition', this.host.queueService.calculatePosition(player));
           }
+          // CORRECT AS IS: the VoiceStateUpdate we are handling already said
+          // the bot left (newState.channelId is null), so the voice link is
+          // going down regardless of what the REST call answers. The queue is
+          // deliberately kept for the grace window below.
           void player.disconnect().catch(() => undefined);
           this.clearKickGrace(guildId);
           const timeout = setTimeout(() => {
             this.kickGraceTimeouts.delete(guildId);
             Logger.info(`[Music] Rejoin grace expired in guild ${guildId} — destroying player`);
+            // CORRECT AS IS: the player is 3 minutes idle and the map entry is
+            // already dropped, so a failed teardown leaves nothing this module
+            // will act on again — and moonlink still holds the corpse, which
+            // isDestroyedPlayer filters out of the registry.
             player.destroy('Rejoin grace expired after disconnect').catch(() => undefined);
           }, KICK_GRACE_MS);
           this.kickGraceTimeouts.set(guildId, timeout);
@@ -109,9 +117,18 @@ export class VoiceLifecycle {
                   // resume() (paused:false only, never 400s) plus an
                   // explicit seek-back is the correct, deterministic resume.
                   await player.resume().catch(() => undefined);
+                  // CORRECT AS IS (resume): a refused resume leaves the track
+                  // paused after a successful reconnect — the position restore
+                  // below is still attempted, because connect() above did
+                  // re-establish voice and the seek is what makes the resume
+                  // land where the listener left off.
                   const saved = player.get<number>('kickedPosition') ?? 0;
                   const duration = player.current.duration || 0;
                   if (saved > 5000 && !player.current.isStream && (!duration || saved < duration)) {
+                    // CORRECT AS IS (seek-back): a refused restore means the
+                    // song restarts from wherever Lavalink put it. The track
+                    // is playing either way and no position is reported to the
+                    // user here; the card re-renders from the real position.
                     await player
                       .seek(Math.min(saved, duration ? duration - 1000 : saved))
                       .catch(() => undefined);
@@ -155,6 +172,10 @@ export class VoiceLifecycle {
         if (humanMembers.size === 0 && !is247) {
           // Auto-pause and start 2-minute leave timer
           if (!player.paused) {
+            // CORRECT AS IS: a refused pause means audio keeps playing into an
+            // empty channel, but the leave timer below is armed regardless, so
+            // the bot still goes. `pausedByEmptyChannel` is only read to decide
+            // whether to resume when a human returns, and it is cleared there.
             player.pause().catch(() => undefined);
             player.set('pausedByEmptyChannel', true);
           }
@@ -172,6 +193,11 @@ export class VoiceLifecycle {
                 const currentHumans = currentChannel.members.filter((m) => !m.user.bot);
                 if (currentHumans.size === 0 && !this.host.queueService.is247(guildId)) {
                   Logger.info(`[Music] Leaving empty voice channel in guild ${guildId}`);
+                  // CORRECT AS IS: the channel is still empty at fire time, so
+                  // leaving is the correct outcome whether or not the teardown
+                  // answers. A rejected destroy leaves the player mapped in
+                  // moonlink, which isDestroyedPlayer (and the registry's
+                  // getPlayer) already refuse to hand out.
                   player.destroy('Voice channel empty').catch(() => undefined);
                 }
               }
@@ -189,6 +215,10 @@ export class VoiceLifecycle {
 
           if (player.paused && player.get<boolean>('pausedByEmptyChannel')) {
             player.set('pausedByEmptyChannel', false);
+            // CORRECT AS IS: the auto-pause flag is cleared first, so a refused
+            // resume is not retried on the next join/leave. The listener sees
+            // silence until they press play — true, and no position or count is
+            // invented to hide it.
             player.resume().catch(() => undefined);
           }
         }
@@ -202,6 +232,9 @@ export class VoiceLifecycle {
         const player = manager.players.get(guildId);
         if (player && player.voiceChannelId === channel.id) {
           Logger.info(`[Music] Voice channel was deleted in guild ${guildId}`);
+          // CORRECT AS IS: the channel object is gone, so the voice link is
+          // broken whether or not the teardown answers. Same destroyed-player
+          // guard as above keeps a corpse out of the registry.
           player.destroy('Voice channel deleted').catch(() => undefined);
         }
         // Text channel gone: stop the progress updater hammering a dead fetch.
@@ -229,6 +262,9 @@ export class VoiceLifecycle {
       const manager = this.host.moonlinkManager.getManager();
       const player = manager.players.get(guildId);
       if (player) {
+        // CORRECT AS IS: the bot has left the guild, so all the state above is
+        // the whole cleanup. Every per-guild Map is already cleared, and a
+        // surviving moonlink entry dies with the gateway session.
         player.destroy('Guild removed').catch(() => undefined);
       }
     });

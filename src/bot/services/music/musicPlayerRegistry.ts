@@ -162,6 +162,11 @@ export class PlayerRegistry {
             // ignore unknown filter names
           }
         }
+        // CORRECT AS IS: the filters are enabled in the player's own state,
+        // so a failed push to the node costs the audio effect until the next
+        // toggle — not playback, and not the stored preference the player was
+        // just rebuilt from. The registry's belief about which filters are on
+        // is still true.
         void player.filters.apply().catch(() => undefined);
       }
       created = true;

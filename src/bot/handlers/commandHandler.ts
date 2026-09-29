@@ -65,6 +65,13 @@ export class CommandHandler {
   }
 
   private async handleMessage(message: Message, isUpdate: boolean = false): Promise<void> {
+    // CORRECT AS IS for every `.catch(() => undefined)` in this method: each one
+    // wraps a Discord send or a typing indicator, i.e. transport, not a data
+    // source. None of them can turn a failed read into a wrong number, and a
+    // second delivery attempt on a send that already failed is how you get
+    // double posts. The two that DO answer the user are unchanged and must
+    // stay: the unknown-command reply below, and the "try again later" boundary
+    // that `CommandDispatcher.handleCommandException` owns.
     if (message.author.bot || message.webhookId) {
       return;
     }
@@ -276,6 +283,13 @@ export class CommandHandler {
         return 'This command is toggled off in this channel.';
       }
     } catch (err) {
+      // CORRECT AS IS, and the trade is deliberate. Returning `null` here means
+      // "not blocked", so a failed gate read lets the command through. Failing
+      // CLOSED would instead take every guild's bot offline because one Redis
+      // read threw, which is a far worse wrong answer than a command that ran
+      // in a guild that had meant to disable it. It is not silent either: this
+      // logs at WARN with the guild id. `InteractionHandler.isBlockedInContext`
+      // is the same code and the same reasoning.
       Logger.warn({ err }, `Error in isBlockedInContext for guild ${guildId}`);
       return null;
     }
@@ -296,6 +310,12 @@ export class CommandHandler {
       }
       await this.guildService.trackLastCommand(message.guildId);
     } catch (err) {
+      // CORRECT AS IS. Fire-and-forget bookkeeping - guild row, membership row,
+      // "last command at" - whose worst outcome is a stale timestamp. It is
+      // deliberately NOT in the command's own try block: a user must never see
+      // an error for a side effect they did not ask for, and the command
+      // response has already been sent by the time this runs. It logs, so it is
+      // not silent.
       Logger.warn({ err }, 'Failed to track command activity');
     }
   }

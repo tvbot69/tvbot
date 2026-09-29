@@ -18,6 +18,16 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+/**
+ * Set by each provider leg as soon as that provider REPLIED, whatever the
+ * reply was (a 404 and an empty list are answers). A thrown fetch never sets
+ * it. The only use is the negative cache entry: "this song has no lyrics" is
+ * only a fact when somebody actually said so.
+ */
+interface ProviderProbe {
+  answered: boolean;
+}
+
 @singleton()
 export class LyricsService {
   private static readonly LRCLIB_BASE_URL = 'https://lrclib.net/api';
@@ -40,10 +50,12 @@ export class LyricsService {
       return cached.result;
     }
 
+    const probe: ProviderProbe = { answered: false };
+
     try {
       // 1. Try LRCLIB exact match
       if (cleanArtist) {
-        const exactResult = await this.fetchLrclibExact(cleanTitle, cleanArtist);
+        const exactResult = await this.fetchLrclibExact(cleanTitle, cleanArtist, probe);
         if (exactResult) {
           this.setCache(cacheKey, exactResult);
           return exactResult;
@@ -51,14 +63,14 @@ export class LyricsService {
       }
 
       // 2. Try LRCLIB search query
-      const lrclibSearch = await this.fetchLrclibSearch(combined);
+      const lrclibSearch = await this.fetchLrclibSearch(combined, probe);
       if (lrclibSearch) {
         this.setCache(cacheKey, lrclibSearch);
         return lrclibSearch;
       }
 
       // 3. Fallback to Genius (covers tracks missing on LRCLIB, like underground rap/indie)
-      const geniusResult = await this.fetchGeniusLyrics(combined);
+      const geniusResult = await this.fetchGeniusLyrics(combined, probe);
       if (geniusResult) {
         this.setCache(cacheKey, geniusResult);
         return geniusResult;
@@ -66,14 +78,19 @@ export class LyricsService {
 
       // 4. Try title-only on Genius if combined query failed
       if (cleanArtist && cleanTitle !== combined) {
-        const geniusTitleResult = await this.fetchGeniusLyrics(cleanTitle);
+        const geniusTitleResult = await this.fetchGeniusLyrics(cleanTitle, probe);
         if (geniusTitleResult) {
           this.setCache(cacheKey, geniusTitleResult);
           return geniusTitleResult;
         }
       }
 
-      this.setCache(cacheKey, null);
+      // Only a provider that ACTUALLY answered may write the negative entry.
+      // Caching it from a run where every leg timed out froze "no lyrics" for
+      // an hour after a ten-second outage, so a song that HAS lyrics answered
+      // "Could not find lyrics" to everyone for the rest of the hour. A
+      // provider 404/empty-list is a real answer and is still cached.
+      if (probe.answered) this.setCache(cacheKey, null);
       return null;
     } catch (err) {
       Logger.warn({ err, title, artist }, 'Failed to fetch lyrics');
@@ -90,7 +107,7 @@ export class LyricsService {
     this.cache.set(key, { result, expiresAt: Date.now() + LyricsService.CACHE_TTL_MS });
   }
 
-  private async fetchLrclibExact(title: string, artist: string): Promise<LyricsResult | null> {
+  private async fetchLrclibExact(title: string, artist: string, probe?: ProviderProbe): Promise<LyricsResult | null> {
     try {
       const url = new URL(`${LyricsService.LRCLIB_BASE_URL}/get`);
       url.searchParams.set('track_name', title);
@@ -100,16 +117,19 @@ export class LyricsService {
         signal: AbortSignal.timeout(LyricsService.TIMEOUT_MS),
         headers: { 'User-Agent': 'tvbot-discord-music-bot/1.0' },
       });
+      if (probe) probe.answered = true;
 
       if (!res.ok) return null;
       const data = (await res.json()) as Record<string, unknown>;
       return this.mapToLyricsResult(data, 'lrclib');
     } catch {
+      // Transport failure, not "no such song" — the leg is inconclusive and
+      // the probe stays false so the caller does not cache a negative.
       return null;
     }
   }
 
-  private async fetchLrclibSearch(query: string): Promise<LyricsResult | null> {
+  private async fetchLrclibSearch(query: string, probe?: ProviderProbe): Promise<LyricsResult | null> {
     try {
       const url = new URL(`${LyricsService.LRCLIB_BASE_URL}/search`);
       url.searchParams.set('q', query);
@@ -118,6 +138,7 @@ export class LyricsService {
         signal: AbortSignal.timeout(LyricsService.TIMEOUT_MS),
         headers: { 'User-Agent': 'tvbot-discord-music-bot/1.0' },
       });
+      if (probe) probe.answered = true;
 
       if (!res.ok) return null;
       const results = (await res.json()) as Array<Record<string, unknown>>;
@@ -137,7 +158,7 @@ export class LyricsService {
   /**
    * Fetches lyrics from Genius by querying its multi-search API and scraping the lyrics container.
    */
-  public async fetchGeniusLyrics(query: string): Promise<LyricsResult | null> {
+  public async fetchGeniusLyrics(query: string, probe?: ProviderProbe): Promise<LyricsResult | null> {
     try {
       const searchUrl = `${LyricsService.GENIUS_SEARCH_URL}?q=${encodeURIComponent(query)}`;
       const searchRes = await fetch(searchUrl, {
@@ -146,6 +167,7 @@ export class LyricsService {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
       });
+      if (probe) probe.answered = true;
 
       if (!searchRes.ok) return null;
       const data = (await searchRes.json()) as {
@@ -198,6 +220,8 @@ export class LyricsService {
         source: 'genius',
       };
     } catch {
+      // A failed page fetch is an inconclusive leg, not "this song has no
+      // lyrics": the probe stays false so no negative cache entry is written.
       return null;
     }
   }

@@ -22,6 +22,35 @@ import { ColorService } from '@bot/services/colorService';
 
 export const FRIEND_BUTTON_PREFIXES = ['friends:overview', 'friends:manage', 'friends:settype', 'friends:delete'];
 
+/**
+ * Ephemeral note that leaves the card the user is looking at alone.
+ *
+ * The `!interaction.replied && !interaction.deferred` gate this used to carry
+ * is the regression `interactionHandler.onInteractionCreated` documents: every
+ * handler below calls `deferUpdate()` BEFORE it reads or writes, so the failure
+ * that most needed an answer was the only one that got none. Here that failure
+ * was a WRITE - `setFriendType` at `handleSelectType` and `removeFriend` at
+ * `handleDelete` - so a database blip in the middle of a write was a silent
+ * no-op, and `handleDelete` already knew the difference: a `false` return
+ * reports "Could not remove that friend", while a throw reported nothing.
+ *
+ * `followUp` is the right verb once deferred and `reply` before it; neither
+ * rewrites the components, so the friends card survives.
+ */
+const respondEphemeral = async (
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  content: string,
+): Promise<void> => {
+  if (!interaction.isRepliable()) {
+    return;
+  }
+  if (interaction.deferred || interaction.replied) {
+    await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+  } else {
+    await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+  }
+};
+
 @injectable()
 export class FriendInteractions {
   private readonly friendsService: FriendsService;
@@ -61,9 +90,7 @@ export class FriendInteractions {
       }
     } catch (err) {
       Logger.error({ err }, `Error handling friend button interaction: ${customId}`);
-      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: 'Something went wrong processing this interaction.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
-      }
+      await respondEphemeral(interaction, 'Something went wrong processing this interaction.');
     }
   }
 
@@ -76,9 +103,7 @@ export class FriendInteractions {
       }
     } catch (err) {
       Logger.error({ err }, `Error handling friend select interaction: ${customId}`);
-      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-        await interaction.reply({ content: 'Something went wrong processing this interaction.', flags: MessageFlags.Ephemeral }).catch(() => undefined);
-      }
+      await respondEphemeral(interaction, 'Something went wrong processing this interaction.');
     }
   }
 

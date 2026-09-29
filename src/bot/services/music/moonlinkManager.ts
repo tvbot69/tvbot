@@ -189,6 +189,10 @@ export class MoonlinkManager {
     // REST-dead cooldowns skip this: a fresh process should re-probe the
     // node, not inherit a stale suspicion.
     if (persist && this.cache) {
+      // CORRECT AS IS: cooldown is the load-bearing part and it is already in
+      // memory (set above). Failing to persist it across a restart only means
+      // a fresh process re-probes the node — the deliberate choice for
+      // REST-dead cooldowns, and bounded by the key's own TTL for the rest.
       void this.cache.set(`lavalink:cooldown:${identifier}`, Date.now() + ms, Math.ceil(ms / 1000)).catch(() => undefined);
     }
   }
@@ -248,6 +252,9 @@ export class MoonlinkManager {
       }
       return mgr.nodes?.findNode?.({ exclude: [...skip] });
     } catch {
+      // CORRECT AS IS: no node could be picked, so searchWithTimeout returns
+      // null and the ladder reports transportError — "try again", never "no
+      // tracks found". Returning undefined never invents a usable node.
       return undefined;
     }
   }
@@ -262,11 +269,20 @@ export class MoonlinkManager {
           const remaining = Math.ceil((until - Date.now()) / 1000);
           Logger.info(`[Lavalink] Restored cooldown for "${n.identifier}" — ${remaining}s remaining (from previous session)`);
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore — an unreadable cooldown only means a fresh process re-probes
+           the node. The node is already unreachable/cooldown in this process,
+           so nothing here can route a search at it wrongly. */
+      }
     }
   }
 
   private persistCooldownDelete(identifier: string): void {
+    // CORRECT AS IS: a stale cooldown KEY in Redis after a node reconnects can
+    // only restore a cooldown that was already ticking down, so the worst case
+    // is one restart honouring a few more seconds of an old backoff. The
+    // in-memory cooldown is deleted unconditionally by the caller, so nothing
+    // this process believes is affected.
     if (this.cache) void this.cache.delete(`lavalink:cooldown:${identifier}`).catch(() => undefined);
   }
 
@@ -582,9 +598,18 @@ export class MoonlinkManager {
                 }
               }
               if (snapshot.filters.length > 0) {
+                // CORRECT AS IS: the migrated player keeps the filters in its
+                // own state, so failing to push them to the new node costs the
+                // audio effect, not playback — and the next filter toggle
+                // re-applies. Swallowing it keeps one bad transfer from
+                // skipping the position restore below.
                 await player.filters.apply().catch(() => undefined);
               }
               if (snapshot.position > 5000) {
+                // CORRECT AS IS: a refused seek-back leaves the track at the
+                // start of the new node. That is a real degradation, but the
+                // alternative — rejecting the .then() chain — would skip
+                // nothing and break the transfer log. Playback continues.
                 await player.seek(snapshot.position).catch(() => undefined);
               }
             } catch (err) {
