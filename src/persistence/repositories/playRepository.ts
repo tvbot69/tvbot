@@ -1,5 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { normalizeStoredName } from '@domain/textNormalize';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
 import type {
   IPlayRepository,
   PlayInsert,
@@ -8,6 +10,44 @@ import type {
 
 const INSERT_CHUNK_SIZE = 500;
 const CHUNK_RETRY_DELAYS_MS = [1000, 2500, 5000, 10000];
+
+/**
+ * A count that could not be run is not a count of zero.
+ *
+ * `getEntityTotalPlaycount` used to end in `catch { return 0 }`, and zero is the
+ * worst value it could possibly return: an empty LIST is an honest absence the
+ * user can read as "no data", but a 0 renders as a fact. The count feeds the
+ * artist / album / track playcount footers via `playHistoryService`, so a dropped
+ * connection produced "0 plays" for a user who may well have played that artist
+ * four hundred times, and the user has no way to tell that from the truth.
+ *
+ * There is no "not found" case to split out the way Last.fm has one. This is a
+ * `count` over `user_plays`, and a count with no matching rows SUCCEEDS with
+ * `0` rather than erroring. So empty genuinely is the answer and an error is
+ * always an error - which is exactly why raising here does not break the
+ * genuine-zero case.
+ *
+ * Same rule and same shape as `orDatabaseUnavailable` in `playHistoryService`,
+ * `guildAdminService`, `genreService` and `countryService`; the method label is
+ * the only thing that changes, because this is a repository rather than a
+ * service. Every caller sits behind a boundary that replies on a throw
+ * (`commandHandler.ts:243`, `interactionHandler.ts:482`).
+ */
+const orDatabaseUnavailable = async <T>(
+  method: string,
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: `${method}:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${method} (${label}); refusing to render the playcount as zero`,
+    );
+    throw new SourceUnavailableError(`playRepository.${method}:${label}`, err, 'Database unavailable');
+  }
+};
 
 /**
  * The three per-user rollup tables (user_artists / user_albums /
@@ -520,6 +560,17 @@ export class PlayRepository implements IPlayRepository {
         };
       }
     } catch {
+      // CORRECT AS IS. The catch does not return a default - it RE-RUNS the same
+      // question as an independent `findMany` with an equivalent predicate, and if
+      // THAT throws the error propagates to the caller untouched (nothing here
+      // swallows it), so a dead database is already visible rather than zeroed.
+      // Raising from inside this catch would instead replace a degraded-but-true
+      // answer with an error. The trailing `{ week: 0, month: 0 }` is reached only
+      // when the raw query RAN and matched no rows, which is a genuine answer: the
+      // query is a `COUNT(...) FILTER (...)` aggregate, so an empty match set
+      // still returns one row of zeros and never errors. Contrast
+      // `getEntityTotalPlaycount` below, whose `catch { return 0 }` was a real
+      // fabricated number and was removed.
       // Fallback in case of raw query issues
       const whereClause: Record<string, unknown> = {
         userId,
@@ -547,20 +598,21 @@ export class PlayRepository implements IPlayRepository {
     albumName?: string | null,
     trackName?: string | null,
   ): Promise<number> {
-    try {
-      const whereClause: Record<string, unknown> = {
-        userId,
-        artistName: { equals: artistName, mode: 'insensitive' },
-      };
-      if (albumName) whereClause.albumName = { equals: albumName, mode: 'insensitive' };
-      if (trackName) whereClause.trackName = { equals: trackName, mode: 'insensitive' };
+    const whereClause: Record<string, unknown> = {
+      userId,
+      artistName: { equals: artistName, mode: 'insensitive' },
+    };
+    if (albumName) whereClause.albumName = { equals: albumName, mode: 'insensitive' };
+    if (trackName) whereClause.trackName = { equals: trackName, mode: 'insensitive' };
 
-      return await this.prisma.userPlay.count({
-        where: whereClause,
-      });
-    } catch {
-      return 0;
-    }
+    // Only the query is inside the guard. Building the predicate cannot fail, and
+    // a bug there must not be logged as "Database unavailable" and sent chasing
+    // Postgres (the countryService `toGuildId` note).
+    return orDatabaseUnavailable(
+      'getEntityTotalPlaycount',
+      'userPlay.count',
+      () => this.prisma.userPlay.count({ where: whereClause }),
+    );
   }
 
   public async getEntityFirstPlay(

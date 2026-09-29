@@ -54,13 +54,18 @@ Each fix: log the error at WARN, and make the failure visible to the caller rath
 defaulting it away. Not "log and still return a default" — that keeps the lie. Return a
 distinguishable failure, or render an explicit error state.
 
-**Ratchet:** `silent-failure-default` is now **595, budget 595**, and it only falls. The 604
-count is not deleted from the tooling — it stays as a cheap regression net for new silent
-catches — but it is no longer the target. A site leaving it is not a win unless it was on the
-user-facing list below.
+**Ratchet:** `silent-failure-default` is now **526, budget 604**, and the budget only ever falls.
+The 604 count is not deleted from the tooling — it stays as a cheap regression net for new
+silent catches — but it is no longer the target. A site leaving it is not a win unless it was on
+the user-facing list below. **Never lower the budget to make a check pass**; a lowered budget is
+a deliberate act a reviewer has to see.
 
-**Measured so far: 604 to 595.** The 9 removed are all in `lastFmRepository`, and they are the
-highest-value sites in the repo.
+**Measured so far: 604 to 526**, across `lastFmRepository` (14), `playHistoryService` (6),
+`guildAdminService` (2), `trackService` (1), `genreService` + `countryService` + `artistsService`
+(22), `musicIntelligenceService` + `albumService` + `overviewService` + `fmFooterResolver` (23),
+and the top-list laundering round (13). The count is a side effect, not the work: **the six
+laundering sites in the last round each removed one catch while removing a lie, and the four
+`// CORRECT AS IS` sites added in the same round removed nothing at all.**
 
 **A-tier 1 progress — `lastFmRepository`, done.**
 
@@ -340,6 +345,97 @@ so the whole file failed to collect while `tsc --noEmit` was clean. Row shapes a
 named at module scope now. A green typecheck and a green test suite are still two
 different claims.
 
+### A-tier 1f/1g — the top-list reads, and the laundering above them
+
+Six `lastFmRepository` sites and one `playRepository` site, and the finding that matters is
+not any of them. **Six of the changed sites were not lying at all — they were catching
+somebody else's raise and putting it back.**
+
+**`lastFmRepository`'s six remaining top-list reads** (`getTopArtists`, `getTopAlbums`,
+`getTopTracks`, and the three `getweekly*chart` variants) each ended `Logger.warn(...); return
+[]`. An empty top-artists list is not an absence, it is a claim about a person — "you have no
+taste." Same conversion as the eight methods already done, so `orUnavailable`, so a genuine
+not-found code still returns the empty answer and only a real outage raises.
+
+**Which then exposed the actual shape of the debt.** Those methods have ~40 call sites and
+almost none were written to receive a throw. Every one of them already had a `.catch(() => [])`
+of its own, so the raise would have been caught, converted straight back to `[]`, and the layer
+below would never have known. **The new raise was inert on arrival.** Fixed in six files:
+
+- **`tasteService.getTasteData`** is the worst instance, and it is the shape to look for from
+  now on. Two `.catch(() => [])` on `getTopArtists` did not merely lose a list: `[]` zeroed
+  `artists.totalCount`, made the genre and country percentages divide by the **fabricated
+  `Math.max(1, 0)` = 1**, and made `formatTasteTable` print "No artists matches found" for a
+  user with 1000 top artists. The payload was then cached under **both** the `taste:` and the
+  `taste-session:` key for 600s, and `tasteInteractions` serves all three button tabs out of
+  that session. **One Last.fm 5xx became ten minutes of three confident wrong cards.** Both
+  cache writes sit below the read, so nothing is written on the failure path, and a test pins
+  that — a raise plus a cache write is a lie with a longer fuse.
+- **`aiJudgeService`**: the same `[]` was the *punchline* of `.judge`. During an outage every
+  user was rated "0 / 10 — Ghost Town Scrobbles" and told to go and listen to some records.
+- **`featuredService.pickNewFeatured`**: the entry is pushed onto `historyLog` and rendered
+  with a named person's real Discord handle, so the `[]` published a permanent record saying
+  that person featured "Unknown Artist" with 0 plays.
+- **`countrySlashCommands` (x2) and `countryCommands` (x2)**: caught the raise, set
+  `countries = []`, and the next line answered **"No country data found for <name>"** —
+  byte-identical to a user whose country genuinely is unknown. Now narrowed to
+  `if (isSourceUnavailable(err)) throw err;`, because a genuine country-mapping failure still
+  degrades. Both directions are pinned: a test that only asserts the raise passes happily
+  against a blanket `rethrow`, which would break every real query failure.
+- **`tasteSlashCommands` / `tasteCommands`**: catch `isSourceUnavailable` and reply "Could not
+  load taste for <name> — Last.fm/the database is unreachable", and **re-throw anything else**,
+  because dressing a `TypeError` up as a transient outage tells the user to retry a request
+  that can never succeed and hides the bug from the log.
+
+**`playRepository.getEntityTotalPlaycount`** was the last literal `0` in a user-facing number,
+found by filtering the debt list for `[returns 0]` rather than reading it top-down.
+`catch { return 0 }` is the worst value that method could return: an empty *list* is an honest
+absence, a `0` renders as a fact. It feeds the artist/album/track playcount footers through
+`playHistoryService`, so a dropped connection printed "0 plays" for a user who may well have
+played that artist four hundred times. Wrapped in `orDatabaseUnavailable` — same shape, method
+label only, because a `count` over `user_plays` with no matching rows **succeeds with `0`**, so
+raising here does not break the genuine-zero case. **Only the query is inside the guard:**
+building the predicate cannot fail, and a bug there must not be logged as "Database
+unavailable" and sent chasing Postgres.
+
+**Five sites were left alone, each with the reason inline** (`// CORRECT AS IS`): the mosaic
+cover hunt in `topBuilders` (rung 4 of 4, decorative, nowhere to render a "could not load");
+`featuredService`'s user pick (returns `[]` as `null`, a true statement about what is
+rendered); `profileService`'s sentinel `0` (never rendered — the card re-derives it from
+`userArtist`); `indexService`'s three top-list blocks (each already has its own try/catch
+setting `stats.error`, which is the path that keeps the stale-index sweep picking them back up
+— `touchLastIndexed` is gated on `!stats.error`, so a raise that aborted the method would have
+left the user looking neither indexed nor failed and never retried); and `playRepository`'s
+raw-query fallback, whose catch **re-asks the same question** as an independent `findMany` and
+propagates untouched if that throws too.
+
+**Two tests asserted the bug and were replaced with the pair**, not weakened:
+`tasteService.test.ts` had *"degrades to an empty comparison when a top-artists query fails"*
+and *"still returns user 1 when only user 2 fails"* — both titled for the defect, both
+asserting `resolves.toEqual([])`. They are now *a failure raises* AND *a query that RAN and
+found nothing still returns the empty comparison*, plus *renders 0 for a genuine zero*. The
+one-sided case is pinned in both directions too: with user 1 loaded and user 2 empty every row
+is missing and the surviving total describes only one side, so the table reads "you share
+nothing" about a pair who share plenty. **There is no partial answer.**
+
+**Five mutations, re-run by the lead this round** rather than taken on trust. Recorded because
+the *pair* staying green is the part that matters — a test that cannot fail and a mutation that
+catches nothing are the same defect.
+
+| Mutation | Result |
+|---|---|
+| `orDatabaseUnavailable`'s `throw` → `return 0 as unknown as T` | **1 red**, 41 green — the genuine-zero test correctly unaffected |
+| `tasteService`'s `throw err` → both artists set to `[]` | **6 red**, 54 green — both honest-empty tests unaffected |
+| `countrySlashCommands`' `if (isSourceUnavailable(err))` → `if (false && ...)` | **3 red**, 9 green — both "still degrades a genuine query failure" tests unaffected |
+| `getTopArtists`' `orUnavailable(...)` → `return []` | **3 red**, 123 green — the genuine-empty test unaffected |
+| residue sweep for `LEAD MUTATION` | none — the tree is byte-identical to the pre-mutation diff |
+
+**Honest limits, unchanged.** Every one of these paths is verified by mocked tests only. No
+test here has ever seen a dead Last.fm, a dead socket or a real Discord reply. "A Last.fm 5xx
+now produces a visible error instead of an empty taste table" is a claim about code; confirming
+it in production means watching the Railway log during an actual outage. The memory peak is
+still not measured. The 516 db tests still skip locally.
+
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 
 `raw-query-without-db-test` reads 0, but that number was only as good as the audit behind it. Two
@@ -398,9 +494,17 @@ disposable postgres and is not a static-analysis question.
   postgres:16.** A hosted pooler wedges on it (per-file client pools plus a truncate per
   test exhaust the pooler and Prisma blocks with no error). That CI run is the gate for
   every claim in this plan.
-- **A-tier 1 will not finish in a day.** It is roughly 17 sites in `lastFmRepository` plus 6
-  in `getYearOverview`, and each needs a test that proves a 5xx no longer becomes a wrong
-  answer. This is the work that was always there. The old plan hid it inside a count.
+- **A-tier 1 is not finished, and the remaining queue is not the interesting part.** 526
+  `silent-failure-default` sites remain, but the count is not the target and most of what is
+  left is decoration, autocomplete, background enrichment and cache warming — the categories
+  the plan says to leave alone with a `// CORRECT AS IS` comment. The queue that *is*
+  interesting is the one the last round found by asking a different question: **which callers
+  launder a raise their layer below now throws.** Six of them, and none of them were in any
+  debt list, because none of them was where the failure was invented.
+- **A raise is only worth what the layers above it do with it.** The six `lastFmRepository`
+  conversions would have been inert had the laundering not been fixed in the same round. A
+  test that only proves "the repository raises" is a test that cannot fail if the user still
+  sees an empty card.
 
 ## Progress
 

@@ -138,12 +138,27 @@ async function resolveBackgroundCovers(
     try {
       if (deps.lastfmRepo) {
         const lastfmRepo = deps.lastfmRepo;
-        const albums = await lastfmRepo.getTopAlbums(
-          userNameLastFm,
-          timeSettings.timePeriod,
-          25,
-          1,
-        ).catch(() => []);
+        // CORRECT AS IS: no raise. This is rung 4 of a four-rung cover hunt
+        // whose product is a decorative mosaic - the embed above it is already
+        // correct without these covers, and there is nowhere in it to render a
+        // "could not load". Same recorded trade as `fmFooterResolver`: record
+        // the failure at ERROR naming exactly what it cost, build the card
+        // without it. `getTopAlbums` raises for anything that is not a genuine
+        // not-found, so `[]` here now means one specific thing only.
+        const albums = await lastfmRepo
+          .getTopAlbums(
+            userNameLastFm,
+            timeSettings.timePeriod,
+            25,
+            1,
+          )
+          .catch((err: unknown) => {
+            Logger.error(
+              { err, userNameLastFm },
+              'topBuilders mosaic covers: Last.fm top albums unavailable; building without the Last.fm cover fallback',
+            );
+            return [] as TopAlbum[];
+          });
 
         for (const alb of albums) {
           if (alb.imageUrl && !isPlaceholderImageUrl(alb.imageUrl) && !seen.has(alb.imageUrl)) {

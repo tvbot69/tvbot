@@ -10,6 +10,7 @@ import { CountryService, TopCountryItem } from '@bot/services/countryService';
 import { CountryBuilders } from '@bot/builders/countryBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { ColorService } from '@bot/services/colorService';
 import { storeCountryQuery } from '@bot/interactions/countryInteractions';
 import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
@@ -131,7 +132,17 @@ export class CountryCommands implements ITextCommandModule {
           1000,
         );
         countries = await this.countryService.getTopCountriesForTopArtists(topArtists, true);
-      } catch {
+      } catch (err) {
+        // A Last.fm outage used to land here as `countries = []`, and the
+        // builder below then rendered a complete, confident, EMPTY country list
+        // - the same plausible-wrong-answer `lastFmRepository.getTopArtists`
+        // raises to prevent, laundered one layer up. The deliberate signal is
+        // re-thrown so the command boundary can name the failure; only a
+        // genuine query failure degrades. Same narrowing as
+        // `albumService.getTopTracksForAlbum`.
+        if (isSourceUnavailable(err)) {
+          throw err;
+        }
         countries = [];
       }
     }
@@ -336,7 +347,16 @@ export class CountryCommands implements ITextCommandModule {
           1000,
         );
         countries = await this.countryService.getTopCountriesForTopArtists(topArtists, true);
-      } catch {
+      } catch (err) {
+        // A Last.fm outage used to land here as `countries = []`, and the branch
+        // below rendered "No country data found for <name>" - the same
+        // plausible-wrong-answer `lastFmRepository.getTopArtists` raises to
+        // prevent, laundered one layer up. The deliberate signal is re-thrown
+        // so the command boundary can name the failure; only a genuine query
+        // failure degrades. Same narrowing as `albumService.getTopTracksForAlbum`.
+        if (isSourceUnavailable(err)) {
+          throw err;
+        }
         countries = [];
       }
     }

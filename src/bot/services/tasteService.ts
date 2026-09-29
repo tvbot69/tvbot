@@ -4,6 +4,7 @@ import { GenreService } from './genreService';
 import { CountryService } from './countryService';
 import { CacheService } from './cacheService';
 import { TimePeriod } from '@domain/enums/timePeriod';
+import { Logger } from '@domain/logger';
 import type { TopArtist } from '@domain/models/topLists';
 
 export interface TasteItem {
@@ -145,10 +146,58 @@ export class TasteService {
 
     // Fetch top artists for both users (overall / 2-year)
     // For 2-year preset, Last.fm overall or top 1000 artists
-    const [u1ArtistsRaw, u2ArtistsRaw] = await Promise.all([
-      this.lastfmRepo.getTopArtists(user1.userNameLastFm, TimePeriod.AllTime, 1000).catch(() => [] as TopArtist[]),
-      this.lastfmRepo.getTopArtists(user2.userNameLastFm, TimePeriod.AllTime, 1000).catch(() => [] as TopArtist[]),
-    ]);
+    //
+    // These two fetches used to carry `.catch(() => [])`, and the failure did
+    // not stay an empty list - it was derived, then cached, then amplified.
+    // `[]` zeroed `artists.totalCount`, made `genres.totalCount` and
+    // `countries.totalCount` the FABRICATED `Math.max(1, 0)` = 1 that the genre
+    // and country percentages are divided by, and made `formatTasteTable` print
+    // "No artists matches found." for a user with 1000 top artists. The payload
+    // was then cached under BOTH the `taste:` key and the `taste-session:` key
+    // for 600s, and `tasteInteractions` serves all three button tabs out of
+    // that session - so one Last.fm 5xx became ten minutes of three confident
+    // wrong cards.
+    //
+    // ONE failure is exactly as bad as two, which is why there is no partial
+    // answer. A comparison needs both sides: with user 1 loaded and user 2
+    // empty, every row is missing and the surviving total is a real number
+    // describing only one side, so the table reads "you share nothing" about a
+    // pair who share plenty. That is the `guildAdminService.getMembersOverview`
+    // class - a real table in which every number is wrong.
+    //
+    // So: log, then RE-THROW rather than wrap. Re-throw is what
+    // `genreService.getGenresForArtist` and `albumService.getTopTracksForAlbum`
+    // do for this identical case: a repository that deliberately raised is
+    // being overruled if this layer turns it back into an array. The signal is
+    // left intact, so `isSourceUnavailable` holds for the command boundary and
+    // `name` stays `LastFmUnavailableError`, which is what lets that boundary
+    // still tell a Last.fm outage apart from the Postgres outage `genreService`
+    // and `countryService` can raise further down this same method.
+    //
+    // Nothing is written to cache on this path: both `cache.set` calls are below
+    // this block, so a failure cannot poison the 10-minute entries.
+    //
+    // The honest empty answer is untouched. `getTopArtists` returns `[]` for a
+    // genuine Last.fm "no such user" (code 6) and for a real empty library, and
+    // two users who share nothing genuinely produce an empty comparison.
+    let u1ArtistsRaw: TopArtist[];
+    let u2ArtistsRaw: TopArtist[];
+    try {
+      [u1ArtistsRaw, u2ArtistsRaw] = await Promise.all([
+        this.lastfmRepo.getTopArtists(user1.userNameLastFm, TimePeriod.AllTime, 1000),
+        this.lastfmRepo.getTopArtists(user2.userNameLastFm, TimePeriod.AllTime, 1000),
+      ]);
+    } catch (err) {
+      Logger.error(
+        {
+          user1: user1.userNameLastFm,
+          user2: user2.userNameLastFm,
+          err: (err as Error)?.message ?? String(err),
+        },
+        'Top artists for a taste comparison could not be read; refusing to render the outage as two users who share nothing',
+      );
+      throw err;
+    }
 
     const u1Map = new Map<string, number>();
     for (const a of u1ArtistsRaw) {

@@ -4,10 +4,13 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import { TasteService } from '@bot/services/tasteService';
+import type { TasteData } from '@bot/services/tasteService';
 import { TasteBuilders } from '@bot/builders/tasteBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { UpdateService } from '@bot/services/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/artworkService';
 import { ColorService } from '@bot/services/colorService';
@@ -90,19 +93,34 @@ export class TasteSlashCommands implements ISlashCommandModule {
 
     const callerDisplayName = context.member?.displayName ?? caller.userNameLastFm;
 
-    const tasteData = await this.tasteService.getTasteData(
-      {
-        discordUserId: caller.discordUserId,
-        displayName: callerDisplayName,
-        userNameLastFm: caller.userNameLastFm,
-      },
-      {
-        discordUserId: targetDiscordId ?? '0',
-        displayName: targetDisplayName,
-        userNameLastFm: targetLastFmUsername,
-      },
-      'two-year',
-    );
+    // Same contract as the text route: a source failure raises out of
+    // `getTasteData` rather than arriving as an empty comparison, and the
+    // interaction boundary would otherwise answer with a generic "something
+    // went wrong" that names neither the cause nor the fact that it is retryable.
+    let tasteData: TasteData;
+    try {
+      tasteData = await this.tasteService.getTasteData(
+        {
+          discordUserId: caller.discordUserId,
+          displayName: callerDisplayName,
+          userNameLastFm: caller.userNameLastFm,
+        },
+        {
+          discordUserId: targetDiscordId ?? '0',
+          displayName: targetDisplayName,
+          userNameLastFm: targetLastFmUsername,
+        },
+        'two-year',
+      );
+    } catch (err) {
+      // A defect must keep looking like a defect. Reporting it as an outage
+      // would tell the user to retry a request that cannot ever succeed.
+      if (!isSourceUnavailable(err)) throw err;
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Could not load taste for ${targetDisplayName} — ${isLastFmUnavailable(err) ? 'Last.fm' : 'the database'} is unreachable. Please try again later.`,
+      );
+    }
 
     const topArtist = tasteData.artists.items[0]?.name;
     const artService = container.resolve(ArtworkService);

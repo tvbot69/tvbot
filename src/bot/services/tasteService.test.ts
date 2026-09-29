@@ -3,6 +3,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TasteService, formatTasteTable } from './tasteService';
 import type { TasteComparisonItem, TasteData } from './tasteService';
 import { TimePeriod } from '@domain/enums/timePeriod';
+import { LastFmUnavailableError, isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import type { TopArtist } from '@domain/models/topLists';
 import type { TopCountryItem } from './countryService';
 
@@ -312,29 +314,6 @@ describe('TasteService.getTasteData - resilience and payload', () => {
     vi.clearAllMocks();
   });
 
-  it('degrades to an empty comparison when a top-artists query fails', async () => {
-    // Both fetches are individually caught. A Last.fm outage must produce an
-    // empty taste table, never a thrown command.
-    const { service, deps } = build();
-    mockOf(deps.lastfmRepo).getTopArtists.mockRejectedValue(new Error('lastfm 500'));
-
-    const data = await service.getTasteData(user1, user2);
-
-    expect(data.artists.items).toEqual([]);
-    expect(data.artists.totalCount).toBe(0);
-  });
-
-  it('still returns user 1 when only user 2 fails', async () => {
-    const { service, deps } = build();
-    mockOf(deps.lastfmRepo).getTopArtists
-      .mockResolvedValueOnce(artists(['A', 10]))
-      .mockRejectedValueOnce(new Error('lastfm 500'));
-
-    const data = await service.getTasteData(user1, user2);
-
-    expect(data.artists.items).toEqual([]);
-  });
-
   it('builds a last.fm library link for user 2 over a 730-day window', async () => {
     const { service, deps } = build();
     mockOf(deps.lastfmRepo).getTopArtists.mockResolvedValue([]);
@@ -372,6 +351,132 @@ describe('TasteService.getTasteData - resilience and payload', () => {
     expect(data.user1UserNameLastFm).toBe('Alpha');
     expect(data.user2UserNameLastFm).toBe('Beta');
     expect(data.amount).toBe(14);
+  });
+});
+
+/**
+ * A failed read is not a zero, and here the zero was worse than a crash.
+ *
+ * Both top-artists fetches used to carry `.catch(() => [])`, and the failure did
+ * not stay an empty list. It was derived (`artists.totalCount` 0, and
+ * `genres`/`countries.totalCount` the FABRICATED `Math.max(1, 0)` = 1 that the
+ * percentages divide by), then written to cache under two keys for 600s, then
+ * served to all three `tasteInteractions` button tabs. A user with 1000 top
+ * artists rendered exactly like a user who has never scrobbled anything, and
+ * stayed wrong for ten minutes.
+ *
+ * Two tests replaced the two that pinned that behaviour, and the pairing is
+ * deliberate. A test that only asserts the raise cannot tell this fix from a
+ * method that unconditionally throws; a test that only asserts the empty half
+ * cannot tell it from the bug. Both must hold: a source that fails raises, and a
+ * source that answers "nothing" still answers.
+ */
+describe('TasteService.getTasteData - a failed read is not an empty comparison', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  const lastfmDown = () => new LastFmUnavailableError('user.gettopartists', new Error('Last.fm 5xx'));
+
+  it('raises when BOTH users fail rather than reporting a table of zeros', async () => {
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepo).getTopArtists.mockRejectedValue(lastfmDown());
+
+    await expect(service.getTasteData(user1, user2)).rejects.toSatisfy(isSourceUnavailable);
+  });
+
+  it('raises when only user 2 fails, because one side is not a comparison', async () => {
+    // This is the case the old suite called "still returns user 1". It rendered
+    // "No artists matches found." and `matchPercentage` 0 for a pair who
+    // demonstrably share artists, with `artists.totalCount` holding user 1's real
+    // count - a real number dividing an empty numerator, i.e. a wrong answer
+    // wearing a correct denominator. The `guildAdminService.getMembersOverview`
+    // class: the shape is a real table and every row in it is wrong.
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepo).getTopArtists
+      .mockResolvedValueOnce(artists(['A', 10]))
+      .mockRejectedValueOnce(lastfmDown());
+
+    await expect(service.getTasteData(user1, user2)).rejects.toSatisfy(isSourceUnavailable);
+  });
+
+  it('raises when only user 1 fails, symmetrically', async () => {
+    // User 1 owns every denominator in the payload, so losing only user 1
+    // fabricates them outright. Pinned so the symmetry is not accidental.
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepo).getTopArtists
+      .mockRejectedValueOnce(lastfmDown())
+      .mockResolvedValueOnce(artists(['A', 10]));
+
+    await expect(service.getTasteData(user1, user2)).rejects.toSatisfy(isSourceUnavailable);
+  });
+
+  it('re-throws the Last.fm signal unchanged, so the caller can still name the source', async () => {
+    // Wrapping it would have been defensible but would have overwritten `name`,
+    // and a Last.fm outage and the Postgres outage that genreService and
+    // countryService can raise further down this same method are different
+    // incidents the operator needs told apart. `name` is the discriminator.
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepo).getTopArtists.mockRejectedValue(lastfmDown());
+
+    const err = await service.getTasteData(user1, user2).catch((e: unknown) => e);
+
+    expect(isLastFmUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('Last.fm 5xx');
+  });
+
+  it('writes nothing to cache on the failure path, so the outage cannot be served for 10 minutes', async () => {
+    // Both `cache.set` calls sit below the fetch. If a raise ever landed after
+    // them, one 5xx would be cached under the `taste:` key AND the
+    // `taste-session:` key, and all three button tabs would serve the lie.
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepo).getTopArtists.mockRejectedValue(lastfmDown());
+
+    await expect(service.getTasteData(user1, user2)).rejects.toSatisfy(isSourceUnavailable);
+
+    expect(mockOf(deps.cache).set).not.toHaveBeenCalled();
+  });
+
+  it('re-throws an unrelated defect rather than dressing it up as an outage', async () => {
+    // A `TypeError` is a bug. Degrading it to an empty table would hide it AND
+    // tell the user to retry a request that will fail identically forever.
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepo).getTopArtists.mockRejectedValue(new TypeError('x is not a function'));
+
+    await expect(service.getTasteData(user1, user2)).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it('still returns the empty comparison when the query RAN and returned nothing', async () => {
+    // The other half of the pair. `getTopArtists` answers `[]` for a real
+    // Last.fm "no such user" (code 6) and for a real empty library, and that is
+    // an answer. Without this, "raise" and "always throw" are indistinguishable.
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepo).getTopArtists.mockResolvedValue([]);
+
+    const data = await service.getTasteData(user1, user2);
+
+    expect(data.artists.items).toEqual([]);
+    expect(data.artists.totalCount).toBe(0);
+  });
+
+  it('still renders "No artists matches found" for two users who share nothing', async () => {
+    // The feature this must not break. A fix that also raised on empty would
+    // destroy the command for every pair of users with no overlap.
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepo).getTopArtists
+      .mockResolvedValueOnce(artists(['A', 10], ['B', 20]))
+      .mockResolvedValueOnce(artists(['C', 5], ['D', 6]));
+
+    const data = await service.getTasteData(user1, user2);
+
+    expect(data.artists.items).toEqual([]);
+    // The denominator is the real measured count, not the fabricated `1` that a
+    // failed read used to produce.
+    expect(data.artists.totalCount).toBe(2);
+    expect(
+      formatTasteTable('artists', 'One', 'Two', data.artists.items, 14, data.artists.totalCount, '').tableText,
+    ).toBe('\nNo artists matches found.');
   });
 });
 

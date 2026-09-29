@@ -50,6 +50,12 @@ export class ProfileService {
     }
 
     let top10ArtistsScrobbles = 0;
+    // CORRECT AS IS: the `0` set here is not the rendered value. `getTopArtists`
+    // raises `LastFmUnavailableError` on anything but a genuine not-found, and
+    // the branch below re-derives this same number from `userArtist`, which is
+    // our own copy of the same rows. The 0 is a sentinel for "ask the database",
+    // not an answer the card ever shows, so the raise is contained rather than
+    // laundered.
     try {
       const topArtists = await this.lastfmRepo.getTopArtists(
         targetUser.userNameLastFm,

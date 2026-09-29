@@ -28,7 +28,13 @@ import type { ICache } from '@domain/interfaces/icache';
  * the fix from the bug.
  */
 
-const notFound = (): LastfmApiError => new LastfmApiError(6, 'User not found');
+/**
+ * A genuine "this does not exist" answer, which IS a real result and must
+ * still come back as the empty list. The code is a parameter because all three
+ * of 6/7/8 have to keep working after the raise went in, and only exercising
+ * 6 would let a `=== 6` predicate through.
+ */
+const notFound = (code: number = 6): LastfmApiError => new LastfmApiError(code, 'User not found');
 
 
 const PLACEHOLDER = '2a96cbd8b46e442fc41c2b86b821562f';
@@ -576,14 +582,8 @@ describe('LastFmRepository weekly chart routing', () => {
     await repo.getTopArtists('DreadRock', TimePeriod.AllTime, 10, 1, undefined, 1000, 2000);
     expect(cache.set).toHaveBeenCalledWith('lfm:weeklyartists:dreadrock:1000:2000:10', expect.any(Array), 120);
   });
-
-  it('returns an empty list rather than throwing when a weekly chart call fails', async () => {
-    const { repo } = makeRepo(() => {
-      throw new Error('no chart');
-    });
-    await expect(repo.getTopArtists('DreadRock', TimePeriod.Daily, 10, 1)).resolves.toEqual([]);
-  });
 });
+
 
 describe('LastFmRepository top albums and tracks', () => {
   it('maps the artist onto each top album', async () => {
@@ -623,13 +623,6 @@ describe('LastFmRepository top albums and tracks', () => {
     expect(cache.set).toHaveBeenCalledWith('lfm:topalbums:dreadrock:AllTime:10:1', expect.any(Array), 120);
   });
 
-  it('returns an empty list rather than throwing when the album call fails', async () => {
-    const { repo } = makeRepo(() => {
-      throw new Error('error 8');
-    });
-    await expect(repo.getTopAlbums('DreadRock', TimePeriod.AllTime, 10, 1)).resolves.toEqual([]);
-  });
-
   it('maps the artist onto each top track', async () => {
     const { repo, api } = makeRepo(() =>
       topTracksPayload([{ name: 'Fine Without You', artist: 'Armin van Buuren' }]),
@@ -653,14 +646,117 @@ describe('LastFmRepository top albums and tracks', () => {
     await repo.getTopTracks('DreadRock', TimePeriod.AllTime, 10, 1);
     expect(cache.set).toHaveBeenCalledWith('lfm:toptracks:dreadrock:AllTime:10:1', expect.any(Array), 120);
   });
+});
 
-  it('returns an empty list rather than throwing when the track call fails', async () => {
+/**
+ * A failed top-list read used to `Logger.warn` and `return []`, which rendered
+ * a Last.fm 5xx as a confident claim about a person's listening history. There
+ * are ~43 production call sites behind these three methods, and none of them
+ * can tell an outage from a genuine empty library when both arrive as `[]`.
+ *
+ * BOTH DIRECTIONS, over all SIX catch sites. One assertion is not enough in
+ * either direction: a raise-only test passes just as happily against a method
+ * that always throws, and an empty-only test passes against the bug it replaces.
+ * The pair is the fix; either half alone is one of the two wrongs.
+ */
+describe('LastFmRepository top lists: a failed read is not an empty library', () => {
+  /**
+   * Every catch site, one row each: the label, the not-found code it is
+   * exercised with (6/7/8 all have to keep working), the transport failure, and
+   * the real Last.fm method name that must appear on the raised error.
+   *
+   * The `method` column is a test in its own right. All six sites call the same
+   * helper, so a wrong method string is invisible to a raise-only assertion -
+   * yet `user.gettopalbums` and `user.getweeklyalbumchart` are what a Railway
+   * log is read to find, and a transposed pair would send an operator to the
+   * wrong endpoint.
+   */
+  const CASES: Array<{
+    label: string;
+    notFoundCode: number;
+    method: string;
+    invoke: (r: LastFmRepository) => Promise<unknown>;
+  }> = [
+    {
+      label: 'getTopArtists/period',
+      notFoundCode: 6,
+      method: 'user.gettopartists',
+      invoke: (r) => r.getTopArtists('DreadRock', TimePeriod.AllTime, 10, 1),
+    },
+    {
+      label: 'getTopArtists/weekly',
+      notFoundCode: 7,
+      method: 'user.getweeklyartistchart',
+      invoke: (r) => r.getTopArtists('DreadRock', TimePeriod.Daily, 10, 1),
+    },
+    {
+      label: 'getTopAlbums/period',
+      notFoundCode: 7,
+      method: 'user.gettopalbums',
+      invoke: (r) => r.getTopAlbums('DreadRock', TimePeriod.AllTime, 10, 1),
+    },
+    {
+      label: 'getTopAlbums/weekly',
+      notFoundCode: 8,
+      method: 'user.getweeklyalbumchart',
+      invoke: (r) => r.getTopAlbums('DreadRock', TimePeriod.Daily, 10, 1),
+    },
+    {
+      label: 'getTopTracks/period',
+      notFoundCode: 8,
+      method: 'user.gettoptracks',
+      invoke: (r) => r.getTopTracks('DreadRock', TimePeriod.AllTime, 10, 1),
+    },
+    {
+      label: 'getTopTracks/weekly',
+      notFoundCode: 6,
+      method: 'user.getweeklytrackchart',
+      invoke: (r) => r.getTopTracks('DreadRock', TimePeriod.Daily, 10, 1),
+    },
+  ];
+
+  it.each(CASES)('$label still returns the empty answer for not-found code $notFoundCode', async ({ notFoundCode, invoke }) => {
+    // "This user has no top artists" is a real answer when Last.fm says so.
     const { repo } = makeRepo(() => {
-      throw new Error('error 8');
+      throw notFound(notFoundCode);
     });
-    await expect(repo.getTopTracks('DreadRock', TimePeriod.AllTime, 10, 1)).resolves.toEqual([]);
+    await expect(invoke(repo)).resolves.toEqual([]);
+  });
+
+  it.each(CASES)('$label raises rather than reporting an empty library when Last.fm times out', async ({ method, invoke }) => {
+    // The synthetic -1 `lastfmApi` raises for a network error or timeout. The
+    // transport-failure half of the pair: a user must be able to tell this from
+    // an empty library, and only a raise can tell them.
+    const { repo } = makeRepo(() => {
+      throw new LastfmApiError(-1, 'Network error or timeout while contacting Last.fm');
+    });
+    const err = await invoke(repo).then(() => null, (e: unknown) => e);
+    expect(err, `${method} resolved instead of raising`).toBeInstanceOf(LastFmUnavailableError);
+    expect((err as LastFmUnavailableError).method).toBe(method);
+  });
+
+  it.each(CASES)('$label raises on a 5xx, which is not a not-found code', async ({ invoke }) => {
+    // The other realistic transport shape. `lastfmApi` throws
+    // `LastfmApiError(response.status, ...)` once its retries are exhausted, so
+    // the code is the HTTP status - 500 is not in NOT_FOUND_CODES and must not
+    // be treated as a definitive "you have nothing".
+    const { repo } = makeRepo(() => {
+      throw new LastfmApiError(500, 'Last.fm returned HTTP 500');
+    });
+    await expect(invoke(repo)).rejects.toBeInstanceOf(LastFmUnavailableError);
+  });
+
+  it.each(CASES)('$label raises for a non-Lastfm failure too', async ({ invoke }) => {
+    // The original three tests threw a bare `Error`, so a predicate that only
+    // understood `LastfmApiError` would pass every raise assertion above while
+    // still swallowing a thrown TypeError from the converter.
+    const { repo } = makeRepo(() => {
+      throw new Error('boom');
+    });
+    await expect(invoke(repo)).rejects.toBeInstanceOf(LastFmUnavailableError);
   });
 });
+
 
 describe('LastFmRepository.getScrobbleCountFromDate', () => {
   it('parses the total out of the response envelope', async () => {

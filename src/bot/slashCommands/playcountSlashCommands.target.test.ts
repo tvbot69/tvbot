@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { PlaycountSlashCommands } from './playcountSlashCommands';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
 
@@ -196,6 +197,44 @@ describe('PlaycountSlashCommands.artistPlaysSlashAsync', () => {
 
     expect(playHistoryService.getRecentArtistPlaycounts).not.toHaveBeenCalled();
     expect(playHistoryService.getArtistTotalPlays).not.toHaveBeenCalled();
+  });
+
+  it('still renders 0 when the local count is a genuine zero', async () => {
+    // The caller depends on a REAL 0, not only on the number being absent: the
+    // whole reconciliation branch is entered only when Last.fm reports 0, and
+    // for a user who has genuinely never played the artist the database answers
+    // 0 too. `getEntityTotalPlaycount` now raises on a failed query instead of
+    // returning 0, so this is the test that proves the raise did not swallow the
+    // honest case. Both zeros render identically, which is exactly why the fix
+    // had to be "raise on error" and not "raise on zero".
+    const { service, playHistoryService, artistsService } = build();
+    (artistsService.searchArtist as ReturnType<typeof vi.fn>).mockResolvedValue({ artistName: 'Radiohead', userPlaycount: 0 });
+    (playHistoryService.getArtistTotalPlays as ReturnType<typeof vi.fn>).mockResolvedValue(0);
+    (playHistoryService.getRecentArtistPlaycounts as ReturnType<typeof vi.fn>).mockResolvedValue({ week: 0, month: 0 });
+
+    await call(service, 'artistPlaysSlashAsync', mkContext(), 'radiohead', undefined);
+
+    expect(PlaycountBuilders.buildArtistPlaysResponse).toHaveBeenCalledWith('Caller', 'Radiohead', 0, 0, 0);
+  });
+
+  it('renders nothing at all when the local count raises, so no half-built card escapes', async () => {
+    // Call-safety for the raise. The builder is the LAST step, so a failed read
+    // aborts before any embed is constructed: the user gets the boundary's error
+    // message, never a card showing a playcount of 0 as though it were a fact.
+    // There is no Promise.all and no per-row loop on this path, so there is no
+    // partially-committed result to abandon.
+    const { service, playHistoryService, artistsService } = build();
+    (artistsService.searchArtist as ReturnType<typeof vi.fn>).mockResolvedValue({ artistName: 'Radiohead', userPlaycount: 0 });
+    (playHistoryService.getArtistTotalPlays as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new SourceUnavailableError(
+        'playRepository.getEntityTotalPlaycount:userPlay.count',
+        new Error('db down'),
+        'Database unavailable',
+      ),
+    );
+
+    await expect(call(service, 'artistPlaysSlashAsync', mkContext(), 'radiohead', undefined)).rejects.toThrow(/Database unavailable/);
+    expect(PlaycountBuilders.buildArtistPlaysResponse).not.toHaveBeenCalled();
   });
 });
 

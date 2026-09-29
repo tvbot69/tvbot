@@ -1,6 +1,8 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlayRepository } from './playRepository';
+import { Logger } from '@domain/logger';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
 /**
  * The read paths of playRepository: top-entity rollups, raw groupBy mappers,
@@ -59,6 +61,10 @@ const makePrisma = () => {
 const repo = (p: ReturnType<typeof makePrisma>) => new PlayRepository(p as never);
 
 const at = (s: string) => new Date(s);
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('PlayRepository.getTopArtists', () => {
   it('maps rollup rows to name/entityId/playcount and passes the limit', async () => {
@@ -538,11 +544,53 @@ describe('PlayRepository.getEntityTotalPlaycount', () => {
     expect(arg.where.trackName).toEqual({ equals: 'Hysteria', mode: 'insensitive' });
   });
 
-  it('returns 0 when the query throws', async () => {
+  // This pair replaced a test that asserted the bug. The old test made
+  // `userPlay.count` reject and asserted `resolves.toBe(0)` - i.e. it pinned
+  // the fabricated number, and the count it produced is indistinguishable from
+  // a real "this user never played that artist". Asserting only the raise would
+  // not distinguish the fix from a method that ALWAYS throws; asserting only the
+  // zero would not distinguish it from the bug. Both halves are needed.
+  it('raises SourceUnavailableError when the count query throws', async () => {
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const p = makePrisma();
-    p.userPlay.count.mockRejectedValue(new Error('db down'));
+    p.userPlay.count.mockRejectedValue(new Error("Can't reach database server"));
+
+    const err = await repo(p)
+      .getEntityTotalPlaycount(2, 'Muse')
+      .catch((e: unknown) => e);
+
+    // `isSourceUnavailable` rather than a bare instanceof: the same class is
+    // loaded through several module specifiers here, and a cross-module copy
+    // would fail an instanceof while still being the right error.
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as SourceUnavailableError).name).toBe('SourceUnavailableError');
+    expect((err as Error).message).toContain('Database unavailable');
+    expect((err as Error).message).toContain('playRepository.getEntityTotalPlaycount:userPlay.count');
+    expect((err as Error).message).toContain("Can't reach database server");
+    expect((err as SourceUnavailableError).cause).toBeInstanceOf(Error);
+
+    // The log names the query, so whoever reads Railway knows which read failed.
+    expect(logged).toHaveBeenCalled();
+    const context = logged.mock.calls[0]?.[0] as { query?: string; err?: string };
+    expect(context.query).toContain('getEntityTotalPlaycount');
+    expect(context.err).toContain("Can't reach database server");
+  });
+
+  it('returns 0 when the count query ran and found no plays', async () => {
+    // The genuine zero. A `count` over no matching rows SUCCEEDS with 0, so this
+    // is a real answer and must stay one - it is the same value the old bug
+    // fabricated, and the only reason the two are distinguishable is that one of
+    // them arrives with an error attached.
+    const p = makePrisma();
+    p.userPlay.count.mockResolvedValue(0);
 
     await expect(repo(p).getEntityTotalPlaycount(2, 'Muse')).resolves.toBe(0);
+    expect(p.userPlay.count).toHaveBeenCalledWith({
+      where: {
+        userId: 2,
+        artistName: { equals: 'Muse', mode: 'insensitive' },
+      },
+    });
   });
 });
 

@@ -3,9 +3,12 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import { TasteService } from '@bot/services/tasteService';
+import type { TasteData } from '@bot/services/tasteService';
 import { TasteBuilders } from '@bot/builders/tasteBuilders';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
 import { UpdateService } from '@bot/services/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { container } from 'tsyringe';
@@ -99,19 +102,38 @@ export class TasteCommands implements ITextCommandModule {
 
     const callerDisplayName = context.message?.member?.displayName ?? caller.userNameLastFm;
 
-    const tasteData = await this.tasteService.getTasteData(
-      {
-        discordUserId: caller.discordUserId,
-        displayName: callerDisplayName,
-        userNameLastFm: caller.userNameLastFm,
-      },
-      {
-        discordUserId: targetDiscordId ?? '0',
-        displayName: targetDisplayName,
-        userNameLastFm: targetLastFmUsername,
-      },
-      'two-year',
-    );
+    // `getTasteData` raises rather than returning an empty comparison when a
+    // source fails - an empty table is indistinguishable from "you two share
+    // nothing", which is a real answer and must stay one. Without this catch the
+    // message boundary answers with a generic "something went wrong" (see
+    // `CommandDispatcher.handleCommandException`), which does not say which
+    // thing failed and is not obviously retryable. Same shape as the two
+    // `getYearOverview` callers.
+    let tasteData: TasteData;
+    try {
+      tasteData = await this.tasteService.getTasteData(
+        {
+          discordUserId: caller.discordUserId,
+          displayName: callerDisplayName,
+          userNameLastFm: caller.userNameLastFm,
+        },
+        {
+          discordUserId: targetDiscordId ?? '0',
+          displayName: targetDisplayName,
+          userNameLastFm: targetLastFmUsername,
+        },
+        'two-year',
+      );
+    } catch (err) {
+      // Anything that is NOT a raised source failure is a defect, and dressing
+      // it up as a transient outage would tell the user to retry a request that
+      // will fail identically forever.
+      if (!isSourceUnavailable(err)) throw err;
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Could not load taste for ${targetDisplayName} — ${isLastFmUnavailable(err) ? 'Last.fm' : 'the database'} is unreachable. Please try again later.`,
+      );
+    }
 
     const topArtist = tasteData.artists.items[0]?.name;
     const artService = container.resolve(ArtworkService);

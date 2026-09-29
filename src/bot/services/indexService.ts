@@ -140,6 +140,17 @@ export class IndexService {
     }
 
     // 2) Top Artists
+    //
+    // The try is load-bearing and predates the raise: these three reads go
+    // through `lastFmRepository.getTopArtists` / `getTopAlbums` /
+    // `getTopTracks`, which now raise `LastFmUnavailableError` on a Last.fm
+    // outage instead of returning `[]`. Each of the three blocks has its own
+    // try, so an outage costs only the one section and the run still reaches
+    // the others - but it would abort the whole method, and `touchLastIndexed`
+    // is gated on `!stats.error`, so the user would look neither indexed nor
+    // failed and never be retried. `stats.error = true` is what keeps the
+    // stale-index sweep picking them back up - the same reason the
+    // `getUserInfo` block below has its own try.
     if ((updateType & (UpdateType.Artists | UpdateType.Full)) !== 0) {
       try {
         const topArtists = await this.lastfmRepository.getTopArtists(user.userNameLastFm, TimePeriod.AllTime, 1000);

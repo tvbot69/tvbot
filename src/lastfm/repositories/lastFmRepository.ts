@@ -416,8 +416,9 @@ export class LastFmRepository implements ILastfmRepository {
         }
         return result;
       } catch (err) {
-        Logger.warn({ err: String(err).slice(0, 120) }, `getweeklyartistchart failed for ${userName}`);
-        return [];
+        // An empty top-artists list IS a claim about a person's listening
+        // history, so degrading an outage to one told users they had no taste.
+        return orUnavailable('user.getweeklyartistchart', err, []);
       }
     }
 
@@ -446,8 +447,7 @@ export class LastFmRepository implements ILastfmRepository {
       }
       return result;
     } catch (err) {
-      Logger.warn({ err: String(err).slice(0, 120) }, `getTopArtists failed for ${userName}`);
-      return [];
+      return orUnavailable('user.gettopartists', err, []);
     }
   }
 
@@ -492,8 +492,7 @@ export class LastFmRepository implements ILastfmRepository {
         }
         return result;
       } catch (err) {
-        Logger.warn({ err: String(err).slice(0, 120) }, `getweeklyalbumchart failed for ${userName}`);
-        return [];
+        return orUnavailable('user.getweeklyalbumchart', err, []);
       }
     }
 
@@ -522,8 +521,9 @@ export class LastFmRepository implements ILastfmRepository {
       }
       return result;
     } catch (err) {
-      Logger.warn({ err: String(err).slice(0, 120) }, `getTopAlbums failed for ${userName}`);
-      return [];
+      // Same reasoning as the artists above: "no top albums" and "Last.fm was
+      // unreachable" are different claims, and only one of them is an answer.
+      return orUnavailable('user.gettopalbums', err, []);
     }
   }
 
@@ -568,8 +568,7 @@ export class LastFmRepository implements ILastfmRepository {
         }
         return result;
       } catch (err) {
-        Logger.warn({ err: String(err).slice(0, 120) }, `getweeklytrackchart failed for ${userName}`);
-        return [];
+        return orUnavailable('user.getweeklytrackchart', err, []);
       }
     }
 
@@ -598,8 +597,7 @@ export class LastFmRepository implements ILastfmRepository {
       }
       return result;
     } catch (err) {
-      Logger.warn({ err: String(err).slice(0, 120) }, `getTopTracks failed for ${userName}`);
-      return [];
+      return orUnavailable('user.gettoptracks', err, []);
     }
   }
 

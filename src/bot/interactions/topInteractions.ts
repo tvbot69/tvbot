@@ -181,7 +181,15 @@ export class TopInteractions {
         return;
       }
       await interaction.deferUpdate().catch(() => undefined);
-    } catch {
+    } catch (err) {
+      // Deliberately swallowed rather than re-thrown, but NO LONGER silently.
+      // The three `getTop*` reads above raise `LastFmUnavailableError` on a
+      // Last.fm outage, so this catch is now the outermost edge of an outage for
+      // a paginator button - and a button has no page to render "could not
+      // load" into, so the honest outcome is the unchanged message plus a loud
+      // log. Before this line the outage cost one silent, dead button and
+      // nothing in Railway at all.
+      Logger.error({ err, prefix, action, userNameLastFm }, 'Top pagination interaction failed; message left unchanged');
       await interaction.deferUpdate().catch(() => undefined);
     }
   }

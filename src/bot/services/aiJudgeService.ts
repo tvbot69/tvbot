@@ -31,10 +31,19 @@ export class AiJudgeService {
   }): Promise<JudgeResult> {
     const period = params.period ?? TimePeriod.Quarterly;
 
-    // Fetch top artists and top tracks for the period
+    // Fetch top artists and top tracks for the period.
+    //
+    // No `.catch` here on purpose. Both halves used to swallow a failure into
+    // `[]`, and `generateCritique` reads an empty artist list as the punchline
+    // of the whole command: during a Last.fm outage every user was rated
+    // "0 / 10 - Ghost Town Scrobbles" and told to go and listen to some records.
+    // `getTopArtists`/`getTopTracks` raise `LastFmUnavailableError` for anything
+    // that is not a genuine not-found, so letting that through costs the user
+    // one failed command instead of a confident, wrong, personally-targeted
+    // insult. `Promise.all` rejects on the first failure, which is the point.
     const [artists, tracks] = await Promise.all([
-      this.lastFmRepository.getTopArtists(params.userNameLastFm, period, 15).catch(() => [] as TopArtist[]),
-      this.lastFmRepository.getTopTracks(params.userNameLastFm, period, 15).catch(() => [] as TopTrack[]),
+      this.lastFmRepository.getTopArtists(params.userNameLastFm, period, 15),
+      this.lastFmRepository.getTopTracks(params.userNameLastFm, period, 15),
     ]);
 
     const topArtistNames = artists.slice(0, 5).map((a: TopArtist) => a.name);

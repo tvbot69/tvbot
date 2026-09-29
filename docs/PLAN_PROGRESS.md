@@ -7,7 +7,7 @@ before starting work. **Update this file at the end of every task**, before the 
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **4084 passed + 516 db skipped = 4600** (237 files) | — |
+| Tests | 1085 | **4140 passed + 516 db skipped = 4656** (241 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
 | Branch coverage | 68.6% claimed | **77.48%** | — |
 | `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 76** (budget 101) | <80 combined ✅ |
@@ -19,7 +19,7 @@ before starting work. **Update this file at the end of every task**, before the 
 | Lower layers importing `@bot/*` | 6+ | **0 value** / 4 type-only | 0 value |
 | `@ts-ignore` | 0 | **0** | 0 |
 | Lint errors | 143 | **0** (351 warnings) | 0 |
-| `silent-failure-default` | 604 | **538** (budget 604, may only fall) | non-increasing ✅ |
+| `silent-failure-default` | 604 | **526** (budget 604, may only fall) | non-increasing ✅ |
 | `raw-query-without-db-test` | — | **0** (mutation-checked) | 0 |
 
 > The `silent-failure-default` count is **not the target** — it counts catch blocks, not bugs, and
@@ -738,6 +738,50 @@ before starting work. **Update this file at the end of every task**, before the 
   - 🐛 **The suite caught a third bug the typecheck could not:** an inline multi-line generic
     (`$queryRawUnsafe<Array<{ ... }>>`) parses under `tsc` and **fails under esbuild**, so the file
     failed to collect while `tsc --noEmit` was clean.
+- **A-tier 1f/1g — the top lists, and the laundering above them** ✅ `lastFmRepository`'s six
+  remaining top-list reads (`getTopArtists`/`getTopAlbums`/`getTopTracks` + the three
+  `getweekly*chart`) plus `playRepository.getEntityTotalPlaycount`. **The finding that matters is
+  not any of those seven: six of the changed sites were not lying at all, they were catching
+  somebody else's raise and putting it back.**
+  - **The new raise was inert on arrival.** Every caller of the six methods already had its own
+    `.catch(() => [])`, so the throw would have been converted straight back to `[]` and the
+    layer below would never have known. **A repository test that only proves "it raises" cannot
+    fail while the user still sees an empty card** — the round's single most reusable lesson, and
+    the answer to "why is this count still 526".
+  - `.taste` was the worst one: `[]` zeroed `totalCount`, made the genre/country percentages divide
+    by the **fabricated `Math.max(1, 0)` = 1**, printed "No artists matches found" for a user with
+    1000 top artists, and was then cached under **both** keys for 600s with all three button tabs
+    served out of it. **One 5xx = ten minutes of three confident wrong cards.** A test pins that
+    nothing is cached on the failure path, because a raise plus a cache write is a lie with a
+    longer fuse.
+  - `.judge` rated every user "0 / 10 — Ghost Town Scrobbles" during an outage. `.featured`
+  published a permanent `historyLog` entry naming a real person as featuring "Unknown Artist"
+  with 0 plays. `.country` answered **"No country data found for &lt;name&gt;"**, byte-identical to a
+  user whose country genuinely is unknown.
+  - **No partial answer in `.taste`:** with user 1 loaded and user 2 empty, every row is missing
+  and the surviving total describes one side only, so the table reads "you share nothing" about a
+  pair who share plenty. Pinned in both directions, because that is the `guildAdminService` class.
+  - `getEntityTotalPlaycount`'s `catch { return 0 }` was the last literal `0` in a user-facing
+    number, found by filtering the debt list for `[returns 0]`. A `count` over `user_plays` with no
+    matching rows **succeeds with `0`**, so raising there does not break the genuine-zero case.
+  - **Four `// CORRECT AS IS` sites, left alone on purpose:** the `topBuilders` mosaic cover hunt
+    (rung 4 of 4, decorative, no "could not load" affordance), `featuredService`'s user pick
+    (`[]` as `null` is true of what is rendered), `profileService`'s sentinel `0` (never rendered
+    — re-derived from `userArtist`), and `indexService`'s three blocks (their per-block catch
+    sets `stats.error`, which is the only thing that keeps the stale-index sweep retrying them;
+    `touchLastIndexed` is gated on `!stats.error`, so a raise there would have left the user
+    looking neither indexed nor failed).
+  - **2 tests asserted the bug** (`tasteService.test.ts`: *"degrades to an empty comparison when a
+    top-artists query fails"* and *"still returns user 1 when only user 2 fails"*, both asserting
+    `resolves.toEqual([])`) and were replaced with the pair.
+  - **5 mutations, re-run by the lead rather than taken on trust**, and recorded because the *pair*
+    staying green is the claim: `orDatabaseUnavailable` `throw`→`return 0` = **1 red / 41 green**;
+    `tasteService` `throw`→`[]` = **6 red / 54 green**; `countrySlashCommands`
+    `isSourceUnavailable` guard→`if (false && ...)` = **3 red / 9 green**; `getTopArtists`
+    `orUnavailable`→`return []` = **3 red / 123 green**. Residue sweep for `LEAD MUTATION`: none.
+  - **One narrowness worth copying:** the country commands re-throw **only**
+    `isSourceUnavailable(err)`. A blanket `rethrow` would pass the raise test and break every
+    genuine country-mapping failure, so each site is tested as a pair.
 - **Five of the raises are in methods with ZERO production callers** — `getUserAllTimeTopAlbums`,
   `...ByReleasePrefix`, `getLatestAlbums`, `getRecentTopAlbums`, `filterAlbumsToReleasePeriod`.
   Verified by grep, and there is no dynamic dispatch in the bot. Raised anyway: the lie is a
@@ -750,6 +794,11 @@ before starting work. **Update this file at the end of every task**, before the 
   `git checkout -- <file>`, which discarded **every** uncommitted edit to that file rather than just
   the mutation; it re-applied them all, and `git diff` was the review that caught it. Reverting a
   mutation must be a targeted `edit`, never a checkout, on a tree with uncommitted work in it.
+- ⚠️ **Same rule, second round, still true.** Three agents, one per file group, and the rule held
+  verbatim: **no gate is run from inside the batch.** The lead ran all four alone afterwards —
+  `tsc --noEmit --incremental false` clean, `npm test` **4140 passed + 516 db skipped = 4656**
+  (241 files), `npm run lint` **0 errors / 351 warnings**, `npm run debt` **526 vs budget 604**.
+  An agent-reported number is not a measurement.
 
 **Two detectors were themselves defective, and both were found by mutation rather than by reading.**
 

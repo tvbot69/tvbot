@@ -42,6 +42,11 @@ export class FeaturedService {
 
   public async pickNewFeatured(): Promise<FeaturedEntry | null> {
     // Select an active user who has scrobbles
+    // CORRECT AS IS: the `[]` is returned to the caller as `null` ("nobody is
+    // featured right now"), which is a truthful statement about what is
+    // rendered, and the command has no way to say "the database is down"
+    // without inventing a second card. `user.findMany` is one read with no
+    // partial result to get wrong.
     const users = await this.db.user.findMany({
       where: {
         totalPlayCount: { gt: 0 },
@@ -61,10 +66,21 @@ export class FeaturedService {
     const selectedUser = users[Math.floor(Math.random() * users.length)];
     if (!selectedUser) return null;
 
-    // Fetch their weekly top albums or tracks
-    const topAlbums = await this.lastFmRepository
-      .getTopAlbums(selectedUser.userNameLastFm, TimePeriod.Weekly, 5)
-      .catch(() => []);
+    // Fetch their weekly top albums or tracks.
+    //
+    // No `.catch` on either Last.fm read. The entry this builds is pushed onto
+    // `historyLog` and rendered with the selected user's real Discord name, so
+    // degrading a failed read to `[]` publishes a card saying that person
+    // featured "Unknown Artist" with 0 plays - a claim about a named human,
+    // produced entirely by an outage. `pickNewFeatured` is only reached from the
+    // user-hub commands, whose boundary already catches and replies, so the
+    // raise costs one visible error instead of a permanent, confidently wrong
+    // entry in the featured log.
+    const topAlbums = await this.lastFmRepository.getTopAlbums(
+      selectedUser.userNameLastFm,
+      TimePeriod.Weekly,
+      5,
+    );
 
     let artistName = 'Unknown Artist';
     let albumName: string | undefined;
@@ -79,9 +95,11 @@ export class FeaturedService {
       playcount = top.playcount ?? 0;
       imageUrl = top.imageUrl ?? undefined;
     } else {
-      const topTracks = await this.lastFmRepository
-        .getTopTracks(selectedUser.userNameLastFm, TimePeriod.Weekly, 5)
-        .catch(() => []);
+      const topTracks = await this.lastFmRepository.getTopTracks(
+        selectedUser.userNameLastFm,
+        TimePeriod.Weekly,
+        5,
+      );
 
       if (topTracks.length > 0 && topTracks[0]) {
         const top = topTracks[0];
