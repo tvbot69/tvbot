@@ -902,8 +902,8 @@ export const configureContainer = (): void => {
   container.registerInstance(IntelligenceSlashCommands, intelligenceSlashCommands);
 
   const guildAdminService = new GuildAdminService(guildUserRepository, userRepository, guildService, prisma);
-  const guildAdminCommands = new GuildAdminCommands(guildService, guildAdminService, userService, prefixService, guildDisabledCommandService, colorService);
-  const guildAdminSlashCommands = new GuildAdminSlashCommands(guildService, guildAdminService, userService, prefixService, colorService);
+  const guildAdminCommands = new GuildAdminCommands(guildService, guildAdminService, userService, prefixService, guildDisabledCommandService, colorService, channelToggledCommandService, disabledChannelService);
+  const guildAdminSlashCommands = new GuildAdminSlashCommands(guildService, guildAdminService, userService, prefixService, colorService, channelToggledCommandService, disabledChannelService);
 
   container.registerInstance(GuildAdminService, guildAdminService);
   container.registerInstance(GuildAdminCommands, guildAdminCommands);

@@ -11,6 +11,9 @@ import { ColorService } from '@bot/services/colorService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
+import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
+import { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
+import { isProtectedCommandName } from '@bot/services/guild/protectedCommandNames';
 
 @injectable()
 export class GuildAdminSlashCommands implements ISlashCommandModule {
@@ -22,6 +25,11 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
     @inject(UserService) private readonly userService: UserService,
     @inject(PrefixService) private readonly prefixService: PrefixService,
     @inject(ColorService) private readonly colorService?: ColorService,
+    // Optional only so the existing 4- and 5-argument construction sites keep
+    // compiling. Both commands refuse to run when these are absent - a writer
+    // that resolved to nothing must not answer "disabled" and change nothing.
+    @inject(ChannelToggledCommandService) private readonly channelToggledCommandService?: ChannelToggledCommandService,
+    @inject(DisabledChannelService) private readonly disabledChannelService?: DisabledChannelService,
   ) {
     this.commands = [
       {
@@ -96,6 +104,42 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
         executeAsync: (ctx) => {
           const threshold = ctx.interaction?.options.getInteger('threshold', true) ?? 30;
           return this.crownThresholdSlashAsync(ctx, threshold);
+        },
+      },
+      {
+        data: new SlashCommandBuilder()
+          .setName('channeltogglecommand')
+          .setDescription('Turn one command off or on in this channel only')
+          .addStringOption((opt) =>
+            opt
+              .setName('command')
+              .setDescription('Name of the command to toggle, e.g. who')
+              .setRequired(true),
+          )
+          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+        executeAsync: (ctx) => {
+          const command = ctx.interaction?.options.getString('command', true) ?? '';
+          return this.channelToggleCommandSlashAsync(ctx, command);
+        },
+      },
+      {
+        data: new SlashCommandBuilder()
+          .setName('disabledchannel')
+          .setDescription('Turn all bot commands off or on in this channel')
+          .addSubcommand((sub) =>
+            sub
+              .setName('disable')
+              .setDescription('Turn every bot command off in this channel'),
+          )
+          .addSubcommand((sub) =>
+            sub
+              .setName('enable')
+              .setDescription('Turn every bot command back on in this channel'),
+          )
+          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+        executeAsync: (ctx) => {
+          const sub = ctx.interaction?.options.getSubcommand() || 'disable';
+          return this.disabledChannelSlashAsync(ctx, sub !== 'enable');
         },
       },
     ];
@@ -295,5 +339,99 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
       value: `${threshold.toLocaleString()} plays`,
       accentColor,
     });
+  }
+
+  /**
+   * Slash twin of the text `channeltogglecommand`. Same guards, same reply, same
+   * reason the reply names the channel - the slash family exists so the feature
+   * is not half-built across the two registries.
+   */
+  private async channelToggleCommandSlashAsync(context: ContextModel, rawCommand: string): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'This command can only be used in a server.',
+      );
+    }
+
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to toggle commands in this channel.',
+      );
+    }
+
+    const channelId = context.channelId;
+    if (!channelId) {
+      return GenericEmbedService.buildWrongInputResponse(
+        'Run this command in the channel you want to change; it has no channel to apply to here.',
+      );
+    }
+
+    const commandName = rawCommand.trim().toLowerCase();
+    if (!commandName) {
+      return GenericEmbedService.buildWrongInputResponse('Please name the command to toggle in this channel.');
+    }
+
+    if (isProtectedCommandName(commandName)) {
+      return GenericEmbedService.buildWrongInputResponse(`The command \`${commandName}\` cannot be disabled.`);
+    }
+
+    if (!this.channelToggledCommandService) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        'Channel command toggling is not available right now. Nothing was changed.',
+      );
+    }
+
+    const nowDisabled = await this.channelToggledCommandService.toggleCommand(
+      context.guildId,
+      channelId,
+      commandName,
+    );
+
+    return GenericEmbedService.buildSuccessResponse(
+      nowDisabled
+        ? `🔴 Command \`${commandName}\` has been **disabled** in <#${channelId}>.`
+        : `🟢 Command \`${commandName}\` has been **enabled** in <#${channelId}>.`,
+    );
+  }
+
+  private async disabledChannelSlashAsync(context: ContextModel, disable: boolean): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'This command can only be used in a server.',
+      );
+    }
+
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to turn bot commands off in this channel.',
+      );
+    }
+
+    const channelId = context.channelId;
+    if (!channelId) {
+      return GenericEmbedService.buildWrongInputResponse(
+        'Run this command in the channel you want to change; it has no channel to apply to here.',
+      );
+    }
+
+    if (!this.disabledChannelService) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        'Disabling a channel is not available right now. Nothing was changed.',
+      );
+    }
+
+    await this.disabledChannelService.setChannelDisabled(context.guildId, channelId, disable);
+
+    return GenericEmbedService.buildSuccessResponse(
+      disable
+        ? `🔴 Bot commands are now **disabled** in <#${channelId}>.`
+        : `🟢 Bot commands are now **enabled** in <#${channelId}>.`,
+    );
   }
 }

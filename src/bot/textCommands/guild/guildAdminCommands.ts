@@ -12,6 +12,9 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
 
 import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
+import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
+import { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
+import { isProtectedCommandName } from '@bot/services/guild/protectedCommandNames';
 
 @injectable()
 export class GuildAdminCommands implements ITextCommandModule {
@@ -24,6 +27,13 @@ export class GuildAdminCommands implements ITextCommandModule {
     @inject(PrefixService) private readonly prefixService: PrefixService,
     @inject(GuildDisabledCommandService) private readonly guildDisabledCommandService: GuildDisabledCommandService,
     @inject(ColorService) private readonly colorService?: ColorService,
+    // Optional only so the 5- and 6-argument construction sites keep compiling.
+    // A WRITER that resolves to nothing must not degrade to a silent no-op that
+    // still replies "disabled", so both commands check for `undefined` and
+    // answer with an error instead. That distinction is the whole point of this
+    // feature: the gate existed with nothing able to ever trip it.
+    @inject(ChannelToggledCommandService) private readonly channelToggledCommandService?: ChannelToggledCommandService,
+    @inject(DisabledChannelService) private readonly disabledChannelService?: DisabledChannelService,
   ) {
     this.commands = [
       {
@@ -78,6 +88,16 @@ export class GuildAdminCommands implements ITextCommandModule {
         name: 'togglecommand',
         aliases: ['toggleservercommand', 'togglecmd'],
         executeAsync: (ctx, args) => this.toggleCommandAsync(ctx, args.join(' ')),
+      },
+      {
+        name: 'channeltogglecommand',
+        aliases: ['togglechannelcommand', 'channeltogglecmd'],
+        executeAsync: (ctx, args) => this.channelToggleCommandAsync(ctx, args.join(' ')),
+      },
+      {
+        name: 'disabledchannel',
+        aliases: ['channelcommands', 'botchannelcommands'],
+        executeAsync: (ctx, args) => this.disabledChannelAsync(ctx, args.join(' ')),
       },
       {
         name: 'disabledcommands',
@@ -436,7 +456,7 @@ export class GuildAdminCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse(`Usage: \`${context.prefix}togglecommand <commandName>\``);
     }
 
-    if (['serversettings', 'togglecommand', 'prefix', 'settings'].includes(commandName)) {
+    if (isProtectedCommandName(commandName)) {
       return GenericEmbedService.buildWrongInputResponse(`The command \`${commandName}\` cannot be disabled.`);
     }
 
@@ -448,6 +468,119 @@ export class GuildAdminCommands implements ITextCommandModule {
       await this.guildDisabledCommandService.addDisabledCommand(context.guildId, commandName);
       return GenericEmbedService.buildSuccessResponse(`🔴 Command \`${commandName}\` has been **disabled** for this server.`);
     }
+  }
+
+  /**
+   * Channel-scoped twin of `toggleCommandAsync`. The reply names the channel,
+   * because that is the ONLY difference the user has to go on: "disabled for
+   * this server" and "disabled in this channel" are the same sentence to
+   * someone who ran the command in a channel they forgot about.
+   */
+  private async channelToggleCommandAsync(context: ContextModel, rawCommand: string): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'This command can only be used in a server.',
+      );
+    }
+
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to toggle commands in this channel.',
+      );
+    }
+
+    // The writer is keyed by channel id, so a context without one has nothing to
+    // write to. Silently succeeding here would be the exact bug this feature was
+    // born from: a reply that says "disabled" and a gate that never moves.
+    const channelId = context.channelId;
+    if (!channelId) {
+      return GenericEmbedService.buildWrongInputResponse(
+        'Run this command in the channel you want to change; it has no channel to apply to here.',
+      );
+    }
+
+    const commandName = rawCommand.trim().toLowerCase();
+    if (!commandName) {
+      return GenericEmbedService.buildWrongInputResponse(`Usage: \`${context.prefix}channeltogglecommand <commandName>\``);
+    }
+
+    if (isProtectedCommandName(commandName)) {
+      return GenericEmbedService.buildWrongInputResponse(`The command \`${commandName}\` cannot be disabled.`);
+    }
+
+    if (!this.channelToggledCommandService) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        'Channel command toggling is not available right now. Nothing was changed.',
+      );
+    }
+
+    const nowDisabled = await this.channelToggledCommandService.toggleCommand(
+      context.guildId,
+      channelId,
+      commandName,
+    );
+
+    return GenericEmbedService.buildSuccessResponse(
+      nowDisabled
+        ? `🔴 Command \`${commandName}\` has been **disabled** in <#${channelId}>.`
+        : `🟢 Command \`${commandName}\` has been **enabled** in <#${channelId}>.`,
+    );
+  }
+
+  /**
+   * The `'*'` writer: every bot command off (or back on) in this one channel.
+   *
+   * The state is an explicit argument rather than a flip, because "which way is
+   * it now?" is exactly the question a moderator cannot answer, and a blind
+   * toggle answers it by making the opposite change.
+   */
+  private async disabledChannelAsync(context: ContextModel, rawState: string): Promise<ResponseModel> {
+    if (!context.guildId) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotSupportedInDm,
+        'This command can only be used in a server.',
+      );
+    }
+
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to turn bot commands off in this channel.',
+      );
+    }
+
+    const channelId = context.channelId;
+    if (!channelId) {
+      return GenericEmbedService.buildWrongInputResponse(
+        'Run this command in the channel you want to change; it has no channel to apply to here.',
+      );
+    }
+
+    const state = rawState.trim().toLowerCase();
+    const disable = ['off', 'disable', 'disabled', 'false', '0'].includes(state);
+    if (!disable && !['on', 'enable', 'enabled', 'true', '1'].includes(state)) {
+      return GenericEmbedService.buildWrongInputResponse(
+        `Usage: \`${context.prefix}disabledchannel <on|off>\``,
+      );
+    }
+
+    if (!this.disabledChannelService) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        'Disabling a channel is not available right now. Nothing was changed.',
+      );
+    }
+
+    await this.disabledChannelService.setChannelDisabled(context.guildId, channelId, disable);
+
+    return GenericEmbedService.buildSuccessResponse(
+      disable
+        ? `🔴 Bot commands are now **disabled** in <#${channelId}>.`
+        : `🟢 Bot commands are now **enabled** in <#${channelId}>.`,
+    );
   }
 
   private async disabledCommandsAsync(context: ContextModel): Promise<ResponseModel> {
