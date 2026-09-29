@@ -130,6 +130,12 @@ export class LoginSlashCommands implements ISlashCommandModule {
           );
           return;
         }
+        if (result.status === LoginStatus.GuardUnavailable) {
+          await interaction.editReply(
+            'I could not verify how many Discord accounts already use this Last.fm account, so I refused the link rather than guess. Nothing was changed — try **Confirm** again in a moment.',
+          );
+          return;
+        }
         await interaction.editReply(
           'Last.fm does not show an authorized session yet. Did you click **Allow access** on their page? Wait a few seconds and try Confirm again.',
         );

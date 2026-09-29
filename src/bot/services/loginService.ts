@@ -11,6 +11,11 @@ export enum LoginStatus {
   NoPendingLogin = 'NoPendingLogin',
   NotAuthorizedYet = 'NotAuthorizedYet',
   AltLimitExceeded = 'AltLimitExceeded',
+  /**
+   * The alt-account guard could not be evaluated, so the link was refused.
+   * Distinct from AltLimitExceeded: the cap was never actually hit.
+   */
+  GuardUnavailable = 'GuardUnavailable',
 }
 
 // Sybil guard: one Last.fm library may back a handful of Discord rows
@@ -71,7 +76,28 @@ export class LoginService {
       if (session) {
         Logger.info(`LastfmAuth: ${session.name} logged in (discordUserId: ${discordUserId})`);
 
-        const linkedCount = await this.userRepository.countUsersByLastFmName(session.name).catch(() => 0);
+        // The alt cap is a security control, so its input must never be a
+        // number the database failed to produce. A 0 from a failed query is
+        // indistinguishable from "nothing is linked to this name", and since
+        // the check below is `linkedCount >= 5`, one database blip silently
+        // removed the ceiling on how many Discord rows can share one Last.fm
+        // account. A control that disables itself on failure is worse than the
+        // outage that caused it, so fail closed: refuse the link.
+        //
+        // The pending token is deliberately NOT deleted. The Last.fm session is
+        // still valid, so retrying is one Confirm click, and the guard is
+        // re-evaluated on every attempt.
+        let linkedCount: number;
+        try {
+          linkedCount = await this.userRepository.countUsersByLastFmName(session.name);
+        } catch (err) {
+          Logger.error(
+            { err, discordUserId, lastFm: session.name },
+            '[Login] Alt-account guard unavailable — refusing link (fail closed)',
+          );
+          return { status: LoginStatus.GuardUnavailable, userName: session.name };
+        }
+
         const alreadyLinked = await this.userService.getUserByDiscordId(discordUserId).catch(() => null);
         const isRelink = alreadyLinked?.userNameLastFm.toLowerCase() === session.name.toLowerCase();
         if (!isRelink && linkedCount >= MAX_DISCORD_ROWS_PER_LASTFM) {

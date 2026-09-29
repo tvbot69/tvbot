@@ -205,53 +205,97 @@ export class ImportService {
       }).catch(() => undefined);
     }
 
+    const stored = reposWired ? inserted : scrobbles.length;
     Logger.info(
-      `[ImportService] User ${userId} successfully imported ${scrobbles.length} scrobbles across ${artistCounts.size} unique artists.`,
+      `[ImportService] User ${userId} stored ${stored} new scrobbles from ${scrobbles.length} parsed across ${artistCounts.size} unique artists.`,
     );
 
     return {
       totalScrobblesImported: scrobbles.length,
-      newRowsInserted: reposWired ? inserted : scrobbles.length,
+      newRowsInserted: stored,
       uniqueArtistsCount: artistCounts.size,
       dateRange: { from: minDate, to: maxDate },
       topArtists,
     };
   }
 
+  /**
+   * Stores the scrobbles that are not already in the library and returns how
+   * many rows were actually written.
+   *
+   * It either returns a number a successful insert produced, or it throws. It
+   * must never report a count it did not get from the database: the caller
+   * builds a "successfully imported" summary and a `totalPlayCount` increment
+   * from that number, so a swallowed failure became a false success and a
+   * permanently wrong counter.
+   */
   private async persistScrobbles(
     userId: number,
     scrobbles: ParsedScrobble[],
     source: ImportPlaySource,
   ): Promise<number> {
+    if (!container.isRegistered(PlayRepository)) return 0;
+    const repo = container.resolve(PlayRepository);
+
+    // The dedup lookup is a correctness gate, not decoration. An empty set
+    // means "nothing to skip", so a failed query re-inserts plays this feature
+    // exists to prevent — and the database's unique index does NOT stand in for
+    // it: user_plays_identity_uniq includes play_source, while the application
+    // identity (PlayRepository.playKey) is time|artist|track across every
+    // source. So a play already stored from Last.fm, or from a Spotify import,
+    // is re-insertable purely because this lookup failed to answer.
+    //
+    // Refusing the import is the only honest answer while the answer is
+    // unknown. Duplicate rows are invisible once written and corrupt every
+    // leaderboard behind them, whereas a refused import is one sentence to the
+    // user and one command to redo — and both `.import` callers already render a
+    // thrown message.
+    let existing: Set<string>;
     try {
-      if (!container.isRegistered(PlayRepository)) return 0;
-      const repo = container.resolve(PlayRepository);
-      const existing = await repo
-        .findExistingPlayKeys(
-          userId,
-          scrobbles[0]!.timePlayed,
-          scrobbles[scrobbles.length - 1]!.timePlayed,
-        )
-        .catch(() => new Set<string>());
-      const seen = new Set<string>();
-      const fresh: PlayInsert[] = [];
-      for (const s of scrobbles) {
-        const key = PlayRepository.playKey(s.timePlayed, s.artist, s.track);
-        if (seen.has(key) || existing.has(key)) continue;
-        seen.add(key);
-        fresh.push({
-          userId,
-          artistName: s.artist,
-          albumName: s.album,
-          trackName: s.track,
-          timePlayed: s.timePlayed,
-          playSource: source,
-        });
-      }
-      if (fresh.length === 0) return 0;
-      return await repo.batchInsertPlays(fresh).catch(() => 0);
-    } catch {
-      return 0;
+      existing = await repo.findExistingPlayKeys(
+        userId,
+        scrobbles[0]!.timePlayed,
+        scrobbles[scrobbles.length - 1]!.timePlayed,
+      );
+    } catch (err) {
+      Logger.warn(
+        { err, userId, source },
+        '[ImportService] Dedup lookup failed — refusing import rather than re-inserting unknown duplicates',
+      );
+      throw new Error(
+        'I could not check your library for plays you already have, so nothing was imported. ' +
+          'Please try again in a moment.',
+      );
+    }
+
+    const seen = new Set<string>();
+    const fresh: PlayInsert[] = [];
+    for (const s of scrobbles) {
+      const key = PlayRepository.playKey(s.timePlayed, s.artist, s.track);
+      if (seen.has(key) || existing.has(key)) continue;
+      seen.add(key);
+      fresh.push({
+        userId,
+        artistName: s.artist,
+        albumName: s.album,
+        trackName: s.track,
+        timePlayed: s.timePlayed,
+        playSource: source,
+      });
+    }
+    if (fresh.length === 0) return 0;
+
+    try {
+      return await repo.batchInsertPlays(fresh);
+    } catch (err) {
+      Logger.error(
+        { err, userId, source, rows: fresh.length },
+        '[ImportService] Play insert failed — nothing from this import was stored',
+      );
+      throw new Error(
+        `I could not save any of the ${fresh.length} new plays from this file, so nothing was imported. ` +
+          'Please try again in a moment.',
+      );
     }
   }
 
