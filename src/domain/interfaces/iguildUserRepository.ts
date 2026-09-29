@@ -1,7 +1,8 @@
 export interface GuildUserLink {
   guildId: string;
   userId: number;
-  whoKnowsWhitelisted: boolean;
+  /** Tri-state since 20260928220000: null = undecided (included), true = whitelisted, false = excluded. */
+  whoKnowsWhitelisted: boolean | null;
   whoKnowsBanned: boolean;
 }
 
@@ -10,7 +11,8 @@ export interface FullGuildUserDetails {
   discordUserId: string;
   userNameLastFm: string;
   lastUsed?: Date;
-  whoKnowsWhitelisted: boolean;
+  /** Tri-state since 20260928220000: null = undecided (included), true = whitelisted, false = excluded. */
+  whoKnowsWhitelisted: boolean | null;
   whoKnowsBanned: boolean;
   blockedFromCrowns?: boolean;
   selfBlockFromWhoKnows?: boolean;

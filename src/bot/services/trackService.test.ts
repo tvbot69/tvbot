@@ -393,57 +393,6 @@ describe('TrackService.getArtistUserTracks', () => {
   });
 });
 
-describe('TrackService.getAverageTrackAudioFeaturesForTopTracks', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('returns zeroed overview when prisma is not injected', async () => {
-    const { service } = build();
-    const result = await service.getAverageTrackAudioFeaturesForTopTracks([{ name: 'Airbag', artistName: 'Radiohead', playcount: 1 }]);
-    expect(result.total).toBe(0);
-    expect(result.average.danceability).toBe(0);
-  });
-
-  it('returns zeroed overview for an empty track list', async () => {
-    const prisma = { $queryRawUnsafe: vi.fn(async () => []) };
-    const { service } = build({ prisma });
-    const result = await service.getAverageTrackAudioFeaturesForTopTracks([]);
-    expect(result.total).toBe(0);
-  });
-
-  it('returns zeroed overview when no matching rows are found', async () => {
-    const prisma = { $queryRawUnsafe: vi.fn(async () => []) };
-    const { service } = build({ prisma });
-    const result = await service.getAverageTrackAudioFeaturesForTopTracks([{ name: 'Unknown', artistName: 'Unknown', playcount: 1 }]);
-    expect(result.total).toBe(0);
-  });
-
-  it('computes averages from database rows', async () => {
-    const prisma = {
-      $queryRawUnsafe: vi.fn(async () => [
-        { danceability: 0.5, energy: 0.7, valence: 0.3, tempo: 120, acousticness: 0.1 },
-        { danceability: 0.3, energy: 0.5, valence: 0.6, tempo: 100, acousticness: 0.2 },
-      ]),
-    };
-    const { service } = build({ prisma });
-    const result = await service.getAverageTrackAudioFeaturesForTopTracks([{ name: 'Airbag', artistName: 'Radiohead', playcount: 1 }]);
-    expect(result.total).toBe(2);
-    expect(result.average.danceability).toBe(0.4);
-    expect(result.average.energy).toBe(0.6);
-    expect(result.average.valence).toBe(0.45);
-    expect(result.average.tempo).toBe(110);
-    expect(result.average.acousticness).toBe(0.15);
-  });
-
-  it('returns zeroed overview when the query throws', async () => {
-    const prisma = {
-      $queryRawUnsafe: vi.fn(async () => { throw new Error('db down'); }),
-    };
-    const { service } = build({ prisma });
-    const result = await service.getAverageTrackAudioFeaturesForTopTracks([{ name: 'Airbag', artistName: 'Radiohead', playcount: 1 }]);
-    expect(result.total).toBe(0);
-  });
-});
-
 describe('TrackService.audioFeatureAnalysisComparisonString', () => {
   beforeEach(() => vi.clearAllMocks());
 

@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import type { TopTrack } from '@domain/models/topLists';
-import type { AudioFeaturesOverview } from './trackService';
 import { TrackService } from './trackService';
 import {
   connect,
@@ -14,7 +13,7 @@ import {
 } from '../../tests/dbHarness';
 
 /**
- * The four raw queries behind the track top-lists.
+ * The three raw queries behind the track top-lists.
  *
  * Each one is a thing a mock cannot check. `LOWER(artist_name) = LOWER($2)`
  * is a case-insensitive comparison that a fake `findMany` agrees with no
@@ -116,31 +115,10 @@ const cache = {
   },
 };
 
-const ZERO_FEATURES: AudioFeaturesOverview = {
-  total: 0,
-  average: { danceability: 0, energy: 0, valence: 0, tempo: 0, acousticness: 0 },
-};
-
 /** A catalogue row, created through the Prisma model so the FK and casts are Prisma's problem. */
 const seedCatalogueTrack = async (name: string): Promise<void> => {
   const artist = await prisma!.artist.create({ data: { name: `Probe ${name}` } });
   await prisma!.track.create({ data: { artistId: artist.artistId, name } });
-};
-
-/**
- * Do the audio-feature columns exist on `tracks`?
- *
- * A static IN list, not a parameterised one, so this probe cannot itself be
- * broken by the array-parameter question it is guarding.
- */
-const audioFeatureColumnsExist = async (): Promise<boolean> => {
-  const rows = await prisma!.$queryRawUnsafe<Array<{ present: bigint }>>(
-    `SELECT count(*)::bigint AS present
-       FROM information_schema.columns
-      WHERE table_name = 'tracks'
-        AND column_name IN ('danceability', 'energy', 'valence', 'tempo', 'acousticness')`,
-  );
-  return Number(rows[0]?.present ?? 0n) === 5;
 };
 
 suite('TrackService raw queries against a real database', () => {
@@ -148,7 +126,7 @@ suite('TrackService raw queries against a real database', () => {
     prisma = await connect();
     if (!prisma) return;
     await useScratchSchema(prisma);
-    // prisma is the SEVENTH parameter. The other six are unused by the four
+    // prisma is the SEVENTH parameter. The other six are unused by the three
     // queries under test, so they go in as `as never` - which is exactly what
     // makes a miscounted position compile cleanly.
     service = new TrackService(
@@ -176,7 +154,7 @@ suite('TrackService raw queries against a real database', () => {
     cacheState.sets.length = 0;
   });
 
-  // ---------------------------------------------------------------- L311 ---
+  // ---------------------------------------------------------------- L302 ---
 
   it('returns an empty list rather than failing when the user has no plays', async () => {
     await expect(service!.getUserAllTimeTopTracks(userId)).resolves.toEqual([]);
@@ -254,7 +232,7 @@ suite('TrackService raw queries against a real database', () => {
     expect(await service!.getUserAllTimeTopTracks(userId)).toEqual([]);
   });
 
-  // ---------------------------------------------------------------- L343 ---
+  // ---------------------------------------------------------------- L340 ---
 
   it('matches the artist name case-insensitively', async () => {
     // The whole reason this file exists: `LOWER(artist_name) = LOWER($2)`.
@@ -316,28 +294,14 @@ suite('TrackService raw queries against a real database', () => {
     expect(await service!.getArtistUserTracks(userId, 'Prolific')).toHaveLength(50);
   });
 
-  // ---------------------------------------------------------------- L371 ---
-
-  it('returns the zero shape for an empty input', async () => {
-    // Short-circuits before the query, so this holds whatever the schema is.
-    expect(await service!.getAverageTrackAudioFeaturesForTopTracks([])).toEqual(ZERO_FEATURES);
-  });
-
-  it('returns the zero shape for a track name with no catalogue row', async () => {
-    // A real catalogue row exists, so an empty result is the filter working
-    // rather than an empty table.
-    await seedCatalogueTrack(`Catalogue Hit ${userId}`);
-    expect(
-      await service!.getAverageTrackAudioFeaturesForTopTracks([
-        { name: `No Such Track ${userId}`, artistName: 'Nobody', playcount: 1 },
-      ]),
-    ).toEqual(ZERO_FEATURES);
-  });
+  // ------------------------------------------------- array marshalling ----
 
   it('sends the track-name list as a real text[] parameter', async () => {
-    // The same marshalling the averaging query depends on, run against columns
-    // that exist. Prisma sends parameters untyped; `= ANY($1::text[])` is the
-    // shape that decides whether a JS string[] arrives as a text[] at all.
+    // `WHERE name = ANY($1::text[])` needs a real array parameter, and Prisma
+    // sends parameters untyped - so the cast is what makes a JS string[] arrive
+    // as a text[]. No service query does this any more (the audio-feature one
+    // that did selected columns `tracks` does not have, and was deleted), but
+    // the marshalling is a fact about $queryRawUnsafe worth keeping pinned.
     await seedCatalogueTrack(`In The Array ${userId}`);
     const rows = await prisma!.$queryRawUnsafe<Array<{ name: string }>>(
       'SELECT name FROM tracks WHERE name = ANY($1::text[])',
@@ -346,88 +310,7 @@ suite('TrackService raw queries against a real database', () => {
     expect(rows.map((r) => r.name)).toEqual([`In The Array ${userId}`]);
   });
 
-  it('averages only the rows that carry a valence, treating a NULL field as 0', async () => {
-    if (!(await audioFeatureColumnsExist())) {
-      // Unreachable today: `tracks` has no audio-feature columns, which the
-      // last test in this group asserts and explains. The arithmetic is written
-      // out anyway so it starts proving something the moment they land, rather
-      // than needing a rewrite.
-      return;
-    }
-    const artist = await prisma!.artist.create({ data: { name: `Averaged ${userId}` } });
-    for (const [name, row] of [
-      ['A', { danceability: 0.5, energy: 0.7, valence: 0.3, tempo: 120, acousticness: 0.1 }],
-      ['B', { danceability: 0.3, energy: 0.5, valence: 0.6, tempo: 100, acousticness: 0.2 }],
-      // Valence set, everything else NULL: it is averaged in, contributing zeros.
-      ['C', { danceability: null, energy: null, valence: 0.6, tempo: null, acousticness: null }],
-    ] as const) {
-      const track = await prisma!.track.create({ data: { artistId: artist.artistId, name: `${name} ${userId}` } });
-      await prisma!.$executeRawUnsafe(
-        `UPDATE tracks SET danceability = $2::real, energy = $3::real, valence = $4::real,
-                          tempo = $5::real, acousticness = $6::real WHERE track_id = $1::int4`,
-        track.trackId,
-        row.danceability,
-        row.energy,
-        row.valence,
-        row.tempo,
-        row.acousticness,
-      );
-    }
-    const result = await service!.getAverageTrackAudioFeaturesForTopTracks(
-      ['A', 'B', 'C'].map((n) => ({ name: `${n} ${userId}`, artistName: `Averaged ${userId}`, playcount: 1 })),
-    );
-    expect(result.total).toBe(3);
-    expect(result.average).toEqual({
-      danceability: 0.267,
-      energy: 0.4,
-      valence: 0.5,
-      tempo: 73,
-      acousticness: 0.1,
-    });
-  });
-
-  it('excludes a catalogue row whose valence is NULL from the average', async () => {
-    if (!(await audioFeatureColumnsExist())) return;
-    const artist = await prisma!.artist.create({ data: { name: `Null Valence ${userId}` } });
-    for (const [name, valence] of [['A', 0.3], ['B', 0.6], ['C', null]] as const) {
-      const track = await prisma!.track.create({ data: { artistId: artist.artistId, name: `${name} ${userId}` } });
-      await prisma!.$executeRawUnsafe(
-        `UPDATE tracks SET danceability = $2::real, valence = $3::real WHERE track_id = $1::int4`,
-        track.trackId,
-        valence === null ? null : 0.5,
-        valence,
-      );
-    }
-    const result = await service!.getAverageTrackAudioFeaturesForTopTracks(
-      ['A', 'B', 'C'].map((n) => ({ name: `${n} ${userId}`, artistName: `Null Valence ${userId}`, playcount: 1 })),
-    );
-    // WHERE valence IS NOT NULL drops C entirely, so it is not a zero in the
-    // divisor: total is 2, not 3.
-    expect(result.total).toBe(2);
-    expect(result.average.valence).toBe(0.45);
-    expect(result.average.danceability).toBe(0.5);
-  });
-
-  it('returns zero features because tracks has no audio-feature columns to read', async () => {
-    // The averaging query selects danceability/energy/valence/tempo/acousticness
-    // from `tracks`, and NO migration creates those columns - so it fails with
-    // 42703 and the method's own `.catch(() => [])` turns that into the zero
-    // shape. This is the bug class the real-Postgres suite exists for: a green
-    // build, a green unit suite, and a feature that can never work.
-    if (await audioFeatureColumnsExist()) {
-      throw new Error(
-        'tracks now HAS the audio-feature columns, so this schema fact is obsolete. ' +
-          'The two averaging tests above now run their real assertions - delete this one.',
-      );
-    }
-    expect(
-      await service!.getAverageTrackAudioFeaturesForTopTracks([
-        { name: 'Whatever', artistName: 'Nobody', playcount: 1 },
-      ]),
-    ).toEqual(ZERO_FEATURES);
-  });
-
-  // ---------------------------------------------------------------- L509 ---
+  // ---------------------------------------------------------------- L442 ---
 
   it('includes plays inside the 20-day window and excludes older ones', async () => {
     await seedPlays(prisma!, [

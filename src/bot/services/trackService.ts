@@ -361,54 +361,6 @@ export class TrackService {
     }
   }
 
-  public async getAverageTrackAudioFeaturesForTopTracks(topTracks: TopTrack[]): Promise<AudioFeaturesOverview> {
-    if (!this.prisma || !topTracks || topTracks.length === 0) {
-      return { total: 0, average: { danceability: 0, energy: 0, valence: 0, tempo: 0, acousticness: 0 } };
-    }
-
-    try {
-      const trackNames = topTracks.map((t) => t.name);
-      const rows = await this.prisma.$queryRawUnsafe<Array<{
-        danceability: number | null;
-        energy: number | null;
-        valence: number | null;
-        tempo: number | null;
-        acousticness: number | null;
-      }>>(`
-        SELECT danceability, energy, valence, tempo, acousticness
-        FROM tracks
-        WHERE name = ANY($1::text[]) AND valence IS NOT NULL
-      `, trackNames).catch(() => []);
-
-      if (rows.length === 0) {
-        return { total: 0, average: { danceability: 0, energy: 0, valence: 0, tempo: 0, acousticness: 0 } };
-      }
-
-      let sumDance = 0, sumEnergy = 0, sumValence = 0, sumTempo = 0, sumAcoustic = 0;
-      for (const t of rows) {
-        sumDance += t.danceability ?? 0;
-        sumEnergy += t.energy ?? 0;
-        sumValence += t.valence ?? 0;
-        sumTempo += t.tempo ?? 0;
-        sumAcoustic += t.acousticness ?? 0;
-      }
-      const count = rows.length;
-
-      return {
-        total: count,
-        average: {
-          danceability: +(sumDance / count).toFixed(3),
-          energy: +(sumEnergy / count).toFixed(3),
-          valence: +(sumValence / count).toFixed(3),
-          tempo: Math.round(sumTempo / count),
-          acousticness: +(sumAcoustic / count).toFixed(3),
-        },
-      };
-    } catch {
-      return { total: 0, average: { danceability: 0, energy: 0, valence: 0, tempo: 0, acousticness: 0 } };
-    }
-  }
-
   public audioFeatureAnalysisComparisonString(current: AudioFeaturesOverview, previous?: AudioFeaturesOverview): string {
     if (current.total === 0) return 'No audio features available.';
     const lines: string[] = [];
