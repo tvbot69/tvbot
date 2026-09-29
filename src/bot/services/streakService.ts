@@ -1,6 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { prisma } from '@persistence/prismaClient';
+import { Logger } from '@domain/logger';
 
 export interface StreakModel {
   artistName: string;
@@ -74,6 +75,22 @@ export class StreakService {
     }
 
     // If 50 reached and user has DB plays, check deeper
+    //
+    // The 50 from Last.fm is a real count, but a CAPPED one - which is why this
+    // deeper lookup exists. That distinction decides what a failure must do.
+    //
+    // The old code did `artistPlaycount = 0` BEFORE the loop and swallowed any
+    // error, so a dropped connection did not merely lose the deeper count: it
+    // DESTROYED the 50 that had already been measured and rendered "No active
+    // streak found." to someone with a 500-play streak. Two bugs in three lines -
+    // the reset placement, and treating a real lower bound as a default to throw
+    // away.
+    //
+    // A failure now leaves the Last.fm count intact and logs at WARN. That is
+    // NOT "log and return a default": the 50 is a genuine measurement from a
+    // different source, and it is a true lower bound, where 0 would be a false
+    // claim. Raising instead would take the whole streak command down over an
+    // enrichment that was optional to begin with.
     if (artistPlaycount === 50 && userId > 0) {
       try {
         const dbPlays = await prisma.userPlay.findMany({
@@ -81,19 +98,26 @@ export class StreakService {
           orderBy: { timePlayed: 'desc' },
           take: 500,
         });
-        artistPlaycount = 0;
+        let deeperCount = 0;
+        let deeperStart = streakStarted;
         for (const p of dbPlays) {
           if (p.artistName.toLowerCase() === lastPlay.artistName.toLowerCase()) {
-            artistPlaycount++;
-            if (p.timePlayed < streakStarted) {
-              streakStarted = p.timePlayed;
+            deeperCount++;
+            if (p.timePlayed < deeperStart) {
+              deeperStart = p.timePlayed;
             }
           } else {
             break;
           }
         }
-      } catch {
-        // ignore DB error
+        // Only replace the measured value once the deeper lookup actually ran.
+        artistPlaycount = deeperCount;
+        streakStarted = deeperStart;
+      } catch (err) {
+        Logger.warn(
+          { err: (err as Error)?.message ?? String(err), userId },
+          'Streak: deeper playcount lookup failed; keeping the Last.fm count, which is a real lower bound',
+        );
       }
     }
 
@@ -134,8 +158,17 @@ export class StreakService {
         genreName = artistWithGenre.genres[0].name;
         genrePlaycount = artistPlaycount;
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      // Genre is a pure ENRICHMENT: the streak itself is already counted above,
+      // and `genrePlaycount` only mirrors artistPlaycount when a genre was found.
+      // So a failure here costs one optional line in the embed, not the streak,
+      // and `genreName` stays null which the builder already treats as "omit".
+      // Logged rather than silently swallowed, because a user who suddenly has
+      // no genre line has no way to tell that from never having had one.
+      Logger.debug(
+        { err: (err as Error)?.message ?? String(err) },
+        'Streak: genre lookup failed; the genre line will be omitted',
+      );
     }
 
     const emoji = getEmojiForStreakCount(artistPlaycount);
