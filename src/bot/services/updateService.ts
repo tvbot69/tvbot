@@ -389,6 +389,17 @@ export class UpdateService {
       if (this.genreService) {
         const distinctArtists = [...new Set(newPlays.map(p => p.artistName))].slice(0, 8);
         for (const artistName of distinctArtists) {
+          // CORRECT AS IS: this is a fire-and-forget pre-warm of the genre
+          // ladder, so the `.catch` is not laundering a failure into an answer -
+          // it is the required sink for a promise nobody awaits, and re-throwing
+          // would only be an unhandled rejection. `getGenresForArtist` re-raises
+          // `LastFmUnavailableError` and, on that path, returns before its
+          // `cache.set(key, [], 600)` (`genreService.ts:221-230`), so the
+          // database and the cache are left exactly as they were: no empty genre
+          // row, no 10-minute "this artist has no genres" marker. The only thing
+          // lost is the warm cache, and the next `.genre <artist>` re-runs the
+          // ladder and either answers for real or raises for real. Nothing a
+          // later command reads is changed by this failure.
           void this.genreService.getGenresForArtist(artistName).catch(() => undefined);
         }
       }

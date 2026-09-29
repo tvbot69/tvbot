@@ -222,6 +222,14 @@ export class WhoKnowsCommands implements ITextCommandModule {
         .getSampleTrackForArtist(topListenerId, resolvedName)
         .catch(() => undefined);
       if (sampleTrack) {
+        // CORRECT AS IS. Same reasoning, same trade, and the same reason it is
+        // not the `.affinity` partial-success shape: `anchoredGenres` stays
+        // `undefined` on failure so the `!== undefined` guard below skips the
+        // assignment and the card keeps the genres the service already had. A
+        // genuine empty (`[]`) overwrites, so a real "no genres" and a failed
+        // read never collapse into the same value. The user sees the card minus
+        // one decoration; raising would delete a real leaderboard over a
+        // footer line that has no "could not load" affordance to render into.
         anchoredGenres = await container
           .resolve(GenreService)
           .getGenresForArtist(resolvedName, sampleTrack)

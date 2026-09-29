@@ -8,6 +8,7 @@ import { UserService } from '@bot/services/userService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { Logger } from '@domain/logger';
 import { AbuseFilterService } from '@bot/services/abuseFilterService';
 
@@ -177,7 +178,20 @@ export class CrownService {
 
   /**
    * Live holder playcount from Last.fm (artist.getInfo with username carries
-   * userplaycount). Null when unreachable or unknown — callers fail open.
+   * userplaycount). Null when Last.fm ANSWERED and there is no playcount to be
+   * had - that is a real empty and the caller fails open on it.
+   *
+   * A Last.fm that did not answer is not an empty: `getArtistInfo` raises
+   * `LastFmUnavailableError` for that, and swallowing it here returned the same
+   * `null` - so an outage read as "the holder is not ahead" and the steal below
+   * was written to the crown store. That is a permanent claim, naming the
+   * challenger as the holder and the real holder as dethroned, made on data the
+   * bot never managed to read. Re-thrown, so the throw lands on the who-knows
+   * boundary and the card shows no crown rather than a wrong one.
+   *
+   * The `errorRateTracker` kill switch above still covers the *global* outage
+   * case. It is not a substitute: it needs 20+ tracked calls and 25% errors, so
+   * a single scoped `artist.getinfo` failure sails straight past it.
    */
   private async getHolderLivePlaycount(
     artistName: string,
@@ -188,7 +202,10 @@ export class CrownService {
       const info = await this.lastfmRepository.getArtistInfo(artistName, holderLastFmUsername);
       const plays = info?.userPlayCount;
       return typeof plays === 'number' && Number.isFinite(plays) ? plays : null;
-    } catch {
+    } catch (err) {
+      if (isSourceUnavailable(err)) {
+        throw err;
+      }
       return null;
     }
   }

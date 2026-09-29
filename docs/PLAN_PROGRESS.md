@@ -7,7 +7,7 @@ before starting work. **Update this file at the end of every task**, before the 
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **4140 passed + 516 db skipped = 4656** (241 files) | — |
+| Tests | 1085 | **4244 passed + 516 db skipped = 4760** (256 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
 | Branch coverage | 68.6% claimed | **77.48%** | — |
 | `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 76** (budget 101) | <80 combined ✅ |
@@ -19,7 +19,7 @@ before starting work. **Update this file at the end of every task**, before the 
 | Lower layers importing `@bot/*` | 6+ | **0 value** / 4 type-only | 0 value |
 | `@ts-ignore` | 0 | **0** | 0 |
 | Lint errors | 143 | **0** (351 warnings) | 0 |
-| `silent-failure-default` | 604 | **526** (budget 604, may only fall) | non-increasing ✅ |
+| `silent-failure-default` | 604 | **523** (budget 604, may only fall) | non-increasing ✅ |
 | `raw-query-without-db-test` | — | **0** (mutation-checked) | 0 |
 
 > The `silent-failure-default` count is **not the target** — it counts catch blocks, not bugs, and
@@ -799,6 +799,67 @@ before starting work. **Update this file at the end of every task**, before the 
   `tsc --noEmit --incremental false` clean, `npm test` **4140 passed + 516 db skipped = 4656**
   (241 files), `npm run lint` **0 errors / 351 warnings**, `npm run debt` **526 vs budget 604**.
   An agent-reported number is not a measurement.
+- **A-tier 1h — the laundering audit** ✅ the queue kept asking "which callers launder a raise
+  their layer below now throws?", which is a question about a call graph. Built the roster of
+  everything that can now throw deliberately (48 methods / 17 files) and classified **every one
+  of its 235 call sites**: 59 swallow candidates, 160 already propagate, 16 re-throw. The
+  instrument was a throwaway AST sweep and was **deleted, not committed** — its receiver filter
+  was a name regex, and one bug in it (a lowercase path segment) truncated the roster to 12
+  methods. That is the detector-that-reports-zero failure mode, in a throwaway tool.
+  - 🐛 **The only site whose failure was PERSISTED, not rendered: `crownService`.** A Last.fm
+    outage made `getHolderLivePlaycount` return `null`, `null` read as "the holder is not ahead",
+    and `replaceCrown` wrote a row naming the **challenger** as holder and the **real holder** as
+    dethroned — announced, in both their names. `errorRateTracker` does not cover it: 20+ tracked
+    calls and 25% errors needed, so one scoped `artist.getinfo` failure sails past.
+  - 🐛 **`.exposed` fabricated an acquittal.** `null` renders `Status: Cleared` — "dug through the
+    database, cross-referenced the genre tables, and found zero secret guilty pleasures" — to a
+    real named person, during an outage. It fabricates the *search*, not just the result. Its
+    `genreService` calls are deliberately left **unwrapped** so a caller bug is not relabelled as
+    an outage; only the raw `db.*`/`playRepo` reads are.
+  - **`.addfriends` said "Could not find N users on Last.fm."** The previous commit fixed that
+    loop's abort-mid-way bug but filed the outage into `notFound`. Both properties now hold: the
+    loop finishes **and** the failure is not reported as an absence.
+  - **The fix had a hole, and the agent who found it did not paper over it.** The re-throws land
+    in `interactionHandler`'s catch-all, which gated on `!interaction.deferred` — and
+    `deferUpdate()` is what **every** paginator and nav button calls before reading, precisely to
+    beat the 3s ack window. So the gate discarded the throw in exactly the case it existed to
+    report: a slow outage, on a button. The three interaction files had traded "silent" for
+    "logged"; the user still saw nothing. Now `followUp` once deferred, and the message names the
+    source. 6 new tests; the load-bearing one is `expect(followUp).toHaveBeenCalled()`, which
+    fails against the old gate while the handler re-throws correctly in both versions.
+  - **A latent crash became reachable and was fixed at the source.**
+    `FriendBuilders.buildAddFriendsResultResponse` throws `Invalid string length` on three empty
+    lists (`setContent('')` is rejected by discord.js). Unreachable while every argument landed
+    in exactly one bucket; the new fourth bucket reaches it. Fixed in the builder, not worked
+    around in the one caller, because `friendSlashCommands` can still hit it. 2 red / 2 green.
+  - **Nine `// CORRECT AS IS` sites adjudicated, and two plan claims were FALSE** — recorded
+    because being wrong about a site you are *not* changing is the failure mode here. `topBuilders`
+    was never catching a Last.fm raise (it is a Postgres aggregate), and the sweep's one
+    `genreService` candidate is a `SpotifySearchApi` call. `fmFooterResolver`'s class comment also
+    overstates its own blast radius: both callers already `await getUserInfo` upstream, so the
+    real trigger is the DB aggregate, not Last.fm.
+  - **The agents found two bugs in their own work and reported them.** A `globalListeners ?? 0`
+    mutation **passed** because every test supplied both figures — the unreachable-mutation trap,
+    third strike, and the cure was a new test case rather than a deleted assertion. A crown
+    boundary test also passed *under mutation* because a `null` guild made the block unreachable.
+  - ⚠️ **The lead fixed 20 typecheck errors and 2 lint errors the batch produced.** The agents
+    were told not to run the gates. **A green `vitest` run is not a green build** — a partial
+    double missing a sibling property typechecks under esbuild and fails `tsc`, which is now the
+    standard shape of that failure.
+  - ⚠️ **I broke two things with a targeted `edit` during my own mutation cycle**, and the cause is
+    worth recording: `interactionHandler.ts` has three `isRepliable() && !interaction.replied`
+    guards, and a short `oldString` matched the **ackGuard** instead of the one I meant to mutate.
+    The result was a mutation that never ran, a revert that hit the wrong line, and one mangled
+    indentation. A mutation that cannot be reached proves nothing — same class as the unreachable
+    throw — and the tell was a test that stayed red *after* a revert. **Anchor an edit on a
+    neighbouring unique line, and re-read the file if a test disagrees with the revert.**
+  - ⚠️ **A mutation that is a syntax error reports "no tests", not a failure.** My first vacuity
+    mutation on the modal file was invalid TypeScript; vitest printed `Tests  no tests`, which in
+    this shell is indistinguishable from a pass. Redone as a clean deletion: **7 of 7 red**, which
+    is what proved that test file's module-level `TopInteractions` constructor call is load-bearing
+    (it registers modal handlers into a module registry) rather than dead code. ESLint wanted it
+    deleted; it is now `void new TopInteractions(...)` with the reason inline, and a comment
+    records the mutation so nobody removes it later.
 
 **Two detectors were themselves defective, and both were found by mutation rather than by reading.**
 

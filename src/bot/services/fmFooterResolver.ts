@@ -125,6 +125,8 @@ export class FmFooterResolver {
       tasks.push(
         (async () => {
           try {
+            // CORRECT AS IS: the failure leaves `artistPlays` undefined, which
+            // `footerBuilder` omits - it never becomes a rendered 0. Class doc.
             const artistsService = container.resolve(ArtistsService);
             const info = await artistsService.getArtistInfo(track.artistName, user.userNameLastFm);
             if (info?.userPlayCount !== undefined) {
@@ -150,6 +152,9 @@ export class FmFooterResolver {
       tasks.push(
         (async () => {
           try {
+            // CORRECT AS IS: as task 1 - an undefined field is an omitted
+            // clause, not a 0, and the `?? 0` below cannot leak either because
+            // the assignment is gated on `total > 0`. Class doc.
             const albumService = container.resolve(AlbumService);
             const info = await albumService.getAlbumInfo(track.artistName, track.albumName!, user.userNameLastFm);
             if (info?.userPlayCount !== undefined) {
@@ -173,6 +178,12 @@ export class FmFooterResolver {
       tasks.push(
         (async () => {
           try {
+            // CORRECT AS IS: as task 1 - whichever of `trackPlays` / `isLoved`
+            // had not been written yet stays absent. The love badge is
+            // presence-gated (`footerBuilder.ts:23` tests truthiness, never
+            // `!== undefined`) and has a second source in `opts.track.loved`
+            // from the recent-track payload, so an absent flag drops a badge or
+            // falls back to that. It never renders a false "not loved". Class doc.
             const trackService = container.resolve(TrackService);
             const info = await trackService.getTrackInfo(track.name, track.artistName, user.userNameLastFm);
             if (info) {

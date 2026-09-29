@@ -14,6 +14,7 @@ import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { prisma } from '@persistence/prismaClient';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { Logger } from '@domain/logger';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
 @injectable()
 export class ArtistInteractions {
@@ -311,6 +312,23 @@ export class ArtistInteractions {
       }
     } catch (err) {
       Logger.error({ err }, 'Artist interaction failed');
+      // The reads in this handler RAISE rather than return a default:
+      // `genreService.getGenresForArtist` and `lastfmRepository.getArtistInfo`
+      // raise `LastFmUnavailableError` on a source outage (both deliberately
+      // re-throw rather than cache "no genres" / "no artist"), and the
+      // `artistTrackService` reads surface a `SourceUnavailableError` if the
+      // database layer ever raises one. This single catch covers every branch in
+      // this handler, and it used to launder all of those raises into
+      // the same thing the user sees as a dead button: press a nav button or a
+      // page arrow, the card does not change, and nothing anywhere says why.
+      // Narrowed so the deliberate failure propagates to
+      // `interactionHandler.onInteractionCreated`, a real boundary that answers
+      // the presser; a genuine query failure still degrades to the unchanged
+      // message. Same narrowing as
+      // `countrySlashCommands.handleTopCountriesSlash`.
+      if (isSourceUnavailable(err)) {
+        throw err;
+      }
       await interaction.deferUpdate().catch(() => undefined);
     }
   }

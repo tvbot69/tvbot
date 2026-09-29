@@ -5,6 +5,7 @@ import { PlayHistoryService } from '@bot/services/playHistoryService';
 import { ArtworkService } from '@bot/services/artworkService';
 import { ColorService } from '@bot/services/colorService';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 
 @injectable()
@@ -92,7 +93,20 @@ export class PlaycountInteractions {
       );
 
       await interaction.update(response.toMessagePayload() as Parameters<typeof interaction.update>[0]);
-    } catch {
+    } catch (err) {
+      // `lastfmRepo.getUserInfo` RAISES `LastFmUnavailableError` on anything
+      // that is not a genuine "no such user", precisely so a 5xx cannot be read
+      // as a deleted account. Swallowing it here undid that: the reroll button
+      // simply did nothing, and the two honest absences below it -
+      // `!userInfo` and `playCount < 1` - both defer the update the same way,
+      // so the user could not tell an unreachable Last.fm from a listener with
+      // no plays. Narrowed so the deliberate signal reaches
+      // `interactionHandler.onInteractionCreated`; a genuine query failure
+      // still degrades. Same narrowing as
+      // `countrySlashCommands.handleTopCountriesSlash`.
+      if (isSourceUnavailable(err)) {
+        throw err;
+      }
       await interaction.deferUpdate().catch(() => undefined);
     }
   }

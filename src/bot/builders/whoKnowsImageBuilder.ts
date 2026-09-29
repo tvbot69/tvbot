@@ -204,6 +204,14 @@ export const buildWhoKnowsImageResponse = async (args: {
                 metadata.topItemValue = albumTracks[0];
               }
             } catch {
+              // CORRECT AS IS. Everything this block can contribute is a track
+              // NAME for the info box; a failure leaves the list shorter and
+              // the generator omits the row entirely (`hasTop`/`hasTopList` are
+              // both false). The image's real figures - `globalPlays`,
+              // `globalListeners` and every per-user playcount - arrive through
+              // `args.metadata`/`args.users` from the command layer and are
+              // never read here, so no number on the card can be wrong because
+              // of this catch. There is no "could not load" affordance in a PNG.
               // ignore
             }
           }
@@ -247,6 +255,17 @@ export const buildWhoKnowsImageResponse = async (args: {
                     }
                   }
                 } catch {
+                  // CORRECT AS IS. This rung only contributes track NAMES to the
+                  // info box and album NAMES as mosaic tile sources. On failure
+                  // the box is simply shorter and the mosaic falls back to
+                  // whatever the Spotify and indexed-covers rungs already
+                  // returned, then to the placeholder tile the generator itself
+                  // substitutes. No number on the card derives from here: the
+                  // plays/listeners figures come in via `args.metadata` and
+                  // `args.users` from the command layer. An image has no
+                  // "could not load" affordance to render into, so raising
+                  // would only delete a real card. Same trade as
+                  // `topBuilders` and `fmFooterResolver`.
                   // ignore
                 }
               }
@@ -262,6 +281,10 @@ export const buildWhoKnowsImageResponse = async (args: {
                     }
                   }
                 } catch {
+                  // CORRECT AS IS. See the note on the caller's own top-albums
+                  // catch above: a missing global rung shortens the track-name
+                  // list and nothing else, and the real figures on the card
+                  // never pass through here.
                   // ignore
                 }
               }
@@ -328,6 +351,11 @@ export const buildWhoKnowsImageResponse = async (args: {
                   }
                 }
               } catch {
+                // CORRECT AS IS. Last rung of the mosaic: contributes album
+                // NAMES as tile sources only. The number of tiles rendered is
+                // fixed at 10 by the generator and gaps fall back to its
+                // placeholder, so a failure here changes the artwork, never a
+                // figure.
                 // ignore
               }
 

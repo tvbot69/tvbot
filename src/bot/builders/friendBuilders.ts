@@ -224,7 +224,14 @@ export class FriendBuilders {
       }
     }
 
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bodyLines.join('\n')));
+    // Only when there is something to say. `setContent('')` throws
+    // "Invalid string length" inside discord.js, so a caller that can legitimately
+    // produce three empty lists crashes before the user sees anything - the card
+    // is a report of an outcome, and "no outcome was recorded" is not one of the
+    // three outcomes it knows how to print.
+    if (bodyLines.length > 0) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bodyLines.join('\n')));
+    }
 
     const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()

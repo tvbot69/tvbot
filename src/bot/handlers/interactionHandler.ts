@@ -7,6 +7,8 @@ import {
   type Interaction,
 } from 'discord.js';
 import { Logger } from '@domain/logger';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
 import { Statistics } from '@domain/statistics';
 import { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
@@ -352,10 +354,28 @@ export class InteractionHandler {
       }
     } catch (err) {
       Logger.error({ err }, 'Unhandled exception in interactionHandler');
-      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-        await interaction
-          .reply({ content: 'Sorry, something went wrong while processing this interaction.', flags: MessageFlags.Ephemeral })
-          .catch(() => undefined);
+      if (interaction.isRepliable() && !interaction.replied) {
+        // `deferred` is NOT an answer, and gating on it made the gate defeat the
+        // fix that relies on it. Every paginator and nav button calls
+        // `deferUpdate()` BEFORE it reads anything - precisely so the press has
+        // a visible acknowledgement while a slow source is consulted - so the
+        // one case that most needed a reply (a press that failed halfway
+        // through) was the one case that got silence. `followUp` is the correct
+        // verb once deferred.
+        //
+        // A deliberate source failure also gets a message that names itself.
+        // `LastFmUnavailableError` is re-parented onto `SourceUnavailableError`,
+        // so this one check separates "the database is down, retry" from
+        // "something is wrong, report it", and a defect still reads as a defect.
+        const sourceDown = isSourceUnavailable(err);
+        const content = sourceDown
+          ? `Could not reach ${isLastFmUnavailable(err) ? 'Last.fm' : 'the database'}. Please try again in a moment.`
+          : 'Sorry, something went wrong while processing this interaction.';
+        const flags = MessageFlags.Ephemeral;
+        await (interaction.deferred
+          ? interaction.followUp({ content, flags })
+          : interaction.reply({ content, flags })
+        ).catch(() => undefined);
       }
     } finally {
       if (ackGuard) clearTimeout(ackGuard);

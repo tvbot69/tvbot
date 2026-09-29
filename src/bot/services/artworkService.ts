@@ -453,6 +453,15 @@ export class ArtworkService {
     if (!result) {
       let answered = false;
       try {
+        // CORRECT AS IS: no raise. Last.fm is the LAST of five rungs here
+        // (Spotify, Deezer, Apple web, iTunes, Last.fm), and the catch below
+        // pushes an attempt, so the `attempts.length === 0` gate that writes the
+        // 'none' marker is unreachable on this path - an outage is never
+        // remembered as "this album has no cover", and nothing at all is cached
+        // when it happens, so the next lookup re-runs the whole cascade. The
+        // user sees the same embed minus the picture, and no number moves: a
+        // null cover only drops the image and the accent colour it fed
+        // (`colorService.getColorFromImageUrl` answers a null with a constant).
         const info = await this.lastfmRepository.getAlbumInfo(artistName, cleanAlbum);
         const lfmUrl = info?.imageUrl ?? null;
         if (isValidImageUrl(lfmUrl)) {
@@ -677,6 +686,12 @@ export class ArtworkService {
     if (!result) {
       let answered = false;
       try {
+        // CORRECT AS IS: no raise, same shape as the album ladder above. Last.fm
+        // is the fourth and last rung (Spotify, DB rows, Deezer, Apple web,
+        // Last.fm), the catch pushes an attempt so the 'none' marker stays
+        // unreachable on a throw, and the `answered` flag exists for the OTHER
+        // case: a Last.fm that answered "no such artist" while the shared error
+        // tracker is elevated, which must not become a definitive miss either.
         const info = await this.lastfmRepository.getArtistInfo(artistName);
         answered = info !== null;
         if (info?.name && info.name.toLowerCase() !== artistName.toLowerCase()) {
@@ -837,6 +852,13 @@ export class ArtworkService {
       try {
         // Last.fm indexes the clean title; the raw one carries "(Official
         // Video)"-style cruft that the strict gate then rejects anyway.
+        // CORRECT AS IS: no raise, same shape as the two ladders above. This is
+        // the last of five rungs, and the catch pushes an attempt, so the
+        // bottom gate writes 'inconclusive' (a 90s backoff) rather than 'none' -
+        // the deliberate outcome for a run that never learned whether the cover
+        // exists. `answered` being unset costs the `lastfm:outage` push, which
+        // the attempt already covers. Nothing about the degradation is a number:
+        // the caller gets `null` and draws no thumbnail.
         const info = await this.lastfmRepository.getTrackInfo(cleanTrack, cleanArtist);
         if (info?.albumName) {
           answered = true;

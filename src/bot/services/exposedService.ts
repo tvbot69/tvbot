@@ -4,6 +4,7 @@ import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import { GenreService } from './genreService';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { Logger } from '@domain/logger';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import type { User } from '@domain/interfaces/iuserRepository';
 
 export interface GuiltyPleasureItem {
@@ -40,6 +41,56 @@ export const ROAST_QUOTES = [
   'Bro was listening to this in incognito mode with the brightness at 0%.',
   'Bro was practicing the choreography in the mirror, do not lie.',
 ];
+
+/**
+ * A query that could not run is not a query that found nothing.
+ *
+ * Both public methods here ended every read in `catch { return null }`, and
+ * `null` is not a neutral answer in this file: `generateReport` returning null
+ * renders `ExposedBuilders.buildCleanRecordResponse`, which tells a real,
+ * named person that the bot "dug through the database, cross-referenced the
+ * genre tables, and found zero secret guilty pleasures" and stamps the footer
+ * `Status: Cleared`. A dropped connection therefore produced a confident,
+ * cheerful, fabricated acquittal - and fabricated a claim about the search
+ * process itself, not just about the result.
+ *
+ * SCOPE, AND WHY IT IS ONLY THE RAW READS
+ * ---------------------------------------
+ * The `genreService` calls are deliberately NOT wrapped. `genreService` raises
+ * `SourceUnavailableError` itself the moment one of its own queries cannot run,
+ * so it needs nothing from here; wrapping it would relabel a genuine bug (a bad
+ * argument, a typo) as "Database unavailable" and send whoever reads the log to
+ * Postgres when the fault is upstream of it. That is the `BigInt`/`SyntaxError`
+ * rule from `musicIntelligenceService` and it applies just as much here.
+ * Those calls reach the method catch bare and propagate through the
+ * `isSourceUnavailable` narrowing, which is the whole point of the narrowing.
+ *
+ * The `this.db.*` and `playRepo` reads ARE wrapped, because they throw raw
+ * Prisma errors that are not `SourceUnavailableError` - and those are the most
+ * ordinary outage there is. Without the wrapper a narrowed catch would still
+ * render the false all-clear on exactly the failure it was added to prevent,
+ * which is the "raise was inert on arrival" trap from A-tier 1f/1g.
+ *
+ * `userArtist.findMany` is a bounded `findMany` and `userPlay.count` is a
+ * `count`, so a genuine absence succeeds with fewer rows rather than erroring.
+ * Empty is therefore the honest answer and an error is always an error. These
+ * are fixed parametrised queries with no malformed-argument path, so classifying
+ * a throw from them as an outage is safe.
+ */
+const orDatabaseUnavailable = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    // Preserve the original raise rather than re-wrapping it: the label the
+    // lower layer chose names the query that actually failed.
+    if (isSourceUnavailable(err)) throw err;
+    Logger.error(
+      { query: `exposedService:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in exposedService (${label}); refusing to render it as a clean record`,
+    );
+    throw new SourceUnavailableError(`exposedService:${label}`, err, 'Database unavailable');
+  }
+};
 
 const POP_AND_GUILTY_GENRES = new Set([
   'pop',
@@ -85,7 +136,9 @@ export class ExposedService {
   public async generateReport(user: User, displayName: string): Promise<ExposedReport | null> {
     try {
       // 1. Establish the user's public persona from top artists & genres
-      const topArtists = await this.playRepo.getTopArtists(user.userId, undefined, 10);
+      const topArtists = await orDatabaseUnavailable('generateReport.playRepo.getTopArtists', () =>
+        this.playRepo.getTopArtists(user.userId, undefined, 10),
+      );
       if (!topArtists || topArtists.length === 0) {
         return null;
       }
@@ -99,14 +152,16 @@ export class ExposedService {
       const publicArtistNames = topArtists.slice(0, 4).map((a) => a.name);
 
       // 2. Fetch all user artists outside their top 15
-      const candidateArtists = await this.db.userArtist.findMany({
-        where: {
-          userId: user.userId,
-          playcount: { gte: 2, lte: 250 }, // Not their main #1 artist, but repeatedly listened to
-        },
-        orderBy: { playcount: 'desc' },
-        take: 60,
-      });
+      const candidateArtists = await orDatabaseUnavailable('generateReport.userArtist.findMany', () =>
+        this.db.userArtist.findMany({
+          where: {
+            userId: user.userId,
+            playcount: { gte: 2, lte: 250 }, // Not their main #1 artist, but repeatedly listened to
+          },
+          orderBy: { playcount: 'desc' },
+          take: 60,
+        }),
+      );
 
       if (candidateArtists.length === 0) {
         return null;
@@ -151,11 +206,13 @@ export class ExposedService {
 
       // If no extreme divergence found, check recent plays for loop anomalies
       if (guiltyPleasures.length === 0) {
-        const recentPlays = await this.db.userPlay.findMany({
-          where: { userId: user.userId },
-          orderBy: { timePlayed: 'desc' },
-          take: 30,
-        });
+        const recentPlays = await orDatabaseUnavailable('generateReport.userPlay.findMany', () =>
+          this.db.userPlay.findMany({
+            where: { userId: user.userId },
+            orderBy: { timePlayed: 'desc' },
+            take: 30,
+          }),
+        );
 
         const counts = new Map<string, { count: number; track: string }>();
         for (const p of recentPlays) {
@@ -199,6 +256,21 @@ export class ExposedService {
         shameScore,
       };
     } catch (err) {
+      // The reads above already raise `SourceUnavailableError`, so reaching
+      // here with one means something below the wrapper threw, not that the
+      // question went unanswered. Re-throwing keeps a genuine source failure
+      // distinguishable from the three legitimate `return null` paths above
+      // (no top artists, no candidates, no divergence) - the only paths that
+      // may render "Status: Cleared". An unexpected error still degrades
+      // quietly, because a crash in the ranking arithmetic is a bug to fix and
+      // not a fact about the user.
+      if (isSourceUnavailable(err)) {
+        Logger.error(
+          { userId: user.userId, err: (err as Error)?.message ?? String(err) },
+          '[ExposedService] Source unavailable; refusing to report a clean record',
+        );
+        throw err;
+      }
       Logger.warn({ err, userId: user.userId }, '[ExposedService] Failed to generate report');
       return null;
     }
@@ -228,7 +300,9 @@ export class ExposedService {
     }
 
     try {
-      const topArtists = await this.playRepo.getTopArtists(user.userId, undefined, 10);
+      const topArtists = await orDatabaseUnavailable('checkLiveNowPlayingAnomaly.playRepo.getTopArtists', () =>
+        this.playRepo.getTopArtists(user.userId, undefined, 10),
+      );
       if (!topArtists || topArtists.length < 3) return null;
 
       // Check if current artist is one of their top 15 artists
@@ -254,12 +328,14 @@ export class ExposedService {
       }
 
       // Check if user has played this track or artist multiple times recently
-      const recentPlays = await this.db.userPlay.count({
-        where: {
-          userId: user.userId,
-          artistName: { equals: currentArtist, mode: 'insensitive' },
-        },
-      });
+      const recentPlays = await orDatabaseUnavailable('checkLiveNowPlayingAnomaly.userPlay.count', () =>
+        this.db.userPlay.count({
+          where: {
+            userId: user.userId,
+            artistName: { equals: currentArtist, mode: 'insensitive' },
+          },
+        }),
+      );
 
       if (recentPlays < 2) {
         return null; // Needs at least 2 plays to prove it wasn't a 1-off accidental scrobble
@@ -276,6 +352,21 @@ export class ExposedService {
         matchedGenre: matchedGuiltyTag,
       };
     } catch (err) {
+      // Unlike `generateReport`, a `null` here does NOT render a claim about
+      // the user: the caller (`playCommands.ts:209`) only appends the
+      // "CAUGHT IN 4K" line when this is non-null, and the `.fm` card it
+      // decorates is built from Last.fm data that is entirely real. So the
+      // failure costs a bonus line, not a fact. The caller at
+      // `playCommands.ts:212` is the real boundary and deliberately fails
+      // over, which is why re-throwing here is safe and why the deliberate
+      // raise must not be laundered into "no anomaly found" on the way there.
+      if (isSourceUnavailable(err)) {
+        Logger.debug(
+          { err: (err as Error)?.message ?? String(err) },
+          '[ExposedService] Live anomaly check could not read a source; skipping the bonus line',
+        );
+        throw err;
+      }
       Logger.debug({ err }, '[ExposedService] Live anomaly check error');
       return null;
     }

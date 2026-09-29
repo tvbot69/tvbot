@@ -99,6 +99,18 @@ export class WhoKnowsArtistService {
 
     let genres: string[] | undefined;
     if (this.genreService) {
+      // CORRECT AS IS. `genres` here is a DECORATION on an otherwise complete
+      // card, and the only thing a failure can do to it is make it absent:
+      // `whoKnowsBuilders` renders the tag line only when the list is non-empty
+      // and has no "genres could not load" affordance, so a dropped connection
+      // produces a leaderboard of real people with real playcounts and one
+      // fewer footer line - never a wrong number and never a fabricated
+      // "this artist has no genres" claim, because nothing renders that.
+      // `getFilteredUsersForArtist` is called directly from the `.whoknows`
+      // handlers, so raising would delete the whole card over that line, which
+      // is the worse lie in the other direction. Same trade as
+      // `fmFooterResolver`. The two command modules that re-read genres with a
+      // track anchor carry the same reasoning at their own catch sites.
       try { genres = await this.genreService.getGenresForArtist(artistName, sampleTrack); } catch { genres = undefined; }
     }
 

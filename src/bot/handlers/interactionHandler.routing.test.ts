@@ -14,6 +14,8 @@ import { FRIEND_BUTTON_PREFIXES } from '@bot/interactions/friendInteractions';
 import { MUSIC_INTERACTION_PREFIXES } from '@bot/interactions/musicInteractions';
 import { TRACK_PREVIEW_PREFIX } from '@bot/interactions/trackPreviewInteractions';
 import { InteractionHandler } from './interactionHandler';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 
 /**
  * interactionHandler.routing.test.ts
@@ -1153,6 +1155,115 @@ describe('InteractionHandler unhandled component failure', () => {
     deps.helpInteractions.handleButton.mockRejectedValue(new Error('handler blew up'));
     const interaction = makeButton('help:home');
     interaction.isRepliable = () => false;
+
+    await expect(dispatch(handler, interaction)).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * The outer catch is the boundary that makes re-throwing worth anything.
+ *
+ * The interaction modules fixed in the last round (`topInteractions`,
+ * `artistInteractions`, `playcountInteractions`) now re-throw a deliberate
+ * source failure instead of degrading to a dead button - and this boundary is
+ * the only thing that turns that throw into something the presser sees.
+ *
+ * It used to gate on `!interaction.deferred` as well as `!interaction.replied`,
+ * which is precisely backwards: every paginator and nav button calls
+ * `deferUpdate()` BEFORE it reads anything, precisely so a slow source does not
+ * blow the 3s acknowledgement window. So the interaction that most needed a
+ * reply was the one that got silence, and the re-throw bought a Railway log
+ * line and nothing else. `followUp` is the correct verb once deferred.
+ */
+describe('InteractionHandler unhandled-failure boundary', () => {
+  const lastFmDown = () => new LastFmUnavailableError('user.gettopartists', new Error('Last.fm returned HTTP 500'));
+  const databaseDown = () => new SourceUnavailableError('genreService.getGenres', new Error('ECONNREFUSED'), 'Database unavailable');
+
+  /** A button that has already deferred - the paginator case, exactly. */
+  const deferredButton = (dep: 'helpInteractions' | 'playcountInteractions', err: Error) => {
+    const { handler, deps } = build();
+    if (dep === 'helpInteractions') {
+      deps.helpInteractions.handleButton.mockRejectedValue(err);
+    } else {
+      deps.playcountInteractions.handleButton.mockRejectedValue(err);
+    }
+    const interaction = makeButton(dep === 'helpInteractions' ? 'help:home' : 'milestone:reroll:x');
+    interaction.state.deferred = true;
+    return { handler, interaction };
+  };
+
+  const followUpContent = (interaction: ReturnType<typeof makeButton>): string => {
+    const payload = interaction.followUp.mock.calls[0]?.[0] as { content: string } | undefined;
+    return payload?.content ?? '';
+  };
+
+  it('answers a DEFERRED button with an ephemeral followUp, not silence', async () => {
+    // The load-bearing assertion. `expect(followUp).toHaveBeenCalled()` is what
+    // fails against the old `!interaction.deferred` gate, and it fails for the
+    // right reason: the handler re-threw correctly in both versions.
+    const { handler, interaction } = deferredButton('helpInteractions', lastFmDown());
+
+    await dispatch(handler, interaction);
+
+    expect(interaction.reply).not.toHaveBeenCalled();
+    expect(interaction.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({ flags: MessageFlags.Ephemeral }),
+    );
+    expect(followUpContent(interaction)).toMatch(/Last\.fm/);
+  });
+
+  it('names the database rather than Last.fm when that is what failed', async () => {
+    // Sending the operator to the wrong status page is its own kind of lie.
+    const { handler, interaction } = deferredButton('playcountInteractions', databaseDown());
+
+    await dispatch(handler, interaction);
+
+    expect(followUpContent(interaction)).toContain('the database');
+    expect(followUpContent(interaction)).not.toMatch(/Last\.fm/);
+  });
+
+  it('still describes a genuine defect as a defect', async () => {
+    // Reporting a TypeError as "Last.fm is unreachable, try again" tells the
+    // user to retry a request that can never succeed, and hides the bug.
+    const { handler, interaction } = deferredButton('helpInteractions', new TypeError('x is not a function'));
+
+    await dispatch(handler, interaction);
+
+    const content = followUpContent(interaction);
+    expect(content).toMatch(/went wrong/i);
+    expect(content).not.toMatch(/Last\.fm|database/);
+  });
+
+  it('uses reply, not followUp, when the interaction was never deferred', async () => {
+    // Proves the change is not a blanket switch of verb.
+    const { handler, deps } = build();
+    deps.helpInteractions.handleButton.mockRejectedValue(lastFmDown());
+    const interaction = makeButton('help:home');
+
+    await dispatch(handler, interaction);
+
+    expect(interaction.followUp).not.toHaveBeenCalled();
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ flags: MessageFlags.Ephemeral }),
+    );
+  });
+
+  it('says nothing at all when the interaction was already replied to', async () => {
+    // A second reply throws at Discord and would mask the original failure.
+    const { handler, deps } = build();
+    deps.helpInteractions.handleButton.mockRejectedValue(lastFmDown());
+    const interaction = makeButton('help:home');
+    interaction.state.replied = true;
+
+    await dispatch(handler, interaction);
+
+    expect(interaction.reply).not.toHaveBeenCalled();
+    expect(interaction.followUp).not.toHaveBeenCalled();
+  });
+
+  it('never throws out of the boundary when the follow-up itself fails', async () => {
+    const { handler, interaction } = deferredButton('helpInteractions', lastFmDown());
+    interaction.followUp.mockRejectedValue(new Error('Unknown Message'));
 
     await expect(dispatch(handler, interaction)).resolves.toBeUndefined();
   });

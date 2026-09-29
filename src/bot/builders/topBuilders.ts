@@ -64,6 +64,19 @@ async function resolveBackgroundCovers(
           if (!hint && deps.artistsService) {
             try {
               const artistsService = deps.artistsService;
+              // CORRECT AS IS: no raise. The result feeds `hint` and nothing
+              // else, and the cover lookup below runs either way - without a
+              // hint it is the name-only discography query, which is exactly
+              // what this block already does whenever no sample track exists.
+              // Everything the card renders as data (the rank list, total
+              // plays, avg/album, the rows) is computed from `topAlbums` and
+              // these covers go in as `backgroundCovers` only; dropping them
+              // leaves a correct image. Worth naming the source: the raise
+              // `getTopTracksForArtistGlobal` produces is `SourceUnavailableError`
+              // from `orDatabaseUnavailable` around a raw prisma query - a
+              // DATABASE outage, not a Last.fm one. And each caller of this
+              // function already sits inside a try that logs and falls back to
+              // the embed, so raising would cost the image mode, not save it.
               const globalTop = await artistsService.getTopTracksForArtistGlobal(topArtist, 1);
               hint = globalTop[0]?.name;
             } catch {

@@ -52,6 +52,18 @@ export class ArtistTrackInteractions {
     const user = await userService.getUserByDiscordId(targetUserId) ?? await userService.getUserByDiscordId(interaction.user.id);
     if (!user) { await interaction.reply({ content: 'Not registered.', flags: MessageFlags.Ephemeral }).catch(() => undefined); return; }
 
+    // CORRECT AS IS: this read is deliberately UNPROTECTED, and the asymmetry
+    // with `ArtistInteractions` is the point. `artistTrackService.getTopTracksForArtist`
+    // raises rather than returning an empty track list, and nothing here catches
+    // it, so the failure propagates to `interactionHandler.onInteractionCreated`
+    // - a real boundary that answers the presser ephemerally ("Sorry, something
+    // went wrong while processing this interaction"), or lets Discord's own
+    // "This interaction failed" stand if the ack guard already fired. Either way
+    // the user is told. A local `catch { deferUpdate() }` - the shape
+    // `artistInteractions` and `playcountInteractions` used to have - converts
+    // that into a card that silently does not move, which is indistinguishable
+    // from "this artist has no indexed plays". Left alone: adding a catch here
+    // would be the bug, not the fix.
     const tracks = await this.artistTrackService.getTopTracksForArtist(user.userId, artistName);
     const totalPlays = await this.artistTrackService.getTotalArtistPlays(user.userId, artistName);
     const distinct = await this.artistTrackService.getDistinctTrackCount(user.userId, artistName);

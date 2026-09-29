@@ -251,8 +251,21 @@ export class CountryCommands implements ITextCommandModule {
       if (typeof artistInfo?.userPlayCount === 'number') {
         playcount = artistInfo.userPlayCount;
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      // THE PARTIAL-SUCCESS CASE, and the reason this one was missed while the
+      // two handlers above were fixed. The country, the flag and the artwork on
+      // this card come from MusicBrainz and our own database and are real, so
+      // the card still renders complete - and it renders complete for a user
+      // who genuinely has never played the artist, because
+      // `buildArtistCountryInfoResponse` drops the playcount clause at 0. A
+      // Last.fm outage therefore produced a confident, unremarkable card that
+      // was byte-identical to "you have 0 plays of this artist", with nothing
+      // on it to say the source could not be read. The deliberate signal is
+      // re-thrown so the command boundary names the failure; only a genuine
+      // query failure degrades. Same narrowing as the two handlers above.
+      if (isSourceUnavailable(err)) {
+        throw err;
+      }
     }
 
     return CountryBuilders.buildArtistCountryInfoResponse({

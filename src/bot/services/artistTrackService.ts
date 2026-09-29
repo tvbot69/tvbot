@@ -166,6 +166,10 @@ export class ArtistTrackService {
   }
 
   public async getDistinctTrackCount(userId: number, artistName: string): Promise<number> {
+    // CORRECT AS IS, and deliberately UNGUARDED - unlike the two calls in
+    // `getSampleTrackForArtist` below, this one is a number the user reads, so a
+    // failed read must propagate. There is no catch here to adjudicate: a
+    // prisma failure surfaces as a command error rather than as "0 tracks".
     const tracks = await this.getTopTracksForArtist(userId, artistName);
     return tracks.length;
   }
@@ -181,6 +185,19 @@ export class ArtistTrackService {
     artistName: string,
     fallbackUserId?: number,
   ): Promise<string | undefined> {
+    // CORRECT AS IS: the sample track is a PRECISION ANCHOR for external
+    // metadata (artwork, genres), never a number the user reads. Naming the
+    // source first, because it is not what the raise-sweep assumed:
+    // `getTopTracksForArtist` is a pure prisma read (line 40) and raises nothing
+    // on a Last.fm outage - there is no `SourceUnavailableError` to swallow
+    // here. The try exists for the LADDER: a failed read of the caller's own top
+    // track must still get its turn at the fallback user's, and a total miss
+    // returns `undefined` rather than rejecting. Every caller already treats
+    // `undefined` as "no anchor" and re-catches the call anyway
+    // (`whoKnowsSlashCommands.ts:250`), falling back to name-only resolution -
+    // the same answer this returns when the user simply has no plays. The
+    // playcounts on the who-knows card come from `whoKnowsRepository`
+    // (`whoKnowsArtistService.ts:54`), not from this read.
     try {
       const mine = await this.getTopTracksForArtist(userId, artistName);
       if (mine[0]?.name) return mine[0].name;

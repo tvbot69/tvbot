@@ -1,4 +1,5 @@
 import { container } from 'tsyringe';
+import { TextDisplayBuilder } from 'discord.js';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
@@ -10,6 +11,8 @@ import { ArtworkService } from '@bot/services/artworkService';
 import { ColorService } from '@bot/services/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { CommandResponse } from '@domain/enums/commandResponse';
 import { Logger } from '@domain/logger';
 import { FriendType } from '@domain/enums/friendType';
 
@@ -171,6 +174,11 @@ export class FriendsCommands implements ITextCommandModule {
     const added: Array<{ name: string; type: FriendType; friendId: number }> = [];
     const notFound: string[] = [];
     const alreadyFriends: Array<{ name: string; type: FriendType; friendId: number }> = [];
+    // Names we could not check, kept apart from `notFound` on purpose. Last.fm
+    // being down says nothing about whether these people exist, and reporting
+    // them as missing is the exact claim `user.getinfo` raising exists to stop
+    // the bot from making.
+    const unreachable: string[] = [];
 
     for (const rawArg of args) {
       let targetUsername = rawArg.replace(/[<@!>]/g, '').trim();
@@ -196,10 +204,22 @@ export class FriendsCommands implements ITextCommandModule {
       // written to the database - leaving the user with friends added and no
       // confirmation of it. One bad minute must not lose the result of a
       // multi-add, so the failure is per-argument.
+      //
+      // BUT per-argument must not become "indistinguishable from not-found".
+      // The previous version pushed the name into `notFound`, and the builder
+      // renders that list as "Could not find N users on Last.fm" - a confident
+      // claim that real people do not exist, made while Last.fm was down and
+      // nobody had asked it. They were also silently not added. The loop still
+      // runs to completion; the failure is just no longer filed as an absence.
       let lfmInfo;
       try {
         lfmInfo = await this.lastfmRepository.getUserInfo(targetUsername);
       } catch (err) {
+        if (isSourceUnavailable(err)) {
+          Logger.error({ err, target: targetUsername }, 'addfriends: Last.fm unreachable');
+          unreachable.push(targetUsername);
+          continue;
+        }
         Logger.error({ err, target: targetUsername }, 'addfriends: Last.fm lookup failed');
         notFound.push(targetUsername);
         continue;
@@ -220,7 +240,43 @@ export class FriendsCommands implements ITextCommandModule {
       existingLfmSet.add(targetUsername.toLowerCase());
     }
 
-    return FriendBuilders.buildAddFriendsResultResponse(context, added, notFound, alreadyFriends);
+    const nothingWasChecked =
+      added.length === 0 && notFound.length === 0 && alreadyFriends.length === 0;
+
+    if (unreachable.length > 0 && nothingWasChecked) {
+      // Every argument went into `unreachable`, so the builder would be handed
+      // three empty lists - and it joins those into `''`, which
+      // `TextDisplayBuilder.setContent` rejects outright ("Invalid string
+      // length"), throwing before the user sees anything. It is not a file this
+      // change owns, so the all-empty case is answered here instead: there is
+      // genuinely nothing the add-result card has to say.
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Could not check ${unreachable.length} user${unreachable.length === 1 ? '' : 's'} on Last.fm — ` +
+          `Last.fm is unreachable right now.\n` +
+          `${unreachable.map((n) => `\`${n}\``).join(', ')}\n` +
+          '*Nobody was added. This is not a "no such user" answer — try again in a minute.*',
+      );
+    }
+
+    const response = FriendBuilders.buildAddFriendsResultResponse(context, added, notFound, alreadyFriends);
+    if (unreachable.length > 0) {
+      // The builder's "Could not find" list is already rendered by this point,
+      // and it correctly does not mention the unreachable names. They still
+      // have to be accounted for: a bare "Added 1 friend" and silence about
+      // the other two is the same lie from the other direction. Appended as a
+      // separate line naming them as unchecked, not as missing.
+      const names = unreachable.map((n) => `\`${n}\``).join(', ');
+      response.componentsV2Container?.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          `**${unreachable.length} user${unreachable.length === 1 ? '' : 's'} could not be checked — Last.fm was unreachable:**\n` +
+          `- ${names}\n` +
+          `*They were not added. This is not a "no such user" answer — try again in a minute.*`,
+        ),
+      );
+      response.commandResponse = CommandResponse.Error;
+    }
+    return response;
   }
 
   private async removeFriendsAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {

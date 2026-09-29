@@ -436,6 +436,96 @@ now produces a visible error instead of an empty taste table" is a claim about c
 it in production means watching the Railway log during an actual outage. The memory peak is
 still not measured. The 516 db tests still skip locally.
 
+### A-tier 1h — the laundering audit, and the boundary that ate the fix
+
+The queue above kept saying "the raise was inert on arrival", which is a question about a
+**call graph**, not about a file. So: build the list of everything that can now throw
+deliberately (48 methods across 17 files), find every call site of each, and classify what each
+site does with the throw. The instrument was a throwaway AST sweep — a `try` whose catch has no
+`throw` in it, or a chained `.catch()` whose handler returns a default, is a laundering site.
+**235 call sites: 59 candidates, 160 already propagate, 16 re-throw.** It was deleted rather
+than committed — the receiver filter was a name regex and one bug in it (a lowercase path
+segment) silently truncated the roster to 12 methods, which is the same class of defect as a
+detector that reports zero.
+
+**The tally is not the finding. The finding is that the three worst sites were in files no debt
+list would ever have shown, and one of them wrote to the database.**
+
+- **`crownService.getHolderLivePlaycount` — the worst. A Last.fm outage permanently dethroned a
+  real person.** `getArtistInfo` returning a throw was caught and turned into `null`, and `null`
+  reads as "the holder is not ahead", so `replaceCrown` ran and the store got a row naming the
+  **challenger** as holder and the **real holder** as dethroned — announced, in a card, in their
+  names. The `errorRateTracker` kill switch does not cover it: it needs 20+ tracked calls and
+  25% errors, so one scoped `artist.getinfo` failure sails past it. This is the only site found
+  this round whose failure is not merely rendered but **persisted**.
+- **`exposedService` — a fabricated acquittal, and a fabricated claim about the search itself.**
+  Every read ended `catch { return null }`, and `null` renders
+  `Status: Cleared`: "dug through the database, cross-referenced the genre tables, and found
+  zero secret guilty pleasures" — to a real, named person, during an outage. It also fabricates
+  the *process*, which is worse than fabricating the result. Its `genreService` calls are
+  deliberately left **unwrapped**, because that service already raises and wrapping it would
+  relabel a caller bug as an outage; only the raw `db.*`/`playRepo` reads are wrapped.
+- **`friendsCommands.addFriends` — "Could not find N users on Last.fm."** The loop filed the
+  outage into `notFound`, and the builder heads that list exactly that way. A confident claim
+  that real people do not exist, made while Last.fm was down and nobody had asked it. Different
+  from the previous commit's fix of the same loop, which correctly stopped a throw aborting the
+  loop mid-way but filed the failure as an absence. **Both properties now hold**: the loop
+  finishes, and the failure is not reported as "not found".
+- **`countrySlashCommands:376` / `countryCommands:254` — the two handlers the last commit
+  missed.** `buildArtistCountryInfoResponse` prints its "You have N plays" clause only when
+  `userPlaycount > 0`, so the outage card was byte-identical to the card for someone who has
+  never played the artist. All six catches in those two files now agree.
+- **Dead buttons.** `topInteractions`, `artistInteractions` and `playcountInteractions` each had
+  one catch covering their whole handler; pressing a nav arrow or a reroll button produced no
+  movement and no word, in Discord or in Railway. Narrowed.
+
+**And then the fix had a hole in it, which the audit's own author found and did not paper
+over.** The re-throws land in `interactionHandler`'s catch-all, which gated on
+`!interaction.replied && !interaction.deferred` — and `deferred` is set by `deferUpdate()`, which
+**every paginator and nav button calls before it reads anything**, precisely so a slow source
+cannot blow the 3s acknowledgement window. So the gate silently discarded the throw in exactly
+the case it existed to report: a slow outage, on a button. The three interaction files had traded
+"silent" for "logged", and the user still saw nothing. The boundary now uses `followUp` once
+deferred, and names the source: "Could not reach Last.fm/the database. Please try again", with
+a defect still reading as a defect. Six tests, and the load-bearing one is
+`expect(followUp).toHaveBeenCalled()` — which fails against the old gate for the right reason,
+the handler re-threw correctly in both versions.
+
+**Two bugs the agents found in their own work, and reported rather than hidden**, which is worth
+more than the fixes: a mutation on `globalListeners ?? 0` **passed** because every test supplied
+both figures, so the branch the mutation touched never executed — the unreachable-mutation trap
+for the third time in this repo, and the cure was a new test case rather than a deleted
+assertion. And a crown boundary test passed *under mutation* because a `null` guild made the
+block unreachable.
+
+**A latent crash, found because a new code path could finally reach it.**
+`FriendBuilders.buildAddFriendsResultResponse` throws `Invalid string length` when handed three
+empty lists — `setContent('')` is rejected by discord.js. It was unreachable because every
+argument used to land in exactly one of the three buckets; the fourth bucket in `.addfriends`
+made it reachable. Fixed in the builder rather than worked around in the one caller, because
+`friendSlashCommands` can still reach it. Mutation-checked: removing the guard is 2 red / 2 green.
+
+**Nine `// CORRECT AS IS` sites adjudicated, and two of the claims in the plan were FALSE** —
+recorded because being wrong about a site you are *not* changing is the failure mode this
+section is for. `topBuilders` was never catching a Last.fm raise: `getTopTracksForArtistGlobal`
+is a Postgres aggregate, so the source was mislabelled. And the sweep's one apparent
+`genreService` laundering site is a `SpotifySearchApi` call. `fmFooterResolver`'s class comment
+also **overstates its own blast radius** — it argues a user would lose their whole Now Playing
+card, but both callers already `await getUserInfo` upstream, so a pure Last.fm outage kills that
+card regardless. The real trigger for those three catches is the DB aggregate, not Last.fm.
+
+**Gates, lead alone: `tsc --noEmit` clean, 4244 passed + 516 db skipped = 4760 (256 files), lint
+0 errors / 351 warnings, `silent-failure-default` 523 against budget 604.** Two lint errors and
+20 typecheck errors came out of the batch and were fixed by the lead, not by the agents that
+wrote them — the agents were told not to run the gates, and **`npm test` does not typecheck**.
+
+**Not verified.** No live bot, no real Discord, no real Last.fm outage, no real database
+failure. The re-thrown errors render through `interactionHandler` and `commandDispatcher`, both
+read but neither exercised end to end. The 516 db tests still skip locally. The `crownService`
+re-throw means a who-knows card shows **no crown at all** during a scoped Last.fm failure —
+an honest absence rather than a wrong crown, and strictly better than the alternative, but it is
+a visible regression for that card and the lead's call to confirm.
+
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 
 `raw-query-without-db-test` reads 0, but that number was only as good as the audit behind it. Two

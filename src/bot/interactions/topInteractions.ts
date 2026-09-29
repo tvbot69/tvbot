@@ -8,6 +8,7 @@ import { SettingService } from '@bot/services/settingService';
 import { ColorService } from '@bot/services/colorService';
 import { registerModalHandler } from '@bot/interactions';
 import { Logger } from '@domain/logger';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { respondToModalWithPage } from './modalPageResponse';
 
 @injectable()
@@ -53,6 +54,15 @@ export class TopInteractions {
         }
         await respondToModalWithPage(interaction, response);
       } catch (err) {
+        // CORRECT AS IS: the modal is the boundary for all three `getTop*` reads
+        // above - `tryHandleModal` only logs whatever escapes - and the escape
+        // is a VISIBLE failure, not a rendered answer. The user submitted "go
+        // to page 5" and gets "Failed to jump to page." back on the modal
+        // reply, which is a true statement about what did not happen; it is not
+        // an empty chart, a zero, or a "no data found" line they could mistake
+        // for a genuine empty. `getTop*` raises before any builder runs, so no
+        // plausible-wrong-number can escape through here. Re-throwing would buy
+        // a vaguer message from a layer that has no idea what failed.
         Logger.error({ err }, 'Top jump modal failed');
         // Already deferred, so this edits the existing response rather than
         // replying a second time.
@@ -81,6 +91,13 @@ export class TopInteractions {
         const response = OverviewBuilders.buildOverviewResponse(decodeURIComponent(userNameLastFm ?? ''), decodeURIComponent(userNameLastFm ?? ''), timeSettings.description, overview, Math.min(targetPage, Math.max(0, Math.ceil(overview.dailyBlocks.length / 4) - 1)), accentColor);
         await respondToModalWithPage(interaction, response);
       } catch (err) {
+        // CORRECT AS IS: identical trade to the `top-jump` catch above, and
+        // for the same reason. `OverviewService.getOverview` raises
+        // `SourceUnavailableError` on a database outage, but this handler is
+        // the boundary - `tryHandleModal` only logs an escape - and it answers
+        // the user with "Failed to jump to page." So the raise does not become
+        // an empty overview the user reads as a real one; it becomes a stated
+        // failure. Nothing is rendered on the happy path of a failed read.
         Logger.error({ err }, 'Overview jump modal failed');
         await interaction.editReply({ content: 'Failed to jump to page.' }).catch(() => undefined);
       }
@@ -182,14 +199,21 @@ export class TopInteractions {
       }
       await interaction.deferUpdate().catch(() => undefined);
     } catch (err) {
-      // Deliberately swallowed rather than re-thrown, but NO LONGER silently.
-      // The three `getTop*` reads above raise `LastFmUnavailableError` on a
-      // Last.fm outage, so this catch is now the outermost edge of an outage for
-      // a paginator button - and a button has no page to render "could not
-      // load" into, so the honest outcome is the unchanged message plus a loud
-      // log. Before this line the outage cost one silent, dead button and
-      // nothing in Railway at all.
       Logger.error({ err, prefix, action, userNameLastFm }, 'Top pagination interaction failed; message left unchanged');
+      // The `getTop*` reads above and `getOverview` below RAISE
+      // `LastFmUnavailableError`/`SourceUnavailableError` when the source could
+      // not answer. Catching that here was laundering the deliberate signal back
+      // into a dead button: the user pressed "next page", the card did not move,
+      // and nothing - in Discord or in Railway - said the read had failed at
+      // all. Narrowed so the deliberate failure propagates to
+      // `interactionHandler.onInteractionCreated`, which is a real boundary and
+      // answers the presser, while a genuine query failure still degrades to the
+      // unchanged message. Same narrowing as
+      // `countrySlashCommands.handleTopCountriesSlash`; the log above is kept so
+      // the customId context survives the re-throw.
+      if (isSourceUnavailable(err)) {
+        throw err;
+      }
       await interaction.deferUpdate().catch(() => undefined);
     }
   }

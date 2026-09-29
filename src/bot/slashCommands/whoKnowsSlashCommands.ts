@@ -267,6 +267,20 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
         .getSampleTrackForArtist(topListenerId, resolvedName)
         .catch(() => undefined);
       if (sampleTrack) {
+        // CORRECT AS IS, and deliberately NOT the partial-success shape that
+        // `.affinity` was. The distinction is that a failure here cannot ADD a
+        // claim to a real card: `anchoredGenres` is `undefined` on failure, the
+        // `!== undefined` guard below skips the assignment, and `result.genres`
+        // keeps whatever `getFilteredUsersForArtist` already established. A
+        // genuine empty (`[]`) DOES overwrite, so "this artist has no genres"
+        // and "we could not ask" stay distinguishable in the type even though
+        // the builder renders both as a missing tag line. What the user sees on
+        // failure is the card they would have seen without the refinement -
+        // the same real leaderboard, the same real playcounts, one less
+        // decoration. Raising would delete the whole card over a footer line,
+        // and `whoKnowsBuilders` has no "could not load" affordance to render
+        // into. Same trade as `fmFooterResolver` and the identical site in the
+        // text-command twin.
         const anchoredGenres = await container
           .resolve(GenreService)
           .getGenresForArtist(resolvedName, sampleTrack)
