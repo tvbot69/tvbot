@@ -201,3 +201,92 @@ finish an item, tick it. If you un-finish one, untick it and say why in
       `as unknown as`. Target 80. The moonlink adapter is 1 file in; 67 `as unknown as`
       remain under `services/music` and `handlers/music`)*
 - [x] README claims match reality. Root has no agent handoff files.
+
+---
+
+# Phase 6: A-tier hardening
+
+The B+ -> A plan above is complete: 8 of 9 definition-of-done boxes are ticked, and the ninth
+(type escapes) is met at 76 against a target of 80. **That is not the same claim as "this codebase
+is A-tier", and Phase 6 exists to close the difference.**
+
+## The honest diagnosis
+
+The B+ -> A plan's own execution is what produced this section. Its highest-value item -- the
+114-test real-Postgres suite -- found **four production bugs on its first ever execution**, and one
+of the four is still unfixed. A codebase that yields four unknown production defects in a single CI
+run was not A-tier, and the fact that we found them is evidence the *process* now works, not that
+the *code* is clean.
+
+The single most important fact in this document:
+
+> DoD box 2.3 claims "28 of 28 raw queries are covered". There are **77** raw queries in the tree.
+> The audit that produced 28 matched `$queryRawUnsafe` only and did not see `$queryRaw` tagged
+> templates or `$executeRaw`. So **49 of 77 raw queries have never been executed against a
+> database** -- the same class of bug as the four that were found, over four times the surface.
+
+Measured, by file (`$queryRaw` + `$queryRawUnsafe` + `$executeRaw`, non-test sources):
+
+| File | Queries | Covered today |
+|---|---|---|
+| `playHistoryService.ts` | 8 | yes |
+| `guildRankingService.ts` | 8 | **no** |
+| `artistsService.ts` | 7 | yes |
+| `genreService.ts` | 7 | **no** |
+| `crownRepository.ts` | 6 | **no** |
+| `whoKnowsRepository.ts` | 6 | **no** |
+| `countryService.ts` | 5 | **no** |
+| `musicIntelligenceService.ts` | 4 | yes |
+| `albumService.ts` | 4 | yes |
+| `librarySearchService.ts` | 4 | **no** |
+| `trackService.ts` | 4 | yes |
+| `abuseFlagRepository.ts` | 2 | **no** |
+| `profileService.ts` | 2 | **no** |
+| `trackRepository.ts` / `artistRepository.ts` / `playRepository.ts` / `albumRepository.ts` / `reconcileService.ts` / `prismaClient.ts` | 1 each | **no** |
+
+## The thesis
+
+> **A-tier, for this codebase, means one property: no query the bot can issue has never been
+> executed, and no failure is silent.**
+
+Everything below is in service of that sentence. Architecture metrics, coverage percentages and
+lint counts are already at or past target and are *not* what stands between this repo and A. Three
+things are:
+
+### 6.1 Close the query-coverage hole -- 49 of 77
+Extend the `*.db.test.ts` suite to every uncovered file, and add a **ratchet** so it cannot
+regress. Not a percentage: a count of raw queries with no executing test, budgeted at today's
+number, so it can only fall. The three existing ratchets all work; this is the fourth and the most
+valuable.
+
+### 6.2 Stop shipping silent failures
+- `trackService.getAverageTrackAudioFeaturesForTopTracks` selects five columns that **do not
+  exist** on `tracks`, behind `.catch(() => [])`, and has therefore returned all-zeros, silently,
+  since it was written. A test now *pins* that behaviour, which is worse than having no test.
+  Decide: add the five columns, or delete the feature. Silent zeros are not an option.
+- Audit every `catch` that returns a default on a database or network failure **without logging**.
+  This is the exact shape that hid the `albumService` bug for the life of the query: the raw SQL
+  threw on 100% of calls and the catch returned everything, so total failure rendered as success.
+
+### 6.3 Make the checklist mean something
+Untick 2.3 until it is true. A ticked box that overstates its own coverage is worse than an unticked
+one, because it is a claim someone will stop checking. Tick the type-escape box with the real
+number. Correct the stale test counts.
+
+## Explicitly NOT in Phase 6
+`as unknown as` is 76 against a target of 80 and ratcheted. The 15 `bot/`-to-Prisma files are
+ratcheted and the plan forbids mass-moving them. 351 lint **warnings** are non-blocking and the
+ratchet holds the error count at 0. Chasing any of these tonight would be motion, not progress.
+
+## Definition of done for Phase 6
+1. 77 of 77 raw queries have a test that executes them, and the ratchet is in CI.
+2. Zero `catch` blocks on database calls that swallow an error without logging.
+3. `getAverageTrackAudioFeaturesForTopTracks` either works or is gone.
+4. Every DoD box reflects a verified fact, and the two overstated claims are corrected.
+
+## What Phase 6 cannot deliver, and must not pretend to
+**No runtime verification.** No voice connection, no audio throughput, no real ffmpeg, no real
+Discord. The memory peak is still NOT YET MEASURED and needs a deploy plus 24h of traffic. Every
+number in these documents is static, mocked, or a single CI run against PostgreSQL 16 -- never the
+running bot. A-tier as defined above is a *tested* claim about code, not a claim about production
+behaviour, and only a deploy and real logs can make the second kind.
