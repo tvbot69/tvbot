@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { TrackService } from './trackService';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 
 
 /**
@@ -239,8 +240,22 @@ describe('TrackService.getLastMonthPlays', () => {
     );
   });
 
-  it('returns 0 when the database query throws', async () => {
+  it('raises rather than reporting 0 when the database query throws', async () => {
+    // This test used to assert `resolves.toBe(0)`, which pinned the defect: a
+    // dead database rendered as "0 plays in the last month" in the track
+    // footer. Replaced, not weakened - the genuinely-zero case below covers the
+    // direction that must NOT change.
     const prisma = { userPlay: { count: vi.fn(async () => { throw new Error('db down'); }) } };
+    const { service } = build({ prisma });
+    await expect(service.getLastMonthPlays(1, 'Airbag', 'Radiohead')).rejects.toBeInstanceOf(
+      SourceUnavailableError,
+    );
+  });
+
+  it('still returns 0 when the query runs and the member genuinely has no plays', async () => {
+    // "You have not played this in 30 days" is TRUE and must keep rendering as
+    // 0. Only a failure is a failure.
+    const prisma = { userPlay: { count: vi.fn(async () => 0) } };
     const { service } = build({ prisma });
     await expect(service.getLastMonthPlays(1, 'Airbag', 'Radiohead')).resolves.toBe(0);
   });

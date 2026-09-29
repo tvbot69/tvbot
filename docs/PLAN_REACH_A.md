@@ -206,6 +206,30 @@ renders a real `0`. Mutation-checked: turning the throw back into `return []` wh
 `Logger.error` call — the exact "log and still return a default" the plan calls the non-fix — turns
 both raise assertions red and leaves the genuine-zeros test green.
 
+### A-tier 1c — `trackService.getLastMonthPlays`, and the first test that *asserted* the bug — **DONE**
+
+The only remaining site in the number-rendering services whose failure produced a literal `0` rather
+than an empty list, found by filtering the debt list for `[returns 0]` specifically.
+
+`getLastMonthPlays` fed `lastMonthPlays` into the track footer, and `trackBuilders.ts:145` renders
+`**N** last month` whenever the value is `> 0`. So the old `catch { return 0 }` did not print a
+confident "0 plays" — it **silently omitted the clause**, so a user who had played a track 12 times
+this month was shown a footer with no month figure and no way to know the difference between "I
+didn't play it" and "the bot couldn't check". Note the failure mode is the *opposite* direction from
+the year chart, which is why filtering by shape was necessary rather than reading top-down: this one
+would never have been found by asking "which sites render a zero".
+
+**A test asserted the bug, and said so in its own title:** `trackService.test.ts` had
+`it('returns 0 when the database query throws')` asserting `resolves.toBe(0)`. Replaced, not
+weakened, with the pair: a failure raises, and a query that *ran* and found no plays still returns 0.
+
+**And a lesson worth recording, because I walked straight into it.** My first mutation here was
+wrong in an instructive way: I appended `return 0` *after* the unconditional `throw`, so the new line
+was unreachable and the test **passed with the mutation in place**. A mutation that cannot be reached
+proves nothing, and had I stopped there I would have "verified" a test that had never been red — the
+same failure as a test that cannot fail. The corrected mutation *replaced* the throw and the
+assertion went red immediately, with the genuine-zero test staying green.
+
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 
 `raw-query-without-db-test` reads 0, but that number was only as good as the audit behind it. Two

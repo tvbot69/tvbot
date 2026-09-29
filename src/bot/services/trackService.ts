@@ -7,6 +7,8 @@ import type { TrackInfo } from '@domain/models/musicInfo';
 import type { TopTrack } from '@domain/models/topLists';
 import { ArtworkService, isPlaceholderImageUrl } from './artworkService';
 import { CacheService } from './cacheService';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
 import type { PrismaClient } from '@prisma/client';
 
 const CACHE_TTL_SECONDS = 1800;
@@ -199,9 +201,9 @@ export class TrackService {
 
   public async getLastMonthPlays(userId: number, trackName: string, artistName: string): Promise<number> {
     if (!this.prisma) return 0;
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000);
     try {
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000);
-      const count = await this.prisma.userPlay.count({
+      return await this.prisma.userPlay.count({
         where: {
           userId,
           artistName: { equals: artistName, mode: 'insensitive' },
@@ -209,9 +211,17 @@ export class TrackService {
           timePlayed: { gte: thirtyDaysAgo },
         },
       });
-      return count;
-    } catch {
-      return 0;
+    } catch (err) {
+      // This feeds `lastMonthPlays` in the track footer. Returning 0 here made a
+      // database outage render as "0 plays in the last month" for a user who may
+      // well have played the track, and unlike an absent list a 0 is a claim.
+      // A member with genuinely no plays in 30 days still returns 0 - that is a
+      // real answer from a query that ran, and it is kept.
+      Logger.error(
+        { err: (err as Error)?.message ?? String(err) },
+        'Database unavailable while counting last-month plays; refusing to report it as 0',
+      );
+      throw new SourceUnavailableError('trackService.getLastMonthPlays', err, 'Database unavailable');
     }
   }
 

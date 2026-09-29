@@ -19,7 +19,7 @@ before starting work. **Update this file at the end of every task**, before the 
 | Lower layers importing `@bot/*` | 6+ | **0 value** / 4 type-only | 0 value |
 | `@ts-ignore` | 0 | **0** | 0 |
 | Lint errors | 143 | **0** (351 warnings) | 0 |
-| `silent-failure-default` | 604 | **587** (budget 604, may only fall) | non-increasing ✅ |
+| `silent-failure-default` | 604 | **586** (budget 604, may only fall) | non-increasing ✅ |
 | `raw-query-without-db-test` | — | **0** (mutation-checked) | 0 |
 
 > The `silent-failure-default` count is **not the target** — it counts catch blocks, not bugs, and
@@ -693,6 +693,11 @@ before starting work. **Update this file at the end of every task**, before the 
 - **A-tier 1b, `guildAdminService.getMembersOverview`** ✅ two `.catch(() => [])` made every member
   show 0 plays and 0 crowns, sorted by those zeros. Found by reading the debt list for *plausible
   wrong numbers*, not by chasing the count — which is the method the plan asks for.
+- **A-tier 1c, `trackService.getLastMonthPlays`** ✅ the only remaining `[returns 0]` site in the
+  number-rendering services. It did not print a zero — it *omitted* the "N last month" clause
+  entirely, so a real outage was indistinguishable from "you didn't play it". Found by filtering the
+  debt list by **shape**, not by reading top-down. Its test asserted the bug in its own title
+  (`it('returns 0 when the database query throws')`) and was replaced with the pair.
 - **A-tier 2 (A2)** ✅ the orphaned audio-features feature, deleted rather than repaired: zero
   production callers, so adding a migration and five columns would have served nothing.
 - **A-tier 3** ✅ `friendsRepository.removeFriend`; the repository now logs at ERROR and the caller
