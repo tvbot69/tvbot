@@ -66,7 +66,7 @@ let userId = 1;
  * trap resolves `$queryRaw` on the client at CALL time. Functions are bound to
  * the real client, because Prisma's model methods read `this`.
  */
-const holder = vi.hoisted(() => ({ client: null as PrismaClient | null }));
+const holder = vi.hoisted(() => ({ client: null as PrismaClient | null, rawCalls: [] as string[] }));
 
 vi.mock('@persistence/prismaClient', () => ({
   prisma: new Proxy({} as Record<string, unknown>, {
@@ -75,6 +75,7 @@ vi.mock('@persistence/prismaClient', () => ({
       if (!client) {
         throw new Error('TEST_DATABASE_URL is not set - the real-Postgres suite needs a database.');
       }
+      if (prop === '$queryRaw') holder.rawCalls.push(prop);
       const value: unknown = client[prop as string];
       if (typeof value === 'function') {
         return (value as (this: unknown, ...args: unknown[]) => unknown).bind(client);
@@ -176,28 +177,20 @@ suite('ProfileService raw queries against a real database', () => {
       // A local instance, so the shared `service` keeps its Last.fm double for
       // the tests that follow.
       const unknown = new ProfileService(lastfmRepo(null));
-      const spy = vi.spyOn(prisma!, '$queryRaw');
-      try {
-        await expect(unknown.getProfileHistory('Someone', targetUser(userId))).resolves.toBeNull();
-        expect(spy).not.toHaveBeenCalled();
-      } finally {
-        spy.mockRestore();
-      }
+      holder.rawCalls.length = 0;
+      await expect(unknown.getProfileHistory('Someone', targetUser(userId))).resolves.toBeNull();
+      expect(holder.rawCalls).toEqual([]);
     });
 
     it('runs neither query for a user id of 0', async () => {
       // `targetUser.userId > 0` is the only gate. A Last.fm-only viewer has no
       // local id, and a `WHERE user_id = 0` would be a full scan of a 40-million
       // row table for a guaranteed-empty answer.
-      const spy = vi.spyOn(prisma!, '$queryRaw');
-      try {
-        const stats = await history(0);
-        expect(spy).not.toHaveBeenCalled();
-        expect(stats?.months).toEqual([]);
-        expect(stats?.years).toEqual([]);
-      } finally {
-        spy.mockRestore();
-      }
+      holder.rawCalls.length = 0;
+      const stats = await history(0);
+      expect(holder.rawCalls).toEqual([]);
+      expect(stats?.months).toEqual([]);
+      expect(stats?.years).toEqual([]);
     });
   });
 

@@ -768,3 +768,90 @@ npx prisma migrate diff --from-empty --to-schema-datamodel src/persistence/prism
 - A passing `vitest` run and a passing `tsc` are different claims. The new test files were green on all 1373 tests and still failed the build 4 times (optional `aliases`, a non-tuple spread, `args` required). `npm run build` is not optional.
 - Per-file sweep with revert-on-error beats one batch. A single 15-site batch reported "5 errors"
   and would have discarded 10 real wins over 5 deliberate casts.
+
+## The 15 remaining DB failures (CI run 6, `9af2f6e`)
+
+15 of 518 real-Postgres tests fail in the `migrations apply to a real postgres` job. Every other
+CI job is green. Mapped from `ci6.log` to file:line — none missed.
+
+### Group 2 — whoKnowsRepository drops a flagged user (2 failures) — **FIXTURE, FIXED**
+
+`getIndexedUsersForAlbum > drops a flagged user` (L321) and `getIndexedUsersForTrack > drops a
+flagged user whose TTL is still running` (L378). Both got `[]` where `[{ userId, playcount: 30 }]`
+was expected.
+
+**Verdict: fixture bug, query right.** Both tests seed the flagged user's guild membership
+(`seedGuildMember(flagged)`) but never `seedGuildMember(userId)`. The query is guild-scoped
+(`ub.user_id = ANY(SELECT user_id FROM guild_users ...)`), so the unflagged user's row is
+legitimately dropped — the same file pins that scoping in passing tests (`excludes a user who is
+not a member of the guild`). Added the missing `seedGuildMember(userId)` to both.
+
+Also removed the now-redundant `clearAbuseFlags` helper: its comment claimed `abuse_flags` is not
+in `resetTables`, which became false in `9af2f6e` (the truncate list now includes it). The
+private `deleteMany` was doing nothing the shared truncate did not already do.
+
+### Group 3 — artistRepository sort order (1 failure) — **TEST BUG, FIXED**
+
+`getOrCreateArtistsBulk > survives a name containing an apostrophe, a slash and an accent` (L193).
+Actual `["ac/dc", "björk", "guns n' roses"]`, expected `["ac/dc", "guns n' roses", "björk"]`.
+
+**Verdict: test bug.** JS `.sort()` is UTF-16 code-unit order, so `bjork` sorts before `guns`
+(`b` < `g`). The expected array was written in argument order, not sorted order. Fixed the
+expected array to the real sorted order. Assertion strength unchanged — still a deep equality on
+the full three-key array, so a dropped or extra key still fails.
+
+All 15 root-caused. The three groups were **all test bugs**; no production code was wrong, and
+the `public.` change from `9af2f6e` was treating a symptom. Group 1 was the same `vi.spyOn`-on-
+a-live-client defect as `9af2f6e` root cause 1, fixed there in three repositories and missed in
+this one.
+
+### What a hosted Postgres can and cannot do here
+
+Ran the group-1 tests green against a **Neon** database (migrations into a `?schema=scratch`
+schema, real TCP, real Prisma client): 17/17, and mutation-checked 12-red. That is what located
+the cause, which reading the file could not.
+
+**But do not run the whole `*.db.test.ts` suite against Neon.** It hangs, with no error. The
+harness opens a new `PrismaClient` per file and runs `TRUNCATE ... RESTART IDENTITY CASCADE`
+before *every* test. Against a hosted **connection pooler**, the per-file pools exhaust the
+pooler's concurrent-connection allowance and Prisma then blocks indefinitely waiting to acquire
+one — no timeout, no thrown error, so it presents as a hung process rather than a failure. The
+first few files pass on a fresh pool; it wedges once several clients accumulate.
+
+The instrument for the full suite is CI's disposable `postgres:16` service, not a hosted
+database. Neon is fine for confirming one file; it is the wrong tool for 518 truncating tests.
+
+All 12 (6 month + 6 year) got `expected [] to deeply equal [...]`. The query sits inside a
+bare `catch {}` in `getProfileHistory`, so "the query returned nothing" and "the query threw"
+are the same value at the call site: an empty history. That bare catch is what hid the cause
+for a whole extra CI cycle.
+
+**Verdict: test bug. Production code was correct the whole time.**
+
+`describe('the paths that never reach SQL')` held two tests that both did
+`vi.spyOn(prisma!, '$queryRaw')` — installing the spy **on the live Prisma client** that the
+module-mock's Proxy later hands to the service. `mockRestore()` does not delete the own
+property; it leaves it `undefined`. Every test after those two therefore read
+`client['$queryRaw']`, got `undefined`, and the service threw
+`TypeError: prisma.$queryRaw is not a function` on the first rollup — swallowed by the bare
+catch, rendered as an empty history. 5 tests before the spies passed; the 12 after them failed.
+Exact fit, no other explanation needed.
+
+This is the **same** bug as root cause 1 in `9af2f6e` (the `vi.spyOn` on a live client, 35
+failures). It was fixed in artistRepository / trackRepository / albumRepository and missed
+here. The class of bug is now twice-seen: a mock applied to the thing under test cannot report
+the thing's health.
+
+**Fix:** record `$queryRaw` accesses in the module-mock's own Proxy (`holder.rawCalls`) and
+assert against that. Nothing is installed on the live client, so the recorder cannot disable
+the method it is watching. `vi.spyOn` is gone from this file.
+
+**Mutation-checked:** reintroducing `vi.spyOn(prisma!, '$queryRaw')` into the userId-0 test
+turns 12 tests red. Reverted. (A first mutation attempt used a PowerShell `-replace` that
+silently broke the file's syntax and reported "no tests" — indistinguishable from a pass
+unless you read the count. Recorded because that is the exact trap AGENTS.md warns about.)
+
+**Why this took a real database to find:** the error is swallowed by the bare `catch`, so no
+log, no diff, and no reading of the test file surfaces it. It was found by instrumenting the
+catch and running against a live Postgres. The `public.`-prefix removal in `9af2f6e` was
+treating this symptom as the cause, and it was not: the queries were never wrong.

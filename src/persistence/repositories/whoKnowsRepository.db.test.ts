@@ -110,11 +110,6 @@ const seedGuildMember = async (id: number, guild: bigint = GUILD_ID): Promise<vo
   await prisma!.guildUser.create({ data: { guildId: guild, userId: id } });
 };
 
-/** `abuse_flags` is not in dbHarness.resetTables and all three indexed queries read it. */
-const clearAbuseFlags = async (): Promise<void> => {
-  await prisma!.abuseFlag.deleteMany({});
-};
-
 const flag = async (id: number, expiresAt: Date | null): Promise<void> => {
   await prisma!.abuseFlag.create({ data: { userId: id, reason: 'test', expiresAt } });
 };
@@ -134,7 +129,6 @@ suite('WhoKnowsRepository raw queries against a real database', () => {
   beforeEach(async () => {
     if (!prisma) return;
     await resetTables(prisma);
-    await clearAbuseFlags();
     userId += 1;
     await prisma!.guild.create({ data: { guildId: GUILD_ID, guildName: 'Who Knows Guild' } });
     await prisma!.guild.create({ data: { guildId: OTHER_GUILD_ID, guildName: 'Other Guild' } });
@@ -322,6 +316,7 @@ suite('WhoKnowsRepository raw queries against a real database', () => {
       const flagged = userId + 5000;
       await seedUser(prisma!, flagged);
       await seedGuildMember(flagged);
+      await seedGuildMember(userId);
       const albumId = await seedUserAlbumRow(userId, 'Kid A', 30);
       await prisma!.userAlbum.create({ data: { userId: flagged, albumId, name: 'Kid A', playcount: 900 } });
       await flag(flagged, null);
@@ -379,6 +374,7 @@ suite('WhoKnowsRepository raw queries against a real database', () => {
       const flagged = userId + 5000;
       await seedUser(prisma!, flagged);
       await seedGuildMember(flagged);
+      await seedGuildMember(userId);
       const trackId = await seedUserTrackRow(userId, 'Airbag', 30);
       await prisma!.userTrack.create({ data: { userId: flagged, trackId, name: 'Airbag', playcount: 900 } });
       await flag(flagged, new Date(Date.now() + DAY * 1000));

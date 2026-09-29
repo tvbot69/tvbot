@@ -190,7 +190,7 @@ suite('ArtistRepository raw query against a real database', () => {
 
       const map = await repo!.getOrCreateArtistsBulk(["guns n' roses", 'ac/dc', 'BJÖRK']);
 
-      expect([...map.keys()].sort()).toEqual(["ac/dc", "guns n' roses", 'björk']);
+      expect([...map.keys()].sort()).toEqual(["ac/dc", 'björk', "guns n' roses"]);
       const stored = await prisma!.artist.findMany({ orderBy: { name: 'asc' } });
       const byName = new Map(stored.map((r) => [r.name, r.artistId]));
       expect(map.get("guns n' roses")).toBe(byName.get("Guns N' Roses"));
