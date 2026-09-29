@@ -5,6 +5,7 @@ import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { ReceiptBuilders } from '@bot/builders/receiptBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { TimePeriod } from '@domain/enums/timePeriod';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
 
@@ -487,6 +488,54 @@ describe('PlaycountSlashCommands.yearSlashAsync', () => {
     });
     await call(service, 'yearSlashAsync', mkContext(), 2024, undefined);
     expect(PlaycountBuilders.buildYearOverviewResponse).toHaveBeenCalled();
+  });
+
+  /**
+   * The service used to answer with zeros on a database outage, so this branch
+   * rendered "No plays found in 2024" for a year the user demonstrably played
+   * music in. `getYearOverview` now raises; these pin that the raise becomes a
+   * *visible* load failure rather than either the old lie or an unhandled
+   * throw.
+   */
+  describe('a dead database does not render as an empty year', () => {
+    const deadDatabase = () =>
+      build({
+        playHistoryService: {
+          getYearOverview: vi.fn(async () => {
+            throw new SourceUnavailableError('db', new Error('connect ECONNREFUSED'), 'Database unavailable');
+          }),
+        },
+      });
+
+    it('reports a load failure instead of "no plays found"', async () => {
+      const { service } = deadDatabase();
+
+      const result = await call(service, 'yearSlashAsync', mkContext(), 2024, undefined);
+
+      // NotFound is the lie. Error is the truth.
+      expect(result.commandResponse).toBe(CommandResponse.Error);
+    });
+
+    it('never reaches the year-overview builder', async () => {
+      const { service } = deadDatabase();
+
+      await call(service, 'yearSlashAsync', mkContext(), 2024, undefined);
+
+      // A chart built from nothing would be a chart of zeros - the exact
+      // artefact this change exists to prevent.
+      expect(PlaycountBuilders.buildYearOverviewResponse).not.toHaveBeenCalled();
+    });
+
+    it('does not swallow an unrelated bug as a database outage', async () => {
+      const { service, playHistoryService } = build();
+      (playHistoryService.getYearOverview as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new TypeError('cannot read properties of undefined'),
+      );
+
+      // Re-throwing keeps real defects visible in the log instead of dressing
+      // them up as a transient connectivity problem the user is told to retry.
+      await expect(call(service, 'yearSlashAsync', mkContext(), 2024, undefined)).rejects.toThrow(TypeError);
+    });
   });
 });
 

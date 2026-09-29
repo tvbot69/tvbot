@@ -12,18 +12,18 @@
  * recognise it: a consumer that catches it and treats the failure as a
  * definitive miss (caching "no artwork exists", for instance) reintroduces
  * exactly the lie this type exists to prevent.
+ *
+ * It is now a thin `SourceUnavailableError` rather than the root of the idea,
+ * because the same "the source failed, which is not an answer" argument applies
+ * to our own Postgres - `playHistoryService.getYearOverview` used to render a
+ * dropped connection as a year of zero plays. `name` and the message text are
+ * unchanged, so `isLastFmUnavailable` and every `instanceof` keep working.
  */
-export class LastFmUnavailableError extends Error {
-  constructor(
-    public readonly method: string,
-    public readonly cause: unknown,
-  ) {
-    super(
-      `Last.fm unavailable during ${method}: ${
-        (cause as Error)?.message ?? String(cause)
-      }`,
-    );
-    this.name = 'LastFmUnavailableError';
+import { SourceUnavailableError } from './sourceUnavailableError';
+
+export class LastFmUnavailableError extends SourceUnavailableError {
+  constructor(method: string, cause: unknown) {
+    super(method, cause, 'Last.fm unavailable', 'LastFmUnavailableError');
   }
 }
 

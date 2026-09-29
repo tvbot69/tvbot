@@ -36,6 +36,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 
@@ -49,6 +50,16 @@ const BUDGET_FILE = path.join(ROOT, 'scripts', 'debt-budget.json');
 // (`spawnSync ... EINVAL`). Going through the current Node binary and the CLI
 // entry also means the child runs under the same runtime as the suite.
 const tsxCli = path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+
+/**
+ * Every kind the script knows about, read from the real budget file.
+ *
+ * The fixture budget must name all of them: `loadBudgets` throws on a kind with
+ * no entry, and a throw inside the child would look exactly like "0 findings"
+ * to the caller. Deriving this rather than hardcoding the list means a new kind
+ * added to `debt-budget.json` keeps the fixture runs working.
+ */
+const EXPECTED_KINDS = JSON.parse(fs.readFileSync(BUDGET_FILE, 'utf8')) as Record<string, number>;
 
 const run = (...args: string[]): string =>
   execFileSync(process.execPath, [tsxCli, SCRIPT, ...args], {
@@ -68,6 +79,99 @@ const sitesFor = (where: string, kind: string): string[] => {
   const end = rest.search(/\n\S+:\n/);
   const block = end === -1 ? rest : rest.slice(0, end);
   return block.split('\n').filter((l) => l.trim().length > 0);
+};
+
+/**
+ * Fixture sources for the shape assertions below. Each is a COMPLETE module
+ * body, because the detector builds a real `ts.Program` and a half-written
+ * file would fail to parse into the AST shapes being asserted on.
+ *
+ * They deliberately do NOT import anything: the script's own kinds read
+ * `ts.SourceFile` nodes, and an unresolvable import changes the program's file
+ * list rather than the node shapes under test.
+ */
+const FIXTURE_TAGGED_TEMPLATE = `
+export async function topArtists(db: { q(u: number): Promise<Array<{ a: string }>> }, userId: number) {
+  return db
+    .$queryRawUnsafe<Array<{ a: string }>>\`SELECT a FROM t WHERE id = \${userId}\`
+    .catch(() => []);
+}
+`;
+
+const FIXTURE_PLAIN = `
+export async function plain(p: Promise<Array<string>>) {
+  return p.catch(() => []);
+}
+`;
+
+const FIXTURE_LOGGED = `
+import { Logger } from './logger';
+export async function logged(p: Promise<Array<string>>) {
+  return p.catch((err) => {
+    Logger.warn({ err }, 'query failed');
+    return [];
+  });
+}
+`;
+
+const FIXTURE_NO_CATCH = `
+export async function clean(p: Promise<Array<string>>) {
+  return p;
+}
+`;
+
+/**
+ * Runs the REAL detector over a throwaway project containing one fixture file.
+ *
+ * The script resolves its program from `process.cwd()`, so pointing `cwd` at a
+ * temp dir with its own `tsconfig.json` and `scripts/debt-budget.json` scopes
+ * every kind to that one file. This is what makes the assertions above able to
+ * survive the production code being fixed: the subject is a fixture, not a bug
+ * that is scheduled to disappear.
+ *
+ * `--where` rather than the table, so the caller gets both the count and the
+ * shape label from a single run. The budget file is seeded with a generous
+ * value per kind so the ratchet cannot fail the child process; exit code is
+ * still checked, because a crash must not be reported as "0 findings".
+ */
+const runDetectorOnFixture = (source: string): { count: number; sites: string[] } => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'debt-fixture-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'src', 'fixture.ts'), source, 'utf8');
+    // `include` picks up only src/, so the fixture is the sole source file and
+    // every other kind measures 0.
+    fs.writeFileSync(
+      path.join(dir, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'CommonJS', strict: false }, include: ['src/**/*.ts'] }),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(dir, 'scripts', 'debt-budget.json'),
+      JSON.stringify(Object.fromEntries(Object.keys(EXPECTED_KINDS).map((k) => [k, 9999])), null, 2),
+      'utf8',
+    );
+    // `raw-query-without-db-test` reads its per-file allowance from
+    // scripts/raw-query-baseline.json RELATIVE TO CWD and throws when it is
+    // absent, so a fixture without it dies in an unrelated kind before the kind
+    // under test is ever evaluated. An empty object is the right baseline for a
+    // tree with no covered files: allowance 0 everywhere.
+    fs.writeFileSync(path.join(dir, 'scripts', 'raw-query-baseline.json'), '{}\n', 'utf8');
+
+    // ABSOLUTE: the child's cwd is the temp dir, so a repo-relative SCRIPT
+    // would resolve to a path that does not exist there.
+    const out = execFileSync(process.execPath, [tsxCli, path.join(ROOT, SCRIPT), '--where'], {
+      cwd: dir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const sites = sitesFor(out, KIND);
+    return { count: sites.length, sites };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 };
 
 let where = '';
@@ -115,14 +219,39 @@ describe('debt ratchet: silent-failure-default', () => {
   });
 
   it('counts a `.catch(() => [])` whose receiver is a type-argument tagged template', () => {
-    // playHistoryService.getYearOverview chains six
-    // `this.db.$queryRawUnsafe<Array<{...}>>(`...`).catch(() => [])`. The
-    // `.catch` callee's receiver is a CallExpression carrying a
-    // TaggedTemplateExpression argument; missing that shape reported zero for
-    // a file holding five queries once already in this script.
-    const inFile = sites.filter((s) => s.trim().startsWith('bot/services/playHistoryService.ts:'));
-    const rawQuerySwallows = inFile.filter((s) => /\[returns \[\]\]$/.test(s.trim()));
-    expect(rawQuerySwallows.length).toBeGreaterThanOrEqual(6);
+    // A synthetic project rather than a production file.
+    //
+    // This assertion used to point at the six `.catch(() => [])` chains in
+    // `playHistoryService.getYearOverview`, which made the fixture and the
+    // subject the same code - so the day someone FIXED those six swallows, this
+    // test would have gone red and the tempting response would have been to
+    // delete the assertion. That inverts the ratchet: a detector check must not
+    // depend on the bug it detects still existing.
+    //
+    // The shape is the point. `db.$queryRawUnsafe<Array<T>>`...`` is a
+    // TaggedTemplateExpression carrying a type argument, and `.catch` hangs off
+    // the resulting CallExpression. isCallExpression is false for the tagged
+    // template itself, and a detector that only walked CallExpressions reported
+    // zero for a file holding five queries - a ratchet that under-reports looks
+    // exactly like a ratchet that is working.
+    const { count, sites: fixtureSites } = runDetectorOnFixture(FIXTURE_TAGGED_TEMPLATE);
+    expect(count, 'fixture is not shaped as a tagged-template .catch').toBe(1);
+    expect(fixtureSites).toHaveLength(1);
+    expect(fixtureSites[0]).toMatch(/\[returns \[\]\]$/);
+  });
+
+  it('still counts the plain `.catch(() => [])` shape, so the check above is not the only path', () => {
+    // Guards against "fix" being a narrowing: if someone made the detector
+    // match tagged templates ONLY, the general case would go quiet.
+    const { count } = runDetectorOnFixture(FIXTURE_PLAIN);
+    expect(count).toBe(1);
+  });
+
+  it('reports zero for a fixture whose catch logs, and one whose catch is absent', () => {
+    // The negative cases for the same rule. Without these, a detector that
+    // returned 1 for literally any file would pass everything above.
+    expect(runDetectorOnFixture(FIXTURE_LOGGED).count).toBe(0);
+    expect(runDetectorOnFixture(FIXTURE_NO_CATCH).count).toBe(0);
   });
 
   it('counts instances inside an already-covered file, not one per file', () => {

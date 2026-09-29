@@ -3,7 +3,37 @@ import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 import type { IUserRepository } from '@domain/interfaces/iuserRepository';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
 import { GuildService } from './guild/guildService';
+
+/**
+ * A failed read is not a zero.
+ *
+ * Both queries in `getMembersOverview` used to carry `.catch(() => [])`, so a
+ * dropped connection produced an overview in which every member had zero plays
+ * and zero crowns - and then sorted by those zeros, so the member with the most
+ * scrobbles in the server sank to the bottom of the list. This is the worst
+ * version of the class: the shape is a real table of real people, and every
+ * number in it is wrong. An admin cannot tell it from a server where nobody
+ * listens to anything, and might act on it.
+ *
+ * Same rule as `orUnavailable` in lastFmRepository and `orDatabaseUnavailable`
+ * in playHistoryService: a missing ROW is a real answer and stays an empty
+ * result, but a query that could not run raises. The two callers are command
+ * handlers, so the failure surfaces as a visible error rather than a lie.
+ */
+const orDatabaseUnavailable = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: label, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in getMembersOverview (${label}); refusing to render the members table as all zeros`,
+    );
+    throw new SourceUnavailableError(`guildAdminService.getMembersOverview:${label}`, err, 'Database unavailable');
+  }
+};
 
 export interface GuildMemberOverviewItem {
   userId: number;
@@ -41,10 +71,12 @@ export class GuildAdminService {
     const userIds = guildUsers.map((gu) => gu.userId);
 
     // Fetch user play counts
-    const users = await this.db.user.findMany({
-      where: { userId: { in: userIds } },
-      select: { userId: true, totalPlayCount: true },
-    }).catch(() => []);
+    const users = await orDatabaseUnavailable('user.findMany', () =>
+      this.db.user.findMany({
+        where: { userId: { in: userIds } },
+        select: { userId: true, totalPlayCount: true },
+      }),
+    );
 
     const playCountMap = new Map<number, number>();
     for (const u of users) {
@@ -52,14 +84,16 @@ export class GuildAdminService {
     }
 
     // Fetch crowns counts for this guild
-    const crowns = await this.db.userCrown.groupBy({
-      by: ['userId'],
-      where: {
-        guildId: BigInt(guildId),
-        active: true,
-      },
-      _count: { crownId: true },
-    }).catch(() => []);
+    const crowns = await orDatabaseUnavailable('userCrown.groupBy', () =>
+      this.db.userCrown.groupBy({
+        by: ['userId'],
+        where: {
+          guildId: BigInt(guildId),
+          active: true,
+        },
+        _count: { crownId: true },
+      }),
+    );
 
     const crownCountMap = new Map<number, number>();
     for (const c of crowns) {

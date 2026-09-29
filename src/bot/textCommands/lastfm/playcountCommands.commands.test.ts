@@ -5,6 +5,7 @@ import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { SettingService } from '@bot/services/settingService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { TimePeriod } from '@domain/enums/timePeriod';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
 
@@ -74,7 +75,7 @@ const call = (service: PlaycountCommands, name: string, ...args: unknown[]) => {
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  for (const n of ['buildPaceResponse', 'buildMilestoneResponse', 'buildDiscoveryDateResponse', 'buildLastListenedDateResponse', 'buildArtistPaceResponse']) {
+  for (const n of ['buildPaceResponse', 'buildMilestoneResponse', 'buildDiscoveryDateResponse', 'buildLastListenedDateResponse', 'buildArtistPaceResponse', 'buildYearOverviewResponse']) {
     vi.spyOn(PlaycountBuilders, n as never).mockReturnValue({ embed: {} } as never);
   }
 });
@@ -237,6 +238,60 @@ describe('PlaycountCommands target errors short-circuit every command', () => {
     (userService.getUserByDiscordId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const result = await call(service, method, mkContext(), 'x');
     expect(result.commandResponse).toBe(CommandResponse.NotFound);
+  });
+});
+
+describe('PlaycountCommands.yearAsync', () => {
+  it('renders a not-found for a genuinely empty year', async () => {
+    const { service } = build({
+      playHistoryService: { getYearOverview: vi.fn(async () => ({ totalPlays: 0 })) },
+    });
+
+    // The direction that must NOT change. "No plays in 2023" is true when it is
+    // true, and a fix for the outage case must not start inventing errors.
+    const result = await call(service, 'yearAsync', mkContext(), '2023');
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+  });
+
+  /**
+   * Mirrors the slash route's test. Both routes call the same service method and
+   * both previously turned a database outage into "No plays found in <year>",
+   * so a fix applied to only one of them would leave the text command lying.
+   */
+  it('reports a load failure rather than "no plays found" when the database is down', async () => {
+    const { service } = build({
+      playHistoryService: {
+        getYearOverview: vi.fn(async () => {
+          throw new SourceUnavailableError('db', new Error('connect ECONNREFUSED'), 'Database unavailable');
+        }),
+      },
+    });
+
+    const result = await call(service, 'yearAsync', mkContext(), '2023');
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+  });
+
+  it('never builds a chart from a failed read', async () => {
+    const { service } = build({
+      playHistoryService: {
+        getYearOverview: vi.fn(async () => {
+          throw new SourceUnavailableError('db', new Error('connect ECONNREFUSED'), 'Database unavailable');
+        }),
+      },
+    });
+
+    await call(service, 'yearAsync', mkContext(), '2023');
+
+    expect(PlaycountBuilders.buildYearOverviewResponse).not.toHaveBeenCalled();
+  });
+
+  it('re-throws an unrelated error instead of calling it a database outage', async () => {
+    const { service } = build({
+      playHistoryService: { getYearOverview: vi.fn(async () => { throw new TypeError('x is not a function'); }) },
+    });
+
+    await expect(call(service, 'yearAsync', mkContext(), '2023')).rejects.toThrow(TypeError);
   });
 });
 

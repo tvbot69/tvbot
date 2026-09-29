@@ -1,13 +1,13 @@
 # Progress: B+ → A
 
-Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
-**Update this file at the end of every task**, before the commit.
+Plan: `PLAN_REACH_A.md` (replaces `PLAN_B_PLUS_TO_A.md`, which is kept for history). Read both
+before starting work. **Update this file at the end of every task**, before the commit.
 
 ## Current numbers (re-measure, don't trust this table)
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **3954 unit + 114 db = 4068** (212 files) | — |
+| Tests | 1085 | **4013 passed + 516 db skipped = 4529** (236 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
 | Branch coverage | 68.6% claimed | **77.48%** | — |
 | `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 76** (budget 101) | <80 combined ✅ |
@@ -19,13 +19,21 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
 | Lower layers importing `@bot/*` | 6+ | **0 value** / 4 type-only | 0 value |
 | `@ts-ignore` | 0 | **0** | 0 |
 | Lint errors | 143 | **0** (351 warnings) | 0 |
+| `silent-failure-default` | 604 | **587** (budget 604, may only fall) | non-increasing ✅ |
+| `raw-query-without-db-test` | — | **0** (mutation-checked) | 0 |
 
-> **The 114 database tests now pass against real PostgreSQL 16 in CI** (run 36483189481, 6/6 files,
-> 0 skipped). They are the only place in this repo that has ever executed a query against a database,
-> and they found four production bugs on their first run — see "Bugs found and fixed so far" below.
-> They still **skip locally**: no Docker, no local Postgres, no `psql`, and `DATABASE_URL` is
-> production Railway, which must never be truncated. Everything I concluded about SQL before that run
-> was a static conclusion about a query that had never executed.
+> The `silent-failure-default` count is **not the target** — it counts catch blocks, not bugs, and
+> cutting it by grouping catches scores the same as cutting it honestly. The target is the number of
+> sites where a failure becomes a *plausible wrong number* rather than an empty list. See
+> `PLAN_REACH_A.md` §A-tier 1.
+
+> **The database tests pass against real PostgreSQL 16 in CI.** They are the only place in this repo
+> that has ever executed a query against a database, and they found four production bugs on their
+> first run. They **skip locally**: no Docker, no local Postgres, no `psql`, and `DATABASE_URL` is
+> production Railway, which must never be truncated. Everything concluded about SQL without that run
+> was a static conclusion about a query that had never executed. The full 500+ test run also has to
+> be CI's disposable `postgres:16` — against a hosted pooler the harness opens a client per file and
+> truncates per test, which exhausts the pooler and blocks Prisma with no error at all.
 
 ## Status
 
@@ -671,6 +679,47 @@ Plan: `PLAN_B_PLUS_TO_A.md`. Read both before starting work.
   the ratchet is what noticed. Also fixed `--set`, which could not record a new debt kind at
   all — `loadBudgets` validated every kind before `applySets` ran, so the error message's own
   recovery advice was unreachable.
+
+### Phase 6 — reach A tier: `PLAN_REACH_A.md`
+
+- **A-tier 1, `lastFmRepository`** ✅ 8 read methods raise `LastFmUnavailableError` instead of
+  returning `null`/`[]` for both "Last.fm says no" and "Last.fm is down". Not-found codes 6/7/8
+  still return the empty answer. 82 real call sites audited (my first count of 41 was off by half —
+  grepping the method name misses `lastfmRepo` vs `lastfmRepository`).
+- **A-tier 1, `playHistoryService.getYearOverview`** ✅ six raw queries, each `.catch(() => [])`,
+  made a database outage render as "No plays found in 2023". Now raise `SourceUnavailableError`, and
+  both callers say "could not load". `LastFmUnavailableError` was re-parented onto the new
+  `SourceUnavailableError` so the two outage families stay distinguishable.
+- **A-tier 1b, `guildAdminService.getMembersOverview`** ✅ two `.catch(() => [])` made every member
+  show 0 plays and 0 crowns, sorted by those zeros. Found by reading the debt list for *plausible
+  wrong numbers*, not by chasing the count — which is the method the plan asks for.
+- **A-tier 2 (A2)** ✅ the orphaned audio-features feature, deleted rather than repaired: zero
+  production callers, so adding a migration and five columns would have served nothing.
+- **A-tier 3** ✅ `friendsRepository.removeFriend`; the repository now logs at ERROR and the caller
+  no longer rebuilds an unchanged list, which read as success.
+- **A-tier 4 (A3)** ✅ `raw-query-without-db-test` = 0, detector mutation-checked: adding one
+  `$queryRawUnsafe<T>` tagged template to an already-covered file reports `1 > 0 WORSE`.
+  **`dbHarness` itself remains untested against a real connection pool** — that needs CI, not static
+  analysis.
+
+**Two detectors were themselves defective, and both were found by mutation rather than by reading.**
+
+1. `raw-query-without-db-test` originally skipped any file that already had a `*.db.test.ts`, so
+   adding a new untested query to a covered file reported 0. The baseline is now per file and reports
+   the *overflow*.
+2. `countDebtSilentFailure.test.ts` asserted the tagged-template `.catch` shape by pointing at the
+   six `.catch(() => [])` chains in `getYearOverview` — **the bug was its own fixture.** Fixing the
+   bug turned the detector's regression test red, and the tempting response was to delete the
+   assertion. Replaced with a synthetic temp project. **A detector check must not depend on the bug it
+   detects still existing.**
+
+**Honest limits, unchanged by any of this.** Nothing here has run against the live bot. No voice, no
+audio, no ffmpeg, no real Discord. The memory peak is **still not measured**. The new throw paths are
+verified by mocked tests only — that a dead database produces a visible error rather than a zeroed
+table is a claim about code, and confirming it in production means watching the log during an actual
+outage. The full DB suite has still only ever run per-file against a hosted database; the complete
+500+ test run needs CI's disposable `postgres:16`, and that CI run is the outstanding gate for every
+claim above.
 
 ## Definition of done: see the checklist at the bottom of `PLAN_B_PLUS_TO_A.md`.
 

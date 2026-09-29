@@ -18,6 +18,7 @@ import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
 interface TargetResolution {
   targetUser: User;
@@ -678,7 +679,20 @@ export class PlaycountCommands implements ITextCommandModule {
     const match = target.cleanSearchValue.match(/\b(20\d\d|19\d\d)\b/);
     const year = match ? parseInt(match[1]!, 10) : new Date().getFullYear();
 
-    const yearData = await this.playHistoryService.getYearOverview(target.targetUser.userId, year);
+    // Same contract as the slash route: a database outage must not reach the
+    // `totalPlays === 0` branch, or the user reads "No plays found in 2023"
+    // for a year they demonstrably played music in.
+    let yearData;
+    try {
+      yearData = await this.playHistoryService.getYearOverview(target.targetUser.userId, year);
+    } catch (err) {
+      if (!isSourceUnavailable(err)) throw err;
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Could not load **${year}** for ${target.displayName} — the database is unreachable. Please try again later.`,
+      );
+    }
+
     if (yearData.totalPlays === 0) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NotFound,

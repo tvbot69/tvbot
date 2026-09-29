@@ -4,10 +4,47 @@ import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import type { IPlayRepository } from '@domain/interfaces/iplayRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
 import { GenreService } from './genreService';
 import { CountryService } from './countryService';
 
 const LAST_LISTENED_EXCLUSION_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * The single place a raw-query failure becomes a caller-visible result.
+ *
+ * This is the same shape as `orUnavailable` in `lastFmRepository`, applied to
+ * our own Postgres instead of Last.fm. `getYearOverview` runs six queries, and
+ * each one used to carry `.catch(() => [])`, so a dropped connection rendered
+ * as a year of zero plays, zero artists and an empty top-ten - visually
+ * identical to a user who genuinely never listened to anything. That is the
+ * worst failure shape available: a confident wrong answer the user has no way
+ * to distrust.
+ *
+ * There is no "not found" case to separate out the way Last.fm has one. Every
+ * one of these six queries is an aggregate over `user_plays`, and an aggregate
+ * with no matching rows succeeds with a shorter result - it never errors. So
+ * empty IS the answer, and an error is always an error.
+ */
+const orDatabaseUnavailable = async <T>(
+  label: string,
+  run: () => Promise<Array<T>>,
+): Promise<Array<T>> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: label, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable while building the year overview (${label}); refusing to render it as zero plays`,
+    );
+    throw new SourceUnavailableError(
+      `playHistoryService.getYearOverview:${label}`,
+      err,
+      'Database unavailable',
+    );
+  }
+};
 
 export interface DiscoveryDateResult {
   artistFirstPlay: { timePlayed: Date; albumName: string | null; trackName: string | null } | null;
@@ -205,27 +242,30 @@ export class PlayHistoryService {
     const prevStartDate = new Date(Date.UTC(year - 1, 0, 1));
 
     // Top Artists
-    const artistsRaw = await this.db.$queryRawUnsafe<Array<{ artist_name: string; playcount: bigint }>>(`
+    const artistsRaw = await orDatabaseUnavailable('topArtists', () =>
+      this.db.$queryRawUnsafe<Array<{ artist_name: string; playcount: bigint }>>(`
       SELECT artist_name, COUNT(*)::bigint AS playcount
       FROM user_plays
       WHERE user_id = $1 AND time_played >= $2 AND time_played < $3
       GROUP BY artist_name
       ORDER BY playcount DESC
       LIMIT 10
-    `, userId, startDate, endDate).catch(() => []);
+    `, userId, startDate, endDate));
 
     // Top Tracks
-    const tracksRaw = await this.db.$queryRawUnsafe<Array<{ track_name: string; artist_name: string; playcount: bigint }>>(`
+    const tracksRaw = await orDatabaseUnavailable('topTracks', () =>
+      this.db.$queryRawUnsafe<Array<{ track_name: string; artist_name: string; playcount: bigint }>>(`
       SELECT COALESCE(track_name, 'Unknown Track') AS track_name, artist_name, COUNT(*)::bigint AS playcount
       FROM user_plays
       WHERE user_id = $1 AND time_played >= $2 AND time_played < $3
       GROUP BY track_name, artist_name
       ORDER BY playcount DESC
       LIMIT 10
-    `, userId, startDate, endDate).catch(() => []);
+    `, userId, startDate, endDate));
 
     // Top Albums
-    const albumsRaw = await this.db.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
+    const albumsRaw = await orDatabaseUnavailable('topAlbums', () =>
+      this.db.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
       SELECT album_name, artist_name, COUNT(*)::bigint AS playcount
       FROM user_plays
       WHERE user_id = $1 AND album_name IS NOT NULL AND album_name != ''
@@ -233,30 +273,33 @@ export class PlayHistoryService {
       GROUP BY album_name, artist_name
       ORDER BY playcount DESC
       LIMIT 10
-    `, userId, startDate, endDate).catch(() => []);
+    `, userId, startDate, endDate));
 
     // Total plays & distinct artists
-    const totalsRaw = await this.db.$queryRawUnsafe<Array<{ total_plays: bigint; total_artists: bigint }>>(`
+    const totalsRaw = await orDatabaseUnavailable('totals', () =>
+      this.db.$queryRawUnsafe<Array<{ total_plays: bigint; total_artists: bigint }>>(`
       SELECT COUNT(*)::bigint AS total_plays, COUNT(DISTINCT LOWER(artist_name))::bigint AS total_artists
       FROM user_plays
       WHERE user_id = $1 AND time_played >= $2 AND time_played < $3
-    `, userId, startDate, endDate).catch(() => []);
+    `, userId, startDate, endDate));
 
     // Previous year total
-    const prevTotalsRaw = await this.db.$queryRawUnsafe<Array<{ total_plays: bigint }>>(`
+    const prevTotalsRaw = await orDatabaseUnavailable('previousYearTotals', () =>
+      this.db.$queryRawUnsafe<Array<{ total_plays: bigint }>>(`
       SELECT COUNT(*)::bigint AS total_plays
       FROM user_plays
       WHERE user_id = $1 AND time_played >= $2 AND time_played < $3
-    `, userId, prevStartDate, startDate).catch(() => []);
+    `, userId, prevStartDate, startDate));
 
     // Monthly breakdown (1-12)
-    const monthlyRaw = await this.db.$queryRawUnsafe<Array<{ month: number; count: bigint }>>(`
+    const monthlyRaw = await orDatabaseUnavailable('monthlyBreakdown', () =>
+      this.db.$queryRawUnsafe<Array<{ month: number; count: bigint }>>(`
       SELECT EXTRACT(MONTH FROM time_played)::int AS month, COUNT(*)::bigint AS count
       FROM user_plays
       WHERE user_id = $1 AND time_played >= $2 AND time_played < $3
       GROUP BY month
       ORDER BY month ASC
-    `, userId, startDate, endDate).catch(() => []);
+    `, userId, startDate, endDate));
 
     const monthlyPlays = new Array(12).fill(0);
     for (const m of monthlyRaw) {

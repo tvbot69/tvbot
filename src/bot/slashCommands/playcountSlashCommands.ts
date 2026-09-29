@@ -19,6 +19,7 @@ import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
 @injectable()
 export class PlaycountSlashCommands implements ISlashCommandModule {
@@ -801,7 +802,24 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
     if ('commandResponse' in target) return target;
 
     const year = targetYear ?? new Date().getFullYear();
-    const yearData = await this.playHistoryService.getYearOverview(target.targetUser.userId, year);
+
+    // `getYearOverview` raises rather than defaulting a database failure to
+    // zero (see `orDatabaseUnavailable` in playHistoryService). That is
+    // correct - but it means the `totalPlays === 0` branch below can no longer
+    // be reached by an outage, and the command boundary would otherwise render
+    // a generic "something went wrong". An explicit "could not load" says
+    // *which* thing failed and is retryable, which is what the user needs to
+    // tell apart from a genuinely empty year.
+    let yearData;
+    try {
+      yearData = await this.playHistoryService.getYearOverview(target.targetUser.userId, year);
+    } catch (err) {
+      if (!isSourceUnavailable(err)) throw err;
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Could not load **${year}** for ${target.displayName} — the database is unreachable. Please try again later.`,
+      );
+    }
 
     if (yearData.totalPlays === 0) {
       return GenericEmbedService.buildCommandErrorResponse(

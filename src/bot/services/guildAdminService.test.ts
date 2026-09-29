@@ -4,6 +4,8 @@ import { GuildAdminService } from './guildAdminService';
 import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
 import type { GuildService } from './guild/guildService';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
 import type { PrismaClient } from '@prisma/client';
 
 describe('GuildAdminService', () => {
@@ -100,6 +102,57 @@ describe('GuildAdminService', () => {
       expect(result[1]!.totalPlayCount).toBe(500);
       expect(result[1]!.crownsCount).toBe(5);
       expect(result[1]!.whoKnowsBanned).toBe(false);
+    });
+
+    /**
+     * A dead database used to produce a members table in which everyone had
+     * zero plays and zero crowns - sorted by those zeros, so the heaviest
+     * listener in the server sank to the bottom. It reads as a real answer,
+     * which is the whole problem.
+     */
+    describe('a dead database is not a members table full of zeros', () => {
+      const twoMembers: FullGuildUserDetails[] = [
+        { userId: 1, discordUserId: '1001', userNameLastFm: 'one', whoKnowsWhitelisted: false, whoKnowsBanned: false },
+        { userId: 2, discordUserId: '1002', userNameLastFm: 'two', whoKnowsWhitelisted: false, whoKnowsBanned: false },
+      ];
+
+      beforeEach(() => {
+        vi.mocked(mockGuildUserRepo.getGuildUsers!).mockResolvedValue(twoMembers);
+      });
+
+      it('raises when the playcount query fails', async () => {
+        const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+        mockPrisma.user.findMany.mockRejectedValue(new Error("Can't reach database server"));
+
+        await expect(service.getMembersOverview('12345')).rejects.toBeInstanceOf(SourceUnavailableError);
+        expect(logged).toHaveBeenCalled();
+      });
+
+      it('raises when only the crowns query fails, rather than showing zero crowns', async () => {
+        vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+        mockPrisma.user.findMany.mockResolvedValue([
+          { userId: 1, totalPlayCount: 500 },
+          { userId: 2, totalPlayCount: 1500 },
+        ]);
+        mockPrisma.userCrown.groupBy.mockRejectedValue(new Error('connection terminated'));
+
+        // Partial success is the more insidious case: the playcounts are real,
+        // so the table looks trustworthy right up to the crown column.
+        await expect(service.getMembersOverview('12345')).rejects.toThrow(/userCrown\.groupBy/);
+      });
+
+      it('still returns real zeros when a member genuinely has no plays or crowns', async () => {
+        // The direction that must not change. A user with no row in `user` and
+        // none in `userCrown` truly has zero of each, and inventing an error
+        // there would be its own lie.
+        mockPrisma.user.findMany.mockResolvedValue([]);
+        mockPrisma.userCrown.groupBy.mockResolvedValue([]);
+
+        const result = await service.getMembersOverview('12345');
+
+        expect(result).toHaveLength(2);
+        expect(result.every((m) => m.totalPlayCount === 0 && m.crownsCount === 0)).toBe(true);
+      });
     });
   });
 

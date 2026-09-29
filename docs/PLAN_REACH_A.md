@@ -125,8 +125,35 @@ deliberately not set. The file's own header already states the rule: "Inconclusi
 comment pretending to be a fix.
 
 
+**A-tier 1 progress — `playHistoryService.getYearOverview`, done.**
+
+`getYearOverview` ran six raw queries, each carrying `.catch(() => [])`, so a dropped connection
+produced `{ totalPlays: 0, topArtists: [], monthlyPlays: [0 x 12] }` — byte-identical to a user who
+never pressed play. Both callers then took `totalPlays === 0` and said **"No plays found in 2023."**
+
+The six are now wrapped in `orDatabaseUnavailable`, which logs at ERROR and raises
+`SourceUnavailableError`. There is no "not found" case to split out the way Last.fm has one: all six
+are aggregates over `user_plays`, and an aggregate with no matching rows succeeds with a shorter
+result rather than erroring. So empty IS the answer and an error is always an error. That reasoning is
+in the code comment, because it is the non-obvious half of the change.
+
+**`LastFmUnavailableError` was re-parented onto a new `SourceUnavailableError`** rather than left as
+the root of the idea — the same argument applies to our own Postgres. `name` and the message text are
+unchanged, so `isLastFmUnavailable` and every `instanceof` keep working, and
+`isSourceUnavailable` tells the two apart by name. That separation is load-bearing: `artworkService`
+treats a Last.fm failure as "do NOT cache this as a definitive no-artwork answer", and a database
+outage must not be swept into that branch by accident.
+
+**Both callers were given a visible failure, not a generic one.** The service now raises, so
+`yearSlashAsync` and `yearAsync` each catch `isSourceUnavailable` and return
+`CommandResponse.Error` — "Could not load **2023** for <name> — the database is unreachable" —
+instead of letting the command boundary render a generic "something went wrong". A genuine empty year
+still returns `NotFound`; both directions are pinned, because a fix that only handles the outage case
+would trade one wrong answer for the other. The catch re-throws anything that is not a source
+unavailable, so a real `TypeError` is not dressed up as a transient connectivity problem.
+
 **Definition of done for this tier:** a Last.fm 5xx in a test produces a visible error, and
-the year chart says "could not load" instead of "0 plays."
+the year chart says "could not load" instead of "0 plays." — **met for both sites.**
 
 ### A-tier 2 — A2, the orphaned audio-features feature — **DONE**
 
@@ -154,21 +181,69 @@ Fixed at both ends: the repository now logs at ERROR, and the caller replies "Co
 that friend" and does not rebuild the list, because showing an unchanged list implies success.
 Mutation-checked: disabling the caller's check turns the new test red.
 
-### A-tier 4 — A3, the last unexecuted query
+### A-tier 1b — the same shape in `guildAdminService.getMembersOverview` — **DONE**
 
-`raw-query-without-db-test` reads 0, but that number is only as good as the audit that
-produced it. Two known gaps from earlier rounds:
+The next-highest-blast-radius site of the same class, found by reading the debt list for *plausible
+wrong numbers* rather than chasing the count. Two queries, each `.catch(() => [])`:
 
-- The `$queryRaw` **tagged templates** were not counted by the first audit (35 raw queries
-  were missed this way once already).
-- `prismaClient.db.test.ts` covers the singleton; the harness itself is untested against a
-  real connection pool.
+- `user.findMany` for playcounts
+- `userCrown.groupBy` for crown counts
 
-Re-run the audit with both shapes counted, mutation-check the detector, and fix whatever it
-finds.
+A dropped connection therefore produced a **members table in which every member had 0 plays and 0
+crowns** — and then sorted by those zeros, so the heaviest listener in the server sank to the bottom
+of the list. This is the worst instance of the class found so far: the shape is a real table of real
+people, every number in it is wrong, and an admin cannot distinguish it from a server where nobody
+listens to anything. They might act on it.
 
-**Definition of done:** a detector that provably fails when a query is added, and zero
-uncovered queries.
+Fixed with the same `orDatabaseUnavailable` pattern. Both callers (`guildAdminSlashCommands`,
+`guildAdminCommands`) are command handlers, and `commandHandler.ts:243` catches at the message
+boundary and replies — verified by reading it, not assumed from the Last.fm work.
+
+**Three tests, and the third is the one that matters:** a playcount failure raises; a *crowns-only*
+failure raises (partial success is the more insidious case — the playcounts are real, so the table
+looks trustworthy right up to the column that is not); and a member who genuinely has no row still
+renders a real `0`. Mutation-checked: turning the throw back into `return []` while keeping the
+`Logger.error` call — the exact "log and still return a default" the plan calls the non-fix — turns
+both raise assertions red and leaves the genuine-zeros test green.
+
+### A-tier 4 — A3, the last unexecuted query — **DONE**
+
+`raw-query-without-db-test` reads 0, but that number was only as good as the audit behind it. Two
+known gaps from earlier rounds:
+
+- The `$queryRaw` **tagged templates** were missed by the first audit (35 raw queries once already).
+- The detector itself was unproven.
+
+**The blind spot is closed in code, not in a comment.** The detector now walks both
+`CallExpression` and `TaggedTemplateExpression` receivers and matches `$queryRaw`, `$queryRawUnsafe`,
+`$executeRaw` and `$executeRawUnsafe`. The baseline is **per file**, not per coverage: a file that
+already has a `*.db.test.ts` still reports the *overflow* past its recorded allowance, because
+"a covered file grows a new query" is exactly how this debt grows.
+
+**Mutation-checked, and it is the load-bearing claim in this tier.** Adding one
+`$queryRawUnsafe<T>` tagged template to `playHistoryService` — a file that already has a db test —
+reported `1 > 0 WORSE` and failed the build. Restored, it reads 0 again. A ratchet that reports zero
+is worse than no ratchet, because it looks like coverage.
+
+**A detector test was using the bug as its own fixture.** `countDebtSilentFailure.test.ts` asserted
+the tagged-template shape by pointing at the six `.catch(() => [])` chains in `getYearOverview` — so
+fixing that bug turned the detector's own regression test red, and the tempting fix was to delete the
+assertion. That inverts the ratchet: **a detector check must not depend on the bug it detects still
+existing.**
+
+Replaced with a synthetic throwaway project. The script resolves its `ts.Program` from
+`process.cwd()`, so the test writes a temp `tsconfig.json`, a seeded `debt-budget.json` (a missing
+kind entry throws in `loadBudgets`, and a throw looks exactly like "0 findings" to the caller), and
+`raw-query-baseline.json` (also read relative to cwd), then runs the real script against one fixture
+file. Four fixtures: tagged template, plain `.catch`, a catch that **logs** (must report 0), and no
+catch at all (must report 0). The negative two matter — without them, a detector that returned 1 for
+any file would pass the positive assertions.
+
+Mutation-checked by making `isCatchCallee` reject tagged-template receivers, reproducing the
+historical blindness: exactly the tagged-template assertion went red, the plain one stayed green.
+
+**Not closed:** `dbHarness` itself is still untested against a real connection pool. That needs CI's
+disposable postgres and is not a static-analysis question.
 
 ## What is explicitly not in this plan
 
