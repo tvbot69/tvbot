@@ -30,7 +30,6 @@ function mapUser(entity: UserEntity): User {
         ? DataSource.AppleMusicImport
         : DataSource.LastFm,
     timeZone: entity.timeZone ?? undefined,
-    numberFormat: entity.numberFormat ?? undefined,
     lastUsed: entity.lastUsed ?? undefined,
     lastUpdate: entity.lastUpdate ?? undefined,
     lastIndexed: entity.lastIndexed ?? undefined,

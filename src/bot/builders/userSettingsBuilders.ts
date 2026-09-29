@@ -305,7 +305,7 @@ export class UserSettingsBuilders {
   }
 
   /**
-   * Localization info (.localization explanation)
+   * Timezone info (/localization)
    */
   public static buildLocalizationResponse(
     _context: ContextModel,
@@ -319,19 +319,16 @@ export class UserSettingsBuilders {
     container.setAccentColor(accentColor ?? DiscordConstants.LastFmColorBlue);
 
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent('### Localization Settings'),
+      new TextDisplayBuilder().setContent('### Timezone Settings'),
     );
     container.addSeparatorComponents(new SeparatorBuilder());
 
     const tz = user.timeZone ?? 'UTC';
-    const nf = user.numberFormat ?? 'comma';
 
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `**Current Timezone:** \`${tz}\`\n` +
-        `**Current Number Format:** \`${nf}\`\n\n` +
-        'Use the `/localization` command to set your timezone and number formatting for tvbot commands.\n\n' +
-        '-# Note: This does not change the localization setting on the Last.fm website.',
+        `**Current Timezone:** \`${tz}\`\n\n` +
+        'Use the `/localization` command to set the timezone tvbot uses for your daily charts.',
       ),
     );
 

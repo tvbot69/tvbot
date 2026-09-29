@@ -223,7 +223,6 @@ export class UserRepository implements IUserRepository {
       userType: userTypeFromEntity(entity.userType),
       dataSource: entity.dataSource === 'SpotifyImport' ? DataSource.SpotifyImport : entity.dataSource === 'AppleMusicImport' ? DataSource.AppleMusicImport : DataSource.LastFm,
       timeZone: entity.timeZone ?? undefined,
-      numberFormat: entity.numberFormat ?? undefined,
       mode: entity.mode ?? undefined,
       whoKnowsMode: entity.whoKnowsMode ?? undefined,
       coverType: entity.coverType ?? undefined,

@@ -204,6 +204,18 @@ describe('PlaycountCommands command table', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  // `recap` was a byte-identical delegate to `year`, and `rcp`/`wrapped` were
+  // its aliases. All three were removed on the product owner's instruction.
+  // This pins the deletion, and the survival of `year`, in both directions.
+  it('no longer registers the recap duplicate of year or its aliases', () => {
+    const { commands } = makeModule();
+    const triggers = commands.commands.flatMap((c) => [c.name, ...(c.aliases ?? [])]);
+    expect(triggers).not.toContain('recap');
+    expect(triggers).not.toContain('rcp');
+    expect(triggers).not.toContain('wrapped');
+    expect(triggers).toContain('year');
+  });
+
   it('routes artistplays and its alias to the same handler', async () => {
     const { commands, artistsService } = makeModule();
     artistsService.searchArtist.mockResolvedValue(null);

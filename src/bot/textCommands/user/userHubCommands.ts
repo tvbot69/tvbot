@@ -6,8 +6,6 @@ import { UserService } from '@bot/services/userService';
 import { PrefixService } from '@bot/services/prefixService';
 import { ColorService } from '@bot/services/colorService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
-import { TimePeriod } from '@domain/enums/timePeriod';
-import { AiJudgeService, type JudgeMode } from '@bot/services/aiJudgeService';
 import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import { FeaturedService } from '@bot/services/featuredService';
 import { ShortcutService } from '@bot/services/shortcutService';
@@ -20,7 +18,6 @@ export class UserHubCommands implements ITextCommandModule {
 
   constructor(
     @inject(UserService) private readonly userService: UserService,
-    @inject(AiJudgeService) private readonly aiJudgeService: AiJudgeService,
     @inject(BotScrobblingService) private readonly botScrobblingService: BotScrobblingService,
     @inject(FeaturedService) private readonly featuredService: FeaturedService,
     @inject(ShortcutService) private readonly shortcutService: ShortcutService,
@@ -29,21 +26,6 @@ export class UserHubCommands implements ITextCommandModule {
     @inject(ColorService) private readonly colorService?: ColorService,
   ) {
     this.commands = [
-      {
-        name: 'judge',
-        aliases: [],
-        executeAsync: (ctx, args) => this.judgeAsync(ctx, args, 'judge'),
-      },
-      {
-        name: 'roast',
-        aliases: [],
-        executeAsync: (ctx, args) => this.judgeAsync(ctx, args, 'roast'),
-      },
-      {
-        name: 'compliment',
-        aliases: [],
-        executeAsync: (ctx, args) => this.judgeAsync(ctx, args, 'compliment'),
-      },
       {
         name: 'botscrobbling',
         aliases: ['botscrobble', 'bottracking'],
@@ -80,37 +62,6 @@ export class UserHubCommands implements ITextCommandModule {
         executeAsync: (ctx, args) => this.shortcutsAsync(ctx, args),
       },
     ];
-  }
-
-  private async judgeAsync(
-    context: ContextModel,
-    _args: string[],
-    mode: JudgeMode,
-  ): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    const prefix = await this.prefixService.getPrefix(context.guildId);
-    if (!user) {
-      return GenericEmbedService.buildWrongInputResponse(
-        `You have not connected your Last.fm account yet. Connect it with \`${prefix}login\`.`,
-      );
-    }
-
-    const accentColor = this.colorService
-      ? await this.colorService.getAccentColorAsync(context.guildId)
-      : undefined;
-
-    const result = await this.aiJudgeService.evaluateTaste({
-      userNameLastFm: user.userNameLastFm,
-      discordUserId: context.discordUserId,
-      mode,
-      period: TimePeriod.Quarterly,
-    });
-
-    return UserHubBuilders.buildJudgeResponse({
-      result,
-      displayName: context.discordDisplayName,
-      accentColor,
-    });
   }
 
   private async botScrobblingAsync(

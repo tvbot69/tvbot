@@ -100,11 +100,6 @@ export class PlaycountCommands implements ITextCommandModule {
         executeAsync: (context, args) => this.yearAsync(context, args?.join(' ') ?? ''),
       },
       {
-        name: 'recap',
-        aliases: ['rcp', 'wrapped'],
-        executeAsync: (context, args) => this.recapAsync(context, args?.join(' ') ?? ''),
-      },
-      {
         name: 'playleaderboard',
         aliases: ['sblb', 'scrobblelb', 'scrobbleleaderboard'],
         executeAsync: (context) => this.playLeaderboardAsync(context),
@@ -710,10 +705,6 @@ export class PlaycountCommands implements ITextCommandModule {
       yearData,
       accentColor,
     });
-  }
-
-  private async recapAsync(context: ContextModel, rawOptions: string): Promise<ResponseModel> {
-    return this.yearAsync(context, rawOptions);
   }
 
   private async playLeaderboardAsync(context: ContextModel): Promise<ResponseModel> {

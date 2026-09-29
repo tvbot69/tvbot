@@ -212,18 +212,10 @@ describe('PlaycountSlashCommands command routing', () => {
     expect(PlaycountBuilders.buildYearOverviewResponse).toHaveBeenCalled();
   });
 
-  it('routes recap subcommand to yearSlashAsync', async () => {
-    const { service, playHistoryService } = build();
-    (playHistoryService.getYearOverview as ReturnType<typeof vi.fn>).mockResolvedValue({ totalPlays: 100 });
-    const ctx = mkContext({ interaction: { options: { getInteger: () => 2024, getUser: () => null } } });
-    await execute(service, 7, ctx);
-    expect(PlaycountBuilders.buildYearOverviewResponse).toHaveBeenCalled();
-  });
-
   it('routes leaderboard plays subcommand', async () => {
     const { service } = build();
     const ctx = mkContext({ interaction: { options: subCmd('plays') } });
-    await execute(service, 8, ctx);
+    await execute(service, 7, ctx);
     expect(PlaycountBuilders.buildLeaderboardResponse).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Scrobbles Leaderboard' }),
     );
@@ -232,7 +224,7 @@ describe('PlaycountSlashCommands command routing', () => {
   it('routes leaderboard time subcommand', async () => {
     const { service } = build();
     const ctx = mkContext({ interaction: { options: subCmd('time') } });
-    await execute(service, 8, ctx);
+    await execute(service, 7, ctx);
     expect(PlaycountBuilders.buildLeaderboardResponse).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'Listening Time Leaderboard' }),
     );
@@ -592,7 +584,15 @@ describe('PlaycountSlashCommands command table', () => {
     expect(names).toContain('lastlistened');
     expect(names).toContain('receipt');
     expect(names).toContain('year');
-    expect(names).toContain('recap');
     expect(names).toContain('leaderboard');
+  });
+
+  // `recap` was a byte-identical delegate to `year` on both families. The
+  // product owner removed it, so this pins the deletion: a rename or a copy
+  // back in is a regression, not a harmless duplicate.
+  it('no longer registers the recap duplicate of year', () => {
+    const { service } = build();
+    const names = service.commands.map((c) => c.data.name);
+    expect(names).not.toContain('recap');
   });
 });

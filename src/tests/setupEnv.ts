@@ -37,8 +37,6 @@ const fallbacks: Record<string, string> = {
   LASTFM_API_SECRET: 'test-secret',
   SPOTIFY_CLIENT_ID: 'test-client-id',
   SPOTIFY_CLIENT_SECRET: 'test-client-secret',
-  GENIUS_CLIENT_ID: 'test-genius-id',
-  GENIUS_CLIENT_SECRET: 'test-genius-secret',
   YOUTUBE_API_KEY: 'test-youtube-key',
   // local keeps the Redis warning a warning rather than an error, and keeps
   // ENABLE_LAVALINK off by default so nothing reaches a public node.

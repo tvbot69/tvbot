@@ -52,12 +52,6 @@ export interface AppleMusicConfig {
   teamId: string;
 }
 
-export interface GeniusConfig {
-  clientId: string;
-  clientSecret: string;
-  accessToken: string;
-}
-
 export interface AuddConfig {
   apiToken: string;
 }
@@ -85,7 +79,6 @@ export interface BotSettings {
   lastFm: LastFmConfig;
   spotify: SpotifyConfig;
   appleMusic?: AppleMusicConfig;
-  genius: GeniusConfig;
   audd: AuddConfig;
   google: GoogleConfig;
   discogs: DiscogsConfig;

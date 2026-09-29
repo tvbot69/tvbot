@@ -12,71 +12,10 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import type { JudgeResult } from '@bot/services/aiJudgeService';
 import type { PlayingVoiceTrack } from '@bot/services/music/botScrobblingService';
 import type { FeaturedEntry } from '@bot/services/featuredService';
 
 export class UserHubBuilders {
-  public static buildJudgeResponse(params: {
-    result: JudgeResult;
-    displayName: string;
-    accentColor?: number | null;
-  }): ResponseModel {
-    const { result } = params;
-    const container = new ContainerBuilder();
-
-    let color = DiscordConstants.LastFmColorRed;
-    let modeIcon = '⚖️';
-    let modeTitle = 'Music Taste Evaluation';
-
-    if (result.mode === 'roast') {
-      color = 0xff7a01; // Orange
-      modeIcon = '🔥';
-      modeTitle = 'Music Taste Roast';
-    } else if (result.mode === 'compliment') {
-      color = 0xbaeda9; // Pastel Green
-      modeIcon = '🙂';
-      modeTitle = 'Music Taste Compliment';
-    }
-
-    container.setAccentColor(params.accentColor ?? color);
-
-    const titleText = `### ${modeIcon} ${modeTitle} for **${params.displayName}** (\`${result.userNameLastFm}\`)\n-# Rating: **${result.rating}** — *${result.headline}*`;
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
-    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(result.critique));
-
-    if (result.topArtists.length > 0) {
-      container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-      const topStr = `-# 🎧 Key Artists Considered: ${result.topArtists.join(', ')}`;
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(topStr));
-    }
-
-    // Action row to switch tones
-    const buttonsRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`userhub:judge:roast:${result.discordUserId}`)
-        .setLabel('🔥 Roast')
-        .setStyle(result.mode === 'roast' ? ButtonStyle.Success : ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`userhub:judge:compliment:${result.discordUserId}`)
-        .setLabel('🙂 Compliment')
-        .setStyle(result.mode === 'compliment' ? ButtonStyle.Success : ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(`userhub:judge:judge:${result.discordUserId}`)
-        .setLabel('⚖️ Verdict')
-        .setStyle(result.mode === 'judge' ? ButtonStyle.Success : ButtonStyle.Secondary),
-    );
-
-    container.addActionRowComponents(buttonsRow);
-
-    const response = new ResponseModel(params.accentColor ?? color);
-    response.commandResponse = CommandResponse.Ok;
-    response.setComponentsV2Container(container);
-    return response;
-  }
-
   public static buildBotScrobblingResponse(params: {
     optedIn: boolean;
     nowPlaying?: PlayingVoiceTrack;

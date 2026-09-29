@@ -35,7 +35,6 @@ import { TrackService } from './services/trackService';
 import { ComponentInteractionTracker } from './services/componentInteractionTracker';
 import { ComponentPaginatorService } from './services/componentPaginatorService';
 import { PaginationService } from './services/paginationService';
-import { LocalizationService } from './services/localizationService';
 import { TelemetryService } from './services/telemetryService';
 import { AutopostService } from './services/autopostService';
 import { NowPlayingInteractions } from './interactions/nowPlayingInteractions';
@@ -197,7 +196,6 @@ import { IntelligenceSlashCommands } from './slashCommands/intelligenceSlashComm
 import { GuildAdminService } from './services/guildAdminService';
 import { GuildAdminCommands } from './textCommands/guild/guildAdminCommands';
 import { GuildAdminSlashCommands } from './slashCommands/guildAdminSlashCommands';
-import { AiJudgeService } from './services/aiJudgeService';
 import { BotScrobblingService } from './services/music/botScrobblingService';
 import { FeaturedService } from './services/featuredService';
 import { ShortcutService } from './services/shortcutService';
@@ -424,7 +422,6 @@ export const configureContainer = (): void => {
   );
 
   const paginationService = new PaginationService(componentTracker);
-  const localizationService = new LocalizationService();
 
   const puppeteerService = new PuppeteerService();
   const imageChartService = new ImageChartService(puppeteerService);
@@ -489,7 +486,6 @@ export const configureContainer = (): void => {
   container.registerInstance(ComponentInteractionTracker, componentTracker);
   container.registerInstance(ComponentPaginatorService, componentPaginatorService);
   container.registerInstance(PaginationService, paginationService);
-  container.registerInstance(LocalizationService, localizationService);
   container.registerInstance(ColorService, colorService);
   container.registerInstance(FmSettingService, fmSettingService);
   container.registerInstance(UserFmSettingRepository, userFmSettingRepository);
@@ -913,14 +909,12 @@ export const configureContainer = (): void => {
   container.registerInstance(GuildAdminCommands, guildAdminCommands);
   container.registerInstance(GuildAdminSlashCommands, guildAdminSlashCommands);
 
-  const aiJudgeService = new AiJudgeService(lastFmRepository);
   const botScrobblingService = new BotScrobblingService(lastFmRepository, userRepository, guildMusicSettingsRepository);
   const featuredService = new FeaturedService(lastFmRepository, prisma);
   const shortcutService = new ShortcutService();
-  const userHubInteractions = new UserHubInteractions(aiJudgeService, botScrobblingService, userService, colorService);
+  const userHubInteractions = new UserHubInteractions(botScrobblingService, userService, colorService);
   const userHubCommands = new UserHubCommands(
     userService,
-    aiJudgeService,
     botScrobblingService,
     featuredService,
     shortcutService,
@@ -930,7 +924,6 @@ export const configureContainer = (): void => {
   );
   const userHubSlashCommands = new UserHubSlashCommands(
     userService,
-    aiJudgeService,
     botScrobblingService,
     featuredService,
     shortcutService,
@@ -939,7 +932,6 @@ export const configureContainer = (): void => {
     colorService,
   );
 
-  container.registerInstance(AiJudgeService, aiJudgeService);
   container.registerInstance(BotScrobblingService, botScrobblingService);
   container.registerInstance(FeaturedService, featuredService);
   container.registerInstance(ShortcutService, shortcutService);

@@ -1,51 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { UserHubBuilders } from './userHubBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { TimePeriod } from '@domain/enums/timePeriod';
 
 describe('UserHubBuilders', () => {
-  describe('buildJudgeResponse', () => {
-    it('creates container with roast mode and action buttons', () => {
-      const response = UserHubBuilders.buildJudgeResponse({
-        result: {
-          mode: 'roast',
-          userNameLastFm: 'tester',
-          discordUserId: '1001',
-          rating: '3.4 / 10',
-          headline: 'Addicted to Radiohead',
-          critique: 'Step outside and touch vinyl.',
-          topArtists: ['Radiohead', 'The Smiths'],
-          topTracks: ['Creep by Radiohead'],
-          period: TimePeriod.Quarterly,
-        },
-        displayName: 'Test User',
-      });
-
-      expect(response.commandResponse).toBe(CommandResponse.Ok);
-      expect(response.componentsV2Container).toBeDefined();
-    });
-
-    it('creates container with compliment mode', () => {
-      const response = UserHubBuilders.buildJudgeResponse({
-        result: {
-          mode: 'compliment',
-          userNameLastFm: 'audiophile',
-          discordUserId: '1002',
-          rating: '9.2 / 10',
-          headline: 'Impeccable Taste',
-          critique: 'Certified connoisseur.',
-          topArtists: ['Aphex Twin'],
-          topTracks: [],
-          period: TimePeriod.Quarterly,
-        },
-        displayName: 'Audiophile',
-      });
-
-      expect(response.commandResponse).toBe(CommandResponse.Ok);
-      expect(response.componentsV2Container).toBeDefined();
-    });
-  });
-
   describe('buildBotScrobblingResponse', () => {
     it('creates container with status and action buttons', () => {
       const response = UserHubBuilders.buildBotScrobblingResponse({

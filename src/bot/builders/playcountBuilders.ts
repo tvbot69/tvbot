@@ -403,15 +403,6 @@ export class PlaycountBuilders {
     return response;
   }
 
-  public static buildRecapResponse(params: {
-    displayName: string;
-    userNameLastFm: string;
-    yearData: YearOverviewData;
-    accentColor?: number | null;
-  }): ResponseModel {
-    return PlaycountBuilders.buildYearOverviewResponse(params);
-  }
-
   public static buildLeaderboardResponse(params: {
     guildName: string;
     title: string;

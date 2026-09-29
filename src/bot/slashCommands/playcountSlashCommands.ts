@@ -216,22 +216,6 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       },
       {
         data: new SlashCommandBuilder()
-          .setName('recap')
-          .setDescription('Comprehensive music recap combining your top highlights.')
-          .addIntegerOption((opt) =>
-            opt.setName('year').setDescription('Year for recap').setRequired(false),
-          )
-          .addUserOption((opt) =>
-            opt.setName('user').setDescription('Target user').setRequired(false),
-          ),
-        executeAsync: (context) => {
-          const year = context.interaction?.options.getInteger('year');
-          const targetUser = context.interaction?.options.getUser('user');
-          return this.yearSlashAsync(context, year, targetUser?.id);
-        },
-      },
-      {
-        data: new SlashCommandBuilder()
           .setName('leaderboard')
           .setDescription('Server member music leaderboards')
           .addSubcommand((sub) =>

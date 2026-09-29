@@ -7,8 +7,6 @@ import { UserService } from '@bot/services/userService';
 import { PrefixService } from '@bot/services/prefixService';
 import { ColorService } from '@bot/services/colorService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
-import { TimePeriod } from '@domain/enums/timePeriod';
-import { AiJudgeService, type JudgeMode } from '@bot/services/aiJudgeService';
 import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import { FeaturedService } from '@bot/services/featuredService';
 import { ShortcutService } from '@bot/services/shortcutService';
@@ -21,7 +19,6 @@ export class UserHubSlashCommands implements ISlashCommandModule {
 
   constructor(
     @inject(UserService) private readonly userService: UserService,
-    @inject(AiJudgeService) private readonly aiJudgeService: AiJudgeService,
     @inject(BotScrobblingService) private readonly botScrobblingService: BotScrobblingService,
     @inject(FeaturedService) private readonly featuredService: FeaturedService,
     @inject(ShortcutService) private readonly shortcutService: ShortcutService,
@@ -30,23 +27,6 @@ export class UserHubSlashCommands implements ISlashCommandModule {
     @inject(ColorService) private readonly colorService?: ColorService,
   ) {
     this.commands = [
-      {
-        data: new SlashCommandBuilder()
-          .setName('judge')
-          .setDescription('Evaluate, roast, or compliment your music taste')
-          .addStringOption((opt) =>
-            opt
-              .setName('mode')
-              .setDescription('Critique mode')
-              .setRequired(false)
-              .addChoices(
-                { name: '⚖️ Balanced Verdict', value: 'judge' },
-                { name: '🔥 Savage Roast', value: 'roast' },
-                { name: '🙂 Sincere Compliment', value: 'compliment' },
-              ),
-          ),
-        executeAsync: (ctx) => this.judgeSlashAsync(ctx),
-      },
       {
         data: new SlashCommandBuilder()
           .setName('botscrobbling')
@@ -100,34 +80,6 @@ export class UserHubSlashCommands implements ISlashCommandModule {
         executeAsync: (ctx) => this.shortcutsSlashAsync(ctx),
       },
     ];
-  }
-
-  private async judgeSlashAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    const prefix = await this.prefixService.getPrefix(context.guildId);
-    if (!user) {
-      return GenericEmbedService.buildWrongInputResponse(
-        `You have not connected your Last.fm account yet. Connect it with \`${prefix}login\`.`,
-      );
-    }
-
-    const mode = (context.interaction?.options.getString('mode') as JudgeMode) || 'judge';
-    const accentColor = this.colorService
-      ? await this.colorService.getAccentColorAsync(context.guildId)
-      : undefined;
-
-    const result = await this.aiJudgeService.evaluateTaste({
-      userNameLastFm: user.userNameLastFm,
-      discordUserId: context.discordUserId,
-      mode,
-      period: TimePeriod.Quarterly,
-    });
-
-    return UserHubBuilders.buildJudgeResponse({
-      result,
-      displayName: context.discordDisplayName,
-      accentColor,
-    });
   }
 
   private async botScrobblingSlashAsync(context: ContextModel): Promise<ResponseModel> {

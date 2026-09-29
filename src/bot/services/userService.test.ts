@@ -370,38 +370,6 @@ describe('UserService.calculateMilestone', () => {
   });
 });
 
-describe('UserService.formatNumber', () => {
-  const svc = () => build().service;
-  it('defaults to en-US comma grouping', () => {
-    expect(svc().formatNumber(1234567)).toBe('1,234,567');
-  });
-
-  it('supports space, period and dot separators', () => {
-    expect(svc().formatNumber(1234567, 'space')).toBe('1 234 567');
-    expect(svc().formatNumber(1234567, 'period')).toBe('1.234.567');
-    expect(svc().formatNumber(1234567, 'dot')).toBe('1.234.567');
-  });
-
-  it('is case-insensitive about the format name', () => {
-    expect(svc().formatNumber(1234567, 'SPACE')).toBe('1 234 567');
-  });
-
-  it('falls through to comma for an unknown format', () => {
-    expect(svc().formatNumber(1234567, 'martian')).toBe('1,234,567');
-  });
-
-  it('returns 0 for a non-finite value rather than "NaN"', () => {
-    expect(svc().formatNumber(NaN)).toBe('0');
-    expect(svc().formatNumber(Infinity)).toBe('0');
-    expect(svc().formatNumber(-Infinity)).toBe('0');
-  });
-
-  it('leaves a short number ungrouped', () => {
-    expect(svc().formatNumber(123)).toBe('123');
-    expect(svc().formatNumber(123, 'space')).toBe('123');
-  });
-});
-
 describe('UserService.resolveTimeZone', () => {
   const svc = () => build().service;
   it('accepts a valid IANA zone', () => {
@@ -599,13 +567,6 @@ describe('UserService settings writers', () => {
     expect(cache.delete).toHaveBeenCalledWith('user-discord:900000000000000001');
   });
 
-  it('writes and evicts the number format', async () => {
-    const { service, userUpdate, cache } = build();
-    await expect(service.setNumberFormat(1, 'space')).resolves.toBe('space');
-    expect(userUpdate).toHaveBeenCalledWith({ where: { userId: 1 }, data: { numberFormat: 'space' } });
-    expect(cache.delete).toHaveBeenCalledWith('user-discord:900000000000000001');
-  });
-
   it('writes and evicts the numeric settings', async () => {
     const { service, userUpdate, cache } = build();
     await expect(service.setWhoKnowsMode(1, 2)).resolves.toBe(2);
@@ -623,7 +584,7 @@ describe('UserService settings writers', () => {
     // The cache key is `user-discord:<id>`, so evicting by `userId` would be a
     // no-op that leaves the old row live. Pinned explicitly.
     const { service, cache } = build({ userUpdate: { userId: 1, discordUserId: 'other-id' } });
-    await service.setNumberFormat(1, 'space');
+    await service.setCoverType(1, 4);
     expect(cache.delete).toHaveBeenCalledWith('user-discord:other-id');
   });
 });

@@ -165,14 +165,6 @@ describe('Pillar 2: UserService Production Calculations & Formatting', () => {
     expect(milestone.estimatedDaysLeft).toBe(32);
   });
 
-  it('formats numbers according to user format settings', () => {
-    const num = 1234567;
-    expect(userService.formatNumber(num, 'comma')).toBe('1,234,567');
-    expect(userService.formatNumber(num, 'space')).toBe('1 234 567');
-    expect(userService.formatNumber(num, 'period')).toBe('1.234.567');
-    expect(userService.formatNumber(num, 'dot')).toBe('1.234.567');
-  });
-
   it('validates and resolves timezones safely with UTC fallback', () => {
     expect(userService.resolveTimeZone('America/New_York')).toBe('America/New_York');
     expect(userService.resolveTimeZone('Europe/London')).toBe('Europe/London');

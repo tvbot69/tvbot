@@ -342,10 +342,21 @@ describe('Bugfixes & Hardening Validation', () => {
       const { MusicCommands } = await import('@bot/textCommands/music/musicCommands');
       const libTriggers = triggersOf(new (LibrarySearchCommands as any)());
       expect(libTriggers).toContain('searchdb');
+      // Only the slash twin was cut. The text command keeps its own name and
+      // every alias it had, so `.librarysearch` still reaches the feature.
+      expect(libTriggers).toContain('librarysearch');
+      expect(libTriggers).toContain('libsearch');
+      expect(libTriggers).toContain('ls');
+      expect(libTriggers).toContain('dbsearch');
       const slashNames: string[] = (new (LibrarySearchSlashCommands as any)()).commands.map(
         (c: { data: { name: string } }) => c.data.name.toLowerCase(),
       );
       expect(slashNames).toContain('searchdb');
+      // The slash family had no alias mechanism, so `searchdb` was registered
+      // twice — once as `librarysearch`, once as `searchdb` — burning one of
+      // Discord's 100 global slots. Only the name the owner wants survives.
+      expect(slashNames).not.toContain('librarysearch');
+      expect(slashNames).toHaveLength(1);
       const musicTriggers = triggersOf(new (MusicCommands as any)());
       expect(musicTriggers).toContain('search');
       expect(musicTriggers).not.toContain('searchdb');

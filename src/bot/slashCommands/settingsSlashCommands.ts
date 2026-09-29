@@ -52,23 +52,12 @@ export class SettingsSlashCommands implements ISlashCommandModule {
       {
         data: new SlashCommandBuilder()
           .setName('localization')
-          .setDescription('Configure your timezone and number format in tvbot')
+          .setDescription('Configure your timezone in tvbot')
           .addStringOption((opt) =>
             opt
               .setName('timezone')
               .setDescription('Your timezone (e.g. Europe/London, America/New_York, UTC)')
               .setRequired(false),
-          )
-          .addStringOption((opt) =>
-            opt
-              .setName('numberformat')
-              .setDescription('Number formatting style')
-              .setRequired(false)
-              .addChoices(
-                { name: 'Comma (1,234,567)', value: 'comma' },
-                { name: 'Period (1.234.567)', value: 'period' },
-                { name: 'Space (1 234 567)', value: 'space' },
-              ),
           ) as SlashCommandData,
         executeAsync: (context) => this.localizationAsync(context),
       },
@@ -141,26 +130,15 @@ export class SettingsSlashCommands implements ISlashCommandModule {
     const tzOption = context.interaction?.isChatInputCommand()
       ? context.interaction.options.getString('timezone')
       : null;
-    const nfOption = context.interaction?.isChatInputCommand()
-      ? context.interaction.options.getString('numberformat')
-      : null;
 
-    if (!tzOption && !nfOption) {
+    if (!tzOption) {
       return UserSettingsBuilders.buildLocalizationResponse(context, user, context.accentColor);
     }
 
-    const updates: string[] = [];
-    if (tzOption) {
-      const resolved = await this.userService.setTimeZone(user.userId, tzOption);
-      updates.push(`Timezone updated to \`${resolved}\``);
-    }
-    if (nfOption) {
-      const resolvedNf = await this.userService.setNumberFormat(user.userId, nfOption);
-      updates.push(`Number format updated to \`${resolvedNf}\``);
-    }
+    const resolved = await this.userService.setTimeZone(user.userId, tzOption);
 
     return GenericEmbedService.buildSuccessResponse(
-      `### Localization Updated\n${updates.join('\n')}`,
+      `### Timezone Updated\nTimezone updated to \`${resolved}\``,
     );
   }
 }

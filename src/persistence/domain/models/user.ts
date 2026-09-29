@@ -23,7 +23,6 @@ export interface User {
   userType: UserType;
   dataSource: DataSource;
   timeZone?: string;
-  numberFormat?: string;
   privacyLevel: PrivacyLevel;
   mode?: number;
   whoKnowsMode?: number;

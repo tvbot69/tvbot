@@ -89,11 +89,6 @@ const buildSettings = (): BotSettings => {
         credentials: credentials.length > 0 ? credentials : [{ key: primaryKey, secret: primarySecret }],
       };
     })(),
-    genius: {
-      clientId: optional('GENIUS_CLIENT_ID') ?? '',
-      clientSecret: optional('GENIUS_CLIENT_SECRET') ?? '',
-      accessToken: optional('GENIUS_CLIENT_ACCESS_TOKEN') ?? '',
-    },
     audd: {
       apiToken: optional('AUDD_API_TOKEN') ?? '',
     },

@@ -21,7 +21,6 @@ describe('UserSettingsBuilders', () => {
     mode: ResponseMode.Embed,
     coverType: CoverType.Motion,
     timeZone: 'Europe/London',
-    numberFormat: 'comma',
   };
 
   const createMockContext = (isAdmin = false): ContextModel => {

@@ -16,7 +16,7 @@ const USER_CACHE_TTL_SECONDS = 300;
 /**
  * A settings write that could not run is not a settings write.
  *
- * Seven methods below ended in `.catch(() => null)` on `db.user.update`, so a
+ * Six methods below ended in `.catch(() => null)` on `db.user.update`, so a
  * dropped connection produced the one answer a user has no way to check: the
  * command still replied "Timezone updated to `Europe/London`" or "Your default
  * WhoKnows mode has been set to **Image**" over a row that was never written.
@@ -228,23 +228,6 @@ export class UserService {
   }
 
   /**
-   * Number formatting matching user settings (comma, space, or period)
-   */
-  public formatNumber(value: number, format?: string | null): string {
-    if (!Number.isFinite(value)) return '0';
-    switch (format?.toLowerCase()) {
-      case 'space':
-        return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-      case 'period':
-      case 'dot':
-        return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-      case 'comma':
-      default:
-        return value.toLocaleString('en-US');
-    }
-  }
-
-  /**
    * Timezone validator & resolver using Intl
    */
   public resolveTimeZone(timeZone?: string | null): string {
@@ -381,11 +364,6 @@ export class UserService {
     const resolved = this.resolveTimeZone(timeZone);
     await this.writeUserSetting('setTimeZone', userId, { timeZone: resolved });
     return resolved;
-  }
-
-  public async setNumberFormat(userId: number, format: string): Promise<string> {
-    await this.writeUserSetting('setNumberFormat', userId, { numberFormat: format });
-    return format;
   }
 
   public async setPrivacyLevel(userId: number, privacyLevel: string): Promise<string> {

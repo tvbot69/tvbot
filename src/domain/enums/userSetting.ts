@@ -54,8 +54,8 @@ export const UserSettingMeta: Record<UserSetting, UserSettingOptionMeta> = {
     value: 'UserReactions',
   },
   [UserSetting.Localization]: {
-    name: 'Localization',
-    description: 'Set your timezone and number formatting',
+    name: 'Timezone',
+    description: 'Set the timezone tvbot uses for your daily charts',
     value: 'Localization',
   },
   [UserSetting.BotScrobbling]: {

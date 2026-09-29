@@ -1,7 +1,7 @@
 /**
  * A settings write that could not run is not a settings write.
  *
- * All seven `setX` methods carried `.catch(() => null)` on `db.user.update`, so
+ * Every remaining `setX` method carried `.catch(() => null)` on `db.user.update`, so
  * a dropped connection produced the one answer a user has no way to check: the
  * command still replied "Timezone updated to `Europe/London`" or "Your default
  * WhoKnows mode has been set to **Image**" over a row that was never written.
@@ -44,9 +44,9 @@ const ROW = { userId: 1, discordUserId: '900000000000000001' };
  * Every writer, with the argument its signature needs and the value the command
  * echoes back to the user.
  *
- * All seven are here on purpose. A sweep over six of them passes the moment
- * someone adds a seventh that swallows again, and "six of seven" is exactly the
- * shape this file exists to rule out.
+ * Six remain. They are all here on purpose. A sweep over five of them passes the
+ * moment someone adds a sixth that swallows again, and "five of six" is exactly
+ * the shape this file exists to rule out.
  */
 const WRITERS: Array<{
   method: keyof UserService;
@@ -60,12 +60,6 @@ const WRITERS: Array<{
     call: (s) => s.setTimeZone(1, 'Europe/London'),
     echoes: 'Europe/London',
     column: { timeZone: 'Europe/London' },
-  },
-  {
-    method: 'setNumberFormat',
-    call: (s) => s.setNumberFormat(1, 'space'),
-    echoes: 'space',
-    column: { numberFormat: 'space' },
   },
   {
     method: 'setPrivacyLevel',
@@ -154,7 +148,7 @@ describe('UserService settings writers - a write that could not run is raised', 
     const down = DB_DOWN();
     const { service } = build(Promise.reject(down));
 
-    const err = await service.setNumberFormat(1, 'space').catch((e: unknown) => e);
+    const err = await service.setTimeZone(1, 'Europe/London').catch((e: unknown) => e);
 
     expect((err as { cause?: unknown }).cause).toBe(down);
   });

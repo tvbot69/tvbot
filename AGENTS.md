@@ -177,7 +177,6 @@ perhaps one turn in ten. Same knowledge, fetched on demand.
 | `REDIS_URL` | `redis://localhost:6379`. `CacheService` falls back to an in-memory LRU if Redis is down — it does not fail. |
 | `LASTFM_API_KEY` / `LASTFM_API_SECRET` | Every Last.fm read: scrobbles, library, top lists, who-knows. |
 | `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` | Search + cover art. **Client-credentials scope only — see §10 for what that cannot do.** |
-| `GENIUS_CLIENT_ID` / `GENIUS_CLIENT_SECRET` | Lyrics lookup. |
 | `YOUTUBE_API_KEY` | Chapter timestamps via one `videos.list?part=snippet` call. |
 | `HOME_RESOLVER_URL` / `HOME_RESOLVER_TOKEN` | The user PC's yt-dlp resolver. The first rung of the search ladder. |
 | `HOME_LADDER_MODE` | Which rungs the ladder is allowed to use. |
