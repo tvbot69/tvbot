@@ -149,6 +149,11 @@ export class FriendSlashCommands implements ISlashCommandModule {
           accentColor = await clrSvc.getColorFromImageUrl(artUrl);
         }
       } catch {
+        // CORRECT AS IS: `accentColor` is already the Last.fm red from the line
+        // above, and this read only ever REFINES it from the top friend's cover.
+        // The friend rows themselves were built and sorted before this block, so
+        // every now-playing track and its timestamp on the card is unaffected by
+        // a cover or colour failure. Decoration cannot make a number wrong.
         // fallback
       }
     }

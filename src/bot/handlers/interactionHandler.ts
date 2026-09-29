@@ -158,6 +158,14 @@ export class InteractionHandler {
       // window closes. Fast handlers finish first and clear the timer below;
       // only stragglers get auto-deferred (a working follow-up beats a 10062).
       ackGuard = setTimeout(() => {
+        // CORRECT AS IS: pure transport, and the failure is already accounted for
+        // downstream. This guard exists to beat Discord's 3s window; if
+        // `deferUpdate` itself fails then the interaction is dead (10062, or
+        // already acknowledged) and the handler below hits the same wall and
+        // reports it through this file's own catch. Nothing here can turn a dead
+        // interaction into a wrong ANSWER - no payload has been read yet, so
+        // there is no number in play. Raising would only convert a timing race
+        // into an unhandled rejection on a timer.
         if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
           void interaction.deferUpdate().catch(() => undefined);
         }
@@ -342,6 +350,15 @@ export class InteractionHandler {
       }
       const handled = await this.componentTracker.handle(interaction);
       if (!handled && interaction.isRepliable() && !interaction.replied) {
+        // CORRECT AS IS: the last line of defence, and by the time it runs the
+        // answer is already "this component is not routable". The tracker
+        // swallows its own handler errors after logging them (see
+        // `componentInteractionTracker.handle`), so reaching here means no
+        // handler claimed this customId at all - an expired or forged button.
+        // There is no measurement to corrupt: the message says the interaction
+        // expired, which is exactly what is true. The catch is Discord rejecting
+        // the reply, which is the same class as every other transport catch in
+        // this file.
         await interaction
           .reply({ content: 'This interaction expired.', flags: MessageFlags.Ephemeral })
           .catch(() => undefined);
@@ -367,15 +384,26 @@ export class InteractionHandler {
         // `LastFmUnavailableError` is re-parented onto `SourceUnavailableError`,
         // so this one check separates "the database is down, retry" from
         // "something is wrong, report it", and a defect still reads as a defect.
-        const sourceDown = isSourceUnavailable(err);
-        const content = sourceDown
-          ? `Could not reach ${isLastFmUnavailable(err) ? 'Last.fm' : 'the database'}. Please try again in a moment.`
-          : 'Sorry, something went wrong while processing this interaction.';
-        const flags = MessageFlags.Ephemeral;
-        await (interaction.deferred
-          ? interaction.followUp({ content, flags })
-          : interaction.reply({ content, flags })
-        ).catch(() => undefined);
+      // The `sourceDown` branch above is a fix, not a swallow: it is the one
+      // place in this file that turns a failure into a sentence about the SOURCE
+      // rather than about the user's data.
+      const sourceDown = isSourceUnavailable(err);
+      const content = sourceDown
+        ? `Could not reach ${isLastFmUnavailable(err) ? 'Last.fm' : 'the database'}. Please try again in a moment.`
+        : 'Sorry, something went wrong while processing this interaction.';
+      const flags = MessageFlags.Ephemeral;
+      // CORRECT AS IS on the `.catch`: this reply is the END of the reporting
+      // path. If Discord rejects it the interaction is already gone (10062, or
+      // the ack guard won the race and the token is spent), and there is no
+      // further channel to escalate to from inside a catch block - rethrowing
+      // here would be caught by nothing above and become an unhandled rejection
+      // that erases the very error we just logged. The error itself is already
+      // recorded one line up by `Logger.error`, so nothing observable is lost.
+      await (interaction.deferred
+        ? interaction.followUp({ content, flags })
+        : interaction.reply({ content, flags })
+      ).catch(() => undefined);
+
       }
     } finally {
       if (ackGuard) clearTimeout(ackGuard);
@@ -388,9 +416,26 @@ export class InteractionHandler {
     const responder = getAutoCompleteResponder(
       interaction.options.getFocused(true).name,
     );
+    // CORRECT AS IS, both branches, and the reason is the interaction type.
+    // Discord renders an autocomplete dropdown and offers no way to show an
+    // error in it: the only two things a user can see are "no suggestions" and
+    // "suggestions". Neither is a claim about their listening - the three
+    // responders are a name autocomplete, a chart-size picker and a time-period
+    // picker, none of which reads a user statistic. So a failure cannot become a
+    // confident wrong answer here; the worst case is a dropdown that does not
+    // populate, and raising would leave the user staring at the same empty
+    // dropdown with an unhandled rejection on top.
+    //
+    // A dropped connection during an outage is logged by whatever raised it
+    // (`ArtistsService.getLatestArtists` reads through prisma), so this is
+    // silence in the UI, not silence in the logs. That is the correct weight
+    // here: DEBUG-level degradation, not a user-facing error.
     if (responder) {
       await responder(interaction).catch(() => undefined);
     } else {
+      // An unknown option name is a CALLER bug (a `setAutocomplete` for an
+      // option nobody registered a handler for), not a data source, and
+      // responding with an empty list is the only legal answer Discord accepts.
       await interaction.respond([]).catch(() => undefined);
     }
   }
@@ -403,6 +448,11 @@ export class InteractionHandler {
     if (!command) {
       // Ack first (below) then report, or Discord shows "This application did
       // not respond" with nothing in the logs.
+      // CORRECT AS IS: the content is already the honest answer ("this command
+      // is no longer available" is what a command that failed to route IS), and
+      // `Logger.warn` immediately below is the observability. The `.catch` is
+      // Discord refusing the reply, which for an unrouted command is a
+      // registration defect and not something the user can be told.
       await interaction
         .reply({ content: 'That command is no longer available.', flags: MessageFlags.Ephemeral })
         .catch(() => undefined);
@@ -417,12 +467,24 @@ export class InteractionHandler {
     // the command then completed into the void — a visible error on a
     // command that actually succeeded. Every path below now edits the
     // deferred reply instead of replying.
+    // CORRECT AS IS on both `.catch`es, and the reason is the `respond` helper
+    // below: a failed `deferReply` leaves `interaction.deferred` false, and
+    // `respond` then falls back to a plain `reply`. So the swallow is not
+    // discarding a response - it is what makes the fallback path reachable at
+    // all. Throwing instead would abort every command whose acknowledgement
+    // lost a race with the gateway, which is the exact failure the ack ordering
+    // above exists to survive.
     if (command.ephemeral) {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => undefined);
     } else {
       await interaction.deferReply().catch(() => undefined);
     }
     const respond = async (content: string): Promise<void> => {
+      // Same for the two inside `respond`: the guard-and-fallback above is the
+      // behaviour, and a failure here means the token is spent. `respond` is
+      // only ever called with a string this file itself composed - a block
+      // message or a rate-limit notice - never with a measured value, so no
+      // wrong number can travel this path.
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply({ content }).catch(() => undefined);
         return;
@@ -458,6 +520,12 @@ export class InteractionHandler {
     let typingInterval: NodeJS.Timeout | null = null;
     if (!command.ephemeral && interaction.channel && 'sendTyping' in interaction.channel) {
       const channel = interaction.channel as { sendTyping?: () => Promise<void> };
+      // CORRECT AS IS, both calls. The typing indicator is PURE decoration: it
+      // carries no information the user reads as a measurement, and the existing
+      // test "survives a channel whose sendTyping rejects" pins that a missing
+      // permission must not abort the command. Repeated every 7s by the interval
+      // below, so raising here would fire once per tick on a channel that cannot
+      // type.
       void channel.sendTyping?.().catch(() => undefined);
       typingInterval = setInterval(() => {
         void channel.sendTyping?.().catch(() => undefined);
@@ -472,7 +540,13 @@ export class InteractionHandler {
       try {
         subCmd = interaction.options.getSubcommand();
       } catch {
-        // No subcommand
+        // CORRECT AS IS, and it is ARGUMENT COERCION rather than a data source:
+        // `getSubcommand` throws for a command declared without subcommands,
+        // which is a property of the SlashCommandBuilder, not of anything the
+        // user did. Laundering it into "the database is unavailable" would tell
+        // the reader to go and look at Postgres when the fault is upstream of
+        // it, and `subCmd` is only a log field - it never reaches a rendered
+        // answer. Same reasoning as `parseGuildId` in genreService.
       }
       Logger.slash({
         commandName,
@@ -492,7 +566,12 @@ export class InteractionHandler {
           );
         }
       } catch {
-        // Telemetry should never affect command execution
+        // CORRECT AS IS, and it is TELEMETRY - the one thing in this file that
+        // can be dropped with zero user-visible cost. `recordCommandExecution`
+        // only appends a duration and a success flag to a metrics sink. The
+        // command's own response is already computed (`response` is in hand) and
+        // is sent by the two lines below regardless. Raising would trade a
+        // rendered answer for a metric, which is the inverse of correct.
       }
 
       if (response.commandResponse === CommandResponse.Deleted) {
@@ -505,7 +584,11 @@ export class InteractionHandler {
           container.resolve(TelemetryService).recordCommandExecution(commandName, 0, false);
         }
       } catch {
-        // Telemetry should never affect command execution
+        // CORRECT AS IS, same as the success-path catch above and for the same
+        // reason: a failure to record a FAILURE is still only a metrics problem,
+        // and the user-facing error response below is what has to survive. The
+        // command DID fail and the operator will see it in `Logger.errorWithRef`
+        // immediately after, so nothing is lost by dropping the metric.
       }
 
       const { referenceId } = Logger.errorWithRef(err, {
@@ -609,6 +692,15 @@ export class InteractionHandler {
         replyMsg = await interaction.editReply(payload);
       } else {
         const reply = await interaction.reply(payload);
+        // CORRECT AS IS: transport, and the degradation is a dead paginator
+        // rather than a wrong card. `reply` has ALREADY been delivered at this
+        // point - the user has the page-1 content on screen. The only thing the
+        // `fetch` buys is the message id needed to register the paginator
+        // session, and `reply` already carries an id; the fetch is a second read
+        // of a message we just wrote. A failure costs the page buttons (the
+        // tracker answers "This interaction expired" on press) and every number
+        // on screen is still the real one. Raising would replace a correct card
+        // with an error message over a bookkeeping read.
         replyMsg = await reply.fetch().catch(() => null);
       }
       if (replyMsg && response._paginatorSession) {
@@ -616,6 +708,11 @@ export class InteractionHandler {
       }
       if (response.autoDeleteSeconds && response.autoDeleteSeconds > 0) {
         const timeoutMs = response.autoDeleteSeconds * 1000;
+        // CORRECT AS IS: this is a scheduled cleanup 30+ seconds after the
+        // response was accepted, on a timer that fires long after the
+        // interaction's token is worthless. A failed delete means the user is
+        // left with a stale card - annoying, not misleading - and the timer has
+        // no error channel to escalate into.
         setTimeout(() => {
           interaction.deleteReply().catch(() => undefined);
         }, timeoutMs);
@@ -628,6 +725,14 @@ export class InteractionHandler {
       // symptom of every payload bug in this codebase. Say what happened.
       const code = (err as { code?: number })?.code;
       Logger.warn({ err, code, command: interaction.commandName }, 'Failed to send interaction response');
+      // CORRECT AS IS: the final fallback, and there is nothing after it. The
+      // 50035 wording above is the honest thing to say about an oversize
+      // payload; if Discord rejects THIS reply too then the interaction is spent
+      // and the user will see Discord's own "This application did not respond".
+      // Raising would escape to `executeSlashCommand`'s catch, which would try
+      // the same spent token and produce the same silence with an extra
+      // reference ID. The error is already logged one line above, so the
+      // operator has the code and the stack.
       await interaction
         .followUp({
           content:

@@ -189,6 +189,12 @@ export class CountryCommands implements ITextCommandModule {
 
     // If no argument, resolve the current playing track's artist
     if (!target) {
+      // CORRECT AS IS, and the same pre-fill convenience the slash twin
+      // `countrySlashCommands` documents: with no argument and no last scrobble to
+      // fall back on, the command replies "Please specify a country or artist
+      // name" - TRUE, because no target was supplied and none could be derived.
+      // The country and artist lookups below are outside this try and report
+      // their own failures.
       try {
         const recents = await this.lastfmRepository.getUserRecentTracks(caller.userNameLastFm, 1);
         if (recents && recents.length > 0 && recents[0]?.artistName) {

@@ -5,6 +5,8 @@ import type { User } from '@domain/interfaces/iuserRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import type { ProfileStats, ProfileHistoryStats, MonthHistoryEntry, YearHistoryEntry } from '@bot/builders/profileBuilders';
 import { prisma } from '@persistence/prismaClient';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
 
 function formatLongListeningTime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
@@ -55,7 +57,8 @@ export class ProfileService {
     // the branch below re-derives this same number from `userArtist`, which is
     // our own copy of the same rows. The 0 is a sentinel for "ask the database",
     // not an answer the card ever shows, so the raise is contained rather than
-    // laundered.
+    // laundered. `profileBuilders` additionally guards the line on `> 0`, so a
+    // genuine zero omits the clause rather than printing "0%".
     try {
       const topArtists = await this.lastfmRepo.getTopArtists(
         targetUser.userNameLastFm,
@@ -70,6 +73,15 @@ export class ProfileService {
     }
 
     if (top10ArtistsScrobbles === 0 && targetUser.userId > 0) {
+      // CORRECT AS IS, and the non-obvious half: this catch is the END of the
+      // chain, not its middle. If BOTH the Last.fm read above and this indexed
+      // read fail, `top10ArtistsScrobbles` is 0 - and because the builder guards
+      // on `> 0`, that OMITS the "Top 10 artists make up X% of scrobbles" line
+      // rather than printing "0%". An omitted clause is an honest absence; a
+      // printed 0% would be the confident wrong number the phase exists to
+      // remove. There is no third source to fall back to, and the alternative to
+      // omitting is failing the whole profile over a footer line, so WARN is the
+      // honest weight for a lost capability.
       try {
         const dbTop = await prisma.userArtist.findMany({
           where: { userId: targetUser.userId },
@@ -80,8 +92,12 @@ export class ProfileService {
         if (dbTop && dbTop.length > 0) {
           top10ArtistsScrobbles = dbTop.reduce((acc, a) => acc + (a.playcount ?? 0), 0);
         }
-      } catch {
+      } catch (err) {
         top10ArtistsScrobbles = 0;
+        Logger.warn(
+          { err: (err as Error)?.message ?? String(err), userId: targetUser.userId },
+          'Could not read indexed top-artist playcounts; the profile will omit the top-10 concentration line',
+        );
       }
     }
 
@@ -99,8 +115,28 @@ export class ProfileService {
         differentArtistsCount = arCount || undefined;
         differentAlbumsCount = alCount || undefined;
         differentTracksCount = trCount || undefined;
-      } catch {
-        // Fallback to Last.fm counts
+      } catch (err) {
+        // CORRECT AS IS, and the contrast with `getProfileHistory` below is the
+        // whole point of this comment.
+        //
+        // A failure here leaves the three counts on their Last.fm values, which
+        // are REAL numbers from a real source: `profileBuilders` renders
+        // `stats.differentTracksCount ?? lastFmUser.trackCount`, so the user sees
+        // Last.fm's own count instead of ours. Nothing is invented and no clause
+        // disappears, which is why a raise here would cost a real number and buy
+        // nothing. Same trade as `albumService`'s server/user stats block.
+        //
+        // What IS worth saying out loud: this is a read of OUR index, and on
+        // failure the card quietly stops being able to say "different from the
+        // ones Last.fm counts", which for a user with partial indexing is the
+        // number they most wanted. A dropped connection is therefore invisible
+        // here - hence the WARN, which is what a lost capability weighs - and
+        // `getProfileHistory`, which has no fallback at all, is the site that was
+        // actually lying.
+        Logger.warn(
+          { err: (err as Error)?.message ?? String(err), userId: targetUser.userId },
+          'Could not read indexed variety counts; the profile will show Last.fm counts instead',
+        );
       }
     }
 
@@ -108,8 +144,20 @@ export class ProfileService {
     if (this.friendsRepo && targetUser.userId > 0) {
       try {
         friendsCount = await this.friendsRepo.getTotalFriendCount(targetUser.userId);
-      } catch {
+      } catch (err) {
+        // CORRECT AS IS, and the reason is the builder's guard, not the type.
+        // `undefined` here renders as NOTHING: `profileBuilders` prints the
+        // friends line only under `stats.friendsCount && > 0`. A genuine zero
+        // and a failed query therefore produce the same card - which is honest,
+        // because the card is claiming a number in neither case. The failed read
+        // is still a lost capability and is still logged, because "this user has
+        // no friends" and "we could not count their friends" are very different
+        // facts even when the picture is the same.
         friendsCount = undefined;
+        Logger.warn(
+          { err: (err as Error)?.message ?? String(err), userId: targetUser.userId },
+          'Could not count friends; the profile will omit the friends line',
+        );
       }
     }
 
@@ -144,6 +192,27 @@ export class ProfileService {
     const years: YearHistoryEntry[] = [];
 
     if (targetUser.userId > 0) {
+      // THE ONE THAT WAS ACTUALLY LYING, and the reason it is worse than every
+      // other catch in this file.
+      //
+      // `months` and `years` come from two `GROUP BY` rollups over
+      // `user_plays` and there is NO fallback source: unlike the variety counts
+      // above there is no Last.fm value to keep, so a failed query is
+      // indistinguishable from "this user has no plays" at the call site. And
+      // `profileBuilders` does not just omit a clause for an empty history - it
+      // PRINTS A SENTENCE: `if (!hasHistory)` renders
+      // "Sorry, it seems like there is no stored data in tvbot for this user."
+      // So a dropped connection told a user with 40 million indexed plays that
+      // the bot has never heard of them. A confident falsehood about a real
+      // person, produced entirely by an outage - which is the exact shape of the
+      // crown bug this phase was opened for.
+      //
+      // The honest empty is preserved and is the half worth stating: a query
+      // that RAN and matched no rows succeeds with `[]`, so a genuine new user
+      // still gets that sentence. Only a query that could not run raises.
+      // `getProfileStats` shows what "raise" buys here - `interactionHandler`'s
+      // boundary answers "Could not reach the database. Please try again in a
+      // moment", which is a true sentence about a true state.
       try {
         const monthRows = await prisma.$queryRaw<Array<{ month_date: Date; play_count: number; total_ms: bigint }>>`
           SELECT 
@@ -212,8 +281,21 @@ export class ProfileService {
             });
           }
         }
-      } catch {
-        // Ignored, fallback to empty history
+      } catch (err) {
+        // Raised, not returned as an empty history. The builder turns an empty
+        // history into a statement ABOUT THE USER, so returning one here is
+        // exactly the fabricated claim this phase is about. Logger.error because
+        // the raise is deliberate and the operator should be able to tell this
+        // apart from a defect - the message names the query.
+        Logger.error(
+          { query: 'profileService.getProfileHistory:userPlaysByMonthAndYear', err: (err as Error)?.message ?? String(err), userId: targetUser.userId },
+          'Database unavailable while building the profile history; refusing to render it as "no stored data"',
+        );
+        throw new SourceUnavailableError(
+          'profileService.getProfileHistory:userPlaysByMonthAndYear',
+          err,
+          'Database unavailable',
+        );
       }
     }
 

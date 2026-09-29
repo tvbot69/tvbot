@@ -48,7 +48,12 @@ export class PuppeteerService {
     const isProd = isProduction();
     if (isProd) {
       this.userDataDir = path.resolve(process.cwd(), '.puppeteer');
-      try { mkdirSync(this.userDataDir, { recursive: true }); } catch { /* ignore */ }
+      // CORRECT AS IS: a pre-existing directory is the expected case (the
+      // profile is persistent and survives restarts), and the failure that is
+      // NOT tolerated — the directory cannot be created or written — surfaces at
+      // `launchBrowser`, which `ensureBrowser` catches and turns into the
+      // fallback profile. Nothing here needs to report anything.
+      try { mkdirSync(this.userDataDir, { recursive: true }); } catch { /* handled at launch */ }
     } else {
       this.userDataDir = null;
     }
@@ -65,7 +70,12 @@ export class PuppeteerService {
         new Promise<string>((_, reject) => setTimeout(() => reject(new Error('Browser ping timeout')), 2000)),
       ]);
       return typeof version === 'string' && version.length > 0;
-    } catch {
+    } catch (err) {
+      // CORRECT AS IS: false is exactly what was measured — the version probe
+      // timed out or the browser is wedged. `false` is also what an absent or
+      // disconnected browser returns, which is the same condition, and
+      // `healthServer` excludes this field from the health verdict.
+      Logger.debug({ err }, 'Puppeteer health probe failed');
       return false;
     }
   }
@@ -74,11 +84,18 @@ export class PuppeteerService {
     if (this.ProcessListenersRegistered) return;
     this.ProcessListenersRegistered = true;
     const kill = () => {
+      // CORRECT AS IS, all three: the process is already exiting, so there is no
+      // operation left to retry and no reader left to be misled. A failure to
+      // signal the child means it is already gone (or was never ours) — the OS
+      // reaps it either way. The outer catch is the same: `this.browser` may be
+      // null, and `process()` is a best-effort handle at exit.
       try {
         const proc: ChildProcess | null = this.browser?.process() ?? null;
-        if (proc?.pid) { try { process.kill(proc.pid, 'SIGKILL'); } catch { /* ignore */ } }
-      } catch { /* ignore */ }
+        if (proc?.pid) { try { process.kill(proc.pid, 'SIGKILL'); } catch { /* already dead */ } }
+      } catch { /* exiting */ }
       if (this.browser) {
+        // A failed `close()` at exit leaks nothing: the child dies with the
+        // parent's namespace on Railway, and the SIGKILL above is the backstop.
         void this.browser.close().catch(() => undefined);
         this.browser = null;
       }
@@ -105,10 +122,16 @@ export class PuppeteerService {
           if (document.fonts && document.fonts.ready) {
             await document.fonts.ready;
           }
-        }).catch(() => undefined);
+        }).catch((err: unknown) => {
+          // CORRECT AS IS: a warmup page that never got its fonts is still a
+          // warm Chromium, and this whole block's purpose is to launch and touch
+          // the browser, not to produce an image. The `finally` below closes the
+          // page either way.
+          Logger.debug({ err }, 'Puppeteer preheat font wait failed');
+        });
         Logger.info('Puppeteer browser preheated and ready');
       } finally {
-        await page.close().catch(() => undefined);
+        await this.closePage(page, 'preheat');
       }
     } catch (err) {
       Logger.warn({ err }, 'Failed to preheat Puppeteer browser on startup');
@@ -189,6 +212,29 @@ export class PuppeteerService {
     return page;
   }
 
+  /**
+   * Close a page and say so when it could not be closed.
+   *
+   * This is the only place a render can leak a page, and the leak is what the
+   * bare `.catch(() => undefined)` used to hide: one Chromium serves the whole
+   * process against a 384MB container, so a page that survives a failed close
+   * is a page whose memory is never reclaimed, once per failed render.
+   *
+   * It is logged rather than escalated because the common cause is benign — a
+   * crashed or already-closed browser makes every `close()` throw, and then the
+   * process is going away anyway. DEBUG keeps that off the error feed while
+   * still making the leaky case findable. Reclaiming a page that refuses to
+   * close needs a browser-level sweep, which is a bigger decision than this
+   * comment.
+   */
+  private async closePage(page: Page, label: string): Promise<void> {
+    try {
+      await page.close();
+    } catch (err) {
+      Logger.debug({ err, label }, 'Puppeteer page did not close cleanly; it may be leaked');
+    }
+  }
+
   private async ensureBrowser(): Promise<Browser> {
     if (this.browser && this.browser.connected) {
       return this.browser;
@@ -249,8 +295,13 @@ export class PuppeteerService {
     this.fallbackProfileDir = dir;
     try {
       mkdirSync(dir, { recursive: true });
-    } catch {
-      /* a pre-existing directory is exactly what we want to reuse */
+    } catch (err) {
+      // CORRECT AS IS, with the honest reason: a pre-existing directory is what
+      // we want to reuse, and it is the common case. A directory that genuinely
+      // cannot be created is NOT swallowed in effect — `launchBrowser(dir)` below
+      // fails, `ensureBrowser` catches that and the failure propagates to the
+      // caller as a render error after its one retry.
+      Logger.debug({ err, dir }, 'Puppeteer fallback profile directory not created (reusing an existing one)');
     }
 
     Logger.info('Puppeteer browser fallback to worker profile');
@@ -375,7 +426,9 @@ export class PuppeteerService {
       });
       return Buffer.from(rendered);
     } finally {
-      await page.close().catch(() => undefined);
+      // `closePage`, not a bare catch: see its comment. A page that outlives a
+      // failed close is memory this 384MB container never gets back.
+      await this.closePage(page, 'renderHtmlOnce');
     }
   }
 
@@ -469,7 +522,8 @@ export class PuppeteerService {
       });
       return Buffer.from(rendered);
     } finally {
-      await page.close().catch(() => undefined);
+      // Same reason as `renderHtmlOnce`: a leaked page is unreclaimable memory.
+      await this.closePage(page, 'renderRainbowOnce');
     }
   }
 
@@ -500,7 +554,15 @@ export class PuppeteerService {
       if (typeof w.processAllCellThemes === 'function') {
         w.processAllCellThemes();
       }
-    }).catch(() => undefined);
+    }).catch((err: unknown) => {
+      // CORRECT AS IS. The deliberate degradation lives INSIDE the page, not
+      // here: every image has a 4s timeout and an onerror handler that resolves,
+      // which is what the chart's own placeholder styling expects. A throw from
+      // `evaluate` itself means the page context is gone, and the screenshot that
+      // follows throws too — so this is not a path that produces a half-rendered
+      // PNG, and there is no worse answer to fall back to.
+      Logger.debug({ err }, 'Puppeteer font/image wait failed; capturing whatever the page has');
+    });
   }
 
   public async close(): Promise<void> {
@@ -511,22 +573,45 @@ export class PuppeteerService {
     try {
       // Close tabs with 2s cap — prevents hang on disconnected browser
       try {
+        // CORRECT AS IS, both catches: skipping the tab sweep costs nothing,
+        // because `browser.close()` below closes every tab the browser still
+        // owns. The doubled guard is deliberate — `pages()` and the race wrapper
+        // can each fail independently, and both outcomes are "no list, carry on".
         const pages = (await Promise.race([browser.pages().catch(() => [] as Page[]), timeout(1500, 'pages')]).catch(() => [] as Page[])) as Page[];
+        // CORRECT AS IS: shutdown. A tab that will not close is a tab the browser
+        // close is about to take with it, and the process is on its way out, so
+        // this is not the leaky case `closePage` guards.
         for (const p of pages) await Promise.race([p.close().catch(() => undefined), timeout(800, 'pageClose')]).catch(() => undefined);
-      } catch { /* ignore */ }
+      } catch (err) {
+        Logger.debug({ err }, 'Puppeteer tab sweep skipped during close');
+      }
       // Close browser with 3s cap
       await Promise.race([browser.close().catch(() => undefined), timeout(3000, 'browserClose')]).catch(() => undefined);
       // Force-kill if still alive
       try {
         const proc: ChildProcess | null = browser.process() ?? null;
         if (proc?.pid) {
-          try { process.kill(proc.pid, 0); proc.kill('SIGKILL'); } catch { /* already dead */ }
+          // CORRECT AS IS: the probe throws ESRCH when the child is already gone,
+          // which is the case this exists for. EPERM would mean the browser runs
+          // as another user, and killing another user's process is not ours to do.
+          try { process.kill(proc.pid, 0); proc.kill('SIGKILL'); } catch { /* already dead, or not ours */ }
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        Logger.debug({ err }, 'Puppeteer child process handle unavailable during close');
+      }
       Logger.info('Puppeteer browser closed');
     } catch (err) {
       Logger.warn({ err }, 'Failed to close Puppeteer browser cleanly');
-      try { browser.process()?.kill('SIGKILL'); } catch { /* ignore */ }
+      try {
+        browser.process()?.kill('SIGKILL');
+      } catch (killErr) {
+        // CORRECT AS IS is not available: this is the LAST attempt to reclaim the
+        // Chromium. If it fails the process is still running after this handler
+        // returns and nothing will ever retry — on Railway an orphaned Chromium
+        // outlives the deploy and eats the next one's memory. The WARN above
+        // reports that the close failed; this reports that the cleanup did too.
+        Logger.warn({ err: killErr }, 'Puppeteer force-kill failed; an orphaned browser may survive this process');
+      }
     }
   }
 }

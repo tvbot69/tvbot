@@ -152,10 +152,20 @@ export class AutopostRepository {
     return res.count > 0 ? (current.lastPosted ?? undefined) : null;
   }
 
+  /**
+   * Roll a due-claim back to the value it had before this sweep claimed it.
+   *
+   * The failure is NOT swallowed here. A swallowed rollback is the worst silent
+   * failure in autoposting: the claim stamp survives, so the guild's scheduled
+   * post stays suppressed for a whole cycle, and the caller — which believes the
+   * retry is now armed — never finds out. `autopostService.releaseClaimQuietly`
+   * is the only caller and it logs and swallows, so raising here buys exactly
+   * one honest record of the failure instead of none.
+   */
   public async releaseClaim(id: number, previousLastPosted: Date | null | undefined): Promise<void> {
     await this.prisma.guildAutopost.update({
       where: { id },
       data: { lastPosted: previousLastPosted ?? null },
-    }).catch(() => undefined);
+    });
   }
 }

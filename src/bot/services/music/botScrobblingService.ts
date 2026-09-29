@@ -51,6 +51,13 @@ export class BotScrobblingService {
       this.optedInUsers.delete(discordUserId);
     }
     if (this.settingsRepo) {
+      // CORRECT AS IS: the in-memory set above is the authority for this
+      // session and is what isUserOptIn reads, so the `newState` this
+      // method returns is true right now. A failed write costs the opt-in
+      // across a restart only, and the next toggle for that user re-writes
+      // it. Deliberately NOT retried: a retried opt-in write is harmless,
+      // but a retried SCROBBLE would be a duplicate, so the write path for
+      // those (handleTrackEnd) is single-shot and logs.
       void this.settingsRepo.setOptIn(discordUserId, newState).catch(() => undefined);
     }
     return newState;

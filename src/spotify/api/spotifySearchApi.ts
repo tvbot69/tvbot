@@ -14,7 +14,31 @@ import type {
 const SEARCH_ENDPOINT = 'https://api.spotify.com/v1/search';
 const DEFAULT_LIMIT = 5;
 
-export class SpotifyUnavailableError extends Error {}
+/**
+ * The one signal in this module that means "this run never got an answer".
+ *
+ * `search()` and `getTrack()` raise it for every condition that is not Spotify
+ * saying no: a rate-limit cooldown, a 429, a 5xx, a network error, a timeout, a
+ * rejected token. A method that catches it and answers `null`/`[]` is claiming
+ * "not on Spotify", which is a different statement — and the one callers cache
+ * and render.
+ *
+ * `name` is set explicitly and checked by name rather than with `instanceof`,
+ * for the reason `isSourceUnavailable` gives: the same class can be loaded
+ * through more than one module specifier, and an `instanceof` against one copy
+ * silently misses the others, which is how a handled failure becomes a silent
+ * one again.
+ */
+export class SpotifyUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SpotifyUnavailableError';
+  }
+}
+
+/** TRUE for "the run was inconclusive" — never for "Spotify said no". */
+const isInconclusive = (err: unknown): boolean =>
+  err instanceof Error && err.name === 'SpotifyUnavailableError';
 
 export class SpotifySearchApi {
   private static rateLimitedUntil: number = 0;
@@ -114,13 +138,28 @@ export class SpotifySearchApi {
    * globally-most-popular same-name entity (e.g. metal band "Mond" instead of the
    * Egyptian rapper "Mond"); a track search disambiguates via the recording's
    * credited artists. Returns null when nothing matches exactly.
+   *
+   * Raises `SpotifyUnavailableError` when the run was inconclusive. That is not
+   * pedantry: `artworkService.resolveArtistImage` sets `anchoredSettled = true`
+   * on a null and then writes `'none'` into its cache, on the documented
+   * promise that "rate limits and throws stay uncached so the next lookup
+   * retries". A null here made that promise a lie, so a five-second Spotify
+   * blip cached "this artist has no cover" for the whole TTL and the correct
+   * art was never fetched again. `genreService` already treats a throw as
+   * "fall through to the name-based flow", so it is unaffected.
    */
   public async getArtistIdViaTrackSample(
     artistName: string,
     sampleTrack: string,
   ): Promise<string | null> {
     try {
-      if (SpotifySearchApi.isRateLimited()) return null;
+      // A live cooldown is also inconclusive, not a miss: the search below
+      // would have run. `artworkService` guards this with its own
+      // `isRateLimited()` check, `genreService` does not, and both handle a
+      // throw correctly.
+      if (SpotifySearchApi.isRateLimited()) {
+        throw new SpotifyUnavailableError('Spotify cooldown active');
+      }
       const target = artistName.toLowerCase().trim();
       if (!target || !sampleTrack?.trim()) return null;
       const tracks = await this.searchTracks(`${artistName} ${sampleTrack}`, 5);
@@ -133,33 +172,55 @@ export class SpotifySearchApi {
         if (matching?.id) return matching.id;
       }
       return null;
-    } catch {
+    } catch (err) {
+      if (isInconclusive(err)) throw err;
+      // Only a shape surprise reaches here (a payload with no `artists`), which
+      // is still "no exact match found" as far as this method's contract goes.
       return null;
     }
   }
 
   /**
    * Fetches the canonical Spotify artist entity (images, genres, followers).
+   *
+   * Raises `SpotifyUnavailableError` when the run was inconclusive, for the same
+   * reason as `getArtistIdViaTrackSample`: `artworkService` treats this null as
+   * a settled "no artist" and caches `'none'`, so a swallowed outage is written
+   * to the cache as a fact about the artist.
    */
   public async getArtistById(artistId: string): Promise<SpotifySearchArtist | null> {
     try {
-      if (SpotifySearchApi.isRateLimited()) return null;
+      if (SpotifySearchApi.isRateLimited()) {
+        throw new SpotifyUnavailableError('Spotify cooldown active');
+      }
       const token = await this.tokenManager.getToken();
-      if (!token) return null;
+      // Unconfigured credentials never asked Spotify anything, so the null this
+      // used to return was indistinguishable from "no such artist" — and that is
+      // the value `artworkService` caches as `'none'`.
+      if (!token) throw new SpotifyUnavailableError('Spotify credentials not configured');
       const res = await fetchWithTimeout(`https://api.spotify.com/v1/artists/${artistId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) {
         this.tokenManager.invalidate();
-        return null;
+        // A rejected token is not a verdict on the artist, and the caller has a
+        // retry available on a fresh token — so this is inconclusive, not a miss.
+        throw new SpotifyUnavailableError('Spotify token rejected');
       }
       if (res.status === 429) {
         SpotifySearchApi.handleRateLimit(res);
-        return null;
+        throw new SpotifyUnavailableError('Spotify rate limited');
       }
-      if (!res.ok) return null;
+      // A 4xx that is not 401/429 is Spotify answering: 404 means no such artist
+      // entity, which IS a miss and stays a null. Only a 5xx is inconclusive.
+      if (!res.ok) {
+        if (res.status < 500) return null;
+        SpotifySearchApi.noteTransportFailure();
+        throw new SpotifyUnavailableError(`Spotify HTTP ${res.status}`);
+      }
       return (await res.json()) as SpotifySearchArtist;
-    } catch {
+    } catch (err) {
+      if (isInconclusive(err)) throw err;
       return null;
     }
   }
@@ -265,7 +326,14 @@ export class SpotifySearchApi {
       if (chosen.id) return `https://open.spotify.com/track/${chosen.id}`;
       if (chosen.external_urls?.spotify) return chosen.external_urls.spotify;
       return null;
-    } catch {
+    } catch (err) {
+      // CORRECT AS IS. Both callers — `previewResolverService` and
+      // `trackDetailsService` — ask this for a bonus URL inside a `try`, and a
+      // null there means "no preview link for this track", which is honest
+      // absence: the preview is optional, the ladder has Apple and Deezer
+      // rungs after it, and no caller reports it as "this track is not on
+      // Spotify". Raising would buy a log line on a path that is already
+      // swallowed one layer up, for a value nothing renders as a fact.
       return null;
     }
   }
@@ -290,7 +358,12 @@ export class SpotifySearchApi {
       if (!response.ok) return null;
       SpotifySearchApi.noteTransportSuccess();
     return (await response.json()) as SpotifySearchAlbum;
-    } catch {
+    } catch (err) {
+      // CORRECT AS IS. The only caller is `albumService` line 262, which wraps
+      // this in a try that WARNs "Failed to fetch Spotify album metadata" and
+      // then builds the album card from Last.fm's tracklist — real tracks, just
+      // fewer, so nothing rendered can be wrong. That WARN is also why a null
+      // here is reported rather than silent.
       return null;
     }
   }
@@ -300,7 +373,11 @@ export class SpotifySearchApi {
       let results: SpotifySearchAlbum[] = [];
       try {
         results = await this.searchAlbums(`album:"${albumName}" artist:"${artistName}"`, 5);
-      } catch {
+      } catch (err) {
+        // CORRECT AS IS — a genuine rung. A quoted search that fails says
+        // nothing about the unquoted one on the next line, which is the whole
+        // reason this catch exists. The outer catch below is the one that was
+        // flattening a rung into a miss.
         results = [];
       }
       if (results.length === 0) {
@@ -333,7 +410,12 @@ export class SpotifySearchApi {
       const match = pool[0]?.album;
       if (!match) return null;
       return this.getFullAlbum(match.id);
-    } catch {
+    } catch (err) {
+      // CORRECT AS IS, and the visibility comes from one layer up: the unquoted
+      // search on line 370 and `getFullAlbum` are the last two rungs, so a
+      // failure here IS this method's answer being unknown — but the caller
+      // (`albumService` line 262) already turns that into a logged WARN and a
+      // Last.fm-sourced card, which is a real answer, not a fabricated one.
       return null;
     }
   }
@@ -368,7 +450,10 @@ export class SpotifySearchApi {
           container.resolve(TelemetryService).recordApiCall('spotify', `/v1/search?type=${type}`, durationMs, response.status);
         }
       } catch {
-        // Ignore telemetry errors
+        // CORRECT AS IS: metrics are never allowed to fail a search. The search
+        // itself already succeeded by this point, so a throw here could only
+        // discard a result that was paid for — and the send already recorded
+        // whatever it managed to record.
       }
     } catch (err) {
       SpotifySearchApi.noteTransportFailure();
@@ -406,6 +491,13 @@ export class SpotifySearchApi {
     limit: number = 20,
   ): Promise<string[]> {
     try {
+      // CORRECT AS IS for the whole method, so the two exits below are too: this
+      // is one source of collage cover cells, never a statistic, and the caller
+      // has rungs behind it (`whoKnowsImageBuilder` lines 331 and 344). The
+      // reason the token check below still answers `[]` — unlike the identical
+      // check in `getAlbumTrackNames` — is that nothing here is cached or
+      // rendered as a fact, so an absent source and a dead one cost the same
+      // visible thing: fewer pictures in a PNG.
       if (SpotifySearchApi.isRateLimited()) return [];
       const token = await this.tokenManager.getToken();
       if (!token) return [];
@@ -427,8 +519,11 @@ export class SpotifySearchApi {
               break;
             }
           }
-        } catch {
-          // ignore
+        } catch (err) {
+          // CORRECT AS IS — rung 1 of two, and the artist search below is the
+          // fallback that exists for exactly this. `artistId` stays null and the
+          // method continues to rung 2.
+          Logger.debug({ err }, 'Spotify discography: track-sample rung failed, trying the artist search');
         }
       }
 
@@ -444,8 +539,14 @@ export class SpotifySearchApi {
           if (matched?.id) {
             artistId = matched.id;
           }
-        } catch {
-          // ignore
+        } catch (err) {
+          // CORRECT AS IS — rung 2 of two. The caller still has its own rungs
+          // behind this one (`whoKnowsImageBuilder` lines 331 and 344, and
+          // `topBuilders` line 86 reads them the same way), so an empty here
+          // costs one source of collage cover art, not the card. Nothing in the
+          // result is a statistic: every playcount on those cards comes from
+          // `args.metadata`/`args.users`, which this method never touches.
+          Logger.debug({ err }, 'Spotify discography: artist rung failed; no Spotify covers for this collage');
         }
       }
 
@@ -480,52 +581,94 @@ export class SpotifySearchApi {
       }
 
       return covers;
-    } catch {
+    } catch (err) {
+      // CORRECT AS IS. This whole method is one source among several for a
+      // collage's cover cells, and its failure has no way to make a number
+      // wrong: the caller catches a throw here too (there is a test for it),
+      // and the two rungs above plus the database rungs behind them still fill
+      // the grid. An empty list is an honest "no covers from this source".
+      Logger.debug({ err }, 'Spotify discography covers unavailable');
       return [];
     }
   }
 
   public async getAlbumTrackNames(albumName: string, artistName?: string, limit: number = 5): Promise<string[]> {
+    // The one method here whose empty IS its answer rather than one rung's worth
+    // of it, so it is the one that raises. `albumService.getTopTracksForAlbum`
+    // spends seven lines explaining that a raised `SourceUnavailableError` must
+    // not be degraded to "this album has no tracks" — and then calls this, which
+    // returned `[]` for a 5xx and put the same lie back one layer up. The raise
+    // below reaches that narrowing, and the caller's existing WARN names the
+    // real reason.
     try {
-      if (SpotifySearchApi.isRateLimited()) return [];
+      if (SpotifySearchApi.isRateLimited()) {
+        throw new SpotifyUnavailableError('Spotify cooldown active');
+      }
       const token = await this.tokenManager.getToken();
-      if (!token) return [];
+      // Unconfigured credentials are the same shape as an outage: this run never
+      // asked Spotify anything. `search()` already raises for exactly this, and
+      // answering `[]` here would cache "this album has no tracks" in dev and in
+      // any deploy that lost its secrets.
+      if (!token) throw new SpotifyUnavailableError('Spotify credentials not configured');
 
       let albums: SpotifySearchAlbum[] = [];
       try {
         const query = artistName ? `album:"${albumName}" artist:"${artistName}"` : `album:"${albumName}"`;
         albums = await this.searchAlbums(query, 3);
-      } catch {
-        // ignore
+      } catch (err) {
+        // CORRECT AS IS — rung 1 of 2, the unquoted search below is the
+        // fallback. A failed rung says nothing about the next one.
+        Logger.debug({ err }, 'Spotify album tracks: quoted search rung failed, trying the plain query');
       }
 
       if (albums.length === 0) {
         try {
           const simpleQuery = artistName ? `${artistName} ${albumName}` : albumName;
           albums = await this.searchAlbums(simpleQuery, 3);
-        } catch {
-          // ignore
+        } catch (err) {
+          // NOT swallowed. This is the LAST search rung: an empty here is no
+          // longer "this query matched nothing", it is "the search never
+          // answered", and it would be returned as the album's tracklist.
+          throw err;
         }
       }
 
       const albumId = albums[0]?.id;
       if (!albumId) return [];
 
-      const res = await fetchWithTimeout(`https://api.spotify.com/v1/albums/${albumId}/tracks?limit=${Math.min(limit, 50)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      let res: Response;
+      try {
+        res = await fetchWithTimeout(`https://api.spotify.com/v1/albums/${albumId}/tracks?limit=${Math.min(limit, 50)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        SpotifySearchApi.noteTransportFailure();
+        // Same reason as the rung above: a transport error on the LAST call
+        // cannot be answered as "this album has no tracks".
+        throw new SpotifyUnavailableError(`Spotify network error: ${String(err)}`);
+      }
       if (res.status === 401) {
         this.tokenManager.invalidate();
-        return [];
+        throw new SpotifyUnavailableError('Spotify token rejected');
       }
       if (res.status === 429) {
         SpotifySearchApi.handleRateLimit(res);
-        return [];
+        throw new SpotifyUnavailableError('Spotify rate limited');
       }
-      if (!res.ok) return [];
+      if (res.status >= 500) {
+        SpotifySearchApi.noteTransportFailure();
+        throw new SpotifyUnavailableError(`Spotify HTTP ${res.status}`);
+      }
+      // A 404 is Spotify saying the album has no tracklist. That IS an answer,
+      // and it stays an empty list; a 5xx raised above is not.
+      if (res.status < 500) return [];
+      SpotifySearchApi.noteTransportSuccess();
       const data = await res.json() as { items?: Array<{ name?: string }> };
       return (data.items ?? []).map((t) => t.name).filter((n): n is string => Boolean(n));
-    } catch {
+    } catch (err) {
+      if (isInconclusive(err)) throw err;
+      // Only a malformed payload lands here, and a payload with no usable names
+      // is the empty answer.
       return [];
     }
   }

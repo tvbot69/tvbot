@@ -1,5 +1,6 @@
 import { container, singleton } from 'tsyringe';
 import { CacheService } from './cacheService';
+import { Logger } from '@domain/logger';
 
 interface RateLimitEntry {
   count: number;
@@ -38,7 +39,13 @@ export class RateLimitService {
     if (this.cache === undefined) {
       try {
         this.cache = container.isRegistered(CacheService) ? container.resolve(CacheService) : null;
-      } catch {
+      } catch (err) {
+        // CORRECT AS IS: a container that cannot answer is broken for every
+        // consumer at once, and the fallback is the memory limiter below, which
+        // enforces the same windows — it just cannot see other shards. The
+        // failure is named once so an operator is not left guessing why limits
+        // stopped being shared.
+        Logger.warn({ err }, '[RateLimit] CacheService could not be resolved; using the in-process limiter');
         this.cache = null;
       }
     }
@@ -73,6 +80,10 @@ export class RateLimitService {
       return this.checkUserRateLimit(discordUserId);
     }
     if (shortCount > this.shortMaxRequests) {
+      // CORRECT AS IS, and the catch is UNREACHABLE — `CacheService.set` eats its
+      // own Redis error after the memory write. The only thing at stake is the
+      // "already told them" marker, and the failure mode is a repeated message,
+      // not a missed limit.
       await cache.set(`rl:err:${discordUserId}`, 1, this.shortPenaltyCooldownMs / 1000).catch(() => undefined);
       return { rateLimited: true, messageSent: errSent, retryAfterSeconds: this.shortPenaltyCooldownMs / 1000 };
     }
@@ -82,6 +93,7 @@ export class RateLimitService {
       return this.checkUserRateLimit(discordUserId);
     }
     if (longCount > this.longMaxRequests) {
+      // CORRECT AS IS: same unreachable catch, same marker, same consequence.
       await cache.set(`rl:err:${discordUserId}`, 1, this.longPenaltyCooldownMs / 1000).catch(() => undefined);
       return { rateLimited: true, messageSent: errSent, retryAfterSeconds: this.longPenaltyCooldownMs / 1000 };
     }

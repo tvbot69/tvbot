@@ -314,6 +314,13 @@ export class CountrySlashCommands implements ISlashCommandModule {
     let target = search.trim();
 
     if (!target) {
+      // CORRECT AS IS, and the same shape as the two in `userHubSlashCommands`:
+      // a CONVENIENCE to pre-fill the search box from the caller's last scrobble.
+      // When the user gave no argument and this fails, the command falls through
+      // to the `if (!target)` branch below and replies "Please specify a country
+      // or artist name" - which is TRUE, because no target was supplied and none
+      // could be derived. The country and artist lookups further down are outside
+      // this try and still report their own failures.
       try {
         const recents = await this.lastfmRepository.getUserRecentTracks(caller.userNameLastFm, 1);
         if (recents && recents.length > 0 && recents[0]?.artistName) {

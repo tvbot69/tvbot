@@ -71,7 +71,15 @@ export class StartupService {
 
       // Auto-register all guilds the bot is currently in
       for (const guild of ready.guilds.cache.values()) {
-        void this.guildService.ensureGuildExists(guild).catch(() => undefined);
+        // CORRECT AS IS is not available: a guild that fails to register has no
+        // settings row, and every guild-scoped read afterwards (disabled
+        // commands, autopost, ranks) then behaves as if the guild had no
+        // configuration. Fire-and-forget, so it cannot be raised — but it must
+        // not be invisible, or the operator reads a clean boot over a guild
+        // that is silently half-wired.
+        void this.guildService.ensureGuildExists(guild).catch((err: unknown) => {
+          Logger.warn({ err, guildId: guild.id }, 'Failed to register guild at startup');
+        });
       }
 
       try {
@@ -115,6 +123,11 @@ export class StartupService {
       this.timerService.startAsync();
 
       if (container.isRegistered(LyricStatusService)) {
+        // CORRECT AS IS: pure decoration. A failed presence update leaves the
+        // default presence on screen and touches no statistic, no stored row and
+        // no reply, so there is no claim here that could become false. Logging it
+        // at WARN would fire on every boot during a Last.fm blip, which is
+        // exactly the noise AGENTS.md §3.10 reserves for real losses.
         void container.resolve(LyricStatusService).updateLyricStatusAsync().catch(() => undefined);
       }
     });
@@ -122,7 +135,11 @@ export class StartupService {
     // Auto-register when invited to any new guild
     this.client.on(Events.GuildCreate, (guild) => {
       Logger.info(`Joined new guild: ${guild.name} (${guild.id})`);
-      void this.guildService.ensureGuildExists(guild).catch(() => undefined);
+      // Same reasoning as the startup sweep above: the join is announced as a
+      // success, so an unregistered guild would be invisible from the log.
+      void this.guildService.ensureGuildExists(guild).catch((err: unknown) => {
+        Logger.warn({ err, guildId: guild.id }, 'Failed to register guild after join');
+      });
     });
 
     container.resolve(ClientLogHandler);
@@ -168,16 +185,28 @@ export class StartupService {
       const { CacheService } = await import('./cacheService');
       const cache = container.resolve(CacheService);
       const hash = createHash('sha256').update(JSON.stringify(payloads)).digest('hex');
+      // CORRECT AS IS: the catch is UNREACHABLE — `CacheService.get` catches its
+      // own Redis errors and answers null, which is read here as "no stored
+      // hash" and therefore as "register unconditionally". The only cost of a
+      // cache miss is one extra PUT, and that PUT is the branch this is guarding.
       const prev = await cache.get<string>('slash-commands-payload-hash').catch(() => null);
       if (prev === hash) {
         Logger.info(`Slash commands unchanged (${payloads.length}), skipping registration`);
         return;
       }
       await this.client.application.commands.set(payloads);
+      // CORRECT AS IS: same unreachable catch. Failing to store the hash only
+      // means the next boot re-registers the same payload — no staleness, no
+      // wrong command set. Note the throw cannot also reach the catch below and
+      // double-register, precisely because `CacheService.set` cannot reject.
       await cache.set('slash-commands-payload-hash', hash, 86400).catch(() => undefined);
       Logger.info(`Registered ${payloads.length} global slash commands`);
     } catch {
-      // Cache unavailable — register unconditionally rather than risk stale commands.
+      // CORRECT AS IS: "cache unavailable" is the honest reading here and the
+      // fallback registers unconditionally, which is the safe direction — a
+      // redundant PUT rather than a stale command set. Only the LOCAL reason (a
+      // failing `commands.set`) can land in this catch, and it re-raises on the
+      // same line, so the caller's ERROR names the real failure.
       await this.client.application.commands.set(payloads);
       Logger.info(`Registered ${payloads.length} global slash commands (uncached)`);
     }

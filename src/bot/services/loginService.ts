@@ -98,6 +98,13 @@ export class LoginService {
           return { status: LoginStatus.GuardUnavailable, userName: session.name };
         }
 
+        // CORRECT AS IS, and it fails in the right direction. `null` here makes
+        // `isRelink` false, so a re-link of the SAME Last.fm account is treated
+        // as a first link and the alt cap applies — which refuses the link and
+        // logs the reason at line 104. A control that disables itself on failure
+        // is the failure mode the guard above was written to avoid, and this
+        // does not do that: the only cost is a relink that has to be retried
+        // once the database answers.
         const alreadyLinked = await this.userService.getUserByDiscordId(discordUserId).catch(() => null);
         const isRelink = alreadyLinked?.userNameLastFm.toLowerCase() === session.name.toLowerCase();
         if (!isRelink && linkedCount >= MAX_DISCORD_ROWS_PER_LASTFM) {

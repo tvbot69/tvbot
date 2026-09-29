@@ -14,6 +14,7 @@ import { AutopostRepository } from '@persistence/repositories/autopostRepository
 import { EmbedBuilder } from 'discord.js';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { errorMessage } from '@domain/discordErrors';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 
 export type AutopostSchedule = 'Daily' | 'Weekly' | 'Monthly';
 export type AutopostContentType = 'TopArtists' | 'TopAlbums' | 'TopTracks' | 'ServerCrowns';
@@ -28,6 +29,37 @@ export interface AutopostConfig {
   lastPosted?: Date | null;
   created?: Date;
 }
+
+/**
+ * A scheduled post is a claim the user never asked for at the time, and it
+ * outlives the sweep that made it, so a database failure here cannot be
+ * degraded to a default: the guild's leaderboard/crowns would be published from
+ * a failed read and nothing would ever correct it.
+ *
+ * The one query below is a `count`, so raising cannot reach a genuine zero: a
+ * count that runs and matches nothing SUCCEEDS with 0. Every other failure is
+ * a database that did not answer, and 0 is the one value that would silently
+ * disable the spam guard, so it is not the default any more.
+ */
+const orDatabaseUnavailable = async <T>(
+  method: string,
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: `${method}:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${method} (${label}); refusing to answer as if the guard read zero`,
+    );
+    throw new SourceUnavailableError(
+      `autopostService.${method}:${label}`,
+      err,
+      'Database unavailable',
+    );
+  }
+};
 
 @singleton()
 export class AutopostService {
@@ -57,7 +89,18 @@ export class AutopostService {
       }).then((saved) => {
         this.inMemoryAutoposts.delete(config.id);
         this.inMemoryAutoposts.set(saved.id, saved);
-      }).catch(() => undefined);
+      }).catch((err: unknown) => {
+        // CORRECT AS IS is not available on this path. The in-memory entry stays
+        // keyed by the caller's own id and no row was written, while the sweep
+        // below reads `getAllActiveAutoposts()` from the database — so the post
+        // never happens, ever, and the user has already been told
+        // "[Autopost] Configured ...". Raising is not possible either (the
+        // caller is fire-and-forget), so the failure has to be loud.
+        Logger.error(
+          { err, guildId: config.guildId, contentType: config.contentType, schedule: config.schedule },
+          '[Autopost] Configuration could not be persisted; this autopost will never post',
+        );
+      });
     }
     Logger.info(`[Autopost] Configured ${config.contentType} (${config.schedule}) for guild ${config.guildId} in #${config.channelId}`);
   }
@@ -70,14 +113,17 @@ export class AutopostService {
    */
   public async createAutopost(config: Omit<AutopostConfig, 'id'>): Promise<AutopostConfig | null> {
     if (this.autopostRepository) {
-      const existing = await this.autopostRepository
-        .countForGuild(config.guildId)
-        .catch(() => 0);
+      const repository = this.autopostRepository;
+      const existing = await orDatabaseUnavailable(
+        'createAutopost',
+        'guildAutopost.count',
+        () => repository.countForGuild(config.guildId),
+      );
       if (existing >= AutopostService.MAX_AUTOPOSTS_PER_GUILD) {
         Logger.warn(`[Autopost] Guild ${config.guildId} at autopost cap, refusing new one`);
         return null;
       }
-      const created = await this.autopostRepository.createAutopost({
+      const created = await repository.createAutopost({
         guildId: config.guildId,
         channelId: config.channelId,
         contentType: config.contentType,
@@ -177,6 +223,11 @@ export class AutopostService {
   public async postAutopost(autopost: AutopostConfig, client: Client): Promise<boolean> {
     const channel = await client.channels.fetch(autopost.channelId).catch(() => null);
     if (!channel || !channel.isTextBased()) {
+      // CORRECT AS IS: not silent. The caller counts this as `failed`, rolls the
+      // due-claim back and retries next sweep, and this WARN is the only record
+      // of it. The message does conflate a failed fetch with a channel that is
+      // genuinely gone, but both are the same outcome here and both are
+      // reported, so there is no hidden failure to find.
       Logger.warn(`[Autopost] Channel ${autopost.channelId} not found or not text-based for guild ${autopost.guildId}`);
       return false;
     }
@@ -254,7 +305,22 @@ export class AutopostService {
       if (this.autopostRepository && !isNaN(numId)) {
         const cutoff = this.dueCutoff(autopost.schedule, now);
         if (!cutoff) continue;
-        const claimed = await this.autopostRepository.claimDueAutopost(numId, cutoff).catch(() => null);
+        let claimed: Date | null | undefined;
+        try {
+          claimed = await this.autopostRepository.claimDueAutopost(numId, cutoff);
+        } catch (err) {
+          // A claim that could not be read is NOT "not due". Treating the two
+          // alike skipped the post for this sweep and, because nothing counts
+          // it, nothing anywhere said so. Nothing is stamped, so the next sweep
+          // still retries — the retry is the correct behaviour, the silence was
+          // not.
+          failed++;
+          Logger.error(
+            { err: errorMessage(err), guildId: autopost.guildId, autopostId: autopost.id },
+            '[Autopost] Due-claim query failed; post skipped this sweep and will retry',
+          );
+          continue;
+        }
         if (claimed === null) continue;
         previousLastPosted = claimed;
         autopost.lastPosted = new Date();
@@ -270,13 +336,13 @@ export class AutopostService {
         } else {
           failed++;
           if (this.autopostRepository && !isNaN(numId)) {
-            await this.autopostRepository.releaseClaim(numId, previousLastPosted);
+            await this.releaseClaimQuietly(this.autopostRepository, numId, previousLastPosted, autopost);
           }
         }
       } catch (err) {
         failed++;
         if (this.autopostRepository && !isNaN(numId)) {
-          await this.autopostRepository.releaseClaim(numId, previousLastPosted).catch(() => undefined);
+          await this.releaseClaimQuietly(this.autopostRepository, numId, previousLastPosted, autopost);
         }
         const duration = Date.now() - start;
         this.telemetryService.recordCommandExecution(`autopost:${autopost.contentType.toLowerCase()}`, duration, false);
@@ -285,5 +351,30 @@ export class AutopostService {
     }
 
     return { executed, failed };
+  }
+
+  /**
+   * Roll the due-claim back so the next sweep retries. A rollback that fails is
+   * the worst silent failure in this service: the stamp stays, so the post is
+   * suppressed for a whole cycle and the guild silently stops getting its recap.
+   *
+   * It must also never rethrow — the failure path above has already counted this
+   * autopost as failed, and a throw here would land in the outer catch and count
+   * it a second time.
+   */
+  private async releaseClaimQuietly(
+    repository: AutopostRepository,
+    numId: number,
+    previousLastPosted: Date | null | undefined,
+    autopost: AutopostConfig,
+  ): Promise<void> {
+    try {
+      await repository.releaseClaim(numId, previousLastPosted);
+    } catch (err) {
+      Logger.error(
+        { err: errorMessage(err), guildId: autopost.guildId, autopostId: autopost.id },
+        '[Autopost] Could not roll the due-claim back; this autopost is suppressed for a full cycle',
+      );
+    }
   }
 }

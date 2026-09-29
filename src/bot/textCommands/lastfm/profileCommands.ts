@@ -103,6 +103,11 @@ export class ProfileCommands implements ITextCommandModule {
 
     let accentColor = await this.colorService.getColorFromImageUrl(stats.lastFmUser.imageUrl);
     if (accentColor === DiscordConstants.LastFmColorRed && targetUser.discordUserId) {
+      // CORRECT AS IS, the twin of `profileSlashCommands.profileAsync` and for
+      // the same reason: an ACCENT COLOUR, already holding the Last.fm red
+      // fallback. A missing avatar costs the border colour on this card and no
+      // figure on it - `getProfileStats` has already returned, and its own
+      // degraded reads are documented at their sites.
       try {
         const discordUser = await context.message?.client.users.fetch(targetUser.discordUserId.toString());
         const avatarUrl = discordUser?.displayAvatarURL({ size: 256 });

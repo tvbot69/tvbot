@@ -39,6 +39,13 @@ export class PlaycountInteractions {
 
     const targetUser = await this.userService.getUserById(targetUserId);
     if (!targetUser) {
+      // CORRECT AS IS: `userService.getUserById` reads prisma without a
+      // try/catch, so a genuine database failure RAISES past this branch and is
+      // handled by the catch at the bottom. Reaching here therefore means the
+      // query ran and found no row, which is a real answer for a user id the
+      // reroll button was minted with - a stale button, or one for a user who
+      // has since unlinked. Acknowledging and changing nothing is right: there is
+      // no error to report because nothing failed.
       await interaction.deferUpdate().catch(() => undefined);
       return;
     }
@@ -46,6 +53,14 @@ export class PlaycountInteractions {
     try {
       const userInfo = await this.lastfmRepo.getUserInfo(targetUser.userNameLastFm);
       if (!userInfo || userInfo.playCount < 1) {
+        // CORRECT AS IS, and the distinction is entirely `getUserInfo`'s, not
+        // this handler's. `LastFmRepository.getUserInfo` routes through
+        // `orUnavailable`, which returns `null` ONLY for Last.fm error codes
+        // 6/7/8 - a real "no such user" - and raises `LastFmUnavailableError` for
+        // a 5xx, a timeout or a dropped connection. So `!userInfo` here is a
+        // genuine absence and the bottom catch is reachable for the outage case,
+        // which is why it is narrowed. `playCount < 1` is likewise real: a
+        // listener who has never scrobbled.
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }
@@ -59,6 +74,15 @@ export class PlaycountInteractions {
       );
 
       if (!milestonePlay) {
+        // CORRECT AS IS, but this one is the weaker half of the pair and worth
+        // naming. `getMilestoneScrobble` DOES swallow: it catches, logs at WARN
+        // and returns `null`, so unlike `getUserInfo` above an outage and a
+        // genuine "that scrobble is not on the page Last.fm returned" are the
+        // same value here. The mitigation is the WARN inside the repository, not
+        // anything this handler does: the failure is visible in the logs and
+        // invisible on screen, where the honest rendering is a button that does
+        // not move. Converting this to a raise would require changing
+        // `getMilestoneScrobble`, which has other callers.
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }

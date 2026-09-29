@@ -2,6 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import fs from 'fs';
 import path from 'path';
 import { PuppeteerService } from './puppeteerService';
+import { Logger } from '@domain/logger';
 
 export interface ReceiptTrackItem {
   artistName: string;
@@ -55,10 +56,19 @@ export class ReceiptGenerator {
             'https://fm.bot/img/bot/receipt.png',
             dataUri,
           );
-        } catch {
-          // ignore
+          break;
+        } catch (err) {
+          // The `break` moved inside the try. It used to sit below the whole
+          // block, so a file that exists but could not be read ended the search
+          // on the FIRST candidate and left the template pointing at
+          // `https://fm.bot/img/bot/receipt.png` — a third-party CDN the bot
+          // would then fetch during every render, with the two fallback paths
+          // below it never tried. Continuing is the honest degradation: a
+          // receipt without its background beats a render that reaches out to
+          // another origin, and the reason has to be on the record to be
+          // findable at all.
+          Logger.warn({ err, bgPath }, 'Receipt background could not be read; trying the next candidate');
         }
-        break;
       }
     }
   }

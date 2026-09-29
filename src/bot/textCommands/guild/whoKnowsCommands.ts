@@ -199,6 +199,14 @@ export class WhoKnowsCommands implements ITextCommandModule {
     // Disambiguate same-name artists ("Mond" the Egyptian rapper vs "Mond" the
     // metal band) by anchoring artwork/genre lookups to a real scrobble.
     const artistTrackService = container.resolve(ArtistTrackService);
+    // CORRECT AS IS, and the slash twin carries the same comment with the same
+    // reasoning. `getSampleTrackForArtist` is a PRECISION ANCHOR for external
+    // metadata - it disambiguates "Mond" the rapper from "Mond" the metal band by
+    // pinning the exact entity via a real scrobble - and never a number the user
+    // reads. The playcounts come from `whoKnowsArtistService` below. The method's
+    // own doc records that it already returns `undefined` rather than rejecting
+    // when a lookup fails, so this `.catch` is belt-and-braces and the worst case
+    // is name-only artwork and genre resolution.
     const callerSampleTrack = await artistTrackService
       .getSampleTrackForArtist(user.userId, resolvedName)
       .catch(() => undefined);
@@ -218,6 +226,11 @@ export class WhoKnowsCommands implements ITextCommandModule {
     let anchoredGenres: string[] | undefined;
     const topListenerId = result.filteredUsersWithArtist[0]?.userId;
     if (!sampleTrack && topListenerId !== undefined) {
+      // CORRECT AS IS, second anchor site and the same reasoning as the one
+      // above: the retry against the top listener's own scrobble is a refinement
+      // for artwork and genres, and failing it leaves the leaderboard - every
+      // listener, every playcount, the rank order - exactly as it would render
+      // with no sample track at all.
       sampleTrack = await artistTrackService
         .getSampleTrackForArtist(topListenerId, resolvedName)
         .catch(() => undefined);

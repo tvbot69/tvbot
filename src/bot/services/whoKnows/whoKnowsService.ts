@@ -1,4 +1,4 @@
-import type { WhoKnowsUser, FilterStats } from '@bot/models/whoKnowsModels';
+import type { WhoKnowsUser, FilterStats, WhoKnowsRoleRead } from '@bot/models/whoKnowsModels';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { Guild } from '@persistence/domain/models/guild';
@@ -12,7 +12,8 @@ export class WhoKnowsService {
     contextUser: User,
     discordDisplayName?: string,
     livePlaycount?: number | null,
-    roles?: string[],
+    /** See {@link WhoKnowsRoleRead}. `undefined` means "not resolved". */
+    roles?: WhoKnowsRoleRead,
   ): WhoKnowsUser[] {
     if (livePlaycount === undefined || livePlaycount === null) {
       return users;

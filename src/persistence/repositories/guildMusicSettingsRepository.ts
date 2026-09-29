@@ -22,6 +22,11 @@ const safeBigInt = (id: string): bigint | null => {
   try {
     return BigInt(id);
   } catch {
+    // CORRECT AS IS, and it is ARGUMENT COERCION, not a data source - identical
+    // reasoning to `safeBigInt` in crownRepository and `parseGuildId` in
+    // genreService. A malformed guild id is a caller bug; calling it a database
+    // outage would point the operator at the wrong system entirely, and `null`
+    // is the honest answer: no such guild, so no settings to write.
     return null;
   }
 };
@@ -74,6 +79,22 @@ export class GuildMusicSettingsRepository {
         },
       });
     } catch (err) {
+      // CORRECT AS IS on the swallow - a WRITE path, so this is the shape the
+      // phase warns about, and the reason it is still right is upstream of here.
+      // `queueService.saveSettings` updates its in-memory map BEFORE calling this,
+      // and that map is what every reader uses (`getSettings` / `is247` /
+      // `toggleKaraoke`). A failed write therefore costs durability across a
+      // restart and nothing else: the value the user was told is still the value
+      // the bot is acting on this session, and the next write for that guild
+      // re-persists the whole partial. Raising here would propagate into a
+      // synchronous in-memory mutation that has already happened, so the command
+      // would report failure for a setting that is in fact applied.
+      //
+      // DEBUG rather than nothing, rather than WARN: a user changing their own
+      // volume is a once-a-session event, and the failure is invisible to them
+      // by design. That said, the failure itself is what the operator needs, and
+      // `err` is the only record of it - which is why this is not a bare
+      // `catch {}`.
       Logger.debug({ err, guildId }, 'Failed to save guild music settings');
     }
   }

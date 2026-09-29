@@ -188,6 +188,24 @@ export class ChartSlashCommands implements ISlashCommandModule {
   private async resolveChartUser(
     context: ContextModel,
   ): Promise<{ userNameLastFm: string; discordUserId: string; displayName?: string; totalPlayCount?: number } | ResponseModel> {
+    // CORRECT AS IS, and all six catch sites in this method are one of two
+    // shapes, neither of which is a swallowed query.
+    //
+    // `getString('user')` (the legacy option slot) is ARGUMENT COERCION: it
+    // throws for an option the current builder no longer declares, which is a
+    // property of the SlashCommandBuilder rather than anything a user did, and
+    // the comment in `countrySlashCommands` / `interactionHandler.executeSlashCommand`
+    // explains why laundering that into "the database is unavailable" is worse
+    // than the null. `null` here is the honest "this command has no legacy slot",
+    // and the code carries on with the modern options.
+    //
+    // The four `members.fetch(...).catch(() => null)` blocks plus their enclosing
+    // catches are DISCORD READS whose only product is `displayName` - a label on
+    // the card. Every one of them has a real fallback chain (`members.cache`,
+    // then the Discord username, then the Last.fm name), so a missing permission
+    // or a member who left costs a cosmetically less specific label. The chart
+    // data itself comes from the album/chart pipeline further down, which is not
+    // inside any of these try blocks.
     const discordTarget = context.interaction?.options.getUser('user');
     const rawLfm = context.interaction?.options.getString('lfm')?.trim() ?? null;
     const legacyUserString = (() => {

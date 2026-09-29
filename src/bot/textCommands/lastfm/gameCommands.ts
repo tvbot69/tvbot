@@ -11,6 +11,7 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/colorService';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { Logger } from '@domain/logger';
 
 @injectable()
 export class GameCommands implements ITextCommandModule {
@@ -130,8 +131,13 @@ export class GameCommands implements ITextCommandModule {
             });
           }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        // CORRECT AS IS. The session has already been ended, dated and removed
+        // from both maps by the timer that invoked this, so nothing about the
+        // game is still in doubt. Losing the send means the channel sees the
+        // game stop without being told why — an absence, not a false claim, and
+        // no number, answer or winner is affected either way.
+        Logger.debug({ err }, '[Game] Expired-game message could not be sent');
       }
     };
 
@@ -164,7 +170,15 @@ export class GameCommands implements ITextCommandModule {
               await msg.channel.send({
                 components: [giveUpResp.componentsV2Container],
                 flags: MessageFlags.IsComponentsV2,
-              }).catch(() => undefined);
+              }).catch((err: unknown) => {
+                // CORRECT AS IS. `gameService.giveUp` ran on the line above and
+                // has already ended and deregistered the session, so the answer
+                // is still secret and the game is still over — the worst case is
+                // that a player who typed "give up" gets no reply. Revealing the
+                // answer is what this card does, and a send that fails reveals
+                // nothing, so there is no wrong claim to make.
+                Logger.debug({ err }, '[Game] Give-up response could not be sent');
+              });
             }
           }
           return;
@@ -174,7 +188,12 @@ export class GameCommands implements ITextCommandModule {
         const result = this.gameService.checkAnswer(context.channelId, msg.author.id, authorName, text);
         if (result.isCorrect && result.session) {
           collector.stop('won');
-          await msg.react('✅').catch(() => undefined);
+          // CORRECT AS IS: pure decoration on a message that is about to be
+          // replaced by the win card. Losing the tick changes nothing about the
+          // answer, the time, or the stats that follow.
+          await msg.react('✅').catch((err: unknown) => {
+            Logger.debug({ err }, '[Game] Win reaction could not be added');
+          });
           const userColor = await this.colorService?.getAccentColorAsync(msg.author.id) ?? accentColor;
           const stats = this.gameService.getUserStats(msg.author.id);
           const wonResp = GameBuilders.buildGameWonResponse(result.session, result.timeSeconds ?? 0, stats, userColor);
@@ -182,7 +201,17 @@ export class GameCommands implements ITextCommandModule {
             await msg.channel.send({
               components: [wonResp.componentsV2Container],
               flags: MessageFlags.IsComponentsV2,
-            }).catch(() => undefined);
+            }).catch((err: unknown) => {
+              // CORRECT AS IS, and this is the one place in the game flow where
+              // a swallowed failure could plausibly have mattered — so the
+              // reason it cannot is worth stating. `checkAnswer` has ALREADY run
+              // on the line above: the session is ended, the winner is set, and
+              // `recordWin` has moved the stats. `wonResp` is built from those
+              // same recorded values, so the announcement is a copy of facts that
+              // are committed, not the source of them. A failed send loses the
+              // public announcement; `.gamestats` will still show the win.
+              Logger.warn({ err }, '[Game] Win announcement could not be sent; the win is recorded');
+            });
           }
         }
       });
@@ -271,8 +300,13 @@ export class GameCommands implements ITextCommandModule {
             });
           }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        // CORRECT AS IS. The session has already been ended, dated and removed
+        // from both maps by the timer that invoked this, so nothing about the
+        // game is still in doubt. Losing the send means the channel sees the
+        // game stop without being told why — an absence, not a false claim, and
+        // no number, answer or winner is affected either way.
+        Logger.debug({ err }, '[Game] Expired-game message could not be sent');
       }
     };
 
@@ -307,7 +341,15 @@ export class GameCommands implements ITextCommandModule {
               await msg.channel.send({
                 components: [giveUpResp.componentsV2Container],
                 flags: MessageFlags.IsComponentsV2,
-              }).catch(() => undefined);
+              }).catch((err: unknown) => {
+                // CORRECT AS IS. `gameService.giveUp` ran on the line above and
+                // has already ended and deregistered the session, so the answer
+                // is still secret and the game is still over — the worst case is
+                // that a player who typed "give up" gets no reply. Revealing the
+                // answer is what this card does, and a send that fails reveals
+                // nothing, so there is no wrong claim to make.
+                Logger.debug({ err }, '[Game] Give-up response could not be sent');
+              });
             }
           }
           return;
@@ -317,7 +359,12 @@ export class GameCommands implements ITextCommandModule {
         const result = this.gameService.checkAnswer(context.channelId, msg.author.id, authorName, text);
         if (result.isCorrect && result.session) {
           collector.stop('won');
-          await msg.react('✅').catch(() => undefined);
+          // CORRECT AS IS: pure decoration on a message that is about to be
+          // replaced by the win card. Losing the tick changes nothing about the
+          // answer, the time, or the stats that follow.
+          await msg.react('✅').catch((err: unknown) => {
+            Logger.debug({ err }, '[Game] Win reaction could not be added');
+          });
           const userColor = await this.colorService?.getAccentColorAsync(msg.author.id) ?? accentColor;
           const stats = this.gameService.getUserStats(msg.author.id);
           const wonResp = GameBuilders.buildGameWonResponse(result.session, result.timeSeconds ?? 0, stats, userColor);
@@ -325,7 +372,17 @@ export class GameCommands implements ITextCommandModule {
             await msg.channel.send({
               components: [wonResp.componentsV2Container],
               flags: MessageFlags.IsComponentsV2,
-            }).catch(() => undefined);
+            }).catch((err: unknown) => {
+              // CORRECT AS IS, and this is the one place in the game flow where
+              // a swallowed failure could plausibly have mattered — so the
+              // reason it cannot is worth stating. `checkAnswer` has ALREADY run
+              // on the line above: the session is ended, the winner is set, and
+              // `recordWin` has moved the stats. `wonResp` is built from those
+              // same recorded values, so the announcement is a copy of facts that
+              // are committed, not the source of them. A failed send loses the
+              // public announcement; `.gamestats` will still show the win.
+              Logger.warn({ err }, '[Game] Win announcement could not be sent; the win is recorded');
+            });
           }
         }
       });

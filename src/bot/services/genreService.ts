@@ -58,6 +58,13 @@ const parseGuildId = (guildId: string): bigint | null => {
   try {
     return BigInt(guildId);
   } catch {
+    // CORRECT AS IS, and the reasoning is the doc comment above plus the regex
+    // on the first line: the guard already rejects everything `BigInt` refuses,
+    // so this branch is unreachable in practice. What matters is that IF it were
+    // reached it would still be right - a malformed guild id is a CALLER bug, and
+    // turning it into `SourceUnavailableError` would tell the operator to go
+    // look at Postgres when the fault is upstream of it. The honest answer is
+    // "no such guild, so it has no genre rows", returned without opening a query.
     return null;
   }
 };

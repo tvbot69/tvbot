@@ -142,6 +142,13 @@ export class PlayCommands implements ITextCommandModule {
     let fmSetting: { embedType: number; footerOptions: bigint; smallTextType: number | null; buttons: bigint } | null = null;
     let guildFmType: number | null | undefined = null;
     let channelFmType: number | null | undefined = null;
+    // CORRECT AS IS, and it is the same three PRESENTATION reads the slash twin
+    // `userSlashCommands.fmAsync` documents: `fmSetting` falls back to null (the
+    // bot's default embed type), `guildFmType` and `channelFmType` fall back to
+    // null ("no override", which is what an unconfigured server should render). A
+    // database outage costs the guild's chosen embed STYLE, not a single
+    // playcount - the `.fm` numbers come from the two Last.fm reads below, which
+    // are outside this try.
     try {
       const fmService = container.resolve(FmSettingService);
       fmSetting = await fmService.get(displayUser.userId);
@@ -210,6 +217,13 @@ export class PlayCommands implements ITextCommandModule {
           response.content = `📸 **CAUGHT IN 4K:** <@${displayUser.discordUserId}> — *${anomaly.roast}* \`[Guilty tag: ${anomaly.matchedGenre}]\``;
         }
       } catch {
+        // CORRECT AS IS: a NOSTALGIA FEATURE. `checkLiveNowPlayingAnomaly` looks
+        // for a coincidence between a now-playing track and an already-posted
+        // "CAUGHT IN 4K" roast, and its only product is `response.content` -
+        // the joke line. A failure omits a joke; it cannot change the embed, whose
+        // tracks, scrobble count and footer were built above from the Last.fm
+        // reads. The safe failover is named because the alternative would be to
+        // fail an entire `.fm` over a gag.
         // Safe failover
       }
     }

@@ -83,6 +83,14 @@ export class LoginCommands implements ITextCommandModule {
           try {
             await interaction.reply({ content: 'This login session belongs to someone else.', ephemeral: true });
           } catch { /* ignore Unknown interaction */ }
+          // CORRECT AS IS: the mismatch check ABOVE is what does the work - a
+          // foreign presser gets no session, because `confirmLogin` is never
+          // called on this path and the pending token is keyed by
+          // `discordUserId`. This catch only guards Discord rejecting a reply to
+          // an expired interaction, which is the expected outcome of a stale
+          // confirm button. The sibling `deferReply` catch two lines below does
+          // the 10062 check explicitly because that one is load-bearing for the
+          // whole handler; this one is not.
           return;
         }
         // Defer immediately — must ack within 3s or Discord returns 10062 Unknown interaction

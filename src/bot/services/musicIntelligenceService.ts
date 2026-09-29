@@ -70,6 +70,12 @@ const parseGuildId = (guildId: string): bigint | null => {
   try {
     return BigInt(guildId);
   } catch {
+    // CORRECT AS IS, and identical to `parseGuildId` in genreService including
+    // the reason: the regex already rejects what `BigInt` refuses, so this branch
+    // is a backstop. Were it reached it would still be right - a malformed guild
+    // id is a CALLER bug, and laundering it into "Database unavailable" would
+    // send an operator to Postgres when the fault is upstream of it. The honest
+    // answer is "no such guild, so it has no neighbours", without opening a query.
     return null;
   }
 };

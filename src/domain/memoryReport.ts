@@ -88,7 +88,20 @@ export function logMemoryReport(): void {
     try {
       Logger.debug({ err }, 'Memory sample unavailable');
     } catch {
-      // A broken logger is reported by every other line already.
+      // CORRECT AS IS, and this is the one place in the codebase where a broken
+      // logger is a thing to be reported BY the logger, which is why the
+      // original one-line comment is worth keeping in spirit: "a broken logger is
+      // reported by every other line already" is true - if `Logger` throws, then
+      // every call site in the process is throwing, and the operator will see
+      // that immediately. This probe is a periodic diagnostic; the only cost of
+      // swallowing here is one missing memory sample out of one per hour.
+      //
+      // The nesting is the real structure and is deliberate: the outer catch
+      // catches a throw from `Logger.info` (or from `process.memoryUsage`, which
+      // can throw on some platforms), and the inner catch stops THAT from
+      // propagating out of a `setInterval` callback - where an uncaught throw
+      // would take down the timer that also drives the 24/7 player. A memory
+      // probe that kills the process is a worse outcome than a missing sample.
     }
   }
 }

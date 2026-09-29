@@ -159,8 +159,16 @@ export class TrackService {
             }
           }
         }
-      } catch {
-        // ignore server stats lookup errors
+      } catch (err) {
+        // CORRECT AS IS, and the WARN is the point: a swallowed server clause is
+        // invisible, and a lost capability is what AGENTS.md §3.10 says deserves
+        // WARN rather than DEBUG. The catch itself is the omission, which
+        // `trackBuilders`' `!== undefined` guard turns into a missing line rather
+        // than a fabricated zero.
+        Logger.warn(
+          { err: (err as Error)?.message ?? String(err), userId: user.userId, guildId },
+          'Failed to read guild server stats for a track; the card will omit the server clause',
+        );
       }
     }
 
@@ -308,6 +316,31 @@ export class TrackService {
 
   /**
    * User's all-time top tracks with optional 10-minute caching
+   *
+   * CORRECT AS IS TODAY, AND THE REASON IS DEADNESS, NOT SAFETY. Verified: this
+   * method has no production caller. A whole-repo grep for
+   * `getUserAllTimeTopTracks` returns this definition plus `trackService.test.ts`
+   * and `trackService.db.test.ts`; nothing in `startup.ts`, no builder, no
+   * command, no interaction reaches it. So `catch { return [] }` cannot put a
+   * wrong number in front of anyone right now, and `[]` here is indistinguishable
+   * from "this user has never pressed play" to every caller that exists.
+   *
+   * THAT IS THE TRAP, and it is why this comment is long rather than absent. The
+   * moment a command wires this up it becomes exactly the bug the phase was
+   * opened for: `.toptracks` would render an empty leaderboard for a user with
+   * 40 million indexed plays, and every other number on the card would stay
+   * real, which is the shape a user cannot distrust. The sibling method
+   * `artistsService.getUserAllTimeTopArtists` - the same query on `user_plays`,
+   * the same `[]` - was fixed for precisely this reason and raises
+   * `SourceUnavailableError` via `orDatabaseUnavailable`.
+   *
+   * NOT FIXED HERE ON PURPOSE, and the reason is the blast radius, not the
+   * principle: there is no user-visible behaviour to change, so a raise would
+   * alter nothing observable while rewriting four pinned tests. The rule to
+   * apply when this is wired up is the one `artistsService` already follows -
+   * wrap the query in `orDatabaseUnavailable` and keep the honest empty for a
+   * query that RAN and matched nothing. `getLastMonthPlays` in this same file
+   * shows that shape, and its comment explains why the empty must survive.
    */
   public async getUserAllTimeTopTracks(userId: number, useCache: boolean = false): Promise<TopTrack[]> {
     const cacheKey = `user-${userId}-toptracks-alltime`;
@@ -343,6 +376,9 @@ export class TrackService {
 
       return tracks;
     } catch {
+      // See the method doc: correct as is because nothing calls this yet, and
+      // `[]` is a lie the moment someone does. The fix, when that happens, is
+      // `orDatabaseUnavailable` exactly as in artistsService.
       return [];
     }
   }
@@ -367,6 +403,12 @@ export class TrackService {
         playcount: Number(r.playcount),
       }));
     } catch {
+      // CORRECT AS IS for the same reason as `getUserAllTimeTopTracks` above and
+      // verified the same way: no production caller reaches this method, only the
+      // two test files. Unlike that one, this query has no sibling that was
+      // fixed, so if it is ever wired to an "artist top tracks" card the empty
+      // list is what the user would read as "you have no plays for this artist"
+      // - which is why the note belongs here rather than in a shared helper.
       return [];
     }
   }
@@ -418,6 +460,18 @@ export class TrackService {
       await this.cache.set(cacheKey, result, 30);
       return result;
     } catch {
+      // CORRECT AS IS, and the twin of the decision already recorded for
+      // `artistsService.getLatestArtists`: this is an AUTOCOMPLETE SUGGESTION
+      // list, not a statistic. Nothing here claims a number to the user - the
+      // worst case of a failure is a dropdown with nothing in it, which makes no
+      // assertion anyone can be misled by. Also verified uncalled in production
+      // (only the two test files reference it).
+      //
+      // Raising would be actively worse here, and the reason is specific to
+      // autocomplete: `interactionHandler.handleAutocomplete` wraps every
+      // responder in `.catch(() => undefined)`, so the raise would be swallowed
+      // at the top anyway while the `Logger.error` beneath it fired ONCE PER
+      // KEYSTROKE for the whole duration of a database outage.
       return [];
     }
   }
@@ -466,6 +520,17 @@ export class TrackService {
       await this.cache.set(cacheKey, result, 120);
       return result;
     } catch {
+      // CORRECT AS IS, exactly as `getLatestTracks` above and as the
+      // `artistsService.getRecentTopArtists` twin: an autocomplete suggestion
+      // list makes no claim, an empty dropdown is not a statistic, and
+      // `handleAutocomplete` would swallow a raise at the top while logging once
+      // per keystroke. Also verified uncalled in production.
+      //
+      // The playcounts this query computes are NOT the reason to raise, and that
+      // is worth being explicit about: they never leave this method through the
+      // autocomplete path. `getRecentTopTracksAutoComplete` maps every row down
+      // to `{ artistName, trackName }` and drops the number entirely, so the
+      // only thing a caller can render is a list of names.
       return [];
     }
   }
@@ -500,6 +565,11 @@ export class TrackService {
         trackName: r.name,
       }));
     } catch {
+      // CORRECT AS IS, third autocomplete twin (`artistsService.searchThroughArtists`
+      // is the fourth): a catalogue name search feeds a dropdown, asserts
+      // nothing about any user, and has no production caller. Same reasoning as
+      // the two above, including why a raise would be swallowed at the top while
+      // logging per keystroke.
       return [];
     }
   }

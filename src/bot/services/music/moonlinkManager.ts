@@ -594,7 +594,12 @@ export class MoonlinkManager {
                 try {
                   player.filters.enable(filter as Parameters<typeof player.filters.enable>[0]);
                 } catch {
-                  // ignore unknown filter names across versions
+                  // CORRECT AS IS: a name this node/moonlink build does not
+                  // know. The filter stays in the player's own state, so the
+                  // migration is not corrupted by refusing it; the cost is
+                  // one missing audio effect on the new node, and the next
+                  // filter toggle re-applies. Swallowing here keeps one bad
+                  // filter name from skipping the position restore below.
                 }
               }
               if (snapshot.filters.length > 0) {

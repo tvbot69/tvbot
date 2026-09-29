@@ -1,6 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import crypto from 'crypto';
 import { PuppeteerService } from '@images/generators/puppeteerService';
+import { Logger } from '@domain/logger';
 
 export type JumbleType = 'artist' | 'pixel';
 
@@ -205,8 +206,14 @@ else img.onload = render;
         throw new Error('PuppeteerService is not available');
       }
       return await this.puppeteerService.screenshotHtml(html, 500, 500);
-    } catch {
-      // Return 1x1 black pixel fallback on network error
+    } catch (err) {
+      // The 1x1 fallback is the right SHAPE — never a stale or wrong album's
+      // cover, which is the failure this design is guarding — but it is an image
+      // of nothing at all, and a user staring at a black square has no way to
+      // tell "the cover could not be rendered" from "I have no idea what this
+      // album is". Not a wrong number and not a public claim, so the game stays
+      // playable and no state changes; it only had to be findable.
+      Logger.warn({ err }, 'Pixelation render failed; the game is using a blank cover');
       return Buffer.from(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
         'base64',
@@ -281,8 +288,13 @@ else img.onload = render;
         if (session.collector && typeof session.collector.stop === 'function') {
           try {
             session.collector.stop('time');
-          } catch {
-            // ignore
+          } catch (err) {
+            // CORRECT AS IS. The session is already `ended` and removed from both
+            // maps on the lines below regardless, and every game fact — the
+            // answer, the winner, the recorded win, the stats — was decided
+            // before this. A Discord collector that will not stop only means its
+            // own timer can fire once more into a session that no longer exists.
+            Logger.debug({ err, sessionId: session.sessionId }, 'Game collector did not stop on expiry');
           }
         }
         session.ended = true;
@@ -320,8 +332,13 @@ else img.onload = render;
       if (session.collector && typeof session.collector.stop === 'function') {
         try {
           session.collector.stop('won');
-        } catch {
-          // ignore
+        } catch (err) {
+          // CORRECT AS IS, and this is the one worth writing down. The answer
+          // was correct before this line, so `recordWin` and `getUserStats` are
+          // already right and the announcement the command layer sends is built
+          // from them — a Discord collector that refuses to stop cannot change
+          // any of it, only cause its own timer to fire into a finished session.
+          Logger.debug({ err, sessionId: session.sessionId }, 'Game collector did not stop after a win');
         }
       }
       session.ended = true;
@@ -377,8 +394,12 @@ else img.onload = render;
     if (session.collector && typeof session.collector.stop === 'function') {
       try {
         session.collector.stop('given_up');
-      } catch {
-        // ignore
+      } catch (err) {
+        // CORRECT AS IS: `giveUp` still marks the session ended, dates it and
+        // removes it from both maps, so the answer cannot be re-guessed and no
+        // second "you gave up" can be recorded. Only the collector's own timer is
+        // left running, against a session that is already gone.
+        Logger.debug({ err, sessionId: session.sessionId }, 'Game collector did not stop after give-up');
       }
     }
     session.ended = true;
@@ -397,8 +418,12 @@ else img.onload = render;
       if (session.collector && typeof session.collector.stop === 'function') {
         try {
           session.collector.stop('ended');
-        } catch {
-          // ignore
+        } catch (err) {
+          // CORRECT AS IS: administrative path (a moderator or the slash command
+          // ending a game). Same reasoning as the three above — the session is
+          // ended and deregistered either way, and no user-visible fact is
+          // computed here at all.
+          Logger.debug({ err, sessionId: session.sessionId }, 'Game collector did not stop on end');
         }
       }
       session.ended = true;

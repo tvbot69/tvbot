@@ -40,6 +40,15 @@ export class UserHubInteractions {
 
       await interaction.deferUpdate().catch(() => undefined);
 
+      // CORRECT AS IS on both `deferUpdate` calls in this file, and neither one
+      // is near a data read. `aiJudgeService.evaluateTaste` and
+      // `botScrobblingService.getNowPlaying` are called AFTER these lines and
+      // have no local catch, so a genuine failure in either propagates to
+      // `interactionHandler.onInteractionCreated` and is reported to the presser
+      // with a source-named message. What is swallowed here is only Discord
+      // refusing to acknowledge - and since the button handlers below `editReply`
+      // rather than `update`, a failed ack costs nothing but a slower-looking
+      // press.
       const result = await this.aiJudgeService.evaluateTaste({
         userNameLastFm: user.userNameLastFm,
         discordUserId: targetDiscordUserId,
@@ -80,6 +89,14 @@ export class UserHubInteractions {
       const enable = action === 'enable';
       this.botScrobblingService.toggleUserOptIn(interaction.user.id, enable);
 
+      // CORRECT AS IS, second `deferUpdate`: identical reasoning to the one
+      // above. Worth noting the ordering though, because it is the interesting
+      // part of this branch - the in-memory opt-in toggle has ALREADY been
+      // applied by the line above, and the durable write is the fire-and-forget
+      // inside `toggleUserOptIn`. So the state the user is shown below is the
+      // state that is actually in effect this session; only durability across a
+      // restart depends on the write, exactly as `queueService.saveSettings`
+      // documents for guild music prefs.
       await interaction.deferUpdate().catch(() => undefined);
 
       const nowPlaying = interaction.guildId

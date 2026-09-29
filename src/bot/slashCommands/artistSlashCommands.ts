@@ -252,6 +252,22 @@ export class ArtistSlashCommands implements ISlashCommandModule {
     if (artist.spotifyImageUrl) return artist.spotifyImageUrl;
     if (artist.deezerImageUrl) return artist.deezerImageUrl;
 
+    // CORRECT AS IS, both catches, and the split between them is the point.
+    //
+    // The inner `.catch` on the `prisma.artist.update` is a CACHE WRITE. By the
+    // time it runs, the Spotify URL has already been fetched and is about to be
+    // returned to the caller, so the user gets the correct image either way; the
+    // only cost of a failed write is that the next lookup re-queries Spotify.
+    // Raising here would abort a card that is already fully correct.
+    //
+    // The outer `catch` is the Spotify SEARCH, and its product is decoration: a
+    // cover, or `null` for none. `getOrCreateArtist` above is the same shape -
+    // on failure it returns `{ artistId: 0, name }`, which the `artistId > 0`
+    // guard below then uses to skip the write entirely, so a failed artist lookup
+    // degrades to "no cover" rather than to a wrong artist.
+    //
+    // The text-command twin is `artistCommands.getArtistImage` and this is a
+    // copy of it, comment included.
     try {
       const spotifyArtists = await this.spotifySearchApi.searchArtists(artist.name, 1);
       const firstArtist = spotifyArtists?.[0];

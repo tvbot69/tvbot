@@ -26,19 +26,27 @@ import { PrivacyLevel } from '@domain/enums/privacyLevel';
  * instead, which is silent rather than loud: an empty history card, not an
  * error. The qualifier is now ratcheted shut at the bottom of this file.
  *
- * WHY THIS FILE IS NOT PARROTTING. Both queries sit inside a bare
+ * WHY THIS FILE IS NOT PARROTTING. Both queries sit inside a try that used to
+ * end in a bare
  *
  *     } catch {
  *       // Ignored, fallback to empty history
  *     }
  *
- * so a statement Postgres refuses and a user who has never scrobbled are the
- * same value at the call site: an empty history. That is the exact shape that
- * hid the `albumService` bug for the life of the query, and it is why the tests
- * below seed real `user_plays` rows and assert the history comes back POPULATED
- * rather than asserting the SQL text. It is also why a failure here reads
- * `expected [] to deeply equal [...]` and not the Postgres error underneath:
- * read that as "the query returned nothing OR threw", not as "no rows".
+ * so a statement Postgres refuses and a user who has never scrobbled were the
+ * same value at the call site: an empty history. That is what made the shape
+ * invisible, and it was worse than an empty list - `profileBuilders` renders
+ * `if (!hasHistory)` as the SENTENCE "Sorry, it seems like there is no stored
+ * data in tvbot for this user", so a dropped connection told a user with
+ * millions of indexed plays that the bot had never heard of them. The catch now
+ * RAISES `SourceUnavailableError`; the empty case below is unchanged and is the
+ * half worth keeping, because a query that ran and matched no rows is a real
+ * answer. The failure half is covered by `profileService.unavailable.test.ts`,
+ * which cannot be expressed here because this suite needs a real database.
+ *
+ * It is also why a failure here used to read `expected [] to deeply equal [...]`
+ * and not the Postgres error underneath: read that as "the query returned
+ * nothing OR threw", not as "no rows".
  *
  * A LATENT BUG, REPORTED NOT PINNED. `time_played` is `timestamptz`, so
  * `DATE_TRUNC('month', time_played)` truncates in the SESSION timezone, and the
@@ -270,8 +278,12 @@ suite('ProfileService raw queries against a real database', () => {
     });
 
     it('returns an empty month list for a user who has never scrobbled', async () => {
-      // The shape a broken query also produces. The test above is what tells
-      // the two apart; this one only pins the empty case.
+      // The HONEST empty, and the half of the pair that a careless "always
+      // raise" fix would break. A query that ran and matched no rows succeeds
+      // with `[]`, and the builder's "no stored data" sentence stays true for
+      // this user. The test above is what tells the two apart; this one only
+      // pins the empty case. The raising half needs no database and lives in
+      // `profileService.unavailable.test.ts`.
       const stats = await history();
       expect(stats?.months).toEqual([]);
     });

@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import type { ChartItem, ChartSettings } from '@images/models/chartModels';
 import { PuppeteerService } from './puppeteerService';
+import { Logger } from '@domain/logger';
 
 import { escapeHtml } from '../html';
 
@@ -12,8 +13,17 @@ function getFontCss(): string {
     try {
       const fontCssPath = path.resolve(__dirname, '../pages/fonts.css');
       cachedFontCss = readFileSync(fontCssPath, 'utf-8');
-    } catch {
+    } catch (err) {
+      // Not silent, and only once per process — this value is module-cached, so
+      // an unreadable file poisons the styling of EVERY chart the process ever
+      // renders, for its whole lifetime. That is decoration, not a wrong number,
+      // but it is permanent and undetectable from the images, so the one log
+      // line is what makes it findable.
       cachedFontCss = '';
+      Logger.warn(
+        { err, fontCssPath: path.resolve(__dirname, '../pages/fonts.css') },
+        'Chart fonts.css could not be read; charts will render with fallback fonts',
+      );
     }
   }
   return cachedFontCss;

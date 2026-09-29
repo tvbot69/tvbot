@@ -222,6 +222,15 @@ export class ArtistCommands implements ITextCommandModule {
     if (artist.spotifyImageUrl) return artist.spotifyImageUrl;
     if (artist.deezerImageUrl) return artist.deezerImageUrl;
 
+    // CORRECT AS IS, and this method is a verbatim twin of
+    // `artistSlashCommands.getArtistImage`, which carries the same reasoning in
+    // full. The short version: the inner `.catch` is a CACHE WRITE whose result
+    // (the Spotify URL) has already been fetched and is about to be returned, so
+    // a failure costs only the next lookup; the outer `catch` is the Spotify
+    // SEARCH, whose product is decoration - a cover, or `null` for none. The
+    // `artistId > 0` guard below means a failed `getOrCreateArtist` degrades to
+    // "no cover" rather than to a wrong artist, and no playcount on the card
+    // depends on either read.
     try {
       const spotifyArtists = await this.spotifySearchApi.searchArtists(artist.name, 1);
       const firstArtist = spotifyArtists?.[0];

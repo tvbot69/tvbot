@@ -40,6 +40,11 @@ export class KaraokeController {
       if (!lines || lines.length === 0) return null;
       return lyricWindowAt(lines, Math.max(0, positionMs));
     } catch {
+      // CORRECT AS IS: "no lyric window" is exactly the pre-karaoke card,
+      // so the fingerprint carries 'none' and no edit is spent proving it.
+      // Nothing is cleared: `karaokeLines` survives on the player and the
+      // next line boundary re-derives the window. Purely a read of player
+      // state, so a throw cannot reject into the publish path.
       return null;
     }
   }
@@ -61,6 +66,11 @@ export class KaraokeController {
     if (!title || !artist) return;
     try {
       const lines = await Promise.race([
+        // CORRECT AS IS: a rejected provider is one leg of the 6s race
+        // timing out as far as the card is concerned. `karaokeLines` stays
+        // null (set on entry), which IS the "off" state the publisher
+        // already renders, so a failure is indistinguishable from a song
+        // with no synced lyrics and is never reported as a broken feature.
         svc.getSyncedLyrics(title, artist, durationMs).catch(() => null),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
       ]);
@@ -107,6 +117,9 @@ export class KaraokeController {
         } catch {
           // Timer errors must never break the chain below.
         }
+        // Re-armed OUTSIDE the try on purpose: if publishing throws, the
+        // chain to the next lyric line must survive, or the card freezes on
+        // one line for the rest of the track.
         this.host.armKaraokeTimer(player);
       }, Math.max(delay, 1500));
       timer.unref?.();

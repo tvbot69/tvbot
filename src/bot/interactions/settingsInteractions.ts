@@ -81,6 +81,17 @@ export class SettingsInteractions {
           perms.has(PermissionsBitField.Flags.Administrator)
         );
       } catch {
+        // CORRECT AS IS, and it FAILS CLOSED, which is the property that matters
+        // for a permission check. A malformed bitfield means the code could not
+        // establish the permission, so it answers "not staff" and the caller
+        // replies with the `Manage Server` requirement. The opposite default -
+        // granting on failure - would let an unreadable permission string open
+        // the prefix modal for anyone.
+        //
+        // This is the same argument as `ContextModel.userIsGuildAdmin` and
+        // `safeBigInt` in crownRepository: an argument this code cannot parse is
+        // a caller/shape problem, and refusing is both the safe and the honest
+        // answer. There is no data source to be unavailable.
         return false;
       }
     }
@@ -152,8 +163,16 @@ export const buildSettingsPage = async (
       const s = await fmService.get(u.userId);
       if (s) fmEmbedName = (FmEmbedTypeNames as Record<number, string>)[s.embedType] ?? fmEmbedName;
     }
+  // CORRECT AS IS, and the variable it guards is the reason: `fmEmbedName` is a
+  // DISPLAY LABEL for the user's chosen embed style, seeded with the default
+  // 'Embed Mini' on the line above. A failed read - including a database outage
+  // on `getUserByDiscordUserId` - leaves the settings page rendering with the
+  // default label, which is a cosmetic default rather than a claim about
+  // anything. The prefix on the page, by contrast, comes from
+  // `prefixService.getPrefix` above and is NOT inside this try, so a real
+  // failure there still raises and is reported rather than silently rendering
+  // the wrong prefix.
   } catch { /* ignore */ }
-
   const container = new ContainerBuilder();
   container.setAccentColor(DiscordConstants.LastFmColorRed);
   container

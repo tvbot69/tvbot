@@ -151,6 +151,11 @@ export class LyricsService {
       if (!match) return null;
       return this.mapToLyricsResult(match, 'lrclib');
     } catch {
+      // Transport failure, not "no such song" — the leg is inconclusive and
+      // the probe stays false so the caller does not cache a negative. This
+      // is the same contract as fetchLrclibExact above and
+      // fetchGeniusLyrics below, and it is what stops a 5s timeout on the
+      // search leg from writing "no lyrics" for an hour.
       return null;
     }
   }

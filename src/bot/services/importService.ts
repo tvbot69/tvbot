@@ -186,10 +186,26 @@ export class ImportService {
     const reposWired = container.isRegistered(PlayRepository);
     const inserted = reposWired ? await this.persistScrobbles(userId, scrobbles, source) : 0;
     if (inserted > 0) {
+      // NOT swallowed. The rows are in `user_plays`; this counter is a
+      // denormalised total that every leaderboard reads, and nothing repairs it:
+      // `recalculateTopLists` below rebuilds userArtists/userAlbums/userTracks
+      // from the plays and never touches `users.totalPlayCount`. So a failed
+      // increment leaves the user's total permanently short by `inserted`, and
+      // re-uploading the file inserts 0 new rows, so the increment never runs
+      // again. That is a confidently wrong number with no user-visible cause.
+      //
+      // It is logged rather than raised on purpose: the plays WERE stored, and a
+      // thrown error would render as "nothing was imported", which is the
+      // opposite lie. ERROR is what makes the drift diagnosable and repairable.
       await this.db.user.update({
         where: { userId },
         data: { totalPlayCount: { increment: inserted } },
-      }).catch(() => undefined);
+      }).catch((err: unknown) => {
+        Logger.error(
+          { err, userId, missing: inserted },
+          '[ImportService] Plays were stored but totalPlayCount could not be incremented; the total is now short',
+        );
+      });
       try {
         if (container.isRegistered(IndexService)) {
           await container.resolve(IndexService).recalculateTopLists(userId);
@@ -199,10 +215,18 @@ export class ImportService {
       }
     } else if (!reposWired) {
       // No repos wired (unit-test context) — preserve legacy counter behavior.
+      // CORRECT AS IS: this branch is unreachable in production (PlayRepository
+      // is always registered) and holds no rows of its own, so the same counter
+      // drift as above is logged rather than swallowed for the same reason.
       await this.db.user.update({
         where: { userId },
         data: { totalPlayCount: { increment: scrobbles.length } },
-      }).catch(() => undefined);
+      }).catch((err: unknown) => {
+        Logger.error(
+          { err, userId, missing: scrobbles.length },
+          '[ImportService] totalPlayCount could not be incremented (no repositories wired)',
+        );
+      });
     }
 
     const stored = reposWired ? inserted : scrobbles.length;
@@ -308,15 +332,28 @@ export class ImportService {
         if (container.isRegistered(IndexService)) {
           await container.resolve(IndexService).recalculateTopLists(userId);
         }
-      } catch {
-        // ignore — counter reset below still applies
+      } catch (err) {
+        // CORRECT AS IS is not available, and the old comment here was wrong
+        // about why. "Counter reset below still applies" is true of
+        // `totalPlayCount` and of nothing else: the per-artist, per-album and
+        // per-track rollups this rebuild exists to refresh still count the
+        // imported plays that were just deleted above, so every weekly/all-time
+        // chart for this user stays inflated until something else recalculates.
+        Logger.warn(
+          { err, userId },
+          '[ImportService] Rollup rebuild failed after reset; this user\'s artist/album/track charts are stale',
+        );
       }
       await this.db.user.update({
         where: { userId },
         data: { totalPlayCount: 0 },
       });
       return true;
-    } catch {
+    } catch (err) {
+      // CORRECT AS IS: the boolean IS the visible report — both `/resetimport`
+      // callers render `false` to the user, so the failure is not silent to the
+      // person who caused it. Only the operator was left without a cause.
+      Logger.error({ err, userId }, '[ImportService] Reset import failed');
       return false;
     }
   }

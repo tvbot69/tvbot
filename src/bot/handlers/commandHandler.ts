@@ -6,6 +6,7 @@ import { Statistics } from '@domain/statistics';
 
 import { ContextModel } from '@bot/models/contextModel';
 import { PrefixService } from '@bot/services/prefixService';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { GuildService } from '@bot/services/guild/guildService';
 import { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
 import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
@@ -93,7 +94,39 @@ export class CommandHandler {
 
     let matchedPrefix: string | null = null;
     if (looksLikeCommand) {
-      const prefix = await this.prefixService.getPrefix(message.guildId);
+      let prefix: string;
+      try {
+        prefix = await this.prefixService.getPrefix(message.guildId);
+      } catch (err) {
+        // `PrefixService` used to answer `'.'` here on any failure, which in a
+        // `!` guild turned a `!foo` into "Unknown command `.foo`" - a confident
+        // wrong answer naming a prefix the user never typed. It raises now, so
+        // this handler owes the user a real answer, and it has to be here:
+        // an uncaught throw only reaches the `Logger.error` in the constructor,
+        // so the user would get total silence.
+        //
+        // A defect is not an outage, though. The narrowing is
+        // `isSourceUnavailable`, and anything else rethrows, because "Could not
+        // reach the database" about a `TypeError` would send an operator hunting
+        // a database that is answering fine.
+        if (!isSourceUnavailable(err)) throw err;
+
+        // Routing through `handleCommandException` is what makes the outage
+        // legible to the user ("Could not reach the database") and to the log
+        // reader (a reference id), and it reuses the exact text every other
+        // source failure on this path already gets, so there is one message for
+        // one cause rather than two that disagree.
+        //
+        // `'prefix-lookup'` as the command name is honest - the run died before
+        // any command name was resolved - and it is a fixed string, so it cannot
+        // fragment the telemetry buckets per user typo.
+        await CommandDispatcher.handleCommandException(err, message, 'prefix-lookup');
+        // Nothing below the prefix lookup can run without a prefix, and every
+        // branch after it would have to guess one. The lookup only happens for
+        // command-shaped input, so this cannot reply to ordinary chat.
+        return;
+      }
+
       const botMention1 = this.client.user ? `<@${this.client.user.id}>` : null;
       const botMention2 = this.client.user ? `<@!${this.client.user.id}>` : null;
       if (content.startsWith(prefix)) {

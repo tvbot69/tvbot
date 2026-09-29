@@ -80,6 +80,11 @@ export class QueueService {
       else this.is247Guilds.delete(guildId);
     }
     if (this.settingsRepo) {
+      // CORRECT AS IS: the in-memory map was updated ABOVE and is what every
+      // reader uses (getSettings / is247 / toggleKaraoke), so a failed write
+      // costs durability across a restart, not correctness this session. The
+      // value the caller was told is therefore still true, and the next
+      // saveSettings for that guild re-persists the whole partial.
       void this.settingsRepo.saveSettings(guildId, partial).catch(() => undefined);
     }
   }

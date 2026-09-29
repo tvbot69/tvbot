@@ -1,6 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import { CrownRepository } from '@persistence/repositories/crownRepository';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
+import { crownRoleVerdict } from '@bot/models/whoKnowsModels';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 import type { Guild } from '@persistence/domain/models/guild';
 import type { UserCrownDto, CrownModel, CrownViewType, CrownLeaderboardEntry } from '@domain/models/crownModels';
@@ -37,6 +38,50 @@ export class CrownService {
     const minPlaycount = guild.crownsMinimumPlaycountThreshold ?? 30;
     const activityDays = guild.crownsActivityThresholdDays;
 
+    // A `crownRoles` guild can only rank people whose roles we actually read.
+    //
+    // KNOWN LIMIT, recorded rather than fixed: this gate is all-or-nothing per
+    // artist. If ONE listener's roles are unread, no crown moves for anyone in
+    // that guild - including listeners whose roles WERE read and who are far
+    // ahead. Narrowing it to "block only when the unread row could have won"
+    // needs a playcount comparison against the unknown row, and a wrong version
+    // of that comparison is exactly the bug being fixed here: a crown named
+    // from a partial read. Writing nothing is recoverable by re-running; the
+    // wrong crown is not.
+    // This used to be `const userRoles = u.roles ?? []` inside the eligibility
+    // filter, which silently collapsed "this member holds none of the required
+    // roles" and "we could not ask Discord what roles they hold" into the same
+    // answer. The second one is a lie with teeth: the user was dropped from
+    // contention and `replaceCrown` then wrote a crown naming the person below
+    // them, from a role list that was never read. `WhoKnowsRoleRead` keeps the
+    // two apart, and this is the only place that acts on the difference.
+    //
+    // The gate is guild-wide and up-front rather than per-user, and that is
+    // deliberate: a crown names ONE person, and if any row is unresolved we
+    // cannot prove that person is the top ELIGIBLE one, so no write happens at
+    // all. Not raising is a considered choice, not an oversight - the answer
+    // here is not silence. The standing crown is re-read and returned, so the
+    // card still shows a crown that WAS verified, and the skill is lost with a
+    // WARN rather than swallowed. Raising would blank the crown marker on every
+    // who-knows card in every guild for the duration of a Discord hiccup, which
+    // is the trade the who-knows leaderboard boundary already refused to make.
+    const crownRoleIds =
+      guild.crownRoles && guild.crownRoles.length > 0
+        ? new Set(guild.crownRoles.map((r) => r.toString()))
+        : null;
+    if (crownRoleIds) {
+      const unresolved = users.filter((u) => crownRoleVerdict(u.roles, crownRoleIds) === 'unknown');
+      if (unresolved.length > 0) {
+        Logger.warn(
+          { guildId: guildIdStr, artist: artistName, unresolved: unresolved.length },
+          'Crown evaluation skipped — could not read guild roles for at least one listener; ' +
+            'no crown written rather than one naming an unverified holder',
+        );
+        const standing = await this.crownRepository.getCurrentCrown(guildIdStr, artistName);
+        return standing ? { crown: standing } : null;
+      }
+    }
+
     // 1. Filter eligible users (privacy opt-outs and abuse-flagged farmers
     // can never hold crowns)
     const now = Date.now();
@@ -55,11 +100,12 @@ export class CrownService {
         if (lastUsedMs < cutoffMs) return false;
       }
 
-      if (guild && guild.crownRoles && guild.crownRoles.length > 0) {
-        const requiredRoles = new Set(guild.crownRoles.map((r) => r.toString()));
-        const userRoles = u.roles ?? [];
-        const hasRole = userRoles.some((r) => requiredRoles.has(r));
-        if (!hasRole) return false;
+      if (crownRoleIds) {
+        // Unchanged in effect: after the gate above there are no `unknown` rows
+        // left, and both `ineligible` answers (a member we read and they hold
+        // no required role; a member Discord says is not in the guild) drop the
+        // user exactly as `u.roles ?? []` used to.
+        if (crownRoleVerdict(u.roles, crownRoleIds) !== 'eligible') return false;
       }
 
       return true;

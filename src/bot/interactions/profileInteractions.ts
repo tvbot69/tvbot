@@ -54,7 +54,15 @@ export class ProfileInteractions {
         const member = await interaction.guild.members.fetch(targetDiscordId);
         if (member) displayName = member.displayName;
       } catch {
-        // Fallback to username/lastFmName
+        // CORRECT AS IS: a Discord READ of a member object, and its only use is
+        // the label on the card. `displayName` is already seeded with the Last.fm
+        // name above, so a missing permission or a member who left costs a
+        // cosmetically less specific label and no fact. The profile's numbers
+        // come from `profileService` and are unaffected by this catch.
+        //
+        // Note the asymmetry with the `profile:history:` branch below, which
+        // deliberately does NOT catch: there, a failure would have to be
+        // reported, and `getProfileHistory` now raises precisely so it can be.
       }
     }
 
@@ -64,6 +72,15 @@ export class ProfileInteractions {
         targetUser!,
       );
       if (!historyStats) {
+        // CORRECT AS IS, and the null here is now a much narrower claim than it
+        // was. `getProfileHistory` returns null in exactly one case:
+        // `lastfmRepo.getUserInfo` returned null, which `orUnavailable` restricts
+        // to a real Last.fm "no such user" (error 6). A database outage now
+        // RAISES `SourceUnavailableError` instead of returning an object with
+        // empty history - so this branch can no longer be a dropped connection,
+        // and the two have genuinely separated. Acknowledging without editing
+        // leaves the user's current tab alone, which is right: there is no
+        // profile to show and no failure to report.
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }
@@ -93,6 +110,13 @@ export class ProfileInteractions {
         targetUser!,
       );
       if (!profileStats) {
+        // CORRECT AS IS, same reasoning as the history branch above: the null is
+        // `getUserInfo` reporting a real Last.fm "no such user", not an outage.
+        // The note is that `getProfileStats` KEEPS its degraded reads rather than
+        // raising - it falls back to Last.fm's own variety counts and omits the
+        // friends and top-10 clauses, each logged at WARN. That is deliberate and
+        // documented at those sites: the fallback is a real number from a real
+        // source, so a raise would cost the user a figure they could have seen.
         await interaction.deferUpdate().catch(() => undefined);
         return;
       }

@@ -56,6 +56,12 @@ export class FootballInteractions {
     } catch (err) {
       Logger.error(`[FootballInteractions] Button handler error: ${errorMessage(err)}`);
       if (!interaction.replied && !interaction.deferred) {
+        // CORRECT AS IS: the error is already logged one line above at ERROR, and
+        // the `.catch` only guards Discord rejecting this LAST reply. The content
+        // is a statement about the press ("could not update the dashboard"), not
+        // about a fixture or a score, so nothing measured can be wrong. If the
+        // reply is also rejected the user sees Discord's own failure notice, which
+        // is the honest end state for a dead token.
         await interaction
           .reply({ content: '⚠️ Failed to update match dashboard.', flags: MessageFlags.Ephemeral })
           .catch(() => undefined);
@@ -95,6 +101,9 @@ export class FootballInteractions {
     } catch (err) {
       Logger.error(`[FootballInteractions] Select menu handler error: ${errorMessage(err)}`);
       if (!interaction.replied && !interaction.deferred) {
+        // CORRECT AS IS, identical to the button handler above: logged one line
+        // up, and the reply is a statement about the press rather than about a
+        // league or a fixture.
         await interaction
           .reply({ content: '⚠️ Failed to switch league.', flags: MessageFlags.Ephemeral })
           .catch(() => undefined);

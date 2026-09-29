@@ -3,7 +3,8 @@ import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfa
 import type { GuildService } from '../guild/guildService';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { WhoKnowsService } from './whoKnowsService';
-import type { WhoKnowsArtistContext, WhoKnowsUser } from '@bot/models/whoKnowsModels';
+import type { WhoKnowsArtistContext, WhoKnowsRoleRead, WhoKnowsUser } from '@bot/models/whoKnowsModels';
+import { isUnknownDiscordMember } from '@domain/discordErrors';
 import type { Guild as DiscordGuild } from 'discord.js';
 import type { GenreService } from '../genreService';
 import type { CrownService } from '../crown/crownService';
@@ -57,11 +58,11 @@ export class WhoKnowsArtistService {
     let users: WhoKnowsUser[] = await Promise.all(indexedRows.map(async (row) => {
       const gu = guildUserMap.get(row.userId);
       let displayName: string | undefined;
-      let memberRoles: string[] | undefined;
+      let memberRoles: WhoKnowsRoleRead | undefined;
       if (gu?.discordUserId && discordGuild) {
         let member = discordGuild.members.cache.get(gu.discordUserId);
         if (!member) {
-          // CORRECT AS IS for the card, and it is not a database read: this is a
+          // CORRECT AS IS for the CARD, and it is not a database read: this is a
           // Discord API call for a display name, and the fallback is
           // `gu.userNameLastFm` - a real stored name, not a fabricated one. The
           // leaderboard itself (rows, playcounts, and the listener/play/avg
@@ -70,34 +71,40 @@ export class WhoKnowsArtistService {
           // wrapped, so a database outage there propagates to the command
           // boundary and the user gets "Could not reach the database" instead of
           // a table of zeroes. Raising here would delete a complete leaderboard
-          // of real people because one nickname could not be fetched, and the
-          // dominant reason this catch fires is a member who has genuinely left
-          // the server - an absence, not an outage.
+          // of real people because one nickname could not be fetched.
           //
-          // KNOWN DEFECT, DELIBERATELY LEFT VISIBLE RATHER THAN PAPERED OVER -
-          // there is one real consequence, and this round does not own the fix.
-          // On failure `memberRoles` stays `undefined`, and
-          // `CrownService.getAndUpdateCrownForArtist` reads that as
-          // `u.roles ?? []` (crownService.ts:60) and then drops the user from
-          // crown eligibility. So in a guild that has configured `crownRoles`
-          // (`.crownroles`), a transient Discord failure can silently remove a
-          // real listener from crown contention and hand the crown to the next
-          // user down: a permanent, named claim about two people produced from
-          // a role list that was never read. This is the same shape of lie that
-          // `crownService.liveRecheckUnavailable.test.ts` exists to close on the
-          // Last.fm side, and the `catch` below at line 134 is the boundary that
-          // makes that one safe - which is precisely why raising here would be
-          // the wrong trade. The fix needs a tri-state on `WhoKnowsUser.roles`
-          // ("no roles" versus "roles unknown") and a matching change in
-          // `crownService`; neither file is in this round's ownership, and
-          // guessing at an error-code shape from `members.fetch` would be worse
-          // than leaving the seam visible.
-          try { member = await discordGuild.members.fetch(gu.discordUserId); } catch { /* fallback */ }
+          // The failure is NOT discarded, though, and that is the part this
+          // round changed. It used to leave `memberRoles` `undefined`, and
+          // `CrownService.getAndUpdateCrownForArtist` read that as
+          // `u.roles ?? []` (crownService.ts) and dropped the user from crown
+          // eligibility - so in a guild with `crownRoles` (`.crownroles`) a
+          // transient Discord failure could hand the crown to the next person
+          // down: a permanent, named claim about two people produced from a
+          // role list that was never read. The dominant reason this catch fires
+          // is a member who has genuinely left the server, which is why the
+          // display name still falls back silently - but "I could not ask" and
+          // "they are not here" are different facts and the crown path has to be
+          // able to tell them apart.
+          //
+          // So the catch now records WHICH, and leaves the decision to
+          // `CrownService`: `isUnknownDiscordMember` is true only for Discord's
+          // own 10007 "Unknown member" (a real absence - they hold no guild
+          // role, so a crownRoles guild correctly excludes them), and false for
+          // every other failure - 5xx, 403, 50001 Missing Access, 130000
+          // overloaded, a socket error - which becomes `unknown` and blocks the
+          // crown write. Verified against Discord's JSON Error Codes table and
+          // the `DiscordAPIError` shape in `@discordjs/rest`; see
+          // `isUnknownDiscordMember` in `domain/discordErrors.ts`.
+          try {
+            member = await discordGuild.members.fetch(gu.discordUserId);
+            memberRoles = { read: true, roles: Array.from(member.roles.cache.keys()) };
+          } catch (err) {
+            memberRoles = { read: false, absent: isUnknownDiscordMember(err) };
+          }
+        } else {
+          memberRoles = { read: true, roles: Array.from(member.roles.cache.keys()) };
         }
         displayName = member?.displayName;
-        if (member) {
-          memberRoles = Array.from(member.roles.cache.keys());
-        }
       }
       return {
         userId: row.userId,
@@ -111,7 +118,25 @@ export class WhoKnowsArtistService {
     }));
 
     const requesterMember = discordGuild?.members.cache.get(contextUser.discordUserId);
-    const requesterRoles = requesterMember ? Array.from(requesterMember.roles.cache.keys()) : undefined;
+    // The requester gets the SAME treatment as every row, including the fetch
+    // on a cache miss. That is not symmetry for its own sake: `CrownService`
+    // only ranks people whose roles were read, and a requester with no role
+    // state is `unknown`, which blocks the whole crown write. Leaving this
+    // cache-only would therefore mean that in a crownRoles guild a requester
+    // Discord has not chunked to us silently freezes every crown for that
+    // artist - a fresh outage manufactured by the fix itself, out of a role
+    // list nobody asked for. One extra REST call, only on the cache miss.
+    let requesterRoles: WhoKnowsRoleRead | undefined = requesterMember
+      ? { read: true, roles: Array.from(requesterMember.roles.cache.keys()) }
+      : undefined;
+    if (!requesterRoles && discordGuild && contextUser.discordUserId) {
+      try {
+        const fetched = await discordGuild.members.fetch(contextUser.discordUserId);
+        requesterRoles = { read: true, roles: Array.from(fetched.roles.cache.keys()) };
+      } catch (err) {
+        requesterRoles = { read: false, absent: isUnknownDiscordMember(err) };
+      }
+    }
     users = WhoKnowsService.addOrReplaceUserToIndexList(
       users,
       contextUser,

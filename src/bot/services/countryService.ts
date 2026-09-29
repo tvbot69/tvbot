@@ -147,6 +147,20 @@ export class CountryService {
     }
 
     this.reloadSeedMap();
+    // CORRECT AS IS: a fire-and-forget preload kicked off from the CONSTRUCTOR.
+    // Two things make the swallow right, and both are structural rather than
+    // convenient.
+    //
+    // 1. This runs inside `startup.ts`'s hand-built graph. A throw here escapes a
+    //    constructor and takes the WHOLE bot down for a country lookup - the
+    //    `P3009` shape AGENTS.md §10 warns about - which is a strictly worse
+    //    failure than a cold country cache.
+    // 2. `ensureDbPreloaded` already handles its own failure, and handles it
+    //    properly: it logs at ERROR and clears `dbPreloadPromise` so the next
+    //    caller retries. This catch is a backstop against a throw from the
+    //    logger itself, not the primary handling. See its own comment for why
+    //    the degraded map is acceptable - the ladder in `getArtistCountry` still
+    //    reaches the live database row and MusicBrainz.
     void this.ensureDbPreloaded().catch(() => undefined);
   }
 

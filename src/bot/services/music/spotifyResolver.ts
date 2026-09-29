@@ -114,6 +114,10 @@ export class SpotifyResolver {
         provider: 'spotify',
       };
     } catch {
+      // CORRECT AS IS: this is ENRICHMENT, not resolution. A failed
+      // searchTrack leaves the raw Lavalink title/author on the track —
+      // exactly what shipped before enrichment existed — and musicService
+      // still enqueues it. The one caller races this against 1.5s anyway.
       return null;
     }
   }
@@ -156,6 +160,11 @@ export class SpotifyResolver {
         };
       });
     } catch {
+      // CORRECT AS IS: `[]` means "this rung produced no rows", and both
+      // callers already read it that way — musicSearchLadder.searchTracks
+      // drops straight to the node-aware Lavalink search, and
+      // upgradePickerResults returns leaving the picker raw. Nothing tells
+      // a user "this track does not exist" from here.
       return [];
     }
   }

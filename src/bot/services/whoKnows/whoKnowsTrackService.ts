@@ -5,7 +5,8 @@ import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { GuildService } from '../guild/guildService';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { WhoKnowsService } from './whoKnowsService';
-import type { WhoKnowsUser, FilterStats } from '@bot/models/whoKnowsModels';
+import type { WhoKnowsUser, FilterStats, WhoKnowsRoleRead } from '@bot/models/whoKnowsModels';
+import { isUnknownDiscordMember } from '@domain/discordErrors';
 import type { Guild } from '@persistence/domain/models/guild';
 import type { Guild as DiscordGuild } from 'discord.js';
 
@@ -71,7 +72,7 @@ export class WhoKnowsTrackService {
     let users: WhoKnowsUser[] = await Promise.all(indexedRows.map(async (row) => {
       const gu = guildUserMap.get(row.userId);
       let displayName: string | undefined;
-      let memberRoles: string[] | undefined;
+      let memberRoles: WhoKnowsRoleRead | undefined;
       if (gu?.discordUserId && discordGuild) {
         let member = discordGuild.members.cache.get(gu.discordUserId);
         if (!member) {
@@ -87,15 +88,24 @@ export class WhoKnowsTrackService {
           // `memberRoles` has NO consumer here: no crown service is wired to the
           // track path, and `whoKnowsBuilders` never reads `.roles`. So the
           // only reachable outcome is the Last.fm name in place of the member's
-          // nickname, plus a `roles: undefined` that nothing ever inspects.
-          // Raising would delete a complete leaderboard of real people over a
-          // nickname, which is the worse lie in the other direction.
-          try { member = await discordGuild.members.fetch(gu.discordUserId); } catch { /* fallback */ }
+          // nickname, plus a role state that nothing ever inspects. Raising
+          // would delete a complete leaderboard of real people over a nickname,
+          // which is the worse lie in the other direction.
+          //
+          // The role state is still recorded honestly rather than left
+          // `undefined`, so that if a crown consumer is ever wired to this path
+          // it starts from "unknown" (which blocks a write) instead of "no
+          // roles" (which would let it name the wrong person).
+          try {
+            member = await discordGuild.members.fetch(gu.discordUserId);
+            memberRoles = { read: true, roles: Array.from(member.roles.cache.keys()) };
+          } catch (err) {
+            memberRoles = { read: false, absent: isUnknownDiscordMember(err) };
+          }
+        } else {
+          memberRoles = { read: true, roles: Array.from(member.roles.cache.keys()) };
         }
         displayName = member?.displayName;
-        if (member) {
-          memberRoles = Array.from(member.roles.cache.keys());
-        }
       }
       return {
         userId: row.userId,
@@ -109,7 +119,9 @@ export class WhoKnowsTrackService {
     }));
 
     const requesterMember = discordGuild?.members.cache.get(contextUser.discordUserId);
-    const requesterRoles = requesterMember ? Array.from(requesterMember.roles.cache.keys()) : undefined;
+    const requesterRoles: WhoKnowsRoleRead | undefined = requesterMember
+      ? { read: true, roles: Array.from(requesterMember.roles.cache.keys()) }
+      : undefined;
     users = WhoKnowsService.addOrReplaceUserToIndexList(
       users,
       contextUser,

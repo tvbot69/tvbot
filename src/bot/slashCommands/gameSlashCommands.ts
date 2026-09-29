@@ -11,6 +11,7 @@ import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/colorService';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { Logger } from '@domain/logger';
 
 @injectable()
 export class GameSlashCommands implements ISlashCommandModule {
@@ -162,8 +163,13 @@ export class GameSlashCommands implements ISlashCommandModule {
             });
           }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        // CORRECT AS IS. The session was ended, dated and deregistered by the
+        // timer that invoked this, so the game is already over and nothing about
+        // it is in doubt. A failed send means the channel sees it stop without
+        // being told why — an absence, never a false claim, and no answer,
+        // winner or count is affected.
+        Logger.debug({ err }, '[Game] Expired-game message could not be sent');
       }
     };
 
@@ -196,7 +202,14 @@ export class GameSlashCommands implements ISlashCommandModule {
               await msg.channel.send({
                 components: [giveUpResp.componentsV2Container],
                 flags: MessageFlags.IsComponentsV2,
-              }).catch(() => undefined);
+              }).catch((err: unknown) => {
+                // CORRECT AS IS: `gameService.giveUp` ran above and has ended and
+                // deregistered the session, so the answer is still unrevealed and
+                // the game is still over. A send that fails reveals nothing, so
+                // the failure cannot turn into a wrong claim — it can only leave
+                // the player who pressed the button without a reply.
+                Logger.debug({ err }, '[Game] Give-up response could not be sent');
+              });
             }
           }
           return;
@@ -206,7 +219,12 @@ export class GameSlashCommands implements ISlashCommandModule {
         const result = this.gameService.checkAnswer(context.channelId, msg.author.id, authorName, text);
         if (result.isCorrect && result.session) {
           collector.stop('won');
-          await msg.react('✅').catch(() => undefined);
+          // CORRECT AS IS: decoration on a message the win card is about to
+          // replace. The answer, the elapsed time and the stats are decided and
+          // recorded before this line.
+          await msg.react('✅').catch((err: unknown) => {
+            Logger.debug({ err }, '[Game] Win reaction could not be added');
+          });
           const userColor = await this.colorService?.getAccentColorAsync(msg.author.id) ?? accentColor;
           const stats = this.gameService.getUserStats(msg.author.id);
           const wonResp = GameBuilders.buildGameWonResponse(result.session, result.timeSeconds ?? 0, stats, userColor);
@@ -214,7 +232,16 @@ export class GameSlashCommands implements ISlashCommandModule {
             await msg.channel.send({
               components: [wonResp.componentsV2Container],
               flags: MessageFlags.IsComponentsV2,
-            }).catch(() => undefined);
+            }).catch((err: unknown) => {
+              // CORRECT AS IS. `checkAnswer` has already run on the line above:
+              // the session is ended, the winner is set and `recordWin` has moved
+              // the stats, and `wonResp` is built by reading those committed
+              // values back. The card is therefore a copy of a decision that has
+              // already been made, not the decision itself — a failed send loses
+              // the announcement and nothing else, and `/pixel stats` still shows
+              // the win.
+              Logger.warn({ err }, '[Game] Win announcement could not be sent; the win is recorded');
+            });
           }
         }
       });
@@ -304,8 +331,13 @@ export class GameSlashCommands implements ISlashCommandModule {
             });
           }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        // CORRECT AS IS. The session was ended, dated and deregistered by the
+        // timer that invoked this, so the game is already over and nothing about
+        // it is in doubt. A failed send means the channel sees it stop without
+        // being told why — an absence, never a false claim, and no answer,
+        // winner or count is affected.
+        Logger.debug({ err }, '[Game] Expired-game message could not be sent');
       }
     };
 
@@ -340,7 +372,14 @@ export class GameSlashCommands implements ISlashCommandModule {
               await msg.channel.send({
                 components: [giveUpResp.componentsV2Container],
                 flags: MessageFlags.IsComponentsV2,
-              }).catch(() => undefined);
+              }).catch((err: unknown) => {
+                // CORRECT AS IS: `gameService.giveUp` ran above and has ended and
+                // deregistered the session, so the answer is still unrevealed and
+                // the game is still over. A send that fails reveals nothing, so
+                // the failure cannot turn into a wrong claim — it can only leave
+                // the player who pressed the button without a reply.
+                Logger.debug({ err }, '[Game] Give-up response could not be sent');
+              });
             }
           }
           return;
@@ -350,7 +389,12 @@ export class GameSlashCommands implements ISlashCommandModule {
         const result = this.gameService.checkAnswer(context.channelId, msg.author.id, authorName, text);
         if (result.isCorrect && result.session) {
           collector.stop('won');
-          await msg.react('✅').catch(() => undefined);
+          // CORRECT AS IS: decoration on a message the win card is about to
+          // replace. The answer, the elapsed time and the stats are decided and
+          // recorded before this line.
+          await msg.react('✅').catch((err: unknown) => {
+            Logger.debug({ err }, '[Game] Win reaction could not be added');
+          });
           const userColor = await this.colorService?.getAccentColorAsync(msg.author.id) ?? accentColor;
           const stats = this.gameService.getUserStats(msg.author.id);
           const wonResp = GameBuilders.buildGameWonResponse(result.session, result.timeSeconds ?? 0, stats, userColor);
@@ -358,7 +402,16 @@ export class GameSlashCommands implements ISlashCommandModule {
             await msg.channel.send({
               components: [wonResp.componentsV2Container],
               flags: MessageFlags.IsComponentsV2,
-            }).catch(() => undefined);
+            }).catch((err: unknown) => {
+              // CORRECT AS IS. `checkAnswer` has already run on the line above:
+              // the session is ended, the winner is set and `recordWin` has moved
+              // the stats, and `wonResp` is built by reading those committed
+              // values back. The card is therefore a copy of a decision that has
+              // already been made, not the decision itself — a failed send loses
+              // the announcement and nothing else, and `/pixel stats` still shows
+              // the win.
+              Logger.warn({ err }, '[Game] Win announcement could not be sent; the win is recorded');
+            });
           }
         }
       });

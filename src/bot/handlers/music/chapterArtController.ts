@@ -51,11 +51,18 @@ export class ChapterArtController {
   ): Promise<string | null> {
     const svc = this.host.artworkService;
     if (!svc) return null;
+    // CORRECT AS IS: a rejected cascade is this RUNG finding nothing, not
+    // "this song has no artwork". null goes to resolveChapterArt, which
+    // leaves the previously displayed cover in place (the documented hold),
+    // and a medley chapter still gets its lead-song retry below. Nothing
+    // here is ever reported to the listener as a fact about the catalogue.
     const art = await svc.getTrackCoverUrl(song, artist).catch(() => null);
     if (art) return art;
     const lead = transitionLeadSong(chapterTitle);
     if (!lead || lead.toLowerCase() === song.trim().toLowerCase()) return null;
     Logger.debug({ chapter: chapterTitle, lead }, '[Music] Transition chapter — retrying art with lead song');
+    // Same rung, second try: a throw here is still just "not found this
+    // time", so null again. The retry timer re-enters at most every 30s.
     return svc.getTrackCoverUrl(lead, artist).catch(() => null);
   }
 
@@ -84,6 +91,10 @@ export class ChapterArtController {
           const art = await this.getChapterCover(ch.title, song, artist ?? videoArtist);
           const colorService = this.host.colorService;
           if (art && colorService) {
+            // CORRECT AS IS: the accent colour is cosmetic, and this runs
+            // inside a fire-and-forget IIFE — an escaping rejection here
+            // would be an UNHANDLED rejection with no card to attach it to.
+            // The next publish falls back to the builder's default accent.
             await colorService.getAccentColorAsync(player.guildId, art).catch(() => undefined);
           }
         })();
@@ -177,7 +188,14 @@ export class ChapterArtController {
       // Art landed with no publish scheduled — push the swap immediately.
       this.host.scheduleImmediateProgress(player);
     } catch {
-      // Card keeps the track art.
+      // CORRECT AS IS: a throw here can only leave the card in a state the
+      // hold rule already covers. The two `player.set` calls are the only
+      // writes, and each is preceded by its generation/index check, so the
+      // worst case is the card still carrying the {title, artworkUrl: null}
+      // chapterTimeline staged — which resolveDisplayedChapter resolves by
+      // holding the previous cover, deliberately and indefinitely. It is
+      // never a blanked or wrong cover, and this returns void, so it cannot
+      // reject into the player or the resolver's pause/alert machinery.
     }
   }
 }

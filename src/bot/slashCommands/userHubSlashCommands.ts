@@ -195,6 +195,17 @@ export class UserHubSlashCommands implements ISlashCommandModule {
     if (!query) {
       const user = await this.userService.getUserByDiscordId(context.discordUserId);
       if (user) {
+        // CORRECT AS IS, and both sites in this file (`.rate` here, `/youtube`
+        // below) are the same: the read is a CONVENIENCE to pre-fill a search box,
+        // not the answer. When the user gave no query and the "use my last
+        // scrobble" shortcut fails, the command falls through to the `if (!query)`
+        // branch below and replies "Please specify an artist or album name" -
+        // which is TRUE, because no query was supplied and none could be derived.
+        // It never renders an empty result set or a fabricated suggestion.
+        //
+        // `getUserRecentTracks` also swallows internally (it logs at WARN and
+        // returns `[]`), so there is no `SourceUnavailableError` to narrow on
+        // here even if narrowing were wanted.
         const recent = await this.lastFmRepository.getUserRecentTracks(user.userNameLastFm, 1).catch(() => []);
         if (recent.length > 0 && recent[0]) {
           const t = recent[0];
@@ -223,6 +234,9 @@ export class UserHubSlashCommands implements ISlashCommandModule {
     if (!query) {
       const user = await this.userService.getUserByDiscordId(context.discordUserId);
       if (user) {
+        // CORRECT AS IS, same reasoning as `rateYourMusicSlashAsync` above: a
+        // pre-fill convenience, and the failure mode is the honest
+        // "Please specify a song or artist to search."
         const recent = await this.lastFmRepository.getUserRecentTracks(user.userNameLastFm, 1).catch(() => []);
         if (recent.length > 0 && recent[0]) {
           const t = recent[0];

@@ -122,6 +122,13 @@ export class TrackSlashCommands implements ISlashCommandModule {
       user.userNameLastFm;
 
     const uniqueId = `track_${context.discordUserId}_${Date.now()}`;
+    // CORRECT AS IS: `mediaDetails` is the VOICE PREVIEW and store links, and it
+    // is the only thing this read produces. `result` above is already fully
+    // resolved, so a failed enrichment means `mediaDetails` is null and
+    // `TrackBuilders` renders the track card without the preview button - an
+    // omitted block, not a wrong one. Every number on the card (playcounts,
+    // listeners, last-month plays) came from `trackService.searchTrack`, which is
+    // outside this catch. The text twin is `trackCommands.trackAsync`.
     const mediaDetailsRaw = await this.trackDetailsService.getDetails(result.artistName, result.trackName, uniqueId).catch(() => null);
 
     const mediaDetails = mediaDetailsRaw ? {

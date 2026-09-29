@@ -181,9 +181,22 @@ export class TimerService {
         await this.prismaDeleteUserAggregates(userId);
         await container.resolve(CrownRepository).deactivateCrownsForUser(userId);
         const cache = container.resolve(CacheService);
+        // CORRECT AS IS: the catch is UNREACHABLE — `CacheService.set` and
+        // `delete` catch their own Redis errors and return, having already
+        // written memory. Nothing can fail here that has not already been
+        // reported by CacheService, and the play rows above are deleted
+        // regardless, so a stale cache key costs at most one re-fetch.
         await cache.delete(`user-${userId}-topartists-alltime`).catch(() => undefined);
-        const user = await repository.getUserById(userId).catch(() => null);
+        // NOT swallowed. This is the only read standing between a privacy-hidden
+        // user and their `user-discord:` cache key: a failure returned `null`,
+        // skipped the delete below, and still counted the user as `cleaned` — so
+        // the purge reported success while another reader could keep resolving
+        // that user until the key's TTL. Letting the throw reach the catch below
+        // makes the purge log and retry next sweep instead, and every write above
+        // it is idempotent.
+        const user = await repository.getUserById(userId);
         if (user) {
+          // CORRECT AS IS: same unreachable catch as the first delete.
           await cache.delete(`user-discord:${user.discordUserId}`).catch(() => undefined);
         }
         cleaned++;

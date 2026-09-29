@@ -148,6 +148,12 @@ export class AppleMusicResolver {
       const json = (await res.json()) as { results?: Array<Record<string, unknown>> };
       return json.results ?? [];
     } catch {
+      // CORRECT AS IS: this is the NO-AUTH FALLBACK rung of an Apple link,
+      // used only after the catalog API already came back unusable. `[]`
+      // makes resolveSong/resolveAlbum return null, and musicService.ts:330
+      // then falls through to the ordinary search path — the track is still
+      // looked for. It is never the last word on a link, and never renders
+      // as "this Apple link is dead".
       return [];
     }
   }

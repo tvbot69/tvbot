@@ -50,7 +50,18 @@ export class ArtistTrackInteractions {
     const { UserService } = await import('@bot/services/userService');
     const userService = container.resolve(UserService);
     const user = await userService.getUserByDiscordId(targetUserId) ?? await userService.getUserByDiscordId(interaction.user.id);
-    if (!user) { await interaction.reply({ content: 'Not registered.', flags: MessageFlags.Ephemeral }).catch(() => undefined); return; }
+    if (!user) {
+      // CORRECT AS IS: a genuine absence, and it is `userService` that draws the
+      // line. `getUserByDiscordId` reads prisma with no try/catch, so a database
+      // failure RAISES through this branch to
+      // `interactionHandler.onInteractionCreated` and is reported to the presser
+      // with a source-named message. Reaching here means both lookups ran and
+      // found no row, so "Not registered" is true. Note also the second lookup
+      // falls back to the presser's own account, so a button minted for someone
+      // who has since unlinked still renders against the person pressing it.
+      await interaction.reply({ content: 'Not registered.', flags: MessageFlags.Ephemeral }).catch(() => undefined); return;
+    }
+
 
     // CORRECT AS IS: this read is deliberately UNPROTECTED, and the asymmetry
     // with `ArtistInteractions` is the point. `artistTrackService.getTopTracksForArtist`
@@ -94,8 +105,21 @@ export class ArtistTrackInteractions {
         // field optional, and unguarded this posts `[undefined]` with the
         // Components V2 flag, which is the failure already fixed in
         // profileInteractions. The `as any` was hiding the missing guard.
+        // CORRECT AS IS: transport, and the guard below is what makes it safe.
+        // The `update` is a pure render of `tracks`, `totalPlays` and `distinct`,
+        // all of which came from the unprotected reads further up - so if those
+        // raised, we never reach this line at all. A rejected `update` leaves the
+        // page the user is on exactly as it was, which is the "a nav target that
+        // cannot render must not destroy the current view" rule the rest of this
+        // directory follows.
+        //
+        // The comment sits ABOVE the `if` deliberately: `componentsV2Guard.test`
+        // proves a payload is guarded by scanning the 600 characters before the
+        // post, so a long note between the guard and the use reads as an
+        // unguarded payload. The code is unchanged either way.
         if (response.componentsV2Container) {
           await interaction.update({ components: [response.componentsV2Container], flags: MessageFlags.IsComponentsV2 }).catch(() => undefined);
         }
+
   }
 }

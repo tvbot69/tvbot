@@ -89,6 +89,14 @@ export class TrackCommands implements ITextCommandModule {
         return GenericEmbedService.buildNotFoundResponse('That user has not registered with the bot yet.');
       }
       requestedByOther = target;
+      // CORRECT AS IS, and the two catch blocks below repeat it in `lovedAsync`
+      // unchanged: a DISCORD READ whose only product is `targetDisplayName`, a
+      // label on the card. Every path here has a real fallback - the members
+      // cache, then `context.message.member.displayName`, then the Discord
+      // username, then the Last.fm name - so a missing permission or a departed
+      // member costs a cosmetically less specific name and nothing else. The
+      // user lookup itself is on the line above and is NOT inside this try, so
+      // "That user has not registered" remains a real answer.
       try {
         const member = await context.message?.guild?.members.fetch(id).catch(() => null);
         targetDisplayName = member?.displayName ?? context.message?.guild?.members.cache.get(id)?.displayName;
@@ -132,6 +140,12 @@ export class TrackCommands implements ITextCommandModule {
       user.userNameLastFm;
 
     const uniqueId = `track_${context.discordUserId}_${Date.now()}`;
+    // CORRECT AS IS: the VOICE PREVIEW and store links, and the only thing this
+    // read produces - the same trade as the slash twin
+    // `trackSlashCommands.trackAsync`. `result` above is fully resolved, so a
+    // failed enrichment means `mediaDetails` is null and the builder renders the
+    // card without the preview button. Every playcount on it came from
+    // `trackService.searchTrack`, outside this catch.
     const mediaDetailsRaw = await this.trackDetailsService.getDetails(result.artistName, result.trackName, uniqueId).catch(() => null);
 
     const mediaDetails = mediaDetailsRaw ? {
@@ -329,6 +343,9 @@ export class TrackCommands implements ITextCommandModule {
         return GenericEmbedService.buildNotFoundResponse('That user has not registered with the bot yet.');
       }
       requestedByOther = target;
+      // CORRECT AS IS, the same display-name read as in `trackAsync` above and for
+      // the same reason: a label, with a real fallback chain, and the user lookup
+      // on the line above deliberately left outside the try.
       try {
         const member = await context.message?.guild?.members.fetch(id).catch(() => null);
         targetDisplayName = member?.displayName ?? context.message?.guild?.members.cache.get(id)?.displayName;

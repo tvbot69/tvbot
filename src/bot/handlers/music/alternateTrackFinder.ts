@@ -47,6 +47,10 @@ export class AlternateTrackFinder {
       const ms = this.host.queueService.calculatePosition(player);
       return typeof ms === 'number' && ms > 0 ? ms : 0;
     } catch {
+      // CORRECT AS IS: 0 here is "position unknowable", and it is the SAFE
+      // unknowable: resumeFallbackAt refuses anything under 5000ms, so the
+      // replacement simply starts at the top. It is never mistaken for a
+      // real position of zero, and no card renders it.
       return 0;
     }
   }
@@ -77,6 +81,12 @@ export class AlternateTrackFinder {
       if (!cur || key(cur) !== key(fallback)) return;
       const at = Math.max(0, Math.min(resumeMs, totalMs - 1000));
       if (at <= 0) return;
+      // CORRECT AS IS: the replacement track is already current and
+      // advancing — advancement succeeded before this runs. A refused
+      // seek-back costs the listener the resume point (the song restarts),
+      // which is a visible degradation but not a wrong claim and not a
+      // reason to throw into the ladder. No retry: the ladder's own
+      // stuck-detector is what recovers a genuinely wedged player.
       await player.seek(at).catch(() => undefined);
       if (player.current) {
         player.current.position = at;
@@ -162,6 +172,19 @@ export class AlternateTrackFinder {
     try {
       res = await player.node.rest.loadTracks(path);
     } catch {
+      // CORRECT AS IS: the resolver rung failing IS the ladder falling
+      // through — findAlternatePlayableTrack logs the rung and moves to the
+      // next one, and the caller already recorded this track as failed, so
+      // there is no risk of a second fallback for the same track. The
+      // player is untouched: nothing was queued, nothing is removed.
+      //
+      // NOTED ASYMMETRY (not a silent failure, and left alone on purpose):
+      // musicSearchLadder.tryResolverTrack also calls noteRestFailure on a
+      // loadTracks throw, this one does not. The pre-flight
+      // isNodeCoolingDown check means a node that was ALREADY REST-dead is
+      // still skipped; only a node that goes dead mid-fallback is not
+      // cooled from here. Cost is one doomed call per fallback, and adding
+      // the note would change failover behaviour, not correctness.
       return null;
     }
     const typed = res as { loadType?: string; data?: { encoded?: string } };

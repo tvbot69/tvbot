@@ -146,6 +146,35 @@ export const isTerminalDiscordError = (err: unknown): boolean => {
 };
 
 /**
+ * True only when Discord gave a DEFINITIVE "that user is not in this guild".
+ *
+ * This is the predicate the crown path needs, and it is an ALLOWLIST on
+ * purpose. The question it answers is not "was there an error" but "is the
+ * absence real", and a list of failures we could not classify answers the
+ * second question badly: 50001 Missing Access, 50013 Missing Permissions, 50014
+ * Invalid Token, 130000 "API resource is currently overloaded", a 502 from the
+ * edge, and a plain 5xx all look like "I could not ask", and every one of them
+ * must fail towards "unknown". Only 10007 is a real answer, so only 10007 is
+ * listed; anything unrecognised - including a thrown string, a `TypeError` from
+ * a proxy, or an error object with no `code` at all - returns false, which is
+ * the safe direction.
+ *
+ * 10007 "Unknown member" is what `GET /guilds/{guild.id}/members/{user.id}`
+ * returns (HTTP 404) for a user who is not in the guild. `GuildMemberManager
+ * .fetch` reaches that route directly (`_fetchSingle` -> `this.client.rest.get
+ * (Routes.guildMember(...))`, discord.js 14.27), and `@discordjs/rest` builds a
+ * `DiscordAPIError` carrying the body's numeric `code` (typed `code: number |
+ * string`, `status: number`), so the number is on the error rather than only in
+ * the text. The code list itself is Discord's "JSON Error Codes" table, which
+ * also confirms the neighbouring shapes are NOT absence: 50014 is "Invalid
+ * authentication token provided" (Missing Access is 50001), 50013 is "You lack
+ * permissions to perform that action", and 130000 is "API resource is currently
+ * overloaded".
+ */
+export const isUnknownDiscordMember = (err: unknown): boolean =>
+  asDiscordError(err)?.code === 10007;
+
+/**
  * True when a FETCH of an existing message cannot be recovered.
  *
  * Wider than isTerminalDiscordError on purpose, and the difference matters:

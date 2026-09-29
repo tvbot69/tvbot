@@ -118,10 +118,16 @@ export class ChartCommands implements ITextCommandModule {
       }
       targetDiscordId = id;
       requestedByOther = target;
+      // CORRECT AS IS: a DISCORD READ whose only product is `targetDisplayName`.
+      // Both fallbacks are real (`members.cache`, then the Last.fm name) and the
+      // user lookup on the line above is deliberately outside the try, so
+      // "That user has not registered" stays a genuine answer. The chart data
+      // itself is built further down, outside every catch in this method.
       try {
         const member = await context.message?.guild?.members.fetch(id).catch(() => null);
         targetDisplayName = member?.displayName ?? context.message?.guild?.members.cache.get(id)?.displayName;
       } catch { /* ignore */ }
+
     }
 
     const user =

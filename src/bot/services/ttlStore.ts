@@ -1,11 +1,17 @@
 import { container } from 'tsyringe';
 import { CacheService } from './cacheService';
+import { Logger } from '@domain/logger';
 
 /** Lazily resolves the shared cache without constructor churn. */
 export const resolveCacheService = (): CacheService | null => {
   try {
     return container.isRegistered(CacheService) ? container.resolve(CacheService) : null;
-  } catch {
+  } catch (err) {
+    // CORRECT AS IS: a container that cannot answer is broken for every consumer
+    // at once, and raising here would turn a DI problem into a crash in whichever
+    // interaction happened to read a session first. Every caller below already
+    // treats a null cache as "memory only", which is a working store.
+    Logger.warn({ err }, '[TtlStore] CacheService could not be resolved; sessions are memory-only');
     return null;
   }
 };
@@ -53,6 +59,10 @@ export class TtlStore<T> {
     this.mem.set(key, { value, expiresAt: Date.now() + this.ttlSeconds * 1000 });
     const cache = resolveCacheService();
     if (cache?.isRedisReady()) {
+      // CORRECT AS IS, and the catch is UNREACHABLE — `CacheService.set` catches
+      // its own Redis error and returns, having already written memory above.
+      // Memory is the deciding path for this process, so a surviving Redis key
+      // affects only another shard and only until the TTL.
       void cache.set(`${this.prefix}${key}`, value, this.ttlSeconds).catch(() => undefined);
     }
   }
@@ -73,8 +83,12 @@ export class TtlStore<T> {
           this.mem.set(key, { value, expiresAt: now + this.ttlSeconds * 1000 });
           return value;
         }
-      } catch {
-        // fall through to undefined
+      } catch (err) {
+        // Unreachable: `CacheService.get` catches its own Redis error and answers
+        // null, so this only fires on a bug in the `revive` hook. It is still not
+        // silent, because the value this returns IS the answer a paginator renders
+        // — an undefined here reads to the user as "your session expired".
+        Logger.warn({ err, key: `${this.prefix}${key}` }, '[TtlStore] Read-through failed; session reported as absent');
       }
     }
     return undefined;
@@ -84,6 +98,9 @@ export class TtlStore<T> {
     this.mem.delete(key);
     const cache = resolveCacheService();
     if (cache?.isRedisReady()) {
+      // CORRECT AS IS, and the catch is UNREACHABLE — `CacheService.delete` eats
+      // its own Redis error after the local delete above has already happened, so
+      // this process is consistent either way.
       void cache.delete(`${this.prefix}${key}`).catch(() => undefined);
     }
   }

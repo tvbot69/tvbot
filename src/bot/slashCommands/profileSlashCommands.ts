@@ -110,6 +110,12 @@ export class ProfileSlashCommands implements ISlashCommandModule {
 
     let accentColor = await this.colorService.getColorFromImageUrl(stats.lastFmUser.imageUrl);
     if (accentColor === DiscordConstants.LastFmColorRed && targetUser.discordUserId) {
+      // CORRECT AS IS: an ACCENT COLOUR, which is the embed's border and nothing
+      // more. `accentColor` is already the Last.fm red fallback from the line
+      // above, so a missing avatar costs the guild's brand colour on this one
+      // card and no figure on it. The profile STATS are complete by the time we
+      // get here - `getProfileStats` has already run and returned, and its own
+      // degraded reads are documented at their sites.
       try {
         const discordUser = await context.interaction?.client.users.fetch(targetUser.discordUserId.toString());
         const avatarUrl = discordUser?.displayAvatarURL({ size: 256 });

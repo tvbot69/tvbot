@@ -7,7 +7,7 @@ before starting work. **Update this file at the end of every task**, before the 
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **4334 passed + 516 db skipped = 4850** (263 files) | — |
+| Tests | 1085 | **4396 passed + 516 db skipped = 4912** (271 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
 | Branch coverage | 68.6% claimed | **77.48%** | — |
 | `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 76** (budget 101) | <80 combined ✅ |
@@ -19,7 +19,7 @@ before starting work. **Update this file at the end of every task**, before the 
 | Lower layers importing `@bot/*` | 6+ | **0 value** / 4 type-only | 0 value |
 | `@ts-ignore` | 0 | **0** | 0 |
 | Lint errors | 143 | **0** (351 warnings) | 0 |
-| `silent-failure-default` | 604 | **513** (budget 604, may only fall) | non-increasing ✅ |
+| `silent-failure-default` | 604 | **435** (budget 604, may only fall) | non-increasing ✅ |
 | `raw-query-without-db-test` | — | **0** (mutation-checked) | 0 |
 
 > The `silent-failure-default` count is **not the target** — it counts catch blocks, not bugs, and
@@ -920,6 +920,66 @@ before starting work. **Update this file at the end of every task**, before the 
     196 lines unchanged, no BOM, LF, trailing newline, exactly 4 intended sites matched. It was
     fine this time and the warning is about a different occasion — but **the response to having
     used the wrong tool is to prove the file is intact, not to hope.**
+- **A-tier 1j — the last 435** ✅ four more agents, four disjoint sets, **~445 sites adjudicated so
+  no file in the repo is left unexamined.** 19 behaviour changes, ~100 log-only visibility fixes,
+  the rest `// CORRECT AS IS`. **A1 is now adjudicated end to end**, which is the only honest
+  definition of "done" here; the remaining 435 are the counted residue and the count was never
+  the target.
+  - 🐛 **The deferred crown-roles bug is fixed — the same class as the worst bug in the project.**
+    `WhoKnowsUser.roles` was `string[] | undefined` and `crownService` read undefined as "no
+    roles", so a `guild.members.fetch` failure dropped people from crown eligibility and
+    `replaceCrown` could name the next person down. Now a named tri-state with
+    `crownRoleVerdict()`, and only `unknown` blocks a write. **The implementer checked the brief
+    and found two of its error codes wrong** (50014 is an invalid auth token; Missing Access is
+    50001), so the predicate is an allowlist on 10007 that fails toward "unknown". It does not
+    fire in guilds with no `crownroles` — the regression the fix could most easily have caused,
+    and it has a test.
+  - **`prefixService` returned `'.'` on failure**, so a custom-prefix guild saw "Unknown command
+    `.foo`" during an outage — a claim about the user's own input. Raising alone would have been
+    *worse*: the throw reached only a constructor log and the user would have got silence, so the
+    boundary had to change with it. Same lesson as the `interactionHandler` gate two rounds ago.
+  - 🐛 **TWO of the 19 were in code an earlier round had already declared correct, and the reason
+    is the lesson of the whole phase.** `artworkService`'s `anchoredSettled` flag was adjudicated
+    CORRECT AS IS in 1h on the evidence that a throw leaves the flag false. The catch is correct
+    *given* a throw — and the throw never arrived, because the callee swallowed an inconclusive
+    run into `null`, which set the flag and cached `'none'` for 10 minutes. **An adjudication that
+    only reads the local catch has not verified the promise the catch depends on.**
+  - 🐛 **`ytResolver` cached a transport failure as a 24-hour fact.** The `[]`-vs-`null` contract
+    was decided on the Data API leg alone, but the rug rung returns `null` when the home resolver
+    is unreachable — so a set played while the PC was off had no chapters for the rest of the day.
+    The file's own docstring promised the distinction; it was only true when both legs ran.
+  - 🐛 **`autopostService` was the worst category**: a scheduled post is a claim the user never
+    asked for and it outlives the sweep that made it. A `0` count disabled the spam guard, a
+    failed claim masqueraded as "not due", a swallowed rollback suppressed a whole cycle. Also
+    `timerService` skipped a privacy-hidden user's cache delete and still counted them purged;
+    `shutdownService` printed "Graceful shutdown complete" after a skipped step.
+  - **A detector caught a regression caused by a COMMENT.** `componentsV2Guard.test` proved an
+    unguarded Components V2 payload in a file an agent had changed by adding only comments: the
+    guard is a 600-character look-back and a ten-line comment between the `if` and the `update`
+    pushed it out of the window. Fixed by moving the comment above the `if`, **not** by widening
+    the window — loosening a guard because a comment tripped it is the same move as deleting a
+    test.
+  - **A false claim from an agent, checked rather than acted on.** One reported a duplicate-`const
+    token` parse error in `spotifySearchApi.ts` and said the suite was already red on HEAD for it.
+    `tsc` disagrees: six declarations in six method scopes, and it compiles. The agent had briefly
+    corrupted the file with a PowerShell replace and restored it, and the "pre-existing error" was
+    its own memory of that. **The lead's gates caught it; the agent's report would not have.**
+  - ⚠️ **Two design findings with real blast radius, documented not patched:**
+    `CacheService.redisExec` swallows every Redis error, so **all 12** Redis `.catch` sites are
+    unreachable and a command that fails while the connection reports `ready` loses the queue
+    mirror silently. And `/health` ignores the gateway, so a fully disconnected Discord still
+    reports `200 healthy` and a dead bot is not restarted by the platform.
+  - **The `logger` question, answered, because everything here depends on it:** a logging failure
+    cannot drop a line. `print()` writes `console.log` **before** touching the filesystem, so the
+    line is on stdout first and `writeLogToFile` is the duplicate. `flushLogFile` drops its buffer
+    rather than re-queuing, deliberately: re-queuing on a failing filesystem grows an unbounded
+    buffer under a 384 MB heap and converts a logging problem into an OOM.
+  - **Gates:** `tsc --noEmit` clean, 4396 + 516 skipped = 4912 (271 files), lint **0 errors / 358
+    warnings** (up 7 — `no-console`/`no-empty` from the added logging, which is the point, and
+    non-blocking by design), `silent-failure-default` **435**. The batch produced 10 typecheck
+    errors, all mine, all in new test files: three more zero-arg-mock tuple traps (4th time this
+    session), `mock.calls[0][0]` without `!` under `noUncheckedIndexedAccess`, and an
+    `AutopostConfig` literal missing `enabled`.
 
 **Two detectors were themselves defective, and both were found by mutation rather than by reading.**
 

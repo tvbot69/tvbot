@@ -117,6 +117,11 @@ export class NowPlayingCardPublisher {
 
       const channel =
         this.host.client.channels.cache.get(player.textChannelId) ??
+        // CORRECT AS IS: an unreachable channel is a skipped publish, not a
+        // forgotten card — nothing below is reached, and crucially the
+        // fingerprint is NOT written, so the next trigger (boundary timer,
+        // seek, chapter attach) re-derives and edits once the channel is
+        // back. forgetNowPlaying is reserved for a 10008/unknown MESSAGE.
         (await this.host.client.channels.fetch(player.textChannelId).catch(() => null));
       if (!channel || !channel.isTextBased() || !('messages' in channel)) return;
 
@@ -211,7 +216,13 @@ export class NowPlayingCardPublisher {
         if (editTimer) clearTimeout(editTimer);
       }
     } catch {
-      // Silently skip if rate limited or network hiccup
+      // CORRECT AS IS: whatever threw above (a builder, the colour service,
+      // a chapter derivation on a malformed player) skips this publish and
+      // nothing else. The fingerprint is deliberately left UNWRITTEN, so
+      // the next trigger retries the same state; the `finally` releases the
+      // in-flight guard and the drain below still runs. Rate limiting is
+      // NOT this path — a 429 is a rejected edit, handled by the inner
+      // catch with Logger.warn and an honour-retry_after backoff.
     } finally {
       this.progressPublishing.delete(guildId);
     }
@@ -219,6 +230,12 @@ export class NowPlayingCardPublisher {
     // actually run. Bounded by the fingerprint: a burst of chapter/art
     // updates collapses into at most one extra edit per settle.
     if (this.pendingPublish.delete(guildId)) {
+      // CORRECT AS IS: the coalesced follow-up is fire-and-forget from a
+      // void call site. publishProgress is already fully guarded and
+      // resolves; the `.catch` is there so a future edit that made it
+      // reject produces a log line instead of an unhandled rejection, and
+      // this is the last statement of the method so there is nothing to
+      // preserve.
       void this.host.publishProgress(player).catch(() => undefined);
     }
   }

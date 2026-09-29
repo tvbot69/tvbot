@@ -100,7 +100,22 @@ export class ContextModel {
           return true;
         }
       } catch {
-        // ignore
+        // CORRECT AS IS, and it FAILS CLOSED, which is the property that decides
+        // it. This is the last of three permission checks, and the two before it
+        // (`memberPermissions` and the cached `GuildMember`) have already answered
+        // when they could; this branch is reached only for an interaction that
+        // carries a raw `member.permissions` string and nothing friendlier. If
+        // that string cannot be parsed the code could not establish the
+        // permission, so it answers "not an admin" and the caller is told it
+        // needs `Manage Server`.
+        //
+        // The opposite default would be a privilege escalation: an unreadable
+        // permission bitfield granting access to every moderation-gated command.
+        // `SettingsInteractions.isStaff` makes the same choice for the same
+        // reason, and the existing test suite covers both.
+        //
+        // It is also ARGUMENT COERCION, not a data source, so a
+        // `SourceUnavailableError` here would be a lie about Postgres.
       }
     }
 

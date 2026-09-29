@@ -131,6 +131,19 @@ export class LastFmRepository implements ILastfmRepository {
       const response = await this.api.callSigned<{ token: string }>('auth.gettoken');
       return response.token ?? null;
     } catch {
+      // CORRECT AS IS, and deliberately NOT `orUnavailable`, which is the whole
+      // reason this is worth writing down. Every other method in this class
+      // routes its failure through `orUnavailable` because a null there reads as
+      // "no such thing" - a deleted account, an artist with no tags. Here the
+      // null is consumed by `loginService.startLogin`, which renders
+      // "Could not reach Last.fm to start the login flow. Try again in a
+      // moment." The caller already names the source, so a raise would produce
+      // the same sentence one layer further out while breaking the deliberate
+      // null-contract the interface declares (`getAuthToken(): Promise<string |
+      // null>`) and the four tests that pin it.
+      //
+      // There is no measurement here at all: a login has not started, so
+      // nothing has been claimed about anyone.
       return null;
     }
   }
@@ -147,6 +160,19 @@ export class LastFmRepository implements ILastfmRepository {
       }
       return { name: response.session.name, key: response.session.key };
     } catch {
+      // CORRECT AS IS, same reasoning as `getAuthToken` above, and the null here
+      // is even more load-bearing: `loginService.confirmLogin` LOOPS on it. A
+      // null means "Last.fm has not registered the session yet", and the loop
+      // retries five times over ten seconds before answering. Turning a
+      // network error into a raise would abort that retry loop and tell a user
+      // mid-flow that Last.fm is unreachable when the very next attempt may well
+      // have succeeded - and it would bypass the pending-token TTL, which is
+      // what makes a re-press of Confirm work.
+      //
+      // The honest reading of "this is an outage" is already available: five
+      // consecutive `LastfmApiError(-1)`s are logged by `fetchWithRetry` as WARN
+      // each, so a failed login is visible in the logs without a user-facing
+      // claim being invented.
       return null;
     }
   }

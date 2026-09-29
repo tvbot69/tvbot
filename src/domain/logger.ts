@@ -17,7 +17,12 @@ if (process.platform === 'win32') {
   try {
     execSync('chcp 65001', { stdio: 'ignore' });
   } catch {
-    // Ignore if permission denied or restricted
+    // CORRECT AS IS, and it is the only catch in this file with no logging
+    // implication whatsoever: this runs at MODULE LOAD, before a single logger
+    // exists, and it only sets the Windows console codepage so emoji and Arabic
+    // render in a local terminal. A failure means the terminal shows mojibake in
+    // a developer's own shell - it cannot affect a log line, because no log line
+    // exists yet and stdout on a deployed container is not a Windows console.
   }
 }
 
@@ -149,7 +154,19 @@ export class CustomLogger {
         this.flushTimer.unref?.();
       }
     } catch {
-      // Don't crash application on filesystem logging failure
+      // CORRECT AS IS, and the invariant worth writing down is the ORDER in
+      // `print`, not this catch. `print` writes `console.log` FIRST and only
+      // then calls `writeLogToFile`, so by the time anything can fail here the
+      // line has already gone to stdout - which is what Railway, Docker and
+      // every platform log collector read. A filesystem failure can cost the
+      // on-disk COPY and never the observable one.
+      //
+      // So the question "can a logging failure drop the line?" is answered by
+      // `print`, and the answer is no. That is why the catch stays: throwing out
+      // of a logger replaces a reported fault with an unhandled rejection,
+      // which loses strictly more than the file copy ever was. If `print` is
+      // ever reordered to write the file first, THIS comment becomes false and
+      // the whole errorFeed path inherits the lie.
     }
   }
 
@@ -172,8 +189,23 @@ export class CustomLogger {
       const now = new Date();
       const logFile = path.join(this.logDir, `tvbot-${now.toISOString().slice(0, 10)}.log`);
       fs.appendFileSync(logFile, lines.join(''), 'utf8');
-    } catch {
-      // Don't crash application on filesystem logging failure
+    } catch (err) {
+      // CORRECT AS IS, and the same invariant as `writeLogToFile` above: every
+      // line in `lines` was already written to stdout by `print` before it was
+      // ever buffered, so this only ever costs the on-disk copy. Read-only
+      // container filesystems and a full disk are the realistic causes, and both
+      // recur for the whole process lifetime.
+      //
+      // The lines are deliberately NOT put back on the buffer. A persistently
+      // failing filesystem would then grow `fileBuffer` without bound inside a
+      // process capped at `--max-old-space-size=384`, turning a logging problem
+      // into an OOM that takes the bot down - strictly worse than a missing log
+      // file. Dropping them is the lesser evil and the stdout copy is intact.
+      //
+      // This runs with a bare `console.error` rather than `this.error`, because
+      // `this.error` reaches `writeLogToFile` and would recurse straight back
+      // into this function on a disk that is still broken.
+      console.error(`[logger] file logging failed, stdout unaffected: ${(err as Error)?.message ?? String(err)}`);
     }
   }
 

@@ -65,6 +65,13 @@ export class TasteCommands implements ITextCommandModule {
         return GenericEmbedService.buildNotFoundResponse('That user has not registered with the bot yet.');
       }
       targetLastFmUsername = targetUser.userNameLastFm;
+      // CORRECT AS IS: a DISCORD READ whose only product is
+      // `targetDisplayName`. The `catch` branch is not a silent fallback - it
+      // assigns the Last.fm username, which is a real, always-correct label, and
+      // the inner `.catch(() => null)` on the fetch would have produced the same
+      // value. The target lookup on the line above is deliberately outside the
+      // try so "has not registered" stays a genuine answer. No taste comparison
+      // has run yet at either point.
       try {
         const member = await context.message?.guild?.members.fetch(targetDiscordId).catch(() => null);
         targetDisplayName = member?.displayName ?? targetUser.userNameLastFm;
@@ -84,6 +91,10 @@ export class TasteCommands implements ITextCommandModule {
       if (possibleUser) {
         targetDiscordId = possibleUser.discordUserId;
         targetLastFmUsername = possibleUser.userNameLastFm;
+        // CORRECT AS IS, second display-name read in this method and the same
+        // reasoning as the one above: a label, with the Last.fm username as a
+        // real fallback on both the inner and outer catch. The lookup that
+        // established `possibleUser` is on the line above and is outside the try.
         try {
           const member = await context.message?.guild?.members.fetch(possibleUser.discordUserId).catch(() => null);
           targetDisplayName = member?.displayName ?? possibleUser.userNameLastFm;

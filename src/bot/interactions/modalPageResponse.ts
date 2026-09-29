@@ -69,6 +69,13 @@ export const respondToModalWithPage = async (
   page: ModalPagePayload,
 ): Promise<boolean> => {
   // Before any await, and before the caller does its slow lookups.
+  //
+  // CORRECT AS IS, and the reason is stated in the module note above: this
+  // function may be called after the handler has already deferred, and a second
+  // `deferReply` throws 40060. The catch is what makes this helper safe to call
+  // from both the "fresh modal" and the "already deferred" paths, which is the
+  // entire reason it exists. There is no data read here at all - `page` was
+  // already built by the caller - so nothing measured can be lost.
   await interaction.deferReply().catch(() => undefined);
   try {
     await interaction.editReply(page.toMessagePayload());

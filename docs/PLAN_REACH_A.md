@@ -623,6 +623,105 @@ intended sites matched. It was fine this time, and the handoff's warning is abou
 occasion. **The correct move is still the edit tool, and the correct response to having used the
 wrong one is to prove the file is intact, not to hope.**
 
+### A-tier 1j — the last 435, and what the sweep found that was not a lie at all
+
+Four more agents, four disjoint sets, **~445 sites adjudicated so that no file in the repo is left
+unexamined.** 19 behaviour changes, ~100 log-only visibility fixes, the rest `// CORRECT AS IS`.
+**A1 is now adjudicated end to end, which is the only honest definition of "done" available
+here** — the remaining 435 sites are the counted residue, and the count was never the target.
+
+**The two defects previous rounds deliberately left unfixed are fixed, and one of them was the
+same class as the worst bug in the project.**
+
+- 🐛 **A transient Discord failure could hand the crown to the wrong person.**
+  `WhoKnowsUser.roles` was `string[] | undefined` and `crownService` read the undefined as "no
+  roles", so a `guild.members.fetch` failure dropped people from crown eligibility and
+  `replaceCrown` could write a crown naming the next person down. It is now a **named tri-state**
+  (`{read: true, roles}` / `{read: false, absent}`) with `crownRoleVerdict()` returning
+  `eligible` / `ineligible` / `unknown`, and only `unknown` may stop a write. Two things the
+  implementer got right by checking rather than trusting the brief: **10007 is the code for
+  Unknown Member, and two codes in the brief were wrong** (50014 is an invalid auth token;
+  Missing Access is 50001), so the predicate is an allowlist that fails toward "unknown". It
+  does **not** fire in guilds with no `crownroles` — the regression the fix could most easily
+  have caused, and it has a test. The gate is all-or-nothing per artist and that is recorded as
+  still-exposed rather than narrowed on a guess.
+- **`prefixService` returned `'.'` on failure**, so a guild with a custom prefix saw
+  **"Unknown command `.foo`"** during a database outage — a claim about the user's own input,
+  which is the one thing a user cannot argue with. Raising alone would have been *worse*: the
+  throw reached only a constructor `Logger.error`, so the user would have got silence. The
+  boundary had to change with it, which is the same lesson as the `interactionHandler` gate two
+  rounds ago.
+
+**Two of the 19 were in code an earlier round had already declared correct, and the reason is the
+lesson of this whole phase.** `artworkService`'s `anchoredSettled` flag was adjudicated CORRECT AS
+IS in A-tier 1h on the evidence that a throw leaves the flag false, so nothing is cached. The
+catch behaves correctly *given* a throw — and the throw never arrived, because the callee
+(`spotifySearchApi.getArtistIdViaTrackSample`) swallowed an inconclusive run into `null`, which
+set the flag and wrote `'none'` for 10 minutes. **An adjudication that only reads the local catch
+has not verified the promise the catch's correctness depends on.** The callee now re-throws
+inconclusive runs, distinguished by name rather than `instanceof` (which `isSourceUnavailable`'s
+own reasoning already calls unreliable here).
+
+- 🐛 **`ytResolver` cached a transport failure as a 24-hour fact.** `probeVideoChapters` decided
+  the `[]`-vs-`null` contract on the Data API leg alone, but `getRugVideoChapters` returns `null`
+  when the home resolver is unreachable — tower asleep, tunnel down. A long set played while the
+  PC was off therefore had **no chapters for the rest of the day**. The file's own docstring
+  promised "null when unusable, distinct from `[]`"; the promise was only true when both legs ran.
+  Fixed by requiring both, plus separating "no resolver configured" (vacuously empty, cacheable)
+  from "configured but paused" (unusable, retry in 10 minutes) — `resolverEnabled()` folded those
+  two different "no"s together.
+- 🐛 **`profileService.getProfileHistory` fabricated "no stored data in tvbot"** on a database
+  outage, and **`autopostService` was the worst category in the round**: a scheduled post is a
+  claim the user never asked for and it outlives the sweep that made it. A `0` count silently
+  disabled the spam guard, a failed claim masqueraded as "not due", and a swallowed rollback
+  suppressed a whole cycle. Also: `timerService` skipped a privacy-hidden user's cache delete and
+  still counted them purged; `shutdownService` printed "Graceful shutdown complete" after a
+  skipped step; `receiptGenerator`'s `break` sat *outside* its `try`, so one unread file left the
+  receipt template pointing at `fm.bot`.
+
+**A detector caught a regression, and it is worth recording how.** `componentsV2Guard.test` proved
+an unguarded Components V2 payload in `artistTrackInteractions` — a file an agent had changed by
+adding **only comments**. The guard is a 600-character look-back, and a ten-line comment between
+the `if (response.componentsV2Container)` and the `update` pushed the guard out of the window. The
+fix was to move the comment above the `if`, **not** to widen the window: loosening a guard because
+a comment tripped it is the same move as deleting a test. The comment now says why it is there.
+
+**A false claim from an agent, checked rather than acted on.** One reported a duplicate-`const
+token` parse error in `spotifySearchApi.ts` and that the suite was already red on `HEAD` for that
+reason. `tsc` disagrees: the six declarations are in six different method scopes, and the file
+compiles. It had briefly corrupted the file with a PowerShell replace and restored it, and the
+error it reported was its own memory of that. **The lead's gates caught it; an agent's report
+would not have.**
+
+**A design finding with real blast radius, not fixed and documented:** `CacheService.redisExec`
+swallows every Redis error and resolves the fallback, so **all 12 Redis `.catch` sites** in the two
+queue stores, `ttlStore` and `rateLimitService` are unreachable, and a Redis command that fails
+while the connection reports `ready` loses the queue mirror with no log anywhere. And `/health`
+computes health from the database and the drain flag only, so a fully disconnected Discord
+gateway still reports `200 healthy` and a dead bot is not restarted by the platform. Both need a
+decision, not a patch, and both are recorded in the code.
+
+**The `logger` question, answered, because it is load-bearing for everything else here:** a
+logging failure cannot drop a line. `print()` writes `console.log` **before** touching the
+filesystem, so every line is on stdout before any I/O is attempted and Railway reads it;
+`writeLogToFile` is the duplicate, not the original. `flushLogFile` drops its buffer rather than
+re-queuing, deliberately — re-queuing on a persistently failing filesystem grows an unbounded
+buffer under a 384 MB heap, which converts a logging problem into an OOM.
+
+**Gates, lead alone: `tsc --noEmit` clean, 4396 passed + 516 db skipped = 4912 (271 files), lint
+0 errors / 358 warnings, `silent-failure-default` 435 against budget 604.** Lint warnings rose
+from 351 to 358 — seven `no-console`/`no-empty` from the added logging, which is the point of the
+change and is non-blocking by design. The batch produced 10 typecheck errors, all mine to fix and
+all in new test files: three more instances of the zero-arg-mock tuple trap (fourth time this
+session), `mock.calls[0][0]` without a non-null assertion under `noUncheckedIndexedAccess`, and
+an `AutopostConfig` literal missing `enabled`. **A green `vitest` run is still not a green build**,
+and that remains the single most reliable thing about this project's test suite.
+
+**Not verified.** No live bot, no real Discord, no real Last.fm or database or Redis failure. The
+Discord 10007 code is verified from the documented code table and the route, not from a live call.
+The crown-role gate's behaviour under a real partial outage is unobserved. `flushLogFile`'s drop
+on a read-only volume is reasoned, not measured. The 516 db tests still skip locally.
+
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 
 `raw-query-without-db-test` reads 0, but that number was only as good as the audit behind it. Two

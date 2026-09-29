@@ -33,7 +33,12 @@ const errText = (e: unknown): string => {
     const json = JSON.stringify(e);
     if (json && json !== '{}') parts.push(json);
   } catch {
-    // ignore unserializable exceptions
+    // CORRECT AS IS: an unserializable value yields a SHORTER errText, never
+    // a wrong one — OUTAGE_RE only matches on positive evidence, so the
+    // breaker stays OPEN (not down) and the failure takes the ordinary
+    // per-track fallback path. Reporting an unreadable error as a YouTube
+    // source outage would move every guild to SoundCloud for 10 minutes off
+    // an object that happened to have a cycle.
   }
   return parts.join(' ');
 };

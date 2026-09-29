@@ -212,7 +212,19 @@ export class ColorService {
     try {
       await this.cache.set(cacheKey, DiscordConstants.LastFmColorRed, ACCENT_FAILURE_TTL_SECONDS);
     } catch {
-      // A cache write failure must not mask the red fallback.
+      // CORRECT AS IS, and the reason is the CALLER's contract rather than this
+      // method's own safety. `getColorFromImageUrl` is documented to return a
+      // colour and never reject; it has already decided on the Last.fm red
+      // fallback and is about to return it. If this negative-cache write threw,
+      // it would escape that method, turn a decoration lookup into a rejected
+      // promise, and - for a caller like `artistsService.getArtistAccentColorAsync`
+      // that has no catch of its own - fail a whole artist card over a cache
+      // write. The only cost of not caching is that the next call re-fetches the
+      // image, which is exactly what the negative cache exists to avoid.
+      //
+      // This is the inverted case of the phase and worth naming: swallowing is
+      // right when the swallowed thing is a WRITE whose result has already been
+      // superseded, and wrong when it is a READ whose result is rendered.
     }
   }
 

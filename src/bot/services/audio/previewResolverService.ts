@@ -57,6 +57,10 @@ export class PreviewResolverService {
             const spotifyUrl = await this.spotifyApi.getSpotifyTrackUrl(artist, track);
             const idMatch = spotifyUrl?.match(/track\/([a-zA-Z0-9]+)/);
             if (idMatch?.[1]) sp = await this.spotifyScraper.getPreviewById(idMatch[1]);
+            // CORRECT AS IS: this whole block is an optional second chance at
+            // enriching a preview the scraper already found. Losing the id
+            // lookup leaves `sp` as it was, and the outer block either
+            // publishes it or falls through to Apple/Deezer below.
           } catch { /* ignore */ }
         }
         if (sp?.previewUrl) {
@@ -73,7 +77,13 @@ export class PreviewResolverService {
           await this.cache.set(key, result, 3600);
           return result;
         }
-      } catch { /* silent miss */ }
+      } catch {
+        // CORRECT AS IS: the Spotify rung failing is the rung failing.
+        // Execution continues to the Apple search below and then Deezer,
+        // and if BOTH of those come back empty `resolve` returns null,
+        // which trackDetailsService renders as "no preview resolved" — an
+        // absence, not a claim that the track has no preview anywhere.
+      }
     }
 
     let result = await this.searchApple(artist, track, albumHint);
@@ -91,6 +101,10 @@ export class PreviewResolverService {
           result.previewUrl = sp.previewUrl;
           if (!result.storeUrl) result.storeUrl = sp.spotifyUrl ?? result.storeUrl;
         }
+        // CORRECT AS IS: enrichment of an already-resolved result. A throw
+        // leaves previewUrl null, and the cross-provider block right below
+        // still runs — so this is a rung being skipped, not a track being
+        // reported as having no preview.
       } catch { /* ignore */ }
     }
     if (result && !result.previewUrl) {

@@ -308,7 +308,10 @@ export class MusicPlaybackControls {
       if (at !== -1) player.queue.remove(at);
       player.previous.push(prevTrack);
     } catch {
-      // Best effort restore.
+      // Best effort restore: indexOf/remove/push on a live queue are not
+      // expected to throw, and if one did the previous() call still returns
+      // false — the same honest "could not go back" answer the pre-restore
+      // code gave, never a claim that the history was changed.
     }
     return false;
   }

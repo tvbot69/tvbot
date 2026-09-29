@@ -202,6 +202,16 @@ export class ArtistTrackService {
       const mine = await this.getTopTracksForArtist(userId, artistName);
       if (mine[0]?.name) return mine[0].name;
     } catch {
+      // CORRECT AS IS, second of the pair in this method and the one that
+      // actually needs a reason. The comment above the method already establishes
+      // that this is a PRECISION ANCHOR for external metadata, never a number the
+      // user reads, and that the playcounts on a who-knows card come from
+      // `whoKnowsRepository` instead. So a failure here costs a name-only
+      // artwork/genre lookup - the same answer this method returns when the user
+      // simply has no plays. The `fallbackUserId` attempt below is what makes the
+      // swallow safe: a total miss returns `undefined` rather than rejecting, and
+      // every caller (`whoKnowsSlashCommands.ts:250`, the text twin) already
+      // re-catches and falls back to name-only resolution.
       // fall through to fallback user
     }
     if (fallbackUserId && fallbackUserId !== userId) {

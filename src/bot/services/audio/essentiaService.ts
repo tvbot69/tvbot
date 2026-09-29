@@ -53,6 +53,10 @@ export class EssentiaService {
       const keyData = es.KeyExtractor(vector);
       const keyStr = keyData && keyData.key ? formatKey(keyData.key) : 'N/A';
       // Free vectors if API exposes delete
+      // CORRECT AS IS: releasing WASM scratch memory only. The analysis
+      // result is already computed into locals above, so a vector-free that
+      // throws cannot change the bpm/key returned — and the enclosing catch
+      // would turn a leak into a lost analysis, which is strictly worse.
       try { es.deleteVector?.(vector); } catch { /* ignore */ }
       if (!bpm) return null;
       return { bpm, key: keyStr };

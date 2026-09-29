@@ -85,6 +85,24 @@ export class GuildService {
       });
       return true;
     } catch {
+      // CORRECT AS IS, both sites, and the two failure modes are genuinely
+      // different things which the boolean is honest about.
+      //
+      // 1. `BigInt(guildId)` throws on a non-snowflake. That is ARGUMENT
+      //    COERCION - a caller bug - and it must not be laundered into a
+      //    database outage. The existing test pins this case explicitly.
+      // 2. The `upsert` throws. That IS a database failure, and the user is
+      //    told: the only caller (`settingsCommands.selfBlockAsync`) renders
+      //    "Something went wrong while updating your selfblock status." So
+      //    `false` never reaches the user as a claim that the block succeeded.
+      //
+      // NOTE ON PRIORITY-6's WORRY, since it is the obvious question here: a
+      // swallowed READ in this service would make a command answer "you are not
+      // in this guild" during an outage. There is no such read - `getGuild`
+      // and `ensureGuildExists` have no try/catch at all and propagate, so
+      // `interactionHandler.isBlockedInContext` sees the throw and its own
+      // `Logger.warn` fires. These two methods are the only swallow in the file
+      // and they are writes with a user-facing error already attached.
       return false;
     }
   }
@@ -99,6 +117,7 @@ export class GuildService {
       });
       return true;
     } catch {
+      // CORRECT AS IS, identical reasoning to `selfBlockGuildUserAsync` above.
       return false;
     }
   }

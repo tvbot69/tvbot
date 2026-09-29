@@ -3,6 +3,7 @@ import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 import type { Friend } from '@persistence/domain/models/user';
 import { UserType, DataSource } from '@persistence/domain/models/user';
+import { Logger } from '@domain/logger';
 
 function userTypeFromEntity(value: string): UserType {
   if (value === 'Contributor') return UserType.Contributor;
@@ -104,7 +105,25 @@ export class UserRepository implements IUserRepository {
     try {
       await this.prisma.user.delete({ where: { userId: userId } });
       return true;
-    } catch {
+    } catch (err) {
+      // CORRECT AS IS, and `false` is the honest answer rather than a swallowed
+      // write - which is worth stating because "a repository that swallows turns
+      // an upsert into a silent no-op" is exactly the shape this is NOT.
+      //
+      // Prisma raises P2025 when the row does not exist, so this branch covers
+      // two real outcomes: the row was already gone (a genuinely idempotent
+      // delete) and the delete failed. Both mean the user's row is not there
+      // afterwards, and both callers treat `false` as "nothing was removed":
+      // `userService.removeUser` returns it, and `.unlink confirm` renders
+      // "Failed to remove your user data. Please try again later." - a message
+      // that is TRUE for both causes. The success path is never reachable
+      // through this catch, so the user is never told a deletion happened when it
+      // did not.
+      //
+      // The cache delete in `userService.removeUser` runs after this returns
+      // either way, which is also correct: the row is gone in the failure case
+      // too, so the cached copy must not survive it.
+      Logger.warn({ err: (err as Error)?.message ?? String(err), userId }, 'Failed to delete user row');
       return false;
     }
   }

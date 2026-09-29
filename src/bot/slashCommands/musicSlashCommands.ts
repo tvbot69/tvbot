@@ -242,6 +242,14 @@ export class MusicSlashCommands implements ISlashCommandModule {
 
   private async executeMusic(ctx: ContextModel): Promise<ResponseModel> {
     const sub = (() => {
+      // CORRECT AS IS: ARGUMENT COERCION. `getSubcommand()` throws for a command
+      // declared without subcommands, which is a fact about the SlashCommandBuilder
+      // and not about any source the music pipeline talks to. The `switch` below
+      // already handles `sub === null` by falling through to its default arm, so
+      // `null` here is a supported input rather than a swallowed failure. It is
+      // worth being explicit that this is NOT one of the sites a
+      // `SourceUnavailableError` narrowing would help: nothing in this IIFE can
+      // raise one.
       try {
         return ctx.interaction?.options.getSubcommand() ?? null;
       } catch {

@@ -247,6 +247,15 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     // Disambiguate same-name artists by anchoring artwork/genre lookups to a
     // real scrobble (see text-command twin for rationale).
     const artistTrackService = container.resolve(ArtistTrackService);
+    // CORRECT AS IS, first of two sites here, and the text twin carries the same
+    // comment with the same reasoning. `getSampleTrackForArtist` is a PRECISION
+    // ANCHOR for external metadata - it picks the exact Spotify entity for a
+    // same-name artist - and never a number the user reads. The playcounts on the
+    // card come from `whoKnowsArtistService` further down, and the method's own
+    // doc records that it already returns `undefined` rather than rejecting when
+    // a lookup fails. So the `.catch` here is belt-and-braces: the only cost of a
+    // failure is name-only artwork and genre resolution, which is the same answer
+    // the card renders when no sample track exists.
     const callerSampleTrack = await artistTrackService
       .getSampleTrackForArtist(user.userId, resolvedName)
       .catch(() => undefined);
@@ -263,6 +272,11 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     let sampleTrack = callerSampleTrack;
     const topListenerId = result.filteredUsersWithArtist[0]?.userId;
     if (!sampleTrack && topListenerId !== undefined) {
+      // CORRECT AS IS, second anchor site: the same refinement, retried against
+      // the top listener's own scrobble so image and genres still resolve when the
+      // caller does not know the artist. A failure means the card renders with
+      // name-only resolution, which is the honest degradation and not a missing
+      // leaderboard.
       sampleTrack = await artistTrackService
         .getSampleTrackForArtist(topListenerId, resolvedName)
         .catch(() => undefined);

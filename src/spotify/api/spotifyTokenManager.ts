@@ -222,7 +222,17 @@ export class SpotifyTokenManager {
         }
       }
       return null;
-    } catch {
+    } catch (err) {
+      // CORRECT AS IS. This is the LAST link in a documented fallback chain,
+      // and every layer above already degrades visibly: `requestAnonToken`
+      // answers null, and the client-credential path that runs before this one
+      // logs its own failures. A null here means "no anon token", which the
+      // callers turn into `SpotifyUnavailableError('credentials not configured')`
+      // — a raised, un-cacheable "we do not know", not a claim about the
+      // catalogue. It is worth one line anyway, because the secret is scraped
+      // from a web bundle that can change without warning, and when that happens
+      // the ONLY symptom is that Spotify silently stops answering.
+      Logger.debug({ err }, '[Spotify] Anon web-player secret could not be scraped');
       return null;
     }
   }

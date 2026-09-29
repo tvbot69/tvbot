@@ -58,6 +58,10 @@ try {
 }
 
 export const tempDir = path.join(os.tmpdir(), 'tvbot-audio');
+// CORRECT AS IS: best-effort at import, and a failure is NOT hidden — the
+// first downloadMP3 write then throws ENOENT to its real caller, which
+// trackDetailsService catches and reports as "no analysis". Swallowing here
+// cannot turn a missing temp dir into a fabricated BPM or key.
 void fsp.mkdir(tempDir, { recursive: true }).catch(() => undefined);
 
 /** Bound on preview downloads. Without it a CDN that accepts the connection
@@ -86,9 +90,16 @@ export async function downloadAndConvert(url: string, trackId: string, duration?
   } catch (err) {
     // The unlink used to sit only on the success path, so every failed
     // transcode left its .mp3 in the temp dir for the life of the process.
+    // CORRECT AS IS: a failed unlink only leaves a temp file behind; the
+    // transcode failure is rethrown either way, so nothing is reported as
+    // a converted preview that does not exist.
     await fsp.unlink(mp3Path).catch(() => undefined);
     throw err;
   }
+  // CORRECT AS IS: the .ogg this returns was already written and closed.
+  // Failing to delete the .mp3 afterwards is temp-file hygiene, not a
+  // result — rethrowing here would turn a successful conversion into an
+  // error the caller renders as "no preview".
   await fsp.unlink(mp3Path).catch(() => undefined);
   return oggPath;
 }
@@ -130,12 +141,19 @@ export async function getAudioSignalAndSr(trackId: string, url: string): Promise
     const signal = new Float32Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.length / 4));
     return { signal, sampleRate };
   } finally {
+    // CORRECT AS IS: cleanup only. The return value above is already
+    // computed, so a failed unlink must NOT turn a successful decode into a
+    // thrown error — and on the throw path the caller already gets the real
+    // error, which is what leaves bpm/key null in trackDetailsService.
     await fsp.unlink(mp3Path).catch(() => undefined);
     if (rawPath) await fsp.unlink(rawPath).catch(() => undefined);
   }
 }
 
 export function cleanupSync(p: string): void {
+  // CORRECT AS IS: best-effort synchronous unlink of a temp file whose
+  // caller has already finished with it. Nothing downstream reads the file
+  // afterwards, so a leftover is the only possible consequence.
   try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* ignore */ }
 }
 void cp;

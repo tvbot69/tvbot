@@ -15,6 +15,20 @@ const signatureOf = (source: string, message: string): string =>
  * Free forever, no accounts: create a webhook in a private channel and set
  * ERROR_WEBHOOK_URL. No-op when unconfigured. Throttled per signature so a
  * crash loop posts once per 5 minutes instead of flooding the channel.
+ *
+ * IS THIS A PATH THAT CAN SWALPHOW A DIAGNOSIS? It is the one place where the
+ * answer is subtle, so here it is in full. Two channels report a fatal:
+ *
+ *   1. `Logger.fatal` in `bot/index.ts`, which runs on the line BEFORE this is
+ *      called and writes to stdout. That line cannot be lost by anything in
+ *      this file - see the ordering comment in `logger.writeLogToFile`.
+ *   2. This webhook post, which is a SECOND, redundant copy to a phone.
+ *
+ * So a failure here never removes the diagnostic; it removes the copy that
+ * reaches someone who is not watching Railway. `.catch(() => undefined)` is
+ * therefore the right shape, and it is also mandatory: this runs inside
+ * `uncaughtException`, where a throw would replace a reported crash with an
+ * unreported one.
  */
 export const reportFatalToDiscord = (source: string, err: unknown): void => {
   // Read inside the function, never at module scope: this is called from
@@ -36,6 +50,12 @@ export const reportFatalToDiscord = (source: string, err: unknown): void => {
     `${message}\n${stack}`.slice(0, MAX_CONTENT_CHARS) +
     '\n```';
 
+  // CORRECT AS IS: the post is fire-and-forget by design (it must not be
+  // awaited on the crash path, where a slow webhook would hold the process
+  // open), and the failure is unrecoverable in the sense that matters - the
+  // stdout line from `Logger.fatal` already carries the same message, stack and
+  // source. Re-throwing here would be caught by nothing: this is the bottom of
+  // the `uncaughtException` handler.
   void fetchWithTimeout(
     url,
     {

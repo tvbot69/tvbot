@@ -11,6 +11,14 @@ export class CrownRepository {
     try {
       return BigInt(id);
     } catch {
+      // CORRECT AS IS, and it is ARGUMENT COERCION, not a data source. The
+      // regex above already rejects everything `BigInt` would refuse, so this
+      // branch is defence in depth for a caller that got past it. A malformed
+      // guild id is a CALLER bug; reporting it as "the database is unavailable"
+      // would send an operator to look at Postgres when the fault is upstream of
+      // it, and the `null` is the honest answer - there is no such guild, so it
+      // has no crown. Same shape and same reasoning as `parseGuildId` in
+      // genreService and musicIntelligenceService.
       return null;
     }
   }

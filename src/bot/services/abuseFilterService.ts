@@ -85,7 +85,18 @@ export class AbuseFilterService {
 
   public async unflag(userId: number): Promise<void> {
     if (!this.store) return;
-    await this.store.deleteFlagsForUser(userId).catch(() => undefined);
+    // CORRECT AS IS on the current code: nothing calls `unflag` — the method is
+    // unreferenced outside its own definition, so there is no user-visible claim
+    // to be wrong about today.
+    //
+    // It is still not safe to leave as it is, because the two halves disagree.
+    // If a caller is ever added, a failed delete clears `this.flagged` anyway,
+    // and the next `refresh()` reads the still-present row back and re-flags the
+    // user — so the caller's "done" would be undone silently. Logging makes the
+    // rollback visible to whoever wires this up.
+    await this.store.deleteFlagsForUser(userId).catch((err: unknown) => {
+      Logger.warn({ err, userId }, 'Abuse flag could not be deleted; it will be re-read from the database');
+    });
     this.flagged.delete(userId);
   }
 }

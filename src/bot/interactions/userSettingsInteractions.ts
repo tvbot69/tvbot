@@ -268,6 +268,13 @@ export class UserSettingsInteractions {
       // bypass — but a stale message from before a permission change would
       // otherwise still render server settings.
       if (!context.userIsGuildAdmin) {
+        // CORRECT AS IS: the `.catch` guards Discord rejecting this denial
+        // message, and that is the right thing to be lost - the check has
+        // already returned early, so server settings are NOT rendered either
+        // way. Failing the permission check closed is the property that matters
+        // (see the identical reasoning in `SettingsInteractions.isStaff`); what
+        // this catch cannot do is grant access, because the branch it guards
+        // never runs.
         await interaction
           .reply({ content: '❌ You need `Manage Server` to view server settings.', flags: MessageFlags.Ephemeral })
           .catch(() => undefined);

@@ -237,12 +237,24 @@ export class ArtistsService {
           else a.imageUrl = undefined;
         }
       }
-    } catch {
+    } catch (err) {
       // CORRECT-AS-IS: artwork is decoration. A cover is looked up from four
       // providers and "we could not find one" is already the honest rendering,
       // so an unreachable `artist` table costs a missing image and nothing the
       // user would read as a fact about their listening. Raising here would
       // blank a whole leaderboard because one thumbnail query died.
+      //
+      // The one thing worth adding is that this is a WRITE-shaped read: the
+      // catch drops the cached cover for EVERY artist in the batch, not just the
+      // one that failed, because the fallback above sets `imageUrl = undefined`
+      // for each. That is why the two branches differ - a failed `getArtistImageUrl`
+      // only clears a placeholder, whereas reaching here clears a real cached
+      // URL too - and why the log line is at WARN. A dropped connection costs
+      // every cover on the card until the next successful pass re-fills them.
+      Logger.warn(
+        { err: (err as Error)?.message ?? String(err) },
+        'Failed to read cached artist covers; the batch will re-resolve covers from providers',
+      );
     }
 
     return topArtists;

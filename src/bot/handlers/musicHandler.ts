@@ -337,11 +337,18 @@ export class MusicHandler {
           // Use the display-cleaned title and the performer named in it.
           const displayTitle = cleanTrackTitle(cur.title ?? '', cur.author);
           const artist = extractArtistFromTitle(getVideoTitle(cur)) ?? cur?.author;
+          // CORRECT AS IS: a refused status write is decoration, and it
+          // costs at most one stale label — the change-gate key above was
+          // already set, so this particular key is not retried, but the next
+          // chapter change writes a fresh one. The CARD is the source of
+          // truth and is unaffected.
           void svc.setStatus(player.voiceChannelId, displayTitle, artist).catch(() => undefined);
         }
         return;
       }
       const artist = extractArtistFromTitle(getVideoTitle(cur)) ?? cur?.author;
+      // Same reasoning as the fallback branch above: one lost write is one
+      // stale label, not a wrong claim about what is playing.
       void svc.setStatus(player.voiceChannelId, card.title, artist).catch(() => undefined);
     } catch {
       // Status is decoration.
@@ -389,6 +396,11 @@ export class MusicHandler {
       if (!channelId) return;
       const channel = this.client.channels.cache.get(channelId);
       if (channel?.isTextBased() && 'send' in channel) {
+        // CORRECT AS IS: a courtesy one-liner (queue cap, skipped tracks).
+        // The state that produced it is already logged and the chunk manager
+        // already recorded the skip count, so a lost notice degrades to
+        // silence rather than to a wrong count. The outer catch logs the
+        // synchronous failures; this one covers the async send.
         void channel.send({ content }).catch(() => undefined);
       }
     } catch (err) {

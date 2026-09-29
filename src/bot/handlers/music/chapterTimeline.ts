@@ -112,11 +112,20 @@ export class ChapterTimeline {
           // both cache layers negative-cache misses for 10 minutes, so a
           // quick retry could never succeed — the next track re-probes.
         } catch {
-          // Plain card — chapters are decoration, never load-bearing.
+          // CORRECT AS IS: a probe that threw is INCONCLUSIVE, not a
+          // chapter-less video, and nothing is written to any cache here —
+          // the negative layers inside getVideoChapters own that decision,
+          // and neither provider leg caches when it throws. The card stays a
+          // plain one; a later play of the same video re-probes.
         }
       })();
     } catch {
-      // Plain card.
+      // CORRECT AS IS: an empty/throw here happens BEFORE the probe is
+      // awaited, so no chapter state has been written yet. The card is
+      // simply a plain one for this track, which is what the listener saw
+      // before the chapter system existed. Deliberately silent: this is a
+      // fire-and-forget probe fired from trackStart, so a throw here has
+      // no caller to report to, and the next track re-probes.
     }
   }
 
@@ -276,6 +285,14 @@ export class ChapterTimeline {
       this.art.prefetchChapterArts(player, chapters, [idx + 1, idx + 2]);
       return card;
     } catch {
+      // CORRECT AS IS: `null` here drops the chapter TITLE for this publish,
+      // and that is the honest answer to "I could not derive a chapter" —
+      // not a wrong one. Nothing is written to the player, so `chapterIdx`
+      // and `chapterCard` survive and the next boundary re-derives from
+      // them. Crucially the COVER is not blanked either: with a null chapter
+      // resolveDisplayedChapter falls through to lastCoverUrl, so the
+      // gallery still shows the previous art rather than raw track art.
+      // Sync-only, and every caller wraps it, so it cannot reject playback.
       return null;
     }
   }

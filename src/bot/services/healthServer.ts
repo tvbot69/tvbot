@@ -60,16 +60,23 @@ export class HealthServer {
             const client = container.resolve(Client);
             discordPing = client.ws.ping;
             discordStatus = client.isReady() ? 'ready' : 'connecting';
-          } catch {
-            // client not yet registered/ready
+          } catch (err) {
+            // CORRECT AS IS. `discord` is a reported field, not part of the
+            // verdict: `isHealthy` is computed from the database and the drain
+            // flag alone, so a resolve failure cannot turn a 503 into a 200. The
+            // one thing it must not do is report 'ready', and it does not.
+            Logger.debug({ err }, '[Health] Discord client not resolvable yet');
           }
 
           let puppeteerAlive = false;
           try {
             const puppeteer = container.resolve(PuppeteerService);
             puppeteerAlive = await puppeteer.isHealthy();
-          } catch {
-            // puppeteer not yet warmed up
+          } catch (err) {
+            // CORRECT AS IS: decoration, and the reported value is literally what
+            // was measured. `puppeteer.ready` is false when it is unwarmed, which
+            // is the same answer, and it is excluded from the status code.
+            Logger.debug({ err }, '[Health] Puppeteer not resolvable yet');
           }
 
           const mem = process.memoryUsage();
@@ -175,8 +182,13 @@ export class HealthServer {
     try {
       const client = container.resolve(Client);
       discordStatus = client.isReady() ? 'ready' : 'connecting';
-    } catch {
-      // client not yet registered
+    } catch (err) {
+      // CORRECT AS IS, and it fails CLOSED, which is the only acceptable
+      // direction: `ready` requires `discordStatus === 'ready'`, so a resolve
+      // failure answers 503 rather than a false ready. Reported as
+      // 'not_initialized' rather than a raised error, because /readyz is polled
+      // and during boot the client genuinely is not resolvable yet.
+      Logger.debug({ err }, '[Health] Discord client not resolvable yet');
     }
 
     let lavalinkHealthyNodes = 0;
@@ -185,8 +197,12 @@ export class HealthServer {
       if (container.isRegistered(MoonlinkManager)) {
         lavalinkHealthyNodes = container.resolve(MoonlinkManager).getHealthyNodeCount();
       }
-    } catch {
-      // music disabled or not wired
+    } catch (err) {
+      // CORRECT AS IS: zero is the value this reports for a disabled music stack
+      // too, and the line below fixes its meaning — "Lavalink at zero is
+      // degraded, not unready". Readiness is decided by Discord and the database
+      // only, so an import failure cannot fail a deploy or hide a real outage.
+      Logger.debug({ err }, '[Health] MoonlinkManager not resolvable; reporting zero healthy nodes');
     }
 
     let dbStatus = 'unknown';

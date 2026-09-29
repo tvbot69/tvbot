@@ -96,6 +96,12 @@ export class UserSlashCommands implements ISlashCommandModule {
     const rawLfm = context.interaction?.options.getString('lfm')?.trim() ?? null;
     // backward-compat: if old "user" string slot was used via raw string, discord.js will not return it as User;
     // we keep a fallback parse from the raw lfm field which may contain "lfm:xxx" or plain username
+    //
+    // CORRECT AS IS on this one-liner: it is ARGUMENT COERCION, not a data
+    // source. `getString` throws for an option the current builder does not
+    // declare, which says nothing about Last.fm or Postgres, and `null` is the
+    // honest "there is no legacy slot" answer. The modern options are read
+    // unconditionally on the two lines above, so a throw here costs nothing.
     const legacyRawUser = (() => {
       try { return context.interaction?.options.getString('user')?.trim() ?? null; } catch { return null; }
     })();
@@ -176,6 +182,16 @@ export class UserSlashCommands implements ISlashCommandModule {
     let guildFmType: number | null = null;
     let channelFmType: number | null = null;
     const slashChannelId = context.interaction?.channelId ?? context.message?.channelId ?? null;
+    // CORRECT AS IS: three PRESENTATION reads, and each has a real default rather
+    // than a fabricated value. `fmSetting` falls back to null, which makes
+    // `PlayBuilders` use the bot's default embed type; `guildFmType` and
+    // `channelFmType` fall back to null, which means "no override" and is exactly
+    // what a server with nothing configured should render. A database outage
+    // costs a guild's chosen embed STYLE, not any playcount - the `.fm` numbers
+    // come from `getUserRecentTracks` / `getUserInfo` below, outside this try.
+    //
+    // This is the text-command twin of `playCommands.fmAsync` and takes the same
+    // trade, for the same reason.
     try {
       const fmService = container.resolve(FmSettingService);
       fmSetting = await fmService.get(displayUser.userId);

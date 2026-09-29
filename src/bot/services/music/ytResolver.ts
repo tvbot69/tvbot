@@ -154,10 +154,18 @@ async function probeVideoChapters(id: string): Promise<VideoChapterDto[] | null>
     return rug;
   }
 
-  // [] = the API answered but carried no timestamps and the rug probe came
-  // up empty — a genuinely chapter-less video. null = the API was unusable
-  // (down / missing key), so retry sooner.
-  if (data !== null) {
+  // [] = BOTH rungs ANSWERED and carried no timestamps — a genuinely
+  // chapter-less video, and the only thing that may write the 24h empty
+  // cache. null = at least one rung was unusable, so retry sooner.
+  //
+  // `data` alone was not enough. getRugVideoChapters returns null when the
+  // home resolver is unreachable (tower asleep, tunnel down, 2-minute pause),
+  // and a null falling through this test read as "the rug rung confirmed
+  // there are no chapters": a long set played while the PC was off had its
+  // chapters absent for 24 HOURS off a transport failure. The contract at
+  // getVideoChapters ("null when unusable, distinct from []") is only true
+  // when BOTH legs are consulted.
+  if (data !== null && rug !== null) {
     cascadeEmptyCache.set(id, Date.now());
     evictOldest(cascadeEmptyCache);
     return [];
@@ -178,9 +186,24 @@ const evictOldest = (m: Map<string, unknown>): void => {
 /**
  * Home-resolver chapter rung: the yt-dlp metadata probe (GET /chapters)
  * that catches videos whose chapters live outside the description (auto /
- * UGC chapters). Skipped when the resolver is disabled or paused.
+ * UGC chapters). Skipped — and reported as "no second rung" rather than as
+ * a failure — when no resolver is configured; reported as UNUSABLE when one
+ * is configured but paused.
+ *
+ * Tri-state on purpose: `[]` = the resolver answered and this video has no
+ * chapters, `null` = the rung could not be consulted. probeVideoChapters may
+ * only turn an empty pair of rungs into a cached "no chapters" fact.
  */
 async function getRugVideoChapters(id: string): Promise<VideoChapterDto[] | null> {
+  // TWO different "no", and conflating them is what let a transport failure
+  // be cached as a 24h "this video has no chapters" fact:
+  //  - NOT CONFIGURED: there is no second rung to consult, so its empty is
+  //    vacuously true and the caller may record the chapter-less fact.
+  //  - CONFIGURED BUT PAUSED (tower asleep / tunnel down / an unreachable
+  //    pause): the rung exists and is known-down. That is unusable, exactly
+  //    like an API 500, so it must surface as `null` and be retried sooner.
+  // `resolverEnabled()` folds these two together, so read the config first.
+  if (!homeResolverUrl() || !homeResolverToken()) return [];
   if (!resolverEnabled()) return null;
   const base = homeResolverUrl() as string;
   const token = homeResolverToken() as string;
@@ -202,6 +225,11 @@ async function getRugVideoChapters(id: string): Promise<VideoChapterDto[] | null
     out.sort((a, b) => a.startMs - b.startMs);
     return out;
   } catch {
+    // CORRECT AS IS: `null` here means the RUNG WAS UNUSABLE (tower asleep,
+    // tunnel down), never "this video has no chapters" — the two are the
+    // whole point of the tri-state, and probeVideoChapters refuses to cache
+    // the 24h chapter-less fact while this is null. A dead fetch costs a
+    // 10-minute retry window, which is the honest cost of not knowing.
     return null;
   }
 }

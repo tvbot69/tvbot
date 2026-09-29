@@ -150,6 +150,11 @@ export class FriendsCommands implements ITextCommandModule {
           accentColor = await clrSvc.getColorFromImageUrl(artUrl);
         }
       } catch {
+        // CORRECT AS IS, the twin of the slash-site with the identical comment:
+        // `accentColor` already holds the Last.fm red and this read only refines
+        // it from the top friend's cover. The friend rows were built and sorted
+        // above, so every now-playing track and timestamp on the card is
+        // unaffected. Decoration cannot make a number wrong.
         // fallback
       }
     }

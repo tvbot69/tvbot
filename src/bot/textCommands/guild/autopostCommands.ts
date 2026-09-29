@@ -119,6 +119,20 @@ export class AutopostCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('Could not determine text channel ID.');
     }
 
+    // CORRECT AS IS, and it is a DISCORD read, not a bot query - which is the
+    // distinction that matters here. `channels.fetch` is a REST call to Discord,
+    // and its failure is already a statement about the channel: the bot cannot
+    // see it, which is precisely what the message below reports ("Could not find
+    // that text channel or bot lacks permission to view it"). Note that this
+    // message is honest about BOTH causes rather than claiming the channel does
+    // not exist - a bot that lacks the VIEW_CHANNEL permission gets the same
+    // 403 as a typo, and the wording reflects that.
+    //
+    // Raising would be worse: this runs inside a command whose boundary catches
+    // and replies generically, so the user would lose the one diagnostic that
+    // tells them to re-paste the channel mention. The autopost itself is not
+    // created in either case - `targetChannel` is checked before
+    // `autopostService.createAutopost` is called - so nothing is half-written.
     const targetChannel = await this.client.channels.fetch(channelId).catch(() => null);
     if (!targetChannel || !targetChannel.isTextBased()) {
       return GenericEmbedService.buildWrongInputResponse('Could not find that text channel or bot lacks permission to view it.');
