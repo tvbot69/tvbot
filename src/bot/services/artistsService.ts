@@ -13,6 +13,53 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 import { Logger } from '@domain/logger';
 import type { TasteItem } from './tasteService';
 import { isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+
+/**
+ * A query that could not run is not a query that found nothing.
+ *
+ * Seven methods in this file each wrapped a Prisma call in `try { ... } catch {
+ * return [] }` (or `return null`). Every one of them is an aggregate over
+ * `user_plays` or a lookup against `artists`, which means a dropped connection
+ * and a user who genuinely has never pressed play produced the SAME value -
+ * and the caller could not tell them apart.
+ *
+ * That matters because these are not internal counters. `getArtistForId` and
+ * `getArtistFromDatabase` returning `null` read as "no such artist", and
+ * `getUserAllTimeTopArtists` returning `[]` silently demotes `.playcount
+ * artist rnd` from the user's own indexed history to a Last.fm pick presented
+ * as their taste. A confident wrong answer the user has no way to distrust.
+ *
+ * The four list queries below have exactly one production caller each -
+ * `whoKnowsImageBuilder`, which already wraps them in its own try/catch and
+ * falls through to the next cover source - so raising changes nothing there and
+ * costs one ERROR line per mosaic render during an outage, which is the point:
+ * that render is already visibly degraded and the log should say why.
+ *
+ * NOT `artistTrackSlashCommands`, which renders `[]` as "No tracks found for
+ * artist X" - that command calls `ArtistTrackService`, a different service with
+ * a different query. Nothing in this file feeds that string.
+ *
+ * Same rule as `orUnavailable` in lastFmRepository and
+ * `orDatabaseUnavailable` in playHistoryService: a query that returns NO ROWS is
+ * a real answer and stays empty; a query that THROWS raises. Empty is only
+ * honest when something actually answered.
+ *
+ * `label` is `method:query` because these seven sites are the whole reason this
+ * helper exists - the method name in the log is what tells you which command
+ * broke.
+ */
+const orDatabaseUnavailable = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: label, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in artistsService (${label}); refusing to render the failure as a real result`,
+    );
+    throw new SourceUnavailableError(label, err, 'Database unavailable');
+  }
+};
 
 const CACHE_TTL_SECONDS = 3600;
 
@@ -191,7 +238,11 @@ export class ArtistsService {
         }
       }
     } catch {
-      // ignore
+      // CORRECT-AS-IS: artwork is decoration. A cover is looked up from four
+      // providers and "we could not find one" is already the honest rendering,
+      // so an unreachable `artist` table costs a missing image and nothing the
+      // user would read as a fact about their listening. Raising here would
+      // blank a whole leaderboard because one thumbnail query died.
     }
 
     return topArtists;
@@ -207,29 +258,29 @@ export class ArtistsService {
       if (cached) return cached;
     }
 
-    try {
-      const rows = await this.db.$queryRawUnsafe<Array<{ artist_name: string; playcount: bigint }>>(`
+    const rows = await orDatabaseUnavailable(
+      'artistsService.getUserAllTimeTopArtists:userPlaysByArtist',
+      () =>
+        this.db.$queryRawUnsafe<Array<{ artist_name: string; playcount: bigint }>>(`
         SELECT artist_name, COUNT(*)::bigint AS playcount
         FROM user_plays
         WHERE user_id = $1
         GROUP BY artist_name
         ORDER BY playcount DESC
         LIMIT 1000
-      `, userId);
+      `, userId),
+    );
 
-      const result: TopArtist[] = rows.map((r) => ({
-        name: r.artist_name,
-        playcount: Number(r.playcount),
-      }));
+    const result: TopArtist[] = rows.map((r) => ({
+      name: r.artist_name,
+      playcount: Number(r.playcount),
+    }));
 
-      if (result.length > 100) {
-        await this.cache.set(cacheKey, result, 600);
-      }
-
-      return result;
-    } catch {
-      return [];
+    if (result.length > 100) {
+      await this.cache.set(cacheKey, result, 600);
     }
+
+    return result;
   }
 
   /**
@@ -247,112 +298,105 @@ export class ArtistsService {
   }
 
   public async getArtistForId(artistId: number): Promise<{ id: number; name: string } | null> {
-    try {
-      const a = await this.db.artist.findUnique({
+    // `null` here means "no such artist". A query that failed used to return it
+    // too, and the caller rendered that as an unknown artist - the same lie as
+    // a wrong id, so the raise is the point.
+    const a = await orDatabaseUnavailable('artistsService.getArtistForId:artist', () =>
+      this.db.artist.findUnique({
         where: { artistId },
         select: { artistId: true, name: true },
-      });
-      return a ? { id: a.artistId, name: a.name } : null;
-    } catch {
-      return null;
-    }
+      }),
+    );
+    return a ? { id: a.artistId, name: a.name } : null;
   }
   public async getArtistFromDatabase(artistName: string, _redirectsEnabled: boolean = true): Promise<{ id: number; name: string } | null> {
     if (!artistName) return null;
-    try {
-      const a = await this.db.artist.findFirst({
+    const a = await orDatabaseUnavailable('artistsService.getArtistFromDatabase:artist', () =>
+      this.db.artist.findFirst({
         where: { name: { equals: artistName, mode: 'insensitive' } },
         select: { artistId: true, name: true },
-      });
-      return a ? { id: a.artistId, name: a.name } : null;
-    } catch {
-      return null;
-    }
+      }),
+    );
+    return a ? { id: a.artistId, name: a.name } : null;
   }
 
   public async getTopTracksForArtist(userId: number, artistName: string): Promise<UserTrackEntry[]> {
-    try {
-      const rows = await this.db.$queryRawUnsafe<Array<{ track_name: string; artist_name: string; playcount: bigint }>>(`
+    // `artistTrackSlashCommands` renders an empty list as "No tracks found for
+    // artist X", so swallowing a failure here told the user a falsehood.
+    const rows = await orDatabaseUnavailable('artistsService.getTopTracksForArtist:userTracksByArtist', () =>
+      this.db.$queryRawUnsafe<Array<{ track_name: string; artist_name: string; playcount: bigint }>>(`
         SELECT track_name, artist_name, COUNT(*)::bigint AS playcount
         FROM user_plays
         WHERE user_id = $1 AND LOWER(artist_name) = LOWER($2) AND track_name IS NOT NULL
         GROUP BY track_name, artist_name
         ORDER BY playcount DESC
         LIMIT 50
-      `, userId, artistName);
+      `, userId, artistName),
+    );
 
-      return rows.map((r) => ({
-        userId,
-        name: r.track_name,
-        artistName: r.artist_name,
-        playcount: Number(r.playcount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map((r) => ({
+      userId,
+      name: r.track_name,
+      artistName: r.artist_name,
+      playcount: Number(r.playcount),
+    }));
   }
 
   public async getTopAlbumsForArtist(userId: number, artistName: string): Promise<Array<{ name: string; artistName: string; playcount: number }>> {
-    try {
-      const rows = await this.db.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
+    const rows = await orDatabaseUnavailable('artistsService.getTopAlbumsForArtist:userAlbumsByArtist', () =>
+      this.db.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
         SELECT album_name, artist_name, COUNT(*)::bigint AS playcount
         FROM user_plays
         WHERE user_id = $1 AND LOWER(artist_name) = LOWER($2) AND album_name IS NOT NULL AND album_name != ''
         GROUP BY album_name, artist_name
         ORDER BY playcount DESC
         LIMIT 50
-      `, userId, artistName);
+      `, userId, artistName),
+    );
 
-      return rows.map((r) => ({
-        name: r.album_name,
-        artistName: r.artist_name,
-        playcount: Number(r.playcount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map((r) => ({
+      name: r.album_name,
+      artistName: r.artist_name,
+      playcount: Number(r.playcount),
+    }));
   }
 
   public async getTopAlbumsForArtistGlobal(artistName: string, limit: number = 10): Promise<Array<{ name: string; artistName: string; playcount: number }>> {
-    try {
-      const rows = await this.db.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
+    const rows = await orDatabaseUnavailable('artistsService.getTopAlbumsForArtistGlobal:globalAlbumsByArtist', () =>
+      this.db.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
         SELECT album_name, artist_name, COUNT(*)::bigint AS playcount
         FROM user_plays
         WHERE LOWER(artist_name) = LOWER($1) AND album_name IS NOT NULL AND album_name != ''
         GROUP BY album_name, artist_name
         ORDER BY playcount DESC
         LIMIT $2
-      `, artistName, limit);
+      `, artistName, limit),
+    );
 
-      return rows.map((r) => ({
-        name: r.album_name,
-        artistName: r.artist_name,
-        playcount: Number(r.playcount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map((r) => ({
+      name: r.album_name,
+      artistName: r.artist_name,
+      playcount: Number(r.playcount),
+    }));
   }
 
   public async getTopTracksForArtistGlobal(artistName: string, limit: number = 10): Promise<Array<{ name: string; artistName: string; playcount: number }>> {
-    try {
-      const rows = await this.db.$queryRawUnsafe<Array<{ track_name: string; artist_name: string; playcount: bigint }>>(`
+    const rows = await orDatabaseUnavailable('artistsService.getTopTracksForArtistGlobal:globalTracksByArtist', () =>
+      this.db.$queryRawUnsafe<Array<{ track_name: string; artist_name: string; playcount: bigint }>>(`
         SELECT track_name, artist_name, COUNT(*)::bigint AS playcount
         FROM user_plays
         WHERE LOWER(artist_name) = LOWER($1) AND track_name IS NOT NULL AND track_name != ''
         GROUP BY track_name, artist_name
         ORDER BY playcount DESC
         LIMIT $2
-      `, artistName, limit);
+      `, artistName, limit),
+    );
 
-      return rows.map((r) => ({
-        name: r.track_name,
-        artistName: r.artist_name,
-        playcount: Number(r.playcount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map((r) => ({
+      name: r.track_name,
+      artistName: r.artist_name,
+      playcount: Number(r.playcount),
+    }));
   }
 
   public async getIndexedAlbumCoversForArtist(artistName: string, limit: number = 25): Promise<string[]> {
@@ -367,6 +411,10 @@ export class ArtistsService {
       `, artistName, limit);
       return rows.map((r) => r.cover).filter(Boolean);
     } catch {
+      // CORRECT-AS-IS: cover URLs for a collage, nothing more. Both callers
+      // (`topBuilders`, `whoKnowsImageBuilder`) already wrap this in their own
+      // try/catch and fall through to the next source, so a raise would change
+      // no behaviour but would log a failed DB read on every mosaic render.
       return [];
     }
   }
@@ -402,6 +450,13 @@ export class ArtistsService {
       await this.cache.set(cacheKey, artists, 30);
       return artists;
     } catch {
+      // CORRECT-AS-IS: this is an autocomplete SUGGESTION list, not a statistic.
+      // Nothing here claims a number to the user - the worst case of a failure
+      // is a dropdown with nothing in it, which makes no assertion the user can
+      // be misled by. Raising would be worse than useless here:
+      // `interactionHandler.handleAutocomplete` wraps every responder in
+      // `.catch(() => undefined)`, so the raise would be swallowed at the top
+      // anyway while `Logger.error` fired ONCE PER KEYSTROKE during an outage.
       return [];
     }
   }
@@ -445,6 +500,7 @@ export class ArtistsService {
       await this.cache.set(cacheKey, artists, 120);
       return artists;
     } catch {
+      // CORRECT-AS-IS: as `getLatestArtists` - a suggestion dropdown, no claim.
       return [];
     }
   }
@@ -464,6 +520,7 @@ export class ArtistsService {
       });
       return rows.map((r) => ({ name: r.name }));
     } catch {
+      // CORRECT-AS-IS: as `getLatestArtists` - a suggestion dropdown, no claim.
       return [];
     }
   }

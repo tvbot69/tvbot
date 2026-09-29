@@ -20,10 +20,12 @@
  *     in `playHistoryService.getYearOverview` are `.catch(() => [])`-ed; the
  *     receiver of that `.catch` is a CallExpression, and the same class of
  *     mistake defeated the raw-query detector in this file before.
- *  3. There is NO file-level skip. `genreService.ts` already had instances and
- *     already has tests, and a detector that skipped "known" files would report
- *     zero for the tenth one added tomorrow. The assertion is on the instance
- *     count within one file, not on the total, for the same reason.
+ *  3. There is NO file-level skip. A file that already has tests of its own must
+ *     still be measured, and a file must be able to report MORE THAN ONE
+ *     instance - a detector that skipped "known" files would report 0, and one
+ *     that collapsed a file to a single finding would report 1. Both are
+ *     asserted against a FIXTURE, because the previous version of this file
+ *     pinned a production file and went red the moment that file was fixed.
  *  4. A `Logger.*` anywhere in the handler suppresses the finding, so
  *     `timerService`'s `catch (err) { Logger.warn(...) }` is absent even though
  *     its body is empty and it falls through.
@@ -117,6 +119,30 @@ export async function logged(p: Promise<Array<string>>) {
 const FIXTURE_NO_CATCH = `
 export async function clean(p: Promise<Array<string>>) {
   return p;
+}
+`;
+
+/**
+ * THREE instances in ONE file, which is what the per-file question needs.
+ *
+ * The assertion this fixture replaces pointed at `genreService.ts` and required
+ * five real sites. That is the same mistake the tagged-template test above had
+ * already been rewritten for: the day someone FIXED those five swallows, the
+ * test went red and the tempting response was to delete the assertion - which
+ * inverts the ratchet, because a detector check must not depend on the bug it
+ * detects still existing. `genreService.ts` was fixed and that is exactly what
+ * happened. A detector check has to run against a subject nobody is going to
+ * fix on purpose.
+ */
+const FIXTURE_THREE_IN_ONE_FILE = `
+export async function a(p: Promise<Array<string>>) {
+  return p.catch(() => []);
+}
+export async function b(p: Promise<Array<string>>) {
+  return p.catch(() => []);
+}
+export async function c(p: Promise<Array<string>>) {
+  return p.catch(() => []);
 }
 `;
 
@@ -238,28 +264,49 @@ describe('debt ratchet: silent-failure-default', () => {
     expect(count, 'fixture is not shaped as a tagged-template .catch').toBe(1);
     expect(fixtureSites).toHaveLength(1);
     expect(fixtureSites[0]).toMatch(/\[returns \[\]\]$/);
-  });
+  }, 180_000);
 
   it('still counts the plain `.catch(() => [])` shape, so the check above is not the only path', () => {
     // Guards against "fix" being a narrowing: if someone made the detector
     // match tagged templates ONLY, the general case would go quiet.
     const { count } = runDetectorOnFixture(FIXTURE_PLAIN);
     expect(count).toBe(1);
-  });
+  }, 180_000);
 
   it('reports zero for a fixture whose catch logs, and one whose catch is absent', () => {
     // The negative cases for the same rule. Without these, a detector that
     // returned 1 for literally any file would pass everything above.
     expect(runDetectorOnFixture(FIXTURE_LOGGED).count).toBe(0);
     expect(runDetectorOnFixture(FIXTURE_NO_CATCH).count).toBe(0);
-  });
+    // Two `ts.Program` builds, each a separate `execFileSync` of the script, and
+    // this file also runs two full script passes in `beforeAll`. Under the full
+    // suite's parallel load that exceeds the 5s default, and a timeout here is
+    // indistinguishable from a detector that hangs. Same 180s the `--set` tests
+    // below use for the same reason.
+  }, 180_000);
 
-  it('counts instances inside an already-covered file, not one per file', () => {
-    // genreService.ts already has tests and already has instances. A detector
-    // that skipped "known" files would report 0 or 1 here, and the tenth
-    // instance added next month would be free.
-    const inFile = sites.filter((s) => s.trim().startsWith('bot/services/genreService.ts:'));
-    expect(inFile.length).toBeGreaterThanOrEqual(5);
+  it('counts instances inside an already-covered file, not one per file', async () => {
+    // A detector that skipped "known" files would report 0, and one that
+    // collapsed a file to a single finding would report 1. Three separate
+    // swallowing catches in one module must read as three.
+    expect(runDetectorOnFixture(FIXTURE_THREE_IN_ONE_FILE).count).toBe(3);
+  }, 180_000);
+
+  it('does not skip a production file that already has tests', async () => {
+    // The per-file rule needs one assertion against the REAL tree as well, or
+    // the fixture above only proves the detector is consistent with itself. A
+    // file with tests of its own must still be measured; the subject is read
+    // from the live site list rather than hardcoded, because naming a specific
+    // file here is the brittleness that made the previous version of this test
+    // go red the moment its subject was fixed.
+    const withOwnTests = sites.filter((s) =>
+      s.trim().startsWith('bot/services/artistsService.ts:'),
+    );
+    const testFileExists = fs.existsSync(
+      path.join(ROOT, 'src', 'bot', 'services', 'artistsService.test.ts'),
+    );
+    expect(testFileExists, 'fixture subject assumption broke: no artistsService.test.ts').toBe(true);
+    expect(withOwnTests.length, 'a tested production file was skipped by the detector').toBeGreaterThan(0);
   });
 
   it('does not report a catch that logs, even when its body is empty', () => {

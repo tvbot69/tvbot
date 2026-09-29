@@ -7,6 +7,7 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { TopArtist } from '@domain/models/topLists';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { ArtistInfo } from '@domain/models/musicInfo';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
 /**
  * artistsService is at 11.9% of 419 lines. `resolveArtistFromLink` is the
@@ -208,10 +209,23 @@ describe('ArtistsService.getUserAllTimeTopArtists', () => {
     expect(cache.set).not.toHaveBeenCalled();
   });
 
-  it('returns an empty list when the query throws', async () => {
+  it('raises rather than reporting an outage as "no artists"', async () => {
+    // The old assertion here was `resolves.toEqual([])`, which is exactly the
+    // bug: an outage and a user who has never scrobbled became the same value,
+    // and `searchArtist('rnd')` reads that empty list as "fall back to a Last.fm
+    // pick" and presents a stranger's artist as the user's own taste.
     const { service, prisma } = build();
     mock(prisma.$queryRawUnsafe).mockRejectedValue(new Error('db down'));
-    await expect(service.getUserAllTimeTopArtists(1)).resolves.toEqual([]);
+    await expect(service.getUserAllTimeTopArtists(1)).rejects.toSatisfy(isSourceUnavailable);
+  });
+
+  it('does not cache the failure, so the next request retries', async () => {
+    // A cached `[]` would outlive the outage by the full TTL and keep reporting
+    // "no artists" long after Postgres came back.
+    const { service, cache, prisma } = build();
+    mock(prisma.$queryRawUnsafe).mockRejectedValue(new Error('db down'));
+    await expect(service.getUserAllTimeTopArtists(1, true)).rejects.toSatisfy(isSourceUnavailable);
+    expect(cache.set).not.toHaveBeenCalled();
   });
 });
 
@@ -230,10 +244,19 @@ describe('ArtistsService.getArtistForId', () => {
     await expect(service.getArtistForId(999)).resolves.toBeNull();
   });
 
-  it('returns null when the query throws', async () => {
+  it('raises rather than claiming the artist does not exist', async () => {
+    // `null` is the "no such artist" answer. Returning it for a failed query
+    // told the caller the artist was unknown, which is a different fact.
     const { service, prisma } = build();
     mock(prisma.artist.findUnique).mockRejectedValue(new Error('db down'));
-    await expect(service.getArtistForId(5)).resolves.toBeNull();
+    await expect(service.getArtistForId(5)).rejects.toSatisfy(isSourceUnavailable);
+  });
+
+  it('still returns null for a genuinely unknown id', async () => {
+    // The counterpart, so the raise cannot be "fixed" by deleting the null.
+    const { service, prisma } = build();
+    mock(prisma.artist.findUnique).mockResolvedValue(null);
+    await expect(service.getArtistForId(999)).resolves.toBeNull();
   });
 });
 
@@ -258,38 +281,57 @@ describe('ArtistsService.getArtistFromDatabase', () => {
     await expect(service.getArtistFromDatabase('nobody')).resolves.toBeNull();
   });
 
-  it('returns null when the query throws', async () => {
+  it('raises rather than claiming the artist does not exist', async () => {
     const { service, prisma } = build();
     mock(prisma.artist.findFirst).mockRejectedValue(new Error('db down'));
-    await expect(service.getArtistFromDatabase('radiohead')).resolves.toBeNull();
+    await expect(service.getArtistFromDatabase('radiohead')).rejects.toSatisfy(isSourceUnavailable);
   });
 });
 
+/**
+ * These four feed `whoKnowsImageBuilder`, which already wraps each call in its
+ * own try/catch and falls through to the next cover source. So raising is
+ * behaviourally neutral there and buys a log line explaining why a mosaic lost a
+ * row. What it must never do is resolve to `[]` again - an empty list is the
+ * value the caller uses to mean "nothing to draw", so a swallowed outage is
+ * indistinguishable from an artist with no indexed covers.
+ */
 describe('ArtistsService top-list queries under database failure', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('getTopTracksForArtist returns [] when the query throws', async () => {
+  it('getTopTracksForArtist raises instead of reporting no tracks', async () => {
     const { service, prisma } = build();
     mock(prisma.$queryRawUnsafe).mockRejectedValue(new Error('db down'));
-    await expect(service.getTopTracksForArtist(1, 'Radiohead')).resolves.toEqual([]);
+    await expect(service.getTopTracksForArtist(1, 'Radiohead')).rejects.toSatisfy(isSourceUnavailable);
   });
 
-  it('getTopAlbumsForArtist returns [] when the query throws', async () => {
+  it('getTopAlbumsForArtist raises instead of reporting no albums', async () => {
     const { service, prisma } = build();
     mock(prisma.$queryRawUnsafe).mockRejectedValue(new Error('db down'));
-    await expect(service.getTopAlbumsForArtist(1, 'Radiohead')).resolves.toEqual([]);
+    await expect(service.getTopAlbumsForArtist(1, 'Radiohead')).rejects.toSatisfy(isSourceUnavailable);
   });
 
-  it('getTopAlbumsForArtistGlobal returns [] when the query throws', async () => {
+  it('getTopAlbumsForArtistGlobal raises instead of reporting no albums', async () => {
     const { service, prisma } = build();
     mock(prisma.$queryRawUnsafe).mockRejectedValue(new Error('db down'));
-    await expect(service.getTopAlbumsForArtistGlobal('Radiohead')).resolves.toEqual([]);
+    await expect(service.getTopAlbumsForArtistGlobal('Radiohead')).rejects.toSatisfy(isSourceUnavailable);
   });
 
-  it('getTopTracksForArtistGlobal returns [] when the query throws', async () => {
+  it('getTopTracksForArtistGlobal raises instead of reporting no tracks', async () => {
     const { service, prisma } = build();
     mock(prisma.$queryRawUnsafe).mockRejectedValue(new Error('db down'));
-    await expect(service.getTopTracksForArtistGlobal('Radiohead')).resolves.toEqual([]);
+    await expect(service.getTopTracksForArtistGlobal('Radiohead')).rejects.toSatisfy(isSourceUnavailable);
+  });
+
+  it('keeps the raise distinguishable from a Last.fm outage', async () => {
+    // Both are `SourceUnavailableError`, but a database outage and a Last.fm
+    // outage are different incidents and the operator needs to know which. The
+    // method label is what carries that, so it is asserted rather than assumed.
+    const { service, prisma } = build();
+    mock(prisma.$queryRawUnsafe).mockRejectedValue(new Error('db down'));
+    await expect(service.getTopTracksForArtistGlobal('Radiohead')).rejects.toMatchObject({
+      method: 'artistsService.getTopTracksForArtistGlobal:globalTracksByArtist',
+    });
   });
 });
 

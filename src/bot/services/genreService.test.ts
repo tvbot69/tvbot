@@ -1,9 +1,12 @@
 import 'reflect-metadata';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { container } from 'tsyringe';
 import { GenreService } from './genreService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
+import { Logger } from '@domain/logger';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 
 /**
  * GenreService is the join between three sources that routinely disagree:
@@ -18,6 +21,27 @@ import { LastfmApi } from '@lastfm/api/lastfmApi';
  * with the naive name search suppresses the Last.fm tags entirely rather than
  * attributing them to the wrong entity. That branch is pinned below, because
  * "returns no genres" is otherwise indistinguishable from "the API was down".
+ *
+ * THE SILENT-FAILURE CLASS. Seven methods here are `$queryRaw` aggregates that
+ * each ended in `catch { return [] }`, which made a dropped Postgres connection
+ * and a user with no scrobbles the same value. `.topgenres` answered "you have
+ * no genres" and `.whoknowsgenre` answered "nobody in this server listens to
+ * anything" during an outage, with nothing in the log. Each of those is now a
+ * PAIR: the failure RAISES, and a query that ran and found no rows still returns
+ * `[]`. A test that only asserted the raise would pass just as happily against a
+ * method that always throws, which trades one wrong answer for another - so both
+ * directions are pinned on every one of the seven.
+ *
+ * A malformed guild id is a third case and is neither. `BigInt('abc')` throws
+ * synchronously, and that is a bad argument rather than a source that failed to
+ * answer, so it returns the empty result WITHOUT opening a query - retrying it
+ * could never succeed. Those tests are kept as they were.
+ *
+ * Two catches are deliberately left alone and say so inline: the Spotify anchor
+ * (an optional precision improvement that falls through to a second real source)
+ * and `artist.gettoptags` (the last rung of a ladder that has already
+ * established the artist is untagged). Neither can convert a real answer into an
+ * empty one, so changing them would be churn rather than a fix.
  */
 
 const spotify = {
@@ -35,6 +59,9 @@ container.register(SpotifySearchApi, { useValue: spotify as never });
 container.register(LastfmApi, { useValue: lastfmApiStub as never });
 
 type ArtistInfoShape = { name?: string; tags?: string[] };
+
+/** Prisma 5xx / driver-level connectivity failure, the realistic shape. */
+const DB_DOWN = () => new Error("Can't reach database server at `host.docker.internal:5432`");
 
 const build = (over: {
   cacheGet?: unknown;
@@ -81,6 +108,15 @@ beforeEach(() => {
   spotify.getArtistById.mockReset().mockResolvedValue(null);
   spotify.searchArtists.mockReset().mockResolvedValue([]);
   lastfmApiStub.call.mockReset().mockResolvedValue({ toptags: { tag: [] } });
+});
+
+// `vi.spyOn(Logger, 'error')` is used in the failure tests below, and a spy left
+// in place is the exact bug class this repo has been bitten by before:
+// `mockRestore()` on a shared module singleton can leave an own property set to
+// `undefined`, and every later test then fails silently against it. Restore
+// after every test rather than per-test, so a new failure test cannot forget.
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('GenreService.genresToString', () => {
@@ -270,11 +306,40 @@ describe('GenreService.getGenresForArtist', () => {
     expect(built.cache.set).toHaveBeenCalledWith('genres:nobody', [], 600);
   });
 
-  it('caches an empty result for ten minutes when Last.fm itself throws', async () => {
+  it('caches an empty result for ten minutes when the Last.fm call throws an UNCLASSIFIED error', async () => {
+    // Deliberately narrower than it looks. `lastFmRepository` is contracted to
+    // return null for a real "no such artist" and to RAISE for anything else,
+    // so a bare Error reaching here is a defect in some other collaborator, not
+    // a Last.fm verdict. The empty answer is a safe fallback for that; the
+    // classified case below is the one that used to lie.
     const built = build();
     built.lastfmRepo.getArtistInfo.mockRejectedValue(new Error('lastfm down'));
     await expect(built.service.getGenresForArtist('Nobody')).resolves.toEqual([]);
     expect(built.cache.set).toHaveBeenCalledWith('genres:nobody', [], 600);
+  });
+
+  it('propagates a classified Last.fm outage and refuses to cache it as "no genres"', async () => {
+    // The load-bearing one. `LastFmRepository.getArtistInfo` raises
+    // LastFmUnavailableError precisely so nothing downstream can read a 5xx as
+    // an artist with no tags. This catch used to swallow that, cache `[]` for
+    // ten minutes, and return it - so `.genre Radiohead` would report that
+    // Radiohead has no genres, and `genreCommands` branches on
+    // `genres.length === 0` to decide whether the query was an artist at all,
+    // so an outage would chart an ARTIST as a GENRE.
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    const built = build();
+    // The real shape, constructed through the same class the repository uses.
+    const unavailable = new LastFmUnavailableError('artist.getinfo', new Error('Last.fm 5xx'));
+    built.lastfmRepo.getArtistInfo.mockRejectedValue(unavailable);
+
+    const err = await built.service.getGenresForArtist('Radiohead').catch((e: unknown) => e);
+
+    expect(isSourceUnavailable(err)).toBe(true);
+    // The lie is the CACHE, not just the return value: a cached `[]` survives
+    // the outage and keeps answering "no genres" for ten minutes after Last.fm
+    // is healthy again.
+    expect(built.cache.set).not.toHaveBeenCalledWith('genres:radiohead', [], 600);
+    expect(error).toHaveBeenCalled();
   });
 });
 
@@ -303,10 +368,28 @@ describe('GenreService.getTopGenresForUserAllTime', () => {
     ]);
   });
 
-  it('returns an empty array when the query fails', async () => {
+  it('raises instead of reporting "no genres" when the query fails', async () => {
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const built = build();
-    built.prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    built.prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    // The old code answered `[]` here, and `.topgenres` then rendered an empty
+    // genre chart for a user who has thousands of plays. Indistinguishable from
+    // the truth, and the user has no way to distrust it.
+    const err = await built.service.getTopGenresForUserAllTime(1).catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('genreService.getTopGenresForUserAllTime');
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('still returns an empty array when the query RAN and found no rows', async () => {
+    // The other half of the pair, and the one a "just throw on error" fix
+    // breaks. Every one of these is a GROUP BY aggregate: no matching rows is a
+    // SUCCESS with a shorter result, so empty is the honest answer and must
+    // stay a plain empty array - not an exception.
+    const built = build({ queryRaw: [] });
     await expect(built.service.getTopGenresForUserAllTime(1)).resolves.toEqual([]);
+    expect(built.prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -384,10 +467,22 @@ describe('GenreService.getTopGenresForTopArtists', () => {
     expect(result.map(r => r.genreName)).toEqual(['a', 'b']);
   });
 
-  it('returns an empty array when the query fails', async () => {
+  it('raises rather than rendering an empty top-genres chart', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const built = build();
-    built.prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    built.prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await built.service
+      .getTopGenresForTopArtists([{ name: 'A', playcount: 1 }])
+      .catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('genreService.getTopGenresForTopArtists');
+  });
+
+  it('still returns an empty array when the query ran and no artist is tagged', async () => {
+    const built = build({ queryRaw: [] });
     await expect(built.service.getTopGenresForTopArtists([{ name: 'A', playcount: 1 }])).resolves.toEqual([]);
+    expect(built.prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -401,10 +496,20 @@ describe('GenreService.getUserArtistsForGenre', () => {
     ]);
   });
 
-  it('returns an empty array when the query fails', async () => {
+  it('raises rather than reporting "no artists in this genre"', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const built = build();
-    built.prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    built.prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await built.service.getUserArtistsForGenre(1, 'indie rock').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('genreService.getUserArtistsForGenre');
+  });
+
+  it('still returns an empty array when the query ran and the user has none', async () => {
+    const built = build({ queryRaw: [] });
     await expect(built.service.getUserArtistsForGenre(1, 'indie rock')).resolves.toEqual([]);
+    expect(built.prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -424,10 +529,23 @@ describe('GenreService.getGuildTopGenresAllTime', () => {
     expect(built.prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('returns an empty array when the query fails', async () => {
+  it('raises rather than reporting a server where nobody listens to anything', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const built = build();
-    built.prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    built.prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    // The worst shape in the file: an empty guild genre chart is a plausible,
+    // confident, actionable answer. `genreService.db.test.ts` documents a REAL
+    // production bug of exactly this shape in this very query.
+    const err = await built.service.getGuildTopGenresAllTime('123').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('genreService.getGuildTopGenresAllTime');
+  });
+
+  it('still returns an empty array when the query ran and the guild has no genre rows', async () => {
+    const built = build({ queryRaw: [] });
     await expect(built.service.getGuildTopGenresAllTime('123')).resolves.toEqual([]);
+    expect(built.prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -447,10 +565,20 @@ describe('GenreService.getGuildArtistsForGenre', () => {
     expect(built.prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('returns an empty array when the query fails', async () => {
+  it('raises rather than reporting "no artists in this genre"', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const built = build();
-    built.prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    built.prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await built.service.getGuildArtistsForGenre('123', 'indie').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('genreService.getGuildArtistsForGenre');
+  });
+
+  it('still returns an empty array when the query ran and found no artists', async () => {
+    const built = build({ queryRaw: [] });
     await expect(built.service.getGuildArtistsForGenre('123', 'indie')).resolves.toEqual([]);
+    expect(built.prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -474,10 +602,20 @@ describe('GenreService.getGuildUsersForGenre', () => {
     await expect(built.service.getGuildUsersForGenre('abc', 'indie')).resolves.toEqual([]);
   });
 
-  it('returns an empty array when the query fails', async () => {
+  it('raises rather than reporting that nobody in the server knows this genre', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const built = build();
-    built.prisma.$queryRaw.mockRejectedValue(new Error('db down'));
-    await expect(built.service.getGuildUsersForGenre('123', 'indie')).resolves.toEqual([]);
+    built.prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await built.service.getGuildUsersForGenre('123', 'indie rock').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('genreService.getGuildUsersForGenre');
+  });
+
+  it('still returns an empty array when the query ran and nobody listens to it', async () => {
+    const built = build({ queryRaw: [] });
+    await expect(built.service.getGuildUsersForGenre('123', 'indie rock')).resolves.toEqual([]);
+    expect(built.prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -496,9 +634,19 @@ describe('GenreService.getFriendUsersForGenre', () => {
     ]);
   });
 
-  it('returns an empty array when the query fails', async () => {
+  it('raises rather than reporting that no friend of yours knows this genre', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const built = build();
-    built.prisma.$queryRaw.mockRejectedValue(new Error('db down'));
-    await expect(built.service.getFriendUsersForGenre(5, [], 'indie')).resolves.toEqual([]);
+    built.prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await built.service.getFriendUsersForGenre(5, [6], 'indie').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('genreService.getFriendUsersForGenre');
+  });
+
+  it('still returns an empty array when the query ran and nobody does', async () => {
+    const built = build({ queryRaw: [] });
+    await expect(built.service.getFriendUsersForGenre(5, [6], 'indie')).resolves.toEqual([]);
+    expect(built.prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });

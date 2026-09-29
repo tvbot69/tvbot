@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { CountryService } from './countryService';
+import { Logger } from '@domain/logger';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
 /**
  * CountryService resolves an artist's country from a four-step ladder:
@@ -18,6 +20,36 @@ import { CountryService } from './countryService';
  *  2. The seed map is keyed LOWERCASE with UPPERCASE values, and lookups
  *     lowercase the artist name. `Radiohead` and `  radiohead ` are the same
  *     key; the name is never case-folded anywhere else in the ladder.
+ *
+ * THE SILENT-FAILURE CLASS. Six methods below are `$queryRaw`/`findMany`
+ * aggregates that each ended in `catch { return [] }`, which made a dropped
+ * Postgres connection and a user with no scrobbles the same value. `.topcountries`
+ * answered "you have no country data" and `.whoknowscountry` answered "nobody in
+ * this server listens to anything" during an outage, with nothing in the log.
+ * Each of those is now a PAIR: the failure RAISES, and a query that ran and
+ * found no rows still returns `[]`. A test that only asserted the raise would
+ * pass just as happily against a method that always throws, which trades one
+ * wrong answer for another - so both directions are pinned on every one of the
+ * six.
+ *
+ * There is no "not found" case to separate out the way Last.fm has one. All six
+ * are aggregates over `user_artists`/`artists`, and an aggregate with no
+ * matching rows succeeds with a shorter result - it never errors. So empty IS
+ * the answer, and an error is always an error.
+ *
+ * A malformed guild id is a third case and is neither. `BigInt('abc')` throws
+ * synchronously, and that is a bad argument rather than a source that failed to
+ * answer, so `toGuildId` returns the empty result WITHOUT opening a query -
+ * retrying it could never succeed, and labelling it "Database unavailable"
+ * would send whoever reads the log to Postgres instead of to the caller. Those
+ * tests are kept as they were.
+ *
+ * Two catches in the service are deliberately left alone and say so inline: the
+ * live artist row (rung 4 of a five-rung ladder, which rung 5 is about to
+ * answer) and the MusicBrainz rung itself (the last rung, whose contract is an
+ * OPTIONAL field, so `.country <artist>` renders a truthful "we do not know"
+ * rather than failing a whole card over a decoration). Neither can convert a
+ * real answer into an empty one.
  */
 
 describe('CountryService', () => {
@@ -129,9 +161,18 @@ const privates = (service: CountryService) =>
 
 const seedMap = (service: CountryService) => service.seedArtistCountryMap;
 
+/** Prisma 5xx / driver-level connectivity failure, the realistic shape. */
+const DB_DOWN = () => new Error("Can't reach database server at `host.docker.internal:5432`");
+
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  // `vi.spyOn(Logger, 'error')` is used in the failure tests below, and a spy
+  // left in place is the exact bug class this repo has been bitten by before:
+  // restoring on a shared module singleton can leave an own property set to
+  // `undefined`, and every later test then fails silently against it. Restore
+  // after every test rather than per-test, so a new failure test cannot forget.
+  vi.restoreAllMocks();
 });
 
 describe('CountryService.getSeedCountry', () => {
@@ -434,9 +475,23 @@ describe('CountryService.getArtistInfoWithCountry', () => {
     });
   });
 
-  it('still returns the country when the image lookup throws', async () => {
+  it('raises rather than returning a country with no image and no indication why', async () => {
+    // The image is a decoration, but returning `{country, spotifyImageUrl: undefined}`
+    // for a dead database is indistinguishable from returning it for an artist
+    // who genuinely has no image on file - the caller cannot tell a decoration
+    // that failed to load from a decoration that does not exist.
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, prisma } = build({ findMany: [] });
-    prisma.artist.findFirst.mockRejectedValue(new Error('db down'));
+    prisma.artist.findFirst.mockRejectedValue(DB_DOWN());
+
+    const err = await service.getArtistInfoWithCountry('Radiohead').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('countryService.getArtistInfoWithCountry');
+  });
+
+  it('still returns the country with no image when the lookup ran and found none', async () => {
+    const { service, prisma } = build({ findMany: [] });
+    prisma.artist.findFirst.mockResolvedValue(null);
     await expect(service.getArtistInfoWithCountry('Radiohead')).resolves.toMatchObject({
       country: expect.objectContaining({ Code: 'GB' }),
       spotifyImageUrl: undefined,
@@ -552,10 +607,20 @@ describe('CountryService.getUserArtistsTop', () => {
     });
   });
 
-  it('returns an empty array when the query throws', async () => {
+  it('raises rather than reporting that you have no artists at all', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, prisma } = build();
-    prisma.userArtist.findMany.mockRejectedValue(new Error('db down'));
+    prisma.userArtist.findMany.mockRejectedValue(DB_DOWN());
+
+    const err = await service.getUserArtistsTop(1).catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('countryService.getUserArtistsTop');
+  });
+
+  it('still returns an empty array when the query ran and the user has no artists', async () => {
+    const { service, prisma } = build();
     await expect(service.getUserArtistsTop(1)).resolves.toEqual([]);
+    expect(prisma.userArtist.findMany).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -628,10 +693,35 @@ describe('CountryService.getUserTopCountriesAllTime', () => {
     expect(result[0]?.countryCode).toBe('JP');
   });
 
-  it('returns an empty array when the whole path throws', async () => {
+  it('raises rather than reporting that you have no country data', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, prisma } = build();
-    prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await service.getUserTopCountriesAllTime(1).catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('countryService.getUserTopCountriesAllTime');
+  });
+
+  it('lets the artist query failure through instead of laundering it as an empty chart', async () => {
+    // This is the back-door case. A method-wide `try/catch` would catch the
+    // `SourceUnavailableError` raised by `getUserArtistsTop` one line above and
+    // return `[]` for it, re-creating the exact bug the wrapper removed - so the
+    // raise must keep its own identity on the way out.
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    const { service, prisma } = build();
+    prisma.userArtist.findMany.mockRejectedValue(DB_DOWN());
+
+    const err = await service.getUserTopCountriesAllTime(1).catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('countryService.getUserArtistsTop');
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('still returns an empty array when the raw query ran and found no country rows', async () => {
+    const { service, prisma } = build();
     await expect(service.getUserTopCountriesAllTime(1)).resolves.toEqual([]);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -643,10 +733,20 @@ describe('CountryService.getUserArtistsForCountry', () => {
     ]);
   });
 
-  it('returns an empty array when the query throws', async () => {
+  it('raises rather than reporting that you have no artists in that country', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, prisma } = build();
-    prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await service.getUserArtistsForCountry(1, 'GB').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('countryService.getUserArtistsForCountry');
+  });
+
+  it('still returns an empty array when the query ran and found no artists', async () => {
+    const { service, prisma } = build({ queryRaw: [] });
     await expect(service.getUserArtistsForCountry(1, 'GB')).resolves.toEqual([]);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -666,10 +766,20 @@ describe('CountryService.getGuildTopCountriesAllTime', () => {
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('returns an empty array when the query throws', async () => {
+  it('raises rather than reporting that no guild has any country data', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, prisma } = build();
-    prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await service.getGuildTopCountriesAllTime('123').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('countryService.getGuildTopCountriesAllTime');
+  });
+
+  it('still returns an empty array when the query ran and the guild has no country rows', async () => {
+    const { service, prisma } = build({ queryRaw: [] });
     await expect(service.getGuildTopCountriesAllTime('123')).resolves.toEqual([]);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -687,10 +797,20 @@ describe('CountryService.getGuildArtistsForCountry', () => {
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('returns an empty array when the query throws', async () => {
+  it('raises rather than reporting that no guild has an artist from that country', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, prisma } = build();
-    prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await service.getGuildArtistsForCountry('123', 'GB').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('countryService.getGuildArtistsForCountry');
+  });
+
+  it('still returns an empty array when the query ran and found no artists', async () => {
+    const { service, prisma } = build({ queryRaw: [] });
     await expect(service.getGuildArtistsForCountry('123', 'GB')).resolves.toEqual([]);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -715,9 +835,19 @@ describe('CountryService.getGuildUsersForCountry', () => {
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('returns an empty array when the query throws', async () => {
+  it('raises rather than reporting that nobody in the server is from that country', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, prisma } = build();
-    prisma.$queryRaw.mockRejectedValue(new Error('db down'));
+    prisma.$queryRaw.mockRejectedValue(DB_DOWN());
+
+    const err = await service.getGuildUsersForCountry('123', 'GB').catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('countryService.getGuildUsersForCountry');
+  });
+
+  it('still returns an empty array when the query ran and nobody listens', async () => {
+    const { service, prisma } = build({ queryRaw: [] });
     await expect(service.getGuildUsersForCountry('123', 'GB')).resolves.toEqual([]);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });

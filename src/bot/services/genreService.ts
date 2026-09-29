@@ -7,6 +7,60 @@ import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
+
+/**
+ * A failed read is not a zero.
+ *
+ * Seven methods in this file are `$queryRaw` aggregates over `user_artists` and
+ * `artist_genres`, and every one of them ended in `catch { return [] }`. That
+ * made a dropped connection and a user with no scrobbles the same value, which
+ * is the worst failure shape available: `.topgenres` answered "you have no
+ * genres" and `.whoknowsgenre` answered "nobody in this server listens to
+ * anything" during an outage, with no error anywhere. The genre db suite
+ * (`genreService.db.test.ts`) found a real production bug of exactly this shape
+ * in four of these seven queries, and it was invisible from the outside.
+ *
+ * Same rule as `orUnavailable` in lastFmRepository and
+ * `orDatabaseUnavailable` in playHistoryService and guildAdminService: a
+ * missing ROW is a real answer and stays an empty result, but a query that could
+ * not run raises. None of these seven has a "not found" case to separate out -
+ * every one is a `GROUP BY` aggregate, and an aggregate with no matching rows
+ * succeeds with a shorter result rather than erroring. So empty IS the answer,
+ * and an error is always an error.
+ */
+const orDatabaseUnavailable = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: label, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${label}; refusing to render it as an empty result`,
+    );
+    throw new SourceUnavailableError(`genreService.${label}`, err, 'Database unavailable');
+  }
+};
+
+/**
+ * `guild_id` is BigInt and every guild id arrives as a string, so `BigInt()`
+ * throws a SyntaxError on anything non-numeric.
+ *
+ * A malformed argument is not a source that failed to answer, and it must not be
+ * laundered into the same "database unavailable" as a real outage - that would
+ * tell a caller to retry a request which can never succeed. The guard returns
+ * the empty answer WITHOUT opening a query, which is the honest answer: no such
+ * guild exists, so it has no genre rows. Same shape as `safeBigInt` in
+ * crownRepository.
+ */
+const parseGuildId = (guildId: string): bigint | null => {
+  if (!guildId || !/^\d+$/.test(guildId)) return null;
+  try {
+    return BigInt(guildId);
+  } catch {
+    return null;
+  }
+};
 
 export interface TopGenreItem {
   genreName: string;
@@ -74,6 +128,16 @@ export class GenreService {
           }
         }
       } catch {
+        // CORRECT AS IS. The anchored Spotify lookup is an optional PRECISION
+        // improvement, not the answer: a failure here falls through to the
+        // name-based flow below, which still consults our own `artist_genres`
+        // table and then Last.fm. So the worst case is a genre list resolved by
+        // name rather than pinned to the entity - the same answer the service
+        // already returns whenever no sample track is supplied, and the same
+        // answer it returns when Spotify genuinely cannot find the entity. No
+        // number is invented and no row is dropped, so there is nothing here for
+        // the user to be misled about. Raising would break the entire artist
+        // card over a decoration.
         // fall through to the name-based flow
       }
       // No anchor (or anchor matches naive winner): fall through to name-based flow.
@@ -119,6 +183,15 @@ export class GenreService {
           const rawTags = res?.toptags?.tag ?? [];
           tags = rawTags.map((t) => t.name).filter(Boolean);
         } catch {
+          // CORRECT AS IS. `artist.gettoptags` is the THIRD and last rung of a
+          // ladder: `artist.getInfo` already ran and returned this artist with
+          // no tags, and the s/$ spelling variant was already tried. A failure
+          // here therefore costs one redundant probe of an artist Last.fm has
+          // already described as untagged - it does not convert a real tag list
+          // into an empty one, because a real tag list would have been returned
+          // two rungs earlier and never reached this call. `top` below stays
+          // empty and the caller gets the honest "Last.fm has no tags for this
+          // artist" answer, which the outer catch classifies the same way.
           // ignore
         }
       }
@@ -135,8 +208,23 @@ export class GenreService {
         await this.cache.set(key, top, 3600);
         return top;
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      // `lastfmRepo.getArtistInfo` already draws this line for us: a real "no
+      // such artist" comes back as null, and anything else - a 5xx, a dropped
+      // connection - is RAISED as LastFmUnavailableError precisely so no caller
+      // can mistake it for an artist with no tags. This catch used to swallow
+      // that and cache `[]` for ten minutes, so a Last.fm outage told the world
+      // the artist has no genres, and `.genre <artist>` then charted an artist
+      // as a genre because it branches on `genres.length === 0`. Overruling a
+      // deliberately raised signal is the bug; anything genuinely unexpected
+      // still falls through to the empty answer below.
+      if (isSourceUnavailable(err)) {
+        Logger.error(
+          { artist: artistName, err: (err as Error)?.message ?? String(err) },
+          'Last.fm unavailable while resolving artist genres; not caching the failure as "no genres"',
+        );
+        throw err;
+      }
     }
 
     await this.cache.set(key, [], 600);
@@ -148,8 +236,9 @@ export class GenreService {
   }
 
   public async getTopGenresForUserAllTime(userId: number, limit = 100): Promise<TopGenreItem[]> {
-    try {
-      const rows = await this.prisma.$queryRaw<Array<{ genreName: string; userPlaycount: bigint }>>`
+    const rows = await orDatabaseUnavailable<Array<{ genreName: string; userPlaycount: bigint }>>(
+      'getTopGenresForUserAllTime',
+      () => this.prisma.$queryRaw<Array<{ genreName: string; userPlaycount: bigint }>>`
         SELECT ag.name AS "genreName", SUM(ua.playcount)::bigint AS "userPlaycount"
         FROM user_artists ua
         INNER JOIN artist_genres ag ON ag.artist_id = ua.artist_id
@@ -157,15 +246,13 @@ export class GenreService {
         GROUP BY ag.name
         ORDER BY "userPlaycount" DESC
         LIMIT ${limit}
-      `;
+      `,
+    );
 
-      return rows.map(r => ({
-        genreName: r.genreName,
-        userPlaycount: Number(r.userPlaycount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map(r => ({
+      genreName: r.genreName,
+      userPlaycount: Number(r.userPlaycount),
+    }));
   }
 
   public async getTopGenresForTopArtists(
@@ -177,47 +264,46 @@ export class GenreService {
     const artistNames = [...new Set(topArtists.map(a => a.name.toLowerCase().trim()))];
     if (artistNames.length === 0) return [];
 
-    try {
-      const rows = await this.prisma.$queryRaw<Array<{ genre: string; artistName: string }>>`
+    const rows = await orDatabaseUnavailable<Array<{ genre: string; artistName: string }>>(
+      'getTopGenresForTopArtists',
+      () => this.prisma.$queryRaw<Array<{ genre: string; artistName: string }>>`
         SELECT ag.name AS "genre", a.name AS "artistName"
         FROM artists a
         INNER JOIN artist_genres ag ON ag.artist_id = a.artist_id
         WHERE LOWER(a.name) = ANY(${artistNames})
-      `;
+      `,
+    );
 
-      const artistGenreMap = new Map<string, string[]>();
-      for (const r of rows) {
-        const k = r.artistName.toLowerCase().trim();
-        if (!artistGenreMap.has(k)) artistGenreMap.set(k, []);
-        artistGenreMap.get(k)!.push(r.genre);
-      }
+    const artistGenreMap = new Map<string, string[]>();
+    for (const r of rows) {
+      const k = r.artistName.toLowerCase().trim();
+      if (!artistGenreMap.has(k)) artistGenreMap.set(k, []);
+      artistGenreMap.get(k)!.push(r.genre);
+    }
 
-      const genreTotals = new Map<string, number>();
-      const genreArtists = new Map<string, string[]>();
+    const genreTotals = new Map<string, number>();
+    const genreArtists = new Map<string, string[]>();
 
-      for (const a of topArtists) {
-        const genres = artistGenreMap.get(a.name.toLowerCase().trim()) || [];
-        for (const g of genres) {
-          genreTotals.set(g, (genreTotals.get(g) || 0) + a.playcount);
-          if (!genreArtists.has(g)) genreArtists.set(g, []);
-          const list = genreArtists.get(g)!;
-          if (list.length < 3 && !list.includes(a.name)) {
-            list.push(a.name);
-          }
+    for (const a of topArtists) {
+      const genres = artistGenreMap.get(a.name.toLowerCase().trim()) || [];
+      for (const g of genres) {
+        genreTotals.set(g, (genreTotals.get(g) || 0) + a.playcount);
+        if (!genreArtists.has(g)) genreArtists.set(g, []);
+        const list = genreArtists.get(g)!;
+        if (list.length < 3 && !list.includes(a.name)) {
+          list.push(a.name);
         }
       }
-
-      return Array.from(genreTotals.entries())
-        .map(([genreName, userPlaycount]) => ({
-          genreName,
-          userPlaycount,
-          topArtists: genreArtists.get(genreName) || [],
-        }))
-        .sort((a, b) => b.userPlaycount - a.userPlaycount)
-        .slice(0, limit);
-    } catch {
-      return [];
     }
+
+    return Array.from(genreTotals.entries())
+      .map(([genreName, userPlaycount]) => ({
+        genreName,
+        userPlaycount,
+        topArtists: genreArtists.get(genreName) || [],
+      }))
+      .sort((a, b) => b.userPlaycount - a.userPlaycount)
+      .slice(0, limit);
   }
 
   public async getUserArtistsForGenre(
@@ -225,8 +311,9 @@ export class GenreService {
     genreName: string,
     limit = 50,
   ): Promise<{ artistName: string; userPlaycount: number }[]> {
-    try {
-      const rows = await this.prisma.$queryRaw<Array<{ artistName: string; userPlaycount: number }>>`
+    const rows = await orDatabaseUnavailable<Array<{ artistName: string; userPlaycount: number }>>(
+      'getUserArtistsForGenre',
+      () => this.prisma.$queryRaw<Array<{ artistName: string; userPlaycount: number }>>`
         SELECT ua.name AS "artistName", ua.playcount AS "userPlaycount"
         FROM user_artists ua
         INNER JOIN artist_genres ag ON ag.artist_id = ua.artist_id
@@ -235,24 +322,25 @@ export class GenreService {
           AND LOWER(ag.name) = LOWER(${genreName.trim()})
         ORDER BY ua.playcount DESC
         LIMIT ${limit}
-      `;
+      `,
+    );
 
-      return rows.map(r => ({
-        artistName: r.artistName,
-        userPlaycount: Number(r.userPlaycount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map(r => ({
+      artistName: r.artistName,
+      userPlaycount: Number(r.userPlaycount),
+    }));
   }
 
   public async getGuildTopGenresAllTime(
     guildId: string,
     limit = 100,
   ): Promise<GuildGenreItem[]> {
-    try {
-      const gIdBigInt = BigInt(guildId);
-      const rows = await this.prisma.$queryRaw<Array<{ genreName: string; totalPlaycount: bigint; listenerCount: bigint }>>`
+    const gIdBigInt = parseGuildId(guildId);
+    if (gIdBigInt === null) return [];
+
+    const rows = await orDatabaseUnavailable<Array<{ genreName: string; totalPlaycount: bigint; listenerCount: bigint }>>(
+      'getGuildTopGenresAllTime',
+      () => this.prisma.$queryRaw<Array<{ genreName: string; totalPlaycount: bigint; listenerCount: bigint }>>`
         SELECT ag.name AS "genreName",
                SUM(ua.playcount)::bigint AS "totalPlaycount",
                COUNT(DISTINCT ua.user_id)::bigint AS "listenerCount"
@@ -268,16 +356,14 @@ export class GenreService {
         GROUP BY ag.name
         ORDER BY "listenerCount" DESC, "totalPlaycount" DESC
         LIMIT ${limit}
-      `;
+      `,
+    );
 
-      return rows.map(r => ({
-        genreName: r.genreName,
-        totalPlaycount: Number(r.totalPlaycount),
-        listenerCount: Number(r.listenerCount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map(r => ({
+      genreName: r.genreName,
+      totalPlaycount: Number(r.totalPlaycount),
+      listenerCount: Number(r.listenerCount),
+    }));
   }
 
   public async getGuildArtistsForGenre(
@@ -285,9 +371,12 @@ export class GenreService {
     genreName: string,
     limit = 50,
   ): Promise<{ artistName: string; userPlaycount: number }[]> {
-    try {
-      const gIdBigInt = BigInt(guildId);
-      const rows = await this.prisma.$queryRaw<Array<{ artistName: string; userPlaycount: bigint }>>`
+    const gIdBigInt = parseGuildId(guildId);
+    if (gIdBigInt === null) return [];
+
+    const rows = await orDatabaseUnavailable<Array<{ artistName: string; userPlaycount: bigint }>>(
+      'getGuildArtistsForGenre',
+      () => this.prisma.$queryRaw<Array<{ artistName: string; userPlaycount: bigint }>>`
         SELECT ua.name AS "artistName", SUM(ua.playcount)::bigint AS "userPlaycount"
         FROM user_artists ua
         INNER JOIN guild_users gu ON gu.user_id = ua.user_id
@@ -301,24 +390,25 @@ export class GenreService {
         GROUP BY ua.name
         ORDER BY "userPlaycount" DESC
         LIMIT ${limit}
-      `;
+      `,
+    );
 
-      return rows.map(r => ({
-        artistName: r.artistName,
-        userPlaycount: Number(r.userPlaycount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map(r => ({
+      artistName: r.artistName,
+      userPlaycount: Number(r.userPlaycount),
+    }));
   }
 
   public async getGuildUsersForGenre(
     guildId: string,
     genreName: string,
   ): Promise<WhoKnowsGenreItem[]> {
-    try {
-      const gIdBigInt = BigInt(guildId);
-      const rows = await this.prisma.$queryRaw<Array<{ userId: number; discordUserId: bigint; userNameLastFm: string; playcount: bigint }>>`
+    const gIdBigInt = parseGuildId(guildId);
+    if (gIdBigInt === null) return [];
+
+    const rows = await orDatabaseUnavailable<Array<{ userId: number; discordUserId: bigint; userNameLastFm: string; playcount: bigint }>>(
+      'getGuildUsersForGenre',
+      () => this.prisma.$queryRaw<Array<{ userId: number; discordUserId: bigint; userNameLastFm: string; playcount: bigint }>>`
         SELECT ua.user_id AS "userId",
                u.discord_user_id AS "discordUserId",
                u.user_name_last_fm AS "userNameLastFm",
@@ -338,17 +428,15 @@ export class GenreService {
           )
         GROUP BY ua.user_id, u.discord_user_id, u.user_name_last_fm
         ORDER BY "playcount" DESC
-      `;
+      `,
+    );
 
-      return rows.map(r => ({
-        userId: r.userId,
-        discordUserId: r.discordUserId.toString(),
-        userNameLastFm: r.userNameLastFm,
-        playcount: Number(r.playcount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map(r => ({
+      userId: r.userId,
+      discordUserId: r.discordUserId.toString(),
+      userNameLastFm: r.userNameLastFm,
+      playcount: Number(r.playcount),
+    }));
   }
 
   public async getFriendUsersForGenre(
@@ -356,11 +444,12 @@ export class GenreService {
     friendUserIds: number[],
     genreName: string,
   ): Promise<WhoKnowsGenreItem[]> {
-    try {
-      const allUserIds = [...new Set([userId, ...friendUserIds])];
-      if (allUserIds.length === 0) return [];
+    const allUserIds = [...new Set([userId, ...friendUserIds])];
+    if (allUserIds.length === 0) return [];
 
-      const rows = await this.prisma.$queryRaw<Array<{ userId: number; discordUserId: bigint; userNameLastFm: string; playcount: bigint }>>`
+    const rows = await orDatabaseUnavailable<Array<{ userId: number; discordUserId: bigint; userNameLastFm: string; playcount: bigint }>>(
+      'getFriendUsersForGenre',
+      () => this.prisma.$queryRaw<Array<{ userId: number; discordUserId: bigint; userNameLastFm: string; playcount: bigint }>>`
         SELECT ua.user_id AS "userId",
                u.discord_user_id AS "discordUserId",
                u.user_name_last_fm AS "userNameLastFm",
@@ -374,16 +463,14 @@ export class GenreService {
           )
         GROUP BY ua.user_id, u.discord_user_id, u.user_name_last_fm
         ORDER BY "playcount" DESC
-      `;
+      `,
+    );
 
-      return rows.map(r => ({
-        userId: r.userId,
-        discordUserId: r.discordUserId.toString(),
-        userNameLastFm: r.userNameLastFm,
-        playcount: Number(r.playcount),
-      }));
-    } catch {
-      return [];
-    }
+    return rows.map(r => ({
+      userId: r.userId,
+      discordUserId: r.discordUserId.toString(),
+      userNameLastFm: r.userNameLastFm,
+      playcount: Number(r.playcount),
+    }));
   }
 }
