@@ -40,3 +40,12 @@ coverage/
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Local audit artifacts (one session, not project files).
+# Named specifically rather than with a blanket `*.md` / `*.txt`: this repo
+# TRACKS markdown (AGENTS.md, docs/*.md, .opencode/skills/**/SKILL.md) and
+# blanket rules do not apply retroactively, so they would hide new files while
+# leaving the old ones tracked - the worst of both.
+A1-HANDOFF.md
+full*.txt
+Screenshot_*.png
