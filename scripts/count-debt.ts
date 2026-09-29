@@ -44,8 +44,9 @@ const SET_ARGS = process.argv.filter((a) => a.startsWith('--set='));
  * regression can be found without re-deriving the measurement by hand.
  */
 let WHERE: string[] = [];
-const record = (file: string, line: number): void => {
-  WHERE.push(`${file}:${line}`);
+/** `note` is appended after the location so `--where` prints a shape with it. */
+const record = (file: string, line: number, note?: string): void => {
+  WHERE.push(`${file}:${line}${note ? `  [${note}]` : ''}`);
 };
 
 type KindFn = (program: ts.Program) => number;
@@ -404,6 +405,234 @@ const KINDS: Record<string, KindFn> = {
     }
     return n;
   },
+
+  /**
+   * SILENT FAILURES: a catch that swallows the error and fabricates a
+   * plausible answer, with no `Logger.*` anywhere in its body.
+   *
+   * This is the bug class that hid two production defects. The 114-test real
+   * Postgres suite found `getAverageTrackAudioFeaturesForTopTracks` selecting
+   * five columns that no migration creates behind `.catch(() => [])` - it had
+   * returned all-zeros, silently, for the life of the feature - and
+   * `albumService.getUserAllTimeTopAlbumsByReleasePrefix` throwing on 100% of
+   * calls while its catch returned the UNFILTERED list. Both rendered total
+   * failure as success, and a green test suite approved of both.
+   *
+   * Three clauses, all required:
+   *   1. the caught value is unused, or the catch is bare;
+   *   2. the handler's effect is a default-ish value - `[]`, `{}`, `0`,
+   *      `null`, `undefined`, `false`, `''`, an empty `Set`/`Map`, an
+   *      assignment of one of those, or falling through to the next rung;
+   *   3. there is no `Logger.*` call anywhere in the handler body.
+   *
+   * Clause 3 is what makes this count the *silent* ones. A catch that logs at
+   * any level is doing what AGENTS.md golden rule 10 asks for, so it is not
+   * this debt. That is the whole reason the class-C majority stays affordable.
+   *
+   * NOT a file-level check. Nothing here asks whether the file has a test or is
+   * already on a list, because a new instance in an existing file is the way
+   * this debt actually grows - see the identical trap that killed the first
+   * version of `raw-query-without-db-test` above. Every instance is counted and
+   * every instance is located, so `--where` gives the per-file attribution
+   * without a second baseline file to keep in sync.
+   *
+   * Both AST shapes are handled. A `catch { }` clause is a `CatchClause`; a
+   * `repo.find(x).catch(() => [])` is a `CallExpression` whose callee is a
+   * `PropertyAccessExpression` named `catch`. Checking only one of them is the
+   * mistake that made the first raw-query detector report zero for a file
+   * holding five queries, and a ratchet that reports zero is worse than none.
+   */
+  'silent-failure-default': (program) => {
+    let n = 0;
+    for (const sf of program.getSourceFiles()) {
+      if (!isProduction(sf)) continue;
+      const p = path.resolve(sf.fileName).replace(/\\/g, '/');
+      // `isProduction` drops `*.test.ts` and `*.spec.ts` and anything outside
+      // `/src/`, which covers `scripts/`. It does NOT drop the shared test tree
+      // `src/tests/**` - `setupEnv.ts` and the player doubles are not named
+      // `*.test.ts` - and a test helper swallowing an error so a test can
+      // assert the degraded path is legitimate. Scoped here rather than in
+      // `isProduction` so the other seven kinds keep their exact numbers.
+      if (p.includes('/src/tests/')) continue;
+      const rel = p.split('/src/')[1] ?? p;
+
+      const hit = (node: ts.Node, shape: string): void => {
+        n += 1;
+        const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+        record(rel, line + 1, shape);
+      };
+
+      const visit = (node: ts.Node): void => {
+        if (ts.isCatchClause(node)) {
+          const shape = judgeHandler(node.block, node.variableDeclaration ? [node.variableDeclaration.name] : [], sf);
+          if (shape) hit(node, shape);
+        } else if (ts.isCallExpression(node) && isCatchCallee(node.expression)) {
+          const arg = node.arguments[0];
+          if (arg && ts.isFunctionLike(arg)) {
+            const shape = judgeHandler(arg.body, arg.parameters.map((prm) => prm.name), sf);
+            if (shape) hit(node, shape);
+          }
+        }
+        node.forEachChild(visit);
+      };
+      visit(sf);
+    }
+    return n;
+  },
+};
+
+/** `.catch(...)`: a method call literally named `catch`. */
+/**
+ * Is this the CALLEE of a `.catch(...)` call?
+ *
+ * The parameter is the callee, not the call: `isCatchCall(node.expression)`.
+ * Passing the CallExpression itself is a mistake that makes this return false
+ * for every site in the tree, which is not a crash and not a low number - it
+ * is a detector that quietly measures half the population. The mutation check
+ * is what found it; nothing else would have.
+ */
+const isCatchCallee = (e: ts.Expression): boolean =>
+  ts.isPropertyAccessExpression(e) && e.name.text === 'catch';
+
+const LOG_METHODS = new Set(['trace', 'debug', 'info', 'warn', 'error', 'fatal']);
+
+/**
+ * True when a `Logger.*` call appears anywhere under `root`.
+ * `/logger$/i` matches the exported `Logger` and any `fooLogger` alias. A
+ * receipt of the house style: `Logger.debug` is what an expected degradation
+ * is *supposed* to look like, so a handler that logs is not silent.
+ */
+const hasLoggerCall = (root: ts.Node): boolean => {
+  let found = false;
+  const walk = (x: ts.Node): void => {
+    if (found) return;
+    if (ts.isCallExpression(x) && ts.isPropertyAccessExpression(x.expression)) {
+      const recv = x.expression.expression;
+      if (
+        ts.isIdentifier(recv) &&
+        /logger$/i.test(recv.text) &&
+        LOG_METHODS.has(x.expression.name.text)
+      ) {
+        found = true;
+        return;
+      }
+    }
+    x.forEachChild(walk);
+  };
+  walk(root);
+  return found;
+};
+
+/** Does `name` appear as an identifier anywhere under `root`? */
+const identifierAppears = (name: string, root: ts.Node): boolean => {
+  let found = false;
+  const walk = (x: ts.Node): void => {
+    if (found) return;
+    if (ts.isIdentifier(x) && x.text === name) {
+      found = true;
+      return;
+    }
+    x.forEachChild(walk);
+  };
+  walk(root);
+  return found;
+};
+
+/** Strip wrappers that do not change the value being produced. */
+const unwrap = (e: ts.Expression): ts.Expression => {
+  let cur = e;
+  for (;;) {
+    if (ts.isParenthesizedExpression(cur) || ts.isNonNullExpression(cur)) cur = cur.expression;
+    else if (ts.isAsExpression(cur) || ts.isSatisfiesExpression(cur) || ts.isTypeAssertionExpression(cur)) cur = cur.expression;
+    else return cur;
+  }
+};
+
+/**
+ * Is this expression one of the default-ish values a silent failure returns?
+ * `undefined` (a bare `return;`, or a missing expression) counts, because
+ * `undefined` on a `string[]`-returning method is what a caller renders as
+ * "this artist has no countries" - the exact class-B lie.
+ */
+const isDefaultish = (e: ts.Expression | undefined): boolean => {
+  if (!e) return true;
+  const x = unwrap(e);
+  if (x.kind === ts.SyntaxKind.NullKeyword || x.kind === ts.SyntaxKind.FalseKeyword) return true;
+  if (ts.isIdentifier(x) && x.text === 'undefined') return true;
+  if (ts.isPrefixUnaryExpression(x) && x.operator === ts.SyntaxKind.VoidKeyword) return true;
+  if (ts.isNumericLiteral(x)) return Number(x.text) === 0;
+  if (ts.isStringLiteral(x) || ts.isNoSubstitutionTemplateLiteral(x)) return x.text === '';
+  if (ts.isArrayLiteralExpression(x)) return x.elements.length === 0;
+  if (ts.isObjectLiteralExpression(x)) return x.properties.length === 0;
+  // An empty collection, NOT a populated one: `new Set(a)` and `new Set()` are
+  // opposite findings and the type argument is noise (`new Set<string>()`).
+  if (
+    ts.isNewExpression(x) &&
+    ts.isIdentifier(x.expression) &&
+    (x.expression.text === 'Set' || x.expression.text === 'Map')
+  ) {
+    return (x.arguments?.length ?? 0) === 0;
+  }
+  // `x ?? []` / `x || []`: the default is produced on the failure path, which
+  // is the shape being counted. The real value still wins when there is one.
+  if (
+    ts.isBinaryExpression(x) &&
+    (x.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      x.operatorToken.kind === ts.SyntaxKind.BarBarToken) &&
+    x.right
+  ) {
+    return isDefaultish(x.right);
+  }
+  return false;
+};
+
+const oneLine = (e: ts.Expression, sf: ts.SourceFile): string => e.getText(sf).replace(/\s+/g, ' ').slice(0, 40);
+
+/**
+ * Apply the three clauses to one handler and return a shape label, or null.
+ *
+ * The label goes into `--where` so the number is triageable without opening
+ * the file - a ratchet you cannot locate is a ratchet you cannot act on.
+ */
+const judgeHandler = (
+  body: ts.Block | ts.ConciseBody,
+  paramNames: readonly ts.BindingName[],
+  sf: ts.SourceFile,
+): string | null => {
+  // Clause 1. A bare catch or a parameter never mentioned in the body.
+  for (const nm of paramNames) {
+    if (!ts.isIdentifier(nm)) return null;
+    if (!identifierAppears(nm.text, body)) continue;
+    return null;
+  }
+  // Clause 3. Any Logger receipt anywhere in the handler.
+  if (hasLoggerCall(body)) return null;
+  // Clause 2. The effect has to be a default.
+  if (ts.isBlock(body)) {
+    if (body.statements.length === 0) return 'empty body, falls through';
+    for (const st of body.statements) {
+      if (ts.isEmptyStatement(st)) continue;
+      if (ts.isReturnStatement(st)) {
+        if (!isDefaultish(st.expression)) return null;
+        return st.expression ? `returns ${oneLine(st.expression, sf)}` : 'returns undefined';
+      }
+      // `catch { countries = []; }` fabricates exactly as much as
+      // `return []` does, and the caller cannot tell. Counting only the
+      // `return` form would leave the assignment form as a free hole.
+      if (
+        ts.isExpressionStatement(st) &&
+        ts.isBinaryExpression(st.expression) &&
+        st.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        st.expression.right
+      ) {
+        if (!isDefaultish(st.expression.right)) return null;
+        return `assigns ${oneLine(st.expression.right, sf)}`;
+      }
+      return null;
+    }
+    return 'empty body, falls through';
+  }
+  return isDefaultish(body) ? `returns ${oneLine(body, sf)}` : null;
 };
 
 /** Production source only: under src/, not a test, not a declaration. */
@@ -540,3 +769,4 @@ main();
 
 /** Unused import guard: keeps `execFileSync` from being flagged if sets are added. */
 void execFileSync;
+

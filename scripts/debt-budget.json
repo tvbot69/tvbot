@@ -6,5 +6,6 @@
   "as-unknown-as": 101,
   "process-env-outside-config": 0,
   "prisma-client-import-in-bot": 17,
-  "raw-query-without-db-test": 0
+  "raw-query-without-db-test": 0,
+  "silent-failure-default": 604
 }

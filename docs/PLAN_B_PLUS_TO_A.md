@@ -267,6 +267,23 @@ valuable.
 - Audit every `catch` that returns a default on a database or network failure **without logging**.
   This is the exact shape that hid the `albumService` bug for the life of the query: the raw SQL
   threw on 100% of calls and the catch returned everything, so total failure rendered as success.
+  - [x] The audit is mechanical and ratcheted. `silent-failure-default` in
+    `scripts/count-debt.ts` counts every `catch { }` clause and every `.catch()` handler whose
+    caught value is unused (or bare), whose effect is a default-ish value (`[]`, `{}`, `0`, `null`,
+    `undefined`, `false`, `''`, an empty `Set`/`Map`, an assignment of one, or a fallthrough), and
+    which contains **no `Logger.*` call anywhere in its body**. Budgeted at **604**, the real
+    measured number, so the ratchet is green today and can only fall. Classification of the 604
+    (1 x A, 175 x B, 428 x C) is a one-time human judgement, not part of the ratchet.
+    `npm run debt -- --where` prints every instance with its file, line and shape.
+  - [ ] Fix the A and B classes. **A is 1 site**
+    (`persistence/repositories/friendsRepository.ts:126` — a failed delete whose `false` the only
+    caller discards), because the two instances named above have already been fixed: the alt-account
+    guard in `loginService.confirmLogin` now fails **closed** with a `Logger.error`, and
+    `importService.persistScrobbles` now refuses the import rather than re-inserting unknown
+    duplicates. **B is the real queue** — `lastFmRepository` alone has 10 sites where a Last.fm 5xx
+    becomes "this user does not exist" or "no results", and
+    `playHistoryService.getYearOverview` has 6 raw queries that each become a confident zero.
+
 
 ### 6.3 Make the checklist mean something
 Untick 2.3 until it is true. A ticked box that overstates its own coverage is worse than an unticked
