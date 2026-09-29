@@ -46,10 +46,7 @@ export class UserSettingsInteractions {
     interaction: Interaction,
   ): ButtonInteraction | StringSelectMenuInteraction | null {
     if (interaction.isButton() || interaction.isStringSelectMenu()) {
-      const isOurs =
-        interaction.customId.startsWith(USER_SETTINGS_PREFIX) ||
-        interaction.customId === 'response-mode-pick' ||
-        interaction.customId === 'cover-type-pick';
+      const isOurs = interaction.customId.startsWith(USER_SETTINGS_PREFIX);
       return isOurs ? interaction : null;
     }
     return null;
@@ -233,7 +230,7 @@ export class UserSettingsInteractions {
       return;
     }
 
-    if (customId === 'user-settings:open:responsemode' || customId === 'response-mode-pick') {
+    if (customId === 'user-settings:open:responsemode') {
       const res = UserSettingsBuilders.buildResponseModeResponse(context, user);
       await interaction.reply({
         components: res.componentsV2Container ? [res.componentsV2Container] : [],
@@ -242,7 +239,7 @@ export class UserSettingsInteractions {
       return;
     }
 
-    if (customId === 'user-settings:open:covermode' || customId === 'cover-type-pick') {
+    if (customId === 'user-settings:open:covermode') {
       const res = UserSettingsBuilders.buildCoverModeResponse(context, user);
       await interaction.reply({
         components: res.componentsV2Container ? [res.componentsV2Container] : [],

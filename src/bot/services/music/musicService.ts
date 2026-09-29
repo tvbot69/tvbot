@@ -1064,14 +1064,6 @@ export class MusicService {
     }
   }
 
-  public async leave(guildId: string): Promise<void> {
-    await this.stop(guildId);
-  }
-
-  public clearPlaylistChunks(guildId: string): void {
-    this.playlistChunkManager?.clear(guildId);
-  }
-
   public getPlayer(guildId: string): Player | undefined {
     return this.registry.getPlayer(guildId);
   }

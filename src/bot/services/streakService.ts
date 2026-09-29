@@ -187,8 +187,4 @@ export class StreakService {
       emoji,
     };
   }
-
-  public streakExists(streak: StreakModel): boolean {
-    return streak.artistPlaycount > 1 || streak.albumPlaycount > 1 || streak.trackPlaycount > 1;
-  }
 }

@@ -486,110 +486,6 @@ describe('MusicInteractions view buttons', () => {
     expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
     expect(press.update).not.toHaveBeenCalled();
   });
-
-  it('view_queue updates with the queue card', async () => {
-    const tracks = Array.from({ length: 3 }, (_, i) => ({ title: `T${i}`, author: 'A', duration: 180000 }));
-    const mi = makeInteractions(makeSvc({ ...playingQueue, tracks }));
-    const press = makeButton({ customId: 'music:control:view_queue' });
-
-    await mi.handleButton(press);
-
-    expect(press.update).toHaveBeenCalledTimes(1);
-  });
-
-  it('view_queue replies when nothing is playing', async () => {
-    const mi = makeInteractions(makeSvc(null));
-    const press = makeButton({ customId: 'music:control:view_queue' });
-
-    await mi.handleButton(press);
-
-    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
-  });
-});
-
-describe('MusicInteractions lyrics button', () => {
-  const makeButton = () =>
-    ({
-      customId: 'music:control:lyrics',
-      guildId: 'g1',
-      user: { id: 'u1' },
-      member: makeMember(),
-      reply: vi.fn(async () => undefined),
-      deferUpdate: vi.fn(async () => undefined),
-      deferReply: vi.fn(async () => undefined),
-      update: vi.fn(async () => undefined),
-      editReply: vi.fn(async () => undefined),
-      message: { embeds: [], delete: vi.fn(async () => undefined), flags: { has: () => true } },
-    }) as unknown as ButtonInteraction & {
-      reply: ReturnType<typeof vi.fn>;
-      deferReply: ReturnType<typeof vi.fn>;
-      editReply: ReturnType<typeof vi.fn>;
-    };
-
-  const makeSvc = (queue: unknown) => ({
-    getQueueInfo: vi.fn(() => queue),
-    canControlPlayback: vi.fn(() => true),
-  });
-
-  const makeInteractions = (svc: unknown, lyrics: unknown) =>
-    new MusicInteractions(
-      svc as never,
-      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
-      lyrics as never,
-    );
-
-  const queue = {
-    current: { title: 'Airbag', author: 'Radiohead', uri: 'https://yt/abc', source: 'youtube' },
-    position: 0,
-    isPaused: false,
-    loopMode: 'off',
-    tracks: [],
-  };
-
-  it('replies when nothing is playing', async () => {
-    const mi = makeInteractions(makeSvc(null), { getLyrics: vi.fn(async () => null) });
-    const press = makeButton();
-
-    await mi.handleButton(press);
-
-    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
-    expect(press.editReply).not.toHaveBeenCalled();
-  });
-
-  it('reports a lookup miss instead of rendering an empty card', async () => {
-    const lyricsSvc = { getLyrics: vi.fn(async () => null) };
-    const mi = makeInteractions(makeSvc(queue), lyricsSvc);
-    const press = makeButton();
-
-    await mi.handleButton(press);
-
-    expect(lyricsSvc.getLyrics).toHaveBeenCalledWith('Airbag', 'Radiohead');
-    expect((press.editReply.mock.calls[0]![0] as { content: string }).content).toContain('Could not find lyrics for: **Airbag**');
-  });
-
-  it('renders found lyrics through editReply', async () => {
-    const lyricsSvc = { getLyrics: vi.fn(async () => ({ title: 'Airbag', artist: 'Radiohead', plainLyrics: 'In an interstellar burst' })) };
-    const mi = makeInteractions(makeSvc(queue), lyricsSvc);
-    const press = makeButton();
-
-    await mi.handleButton(press);
-
-    expect(press.editReply).toHaveBeenCalledTimes(1);
-  });
-
-  it('truncates lyrics longer than 4000 characters', async () => {
-    const longLyrics = 'la'.repeat(2100);
-    const lyricsSvc = { getLyrics: vi.fn(async () => ({ title: 'Airbag', artist: 'Radiohead', plainLyrics: longLyrics })) };
-    const spy = vi.spyOn(MusicBuilders, 'buildLyricsResponse');
-    const mi = makeInteractions(makeSvc(queue), lyricsSvc);
-    const press = makeButton();
-
-    await mi.handleButton(press);
-
-    const passed = spy.mock.calls[0]![2] as string;
-    expect(passed).toContain('Lyrics truncated');
-    expect(passed.length).toBeLessThan(longLyrics.length);
-  });
 });
 
 describe('MusicInteractions filters button and reset', () => {
@@ -617,34 +513,6 @@ describe('MusicInteractions filters button and reset', () => {
     tracks: [],
     activeFilters: [] as string[],
   };
-
-  it('open_filters updates with the filters panel', async () => {
-    const svc = { getQueueInfo: vi.fn(() => queue), canControlPlayback: vi.fn(() => true) };
-    const mi = new MusicInteractions(
-      svc as never,
-      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
-      { getLyrics: vi.fn(async () => null) } as never,
-    );
-
-    await mi.handleButton(makeButton('music:control:open_filters'));
-
-    expect(svc.getQueueInfo).toHaveBeenCalled();
-    expect(mi).toBeDefined();
-  });
-
-  it('open_filters replies when nothing is playing', async () => {
-    const svc = { getQueueInfo: vi.fn(() => null), canControlPlayback: vi.fn(() => true) };
-    const mi = new MusicInteractions(
-      svc as never,
-      { getAccentColorAsync: vi.fn(async () => 0xff0000) } as never,
-      { getLyrics: vi.fn(async () => null) } as never,
-    );
-    const press = makeButton('music:control:open_filters');
-
-    await mi.handleButton(press);
-
-    expect((press.reply.mock.calls[0]![0] as { content: string }).content).toBe('No music is currently playing.');
-  });
 
   it('filter:reset clears filters and rebuilds the panel', async () => {
     const svc = {
@@ -938,22 +806,6 @@ describe('MusicInteractions playback controls', () => {
     await mi.handleButton(makeButton('music:control:loop'));
 
     expect(svc.cycleLoop).toHaveBeenCalledWith('g1');
-  });
-
-  it('vol_down steps the volume down by 10', async () => {
-    const { svc, mi } = build({ adjustVolume: vi.fn(() => undefined) });
-
-    await mi.handleButton(makeButton('music:control:vol_down'));
-
-    expect(svc.adjustVolume).toHaveBeenCalledWith('g1', -10);
-  });
-
-  it('vol_up steps the volume up by 10', async () => {
-    const { svc, mi } = build({ adjustVolume: vi.fn(() => undefined) });
-
-    await mi.handleButton(makeButton('music:control:vol_up'));
-
-    expect(svc.adjustVolume).toHaveBeenCalledWith('g1', 10);
   });
 
   it('stop stops playback and deletes the card', async () => {

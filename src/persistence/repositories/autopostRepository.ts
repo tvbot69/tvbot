@@ -41,24 +41,6 @@ export class AutopostRepository {
     }));
   }
 
-  public async getAutopostById(id: number): Promise<AutopostConfig | null> {
-    const r = await this.prisma.guildAutopost.findUnique({
-      where: { id },
-    });
-    if (!r) return null;
-
-    return {
-      id: r.id.toString(),
-      guildId: r.guildId.toString(),
-      channelId: r.channelId.toString(),
-      contentType: r.contentType as AutopostContentType,
-      schedule: r.schedule as AutopostSchedule,
-      enabled: r.enabled,
-      lastPosted: r.lastPosted,
-      created: r.created,
-    };
-  }
-
   public async createAutopost(data: {
     guildId: string;
     channelId: string;
@@ -115,13 +97,6 @@ export class AutopostRepository {
       lastPosted: updated.lastPosted,
       created: updated.created,
     };
-  }
-
-  public async updateLastPosted(id: number, lastPosted: Date): Promise<void> {
-    await this.prisma.guildAutopost.update({
-      where: { id },
-      data: { lastPosted },
-    });
   }
 
   public async countForGuild(guildId: string): Promise<number> {

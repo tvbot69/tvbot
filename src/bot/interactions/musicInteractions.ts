@@ -16,7 +16,7 @@ import { TtlStore } from '@bot/services/ttlStore';
 import { chapterIndexAt, resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
 import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { lyricWindowAt, type SyncedLine } from '@bot/services/music/syncedLyrics';
-import { deferReplySafe, deferUpdateSafe, respondSafe } from './interactionAck';
+import { deferUpdateSafe, respondSafe } from './interactionAck';
 
 export const MUSIC_INTERACTION_PREFIXES = [
   'music:queue:',
@@ -129,8 +129,6 @@ export class MusicInteractions {
     'music:control:shuffle',
     'music:control:clear',
     'music:control:loop',
-    'music:control:vol_down',
-    'music:control:vol_up',
     'music:control:stop',
     'music:filter:reset',
   ]);
@@ -335,69 +333,6 @@ export class MusicInteractions {
       return;
     }
 
-    // View: Switch to Queue
-    if (customId === 'music:control:view_queue') {
-      const queue = this.musicService.getQueueInfo(guildId);
-      if (!queue) {
-        await interaction.reply({ content: 'No music is currently playing.', ephemeral: true });
-        return;
-      }
-      const response = MusicBuilders.buildQueueResponse(queue, 1, 10, accentColor);
-      await this.updateCardOrDefer(interaction, response.toMessagePayload());
-      return;
-    }
-
-    // Quick Action: Fetch & Show Lyrics
-    if (customId === 'music:control:lyrics') {
-      const queue = this.musicService.getQueueInfo(guildId);
-      if (!queue?.current) {
-        await interaction.reply({ content: 'No music is currently playing.', ephemeral: true });
-        return;
-      }
-
-      await deferReplySafe(interaction, { ephemeral: true });
-
-      if (!this.lyricsService) {
-        await interaction.editReply({ content: 'Lyrics service is currently unavailable.' });
-        return;
-      }
-
-      const result = await this.lyricsService.getLyrics(queue.current.title, queue.current.author);
-      if (!result || !result.plainLyrics) {
-        await interaction.editReply({
-          content: `Could not find lyrics for: **${queue.current.title}** by **${queue.current.author}**.`,
-        });
-        return;
-      }
-
-      const cleanLyrics =
-        result.plainLyrics.length > 4000
-          ? `${result.plainLyrics.slice(0, 3950)}...\n*(Lyrics truncated)*`
-          : result.plainLyrics;
-
-      const response = MusicBuilders.buildLyricsResponse(
-        result.title,
-        result.artist,
-        cleanLyrics,
-        accentColor,
-      );
-
-      await interaction.editReply(response.toMessagePayload() as unknown as InteractionUpdateOptions);
-      return;
-    }
-
-    // View: Switch to Filters Menu
-    if (customId === 'music:control:open_filters') {
-      const queue = this.musicService.getQueueInfo(guildId);
-      if (!queue) {
-        await interaction.reply({ content: 'No music is currently playing.', ephemeral: true });
-        return;
-      }
-      const response = MusicBuilders.buildFiltersResponse(queue.activeFilters, accentColor);
-      await this.updateCardOrDefer(interaction, response.toMessagePayload());
-      return;
-    }
-
     // Filter: Reset All Filters — refresh the panel in place (same legacy
     // format, never morphs into a V2 card, so update always succeeds).
     if (customId === 'music:filter:reset') {
@@ -532,32 +467,6 @@ export class MusicInteractions {
     // Playback control: Cycle Loop Mode
     if (customId === 'music:control:loop') {
       this.musicService.cycleLoop(guildId);
-      const updatedQueue = this.musicService.getQueueInfo(guildId);
-      if (updatedQueue) {
-        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-        await this.updateCardOrDefer(interaction, response.toMessagePayload());
-      } else {
-        await deferUpdateSafe(interaction);
-      }
-      return;
-    }
-
-    // Volume Step Down (-10%)
-    if (customId === 'music:control:vol_down') {
-      this.musicService.adjustVolume(guildId, -10);
-      const updatedQueue = this.musicService.getQueueInfo(guildId);
-      if (updatedQueue) {
-        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
-        await this.updateCardOrDefer(interaction, response.toMessagePayload());
-      } else {
-        await deferUpdateSafe(interaction);
-      }
-      return;
-    }
-
-    // Volume Step Up (+10%)
-    if (customId === 'music:control:vol_up') {
-      this.musicService.adjustVolume(guildId, +10);
       const updatedQueue = this.musicService.getQueueInfo(guildId);
       if (updatedQueue) {
         const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));

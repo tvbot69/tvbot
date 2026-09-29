@@ -7,7 +7,7 @@ before starting work. **Update this file at the end of every task**, before the 
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **4396 passed + 516 db skipped = 4912** (271 files) | — |
+| Tests | 1085 | **4412 passed + 516 db skipped = 4928** (274 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
 | Branch coverage | 68.6% claimed | **77.48%** | — |
 | `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 76** (budget 101) | <80 combined ✅ |
@@ -980,6 +980,67 @@ before starting work. **Update this file at the end of every task**, before the 
     errors, all mine, all in new test files: three more zero-arg-mock tuple traps (4th time this
     session), `mock.calls[0][0]` without `!` under `noUncheckedIndexedAccess`, and an
     `AutopostConfig` literal missing `enabled`.
+- **A-tier 2 — the A2 sweep that closes the tier** ✅ A2 was previously DONE on the strength of
+  ONE worked example (an orphaned audio-features feature, deleted). That is a correct response to a
+  single instance, not a sweep, and there was no detector. Three agents, three disjoint areas.
+  - 🐛 **`.crownseed` / `/crownseed` were not admin-gated, and one of them advertised itself as
+    "Admin command".** The repository issues `deleteMany({seededCrown: true})` for the whole guild
+    before re-seeding, and neither handler checked anything but `guildId` — while all six sibling
+    mutators in the same files were gated. **Any member could wipe and rebuild the server's seeded
+    crowns.** Gated in both families, before the option is read so `min_plays` cannot route around
+    it. Four existing tests asserted the bug (non-admin context, `seedCrowns` expected to run) and
+    were re-pointed at an admin context, not weakened.
+  - ⚠️ **THE MOST IMPORTANT FINDING IS A DOCS DEFECT THAT HAS BEEN MISLEADING AGENTS.** The plan
+    and `AGENTS.md` both assert *"there is no dynamic dispatch in the bot"*, and previous rounds
+    used that to prove zero-caller methods were dead. **It is false**: `registerModalHandler`
+    dispatches by string prefix, `ComponentInteractionTracker` is keyed by exact `customId`, there
+    is a routing table of literals, and there is a `container.resolve` graph. A method dispatched
+    by a string prefix has NO static caller. Every "zero callers, so dead" conclusion resting on
+    that claim needs re-reading, and the real rule is: check startup registration,
+    `container.resolve`, string-keyed lookups, event-listener and cron registration, then state
+    which mechanism reaches it. **Two agents hit this independently and reported it instead of
+    producing the wrong deletion.**
+  - **A1 verified inert-free above its own raisers.** A transitive call graph over 4,183 production
+    functions, seeded at every raiser, asked of every silent-failure catch whether a raiser is
+    reachable from the block it guards — block-scoped, because function-wide reachability gave 38
+    false hits. **All 11 hits are annotated `CORRECT AS IS` and each was read and agreed with.**
+    The crown-dethroned case is confirmed closed end to end. ~5% of local call edges unresolved, so
+    this is a lower bound, not a proof.
+  - **Clean bill where it was earned:** 219 registered tokens all wired, 78 slash commands, 658
+    text triggers, **zero declared-but-unread options**, every emitted `customId` routed. Ten
+    genuinely unreachable handlers deleted with 9 tests, all reference-free afterwards.
+  - **Nine dead configuration sets, validated at boot and read nowhere** — the purest A2 shape,
+    because the user is told they configured something. `GENIUS_CLIENT_ID/_SECRET/_ACCESS_TOKEN`
+    (lyrics uses Genius's UNAUTHENTICATED api), `DISCOGS_KEY/_SECRET` (no client exists),
+    `AUDD_API_TOKEN` (no recognition), `SEQ_SERVER_URL/_API_KEY` (no Seq), `BASE_SERVER_ID`,
+    `DISCORD_BOT_USER_ID`, and `bot.useShardEnvConfig` **hardcoded `false`**. All in
+    `.env.example`, so a reader believes they are load-bearing.
+  - **Four dead features reported, not deleted** — user-facing, so the call is the user's:
+    `/recap`+`.recap` are `/year`+`.year` renamed, and the text twin carries the alias **`.wrapped`**;
+    `/searchdb` is `/librarysearch` verbatim, burning a global slash slot; **`/localization
+    numberformat` is stored, printed as "Current Number Format", and read by nothing**;
+    `AiJudgeService` is three hardcoded templates with `Math.random()` for the rating.
+  - **A half-built feature, the honest kind of finding:** `DisabledChannelService.setChannelDisabled`
+    has no caller and is the only writer of `'*'`, while `isChannelDisabled` is live and gates
+    every command. **The per-channel disable gate is enforced on every message and can never return
+    true** — a member cannot mute a command in one channel. Its counterpart `.togglecommand` writes
+    to a different, guild-level table, so the two halves were never connected.
+  - **`LocalizationService`** is registered at boot, injected by nothing, both methods at zero
+    callers, and hardcodes `'en'`. A localization service that cannot localize. Reported, not
+    deleted: a registered service with no caller may be the next feature.
+  - 🐛 **A test that nearly proved nothing, reported by the agent that wrote it.** The first
+    `autopostRepository.claimIsAuthoritative` double hard-picked the two conditions it expected, so
+    adding a bogus extra condition to the production `where` left all 9 tests green — the mutation
+    **survived**. Rewriting it generically introduced a second bug, and the broken `where` then went
+    red 1/8. The double now throws on an operator it does not model, so a test cannot assert against
+    a query shape the double silently ignores.
+  - **Gates:** `tsc --noEmit` clean, 4412 + 516 skipped = 4928 (274 files), lint 0 errors / 358
+    warnings, `silent-failure-default` 435. The batch produced 6 typecheck errors, all
+    `rows[0].field` under `noUncheckedIndexedAccess` — the fifth distinct instance of "a green
+    `vitest` run is not a green build" this phase.
+  - ⚠️ **`gh` was installed this session and still is not authenticated** (device flow needs the
+    user), so **the build and real-Postgres jobs for the four pushed commits remain unobserved.**
+    That is still the outstanding gate for every claim in this plan.
 
 **Two detectors were themselves defective, and both were found by mutation rather than by reading.**
 

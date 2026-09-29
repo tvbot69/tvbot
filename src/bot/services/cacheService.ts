@@ -274,10 +274,6 @@ export class CacheService implements ICache {
     );
   }
 
-  public async keyDelete(key: string): Promise<void> {
-    await this.delete(key);
-  }
-
   public sweepExpired(): number {
     const now = Date.now();
     let cleaned = 0;

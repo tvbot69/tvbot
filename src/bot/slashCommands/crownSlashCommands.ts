@@ -236,6 +236,13 @@ export class CrownSlashCommands implements ISlashCommandModule {
     if (!context.guildId) {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
+    // The description on this command has always said "Admin command", and the
+    // repository behind it DELETEs every seeded crown for the guild before
+    // re-inserting, so the gate has to be real. The text twin
+    // (`.crownseed` in textCommands/guild/crownCommands.ts) is gated the same way.
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildWrongInputResponse('You need the **Manage Server** permission to seed crowns.');
+    }
 
     const minPlays = context.interaction?.options.getInteger('min_plays') ?? 30;
     const count = await this.crownService.seedCrowns(context.guildId, minPlays);

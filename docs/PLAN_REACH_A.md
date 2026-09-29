@@ -722,6 +722,97 @@ Discord 10007 code is verified from the documented code table and the route, not
 The crown-role gate's behaviour under a real partial outage is unobserved. `flushLogFile`'s drop
 on a read-only volume is reasoned, not measured. The 516 db tests still skip locally.
 
+### A-tier 2, done properly — the A2 sweep that closes the tier
+
+A2 was previously marked DONE on the strength of **one worked example**: the orphaned
+audio-features feature, which was deleted. That is a correct response to a single instance, not a
+sweep for others, and there was no detector. **Three agents, three disjoint areas, and the honest
+verdict is that A2 now has evidence behind it.**
+
+**One real security bug, and it was advertised as safe.** `/crownseed` and `.crownseed` carry the
+description *"Admin command to seed/refresh crowns for this server"*, and the repository behind
+them issues `deleteMany({ seededCrown: true })` for the whole guild before re-seeding — and
+**neither handler checked anything but `guildId`.** Every sibling mutator in the same files
+(`killCrown`, `removeUserCrowns`, `crownBlock`, `crownRoles`, `killAllCrowns`) was admin-gated, so
+this was the one gap in an otherwise consistent set, and any member could wipe and rebuild the
+server's crowns at a threshold of their choosing. Gated in both families, **before** the option is
+read so `min_plays` cannot be used to route around it. Four existing `crownSeedAsync` tests
+asserted the bug — they ran with a non-admin context and expected `seedCrowns` to run anyway —
+and were re-pointed at an admin context rather than weakened.
+
+**The A2 question "is any registered feature dead?" produced a clean bill for the command layer
+and a real finding for the interaction layer.** 219 registered tokens, every one wired; 78 slash
+commands, 658 text triggers, **zero declared-but-unread options**; every emitted `customId` routed.
+Ten genuinely unreachable handlers were deleted with 9 tests, all reference-free afterwards.
+
+**And the single most important A2 finding is a docs defect that has been actively misleading
+agents.** The plan and `AGENTS.md` both assert *"there is no dynamic dispatch in the bot"*, and
+previous rounds used that to prove zero-caller methods were dead. **It is false.** There is a
+`registerModalHandler` registry dispatched by string prefix, a `ComponentInteractionTracker` keyed
+by exact `customId`, a routing table of literals, and a `container.resolve` graph. A method
+dispatched by a string prefix has no static caller at all. Every "zero production callers, so
+dead" conclusion in the docs that rests on that claim has to be re-read, and every future agent
+needs the real rule: **check the startup registration, `container.resolve`, string-keyed lookups,
+event-listener and cron registration before calling anything dead — and state which mechanism
+reaches it, or state that you found none.** Two agents independently hit this and reported it
+rather than producing the wrong deletion.
+
+**A1 verified inert-free above its own raisers.** A transitive call graph over 4,183 production
+functions, seeded at every A1 raiser, asked of every silent-failure catch whether a raiser is
+reachable from the block it guards — block-scoped, because function-wide reachability produced 38
+false hits. **All 11 hits are annotated `CORRECT AS IS` and each was read and agreed with.** The
+crown-permanently-dethroned case is confirmed closed end to end. The graph misses ~5% of local
+call edges, so this is a lower bound, not a proof.
+
+**Nine dead configuration sets, validated at boot and read nowhere** — the purest A2 shape in the
+repo, because a user is told they configured something: `GENIUS_CLIENT_ID`/`_SECRET`/`_ACCESS_TOKEN`
+(lyrics uses Genius's *unauthenticated* API), `DISCOGS_KEY`/`_SECRET` (no Discogs client exists),
+`AUDD_API_TOKEN` (no song recognition), `SEQ_SERVER_URL`/`_API_KEY` (no Seq), `BASE_SERVER_ID`,
+`DISCORD_BOT_USER_ID`, and `bot.useShardEnvConfig` which is **hardcoded `false`** — a feature flag
+with exactly one value ever assigned. All are in `.env.example`, so a reader reasonably believes
+they are load-bearing.
+
+**Four dead features that present themselves as working, reported and not deleted**, because each
+is user-facing and the call is the user's: `/recap` and `.recap` are `/year` and `.year` under a
+new name — and the text twin carries the aliases `.rcp` and **`.wrapped`**, which is a materially
+different artefact; `/searchdb` is `/librarysearch` verbatim, burning one of Discord's 100 global
+slash slots to mirror a text alias; **`/localization numberformat` is stored, printed back to the
+user as "Current Number Format", and read by nothing** (`formatNumber` takes no format parameter
+and has 17 call sites, all en-US); and `AiJudgeService` is three hardcoded templates with
+`Math.random()` supplying the rating — a working joke whose class name claims a model call.
+
+**A feature that is half-built, which is the honest kind of A2 finding**: `DisabledChannelService.setChannelDisabled`
+has no caller and is the **only writer of `'*'`** into `channel.toggledCommands`, while
+`isChannelDisabled` is live and gates every command. **So the per-channel disable gate is enforced
+on every single message and can never return true.** A member cannot mute a command in one channel.
+Its counterpart `.togglecommand` writes to a different, guild-level table, so the two halves of
+the idea were never connected.
+
+**`LocalizationService`** is constructed at boot, registered, and injected by nothing, with both
+its methods at zero callers. It hardcodes `'en'`. It is a localization service that cannot
+localize. Reported, not deleted: a registered service with no caller may be the next feature, and
+deleting a service is a far bigger act than raising inside one.
+
+**Gates, lead alone: `tsc --noEmit` clean, 4412 passed + 516 db skipped = 4928 (274 files), lint
+0 errors / 358 warnings, `silent-failure-default` 435 against budget 604.** The batch produced 6
+typecheck errors, all `rows[0].field` under `noUncheckedIndexedAccess` in one new test — the fifth
+distinct instance of "a green `vitest` run is not a green build" this phase.
+
+**A test that nearly proved nothing, reported by the agent that wrote it.** The first
+`autopostRepository.claimIsAuthoritative` double hard-picked the two conditions it expected, so
+adding a bogus extra condition to the production `where` left all 9 tests green — the mutation
+**survived**. Rewriting the double to walk the clause generically introduced a second bug (it
+recursed `OR` with the condition fragment in the record's slot, so every claim returned count 0),
+and the broken `where` mutation then went red 1/8. The double now throws on an operator it does
+not model, so a future test cannot assert against a query shape the double silently ignores.
+
+**Not verified.** No live bot, no real Discord, no real Redis, no real database failure. The
+call-graph result is a lower bound: ~5% of local call edges were not resolvable, and a discard
+behind one of them would be invisible. Reachability through `registerModalHandler` and behind a
+computed `container.resolve` key was reasoned, not booted. `gh` was installed this session to
+read CI, but authentication needs the user, so **the build and real-Postgres jobs for the four
+pushed commits remain unobserved** — still the outstanding gate for every claim in this plan.
+
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 
 `raw-query-without-db-test` reads 0, but that number was only as good as the audit behind it. Two

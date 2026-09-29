@@ -277,6 +277,14 @@ export class CrownCommands implements ITextCommandModule {
     if (!context.guildId) {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
+    // `seedCrowns` is a bulk server-wide write, not a viewer: the repository
+    // DELETEs every previously seeded crown for the guild and re-inserts from a
+    // DISTINCT ON scan. Every sibling mutator here (killCrown, removeUserCrowns,
+    // crownBlock, crownRoles, killAllCrowns) is admin-gated and this one was
+    // not, so any member could wipe and rebuild the server's seeded crowns.
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildWrongInputResponse('You need the **Manage Server** permission to seed crowns.');
+    }
 
     let minPlays = 30;
     if (args.length > 0 && /^\d+$/.test(args[0]!.trim())) {

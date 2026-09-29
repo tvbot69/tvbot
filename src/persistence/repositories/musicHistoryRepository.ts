@@ -35,8 +35,4 @@ export class MusicHistoryRepository {
     const list = this.historyByGuild.get(guildId) ?? [];
     return list.slice(0, limit);
   }
-
-  public clearHistory(guildId: string): void {
-    this.historyByGuild.delete(guildId);
-  }
 }

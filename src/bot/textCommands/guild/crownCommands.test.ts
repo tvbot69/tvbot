@@ -474,31 +474,49 @@ describe('CrownCommands.crownLbAsync', () => {
 });
 
 describe('CrownCommands.crownSeedAsync', () => {
+  // The four cases below used to run as a NON-admin (`ctx()` defaults to
+  // `userIsGuildAdmin: false`) and assert that `seedCrowns` ran anyway. That
+  // WAS the bug: `seedCrownsForGuild` deletes every seeded crown for the guild
+  // before re-inserting, and it was the only crown mutator in this file with no
+  // `userIsGuildAdmin` check. They now pass an admin context, which keeps their
+  // original assertions (default minimum, parsed minimum, floor of 1, reported
+  // count) intact and moves them on the allowed side of the new gate. The
+  // refusing side is the new case directly below.
+  const adminCtx = () => ctx({ userIsGuildAdmin: true });
+
+  it('refuses when the user is not a guild admin, and does not seed', async () => {
+    const { commands, deps } = build({ isAdmin: false });
+    const result = await privates(commands).crownSeedAsync(ctx({ userIsGuildAdmin: false }), []);
+    expect(result.commandResponse).toBe(CommandResponse.WrongInput);
+    const seedCrowns = (deps.crownService as { seedCrowns: ReturnType<typeof vi.fn> }).seedCrowns;
+    expect(seedCrowns).not.toHaveBeenCalled();
+  });
+
   it('uses a default minimum of 30 plays', async () => {
-    const { commands, deps } = build();
-    await privates(commands).crownSeedAsync(ctx(), []);
+    const { commands, deps } = build({ isAdmin: true });
+    await privates(commands).crownSeedAsync(adminCtx(), []);
     const seedCrowns = (deps.crownService as { seedCrowns: ReturnType<typeof vi.fn> }).seedCrowns;
     expect(seedCrowns).toHaveBeenCalledWith('222', 30);
   });
 
   it('parses a custom minimum playcount', async () => {
-    const { commands, deps } = build();
-    await privates(commands).crownSeedAsync(ctx(), ['50']);
+    const { commands, deps } = build({ isAdmin: true });
+    await privates(commands).crownSeedAsync(adminCtx(), ['50']);
     const seedCrowns = (deps.crownService as { seedCrowns: ReturnType<typeof vi.fn> }).seedCrowns;
     expect(seedCrowns).toHaveBeenCalledWith('222', 50);
   });
 
   it('enforces a minimum of 1 play', async () => {
-    const { commands, deps } = build();
-    await privates(commands).crownSeedAsync(ctx(), ['0']);
+    const { commands, deps } = build({ isAdmin: true });
+    await privates(commands).crownSeedAsync(adminCtx(), ['0']);
     const seedCrowns = (deps.crownService as { seedCrowns: ReturnType<typeof vi.fn> }).seedCrowns;
     expect(seedCrowns).toHaveBeenCalledWith('222', 1);
   });
 
   it('reports the seeded count', async () => {
-    const { commands, deps } = build();
+    const { commands, deps } = build({ isAdmin: true });
     (deps.crownService as { seedCrowns: ReturnType<typeof vi.fn> }).seedCrowns.mockResolvedValue(42);
-    await privates(commands).crownSeedAsync(ctx(), []);
+    await privates(commands).crownSeedAsync(adminCtx(), []);
     expect(GenericEmbedService.buildSuccessResponse).toHaveBeenCalledWith(
       expect.stringContaining('42'),
     );

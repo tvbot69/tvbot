@@ -126,13 +126,6 @@ describe('UserSettingsInteractions.asUserSettingsInteraction', () => {
     expect(usi.asUserSettingsInteraction(select as unknown as Interaction)).toBe(select);
   });
 
-  it('claims the bare response-mode-pick and cover-type-pick custom ids', () => {
-    const { usi } = build();
-
-    expect(usi.asUserSettingsInteraction(mkButton('response-mode-pick') as unknown as Interaction)).not.toBeNull();
-    expect(usi.asUserSettingsInteraction(mkButton('cover-type-pick') as unknown as Interaction)).not.toBeNull();
-  });
-
   it('declines a button belonging to another module', () => {
     const { usi } = build();
     const press = mkButton('profile:view:target1:caller1:user1');
@@ -422,9 +415,7 @@ describe('UserSettingsInteractions.handle — buttons', () => {
 
   it.each([
     [`${USER_SETTINGS_PREFIX}open:responsemode`, 'buildResponseModeResponse'],
-    ['response-mode-pick', 'buildResponseModeResponse'],
     [`${USER_SETTINGS_PREFIX}open:covermode`, 'buildCoverModeResponse'],
-    ['cover-type-pick', 'buildCoverModeResponse'],
   ])('routes %s to %s', async (customId, method) => {
     const { usi } = build();
     const spy =
@@ -520,7 +511,7 @@ describe('UserSettingsInteractions.handle — builder response payloads', () => 
     const { usi } = build();
     const response = makeResponse();
     vi.spyOn(UserSettingsBuilders, 'buildResponseModeResponse').mockReturnValue(response);
-    const press = mkButton('response-mode-pick');
+    const press = mkButton(`${USER_SETTINGS_PREFIX}open:responsemode`);
 
     await usi.handle(press);
 
@@ -533,7 +524,7 @@ describe('UserSettingsInteractions.handle — builder response payloads', () => 
     // A ResponseModel with no container: the `res.componentsV2Container ? [..] : []`
     // ternary must degrade to `[]` rather than putting `undefined` in components.
     vi.spyOn(UserSettingsBuilders, 'buildResponseModeResponse').mockReturnValue(new ResponseModel());
-    const press = mkButton('response-mode-pick');
+    const press = mkButton(`${USER_SETTINGS_PREFIX}open:responsemode`);
 
     await usi.handle(press);
 
