@@ -7,7 +7,7 @@ before starting work. **Update this file at the end of every task**, before the 
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
-| Tests | 1085 | **4013 passed + 516 db skipped = 4529** (236 files) | — |
+| Tests | 1085 | **4084 passed + 516 db skipped = 4600** (237 files) | — |
 | Line coverage | 48.5% claimed / **49.00% measured** | **66.73%** | ≥65% ✅ |
 | Branch coverage | 68.6% claimed | **77.48%** | — |
 | `as any` / `as unknown as` / `: any` (prod) | 139 / 116 / 47 | **0 + 76** (budget 101) | <80 combined ✅ |
@@ -19,7 +19,7 @@ before starting work. **Update this file at the end of every task**, before the 
 | Lower layers importing `@bot/*` | 6+ | **0 value** / 4 type-only | 0 value |
 | `@ts-ignore` | 0 | **0** | 0 |
 | Lint errors | 143 | **0** (351 warnings) | 0 |
-| `silent-failure-default` | 604 | **586** (budget 604, may only fall) | non-increasing ✅ |
+| `silent-failure-default` | 604 | **538** (budget 604, may only fall) | non-increasing ✅ |
 | `raw-query-without-db-test` | — | **0** (mutation-checked) | 0 |
 
 > The `silent-failure-default` count is **not the target** — it counts catch blocks, not bugs, and
@@ -706,6 +706,50 @@ before starting work. **Update this file at the end of every task**, before the 
   `$queryRawUnsafe<T>` tagged template to an already-covered file reports `1 > 0 WORSE`.
   **`dbHarness` itself remains untested against a real connection pool** — that needs CI, not static
   analysis.
+- **A-tier 1d** ✅ `genreService` + `countryService` + `artistsService`, 22 sites (`42c7abd`).
+  Every read was `catch { return [] }` / `catch { return null }`, so `.topgenres` answered "you
+  have no genres" and `.whoknowscountry` answered "nobody in this server listens to anything"
+  during an outage. Raised. **Four tests asserted the bug** and were replaced with the pair.
+  `countryService`'s preload latch was the incidental real bug: it survived a failure, so one
+  dropped connection at boot locked the country map empty for the process lifetime.
+- **A-tier 1e** ✅ `musicIntelligenceService` (9) + `albumService` + `overviewService` +
+  `fmFooterResolver`, 23 sites (`8dce609`). **The finding worth keeping: this set could not be
+  triaged by shape.** Reading the debt list for "which sites render a wrong number" got the worst
+  one wrong.
+  - `.iceberg` **fabricated**: `artist.findMany` failing emptied the popularity map, `hasDbPopularity`
+    went false, and the rank-ratio fallback then invented a popularity per artist from playcount
+    rank. The fallback STAYS (honest when the query ran and said "unscored") and a test pins that,
+    because raising on empty too would break a real feature.
+  - `.affinity` is the `guildAdminService` class one layer out, and the worst site is the TARGET
+    user-artist read: it does not render empty, it renders a **full table of real people, every
+    number wrong, sorted by those wrong numbers**.
+  - `fmFooterResolver` **logs and does not raise** — a decision, not an omission: raising deletes
+    the whole Now Playing card over one clause, because `footerBuilder` has no "could not load"
+    affordance and both callers build the card on the next statement. All eight catches now log at
+    ERROR naming the exact fields lost.
+  - **12 tests replaced, not weakened.** The clearest was titled *"falls back to an empty array when
+    the database genuinely rejects the query"* and asserted `resolves.toEqual([])` against a real
+    42P01. Every site is tested as a **pair**; asserting only the raise cannot tell the fix from a
+    method that always throws.
+  - **Mutation-checked, and one of the two was invalid first.** Replacing the helper's `throw` with
+    `return [] as unknown as T` → exactly the 9 raise tests red, all 13 honest-empty/fallback tests
+    green. The first version appended the `return` **after** the `throw`; it passed and proved
+    nothing — the unreachable-code trap again.
+  - 🐛 **The suite caught a third bug the typecheck could not:** an inline multi-line generic
+    (`$queryRawUnsafe<Array<{ ... }>>`) parses under `tsc` and **fails under esbuild**, so the file
+    failed to collect while `tsc --noEmit` was clean.
+- **Five of the raises are in methods with ZERO production callers** — `getUserAllTimeTopAlbums`,
+  `...ByReleasePrefix`, `getLatestAlbums`, `getRecentTopAlbums`, `filterAlbumsToReleasePeriod`.
+  Verified by grep, and there is no dynamic dispatch in the bot. Raised anyway: the lie is a
+  property of the code, not of the caller graph. `filterAlbumsToReleasePeriod` still returns its
+  input UNFILTERED on failure — a live trap for whoever wires it up, and the comment saying so is
+  not enforcement.
+- ⚠️ **A parallel batch is faster and it still lies in two places.** Two agents on independent files
+  worked, and the gates I ran from inside the batch mid-flight were meaningless, exactly as recorded
+  under 2.2. New this round: one agent reverted a mutation with
+  `git checkout -- <file>`, which discarded **every** uncommitted edit to that file rather than just
+  the mutation; it re-applied them all, and `git diff` was the review that caught it. Reverting a
+  mutation must be a targeted `edit`, never a checkout, on a tree with uncommitted work in it.
 
 **Two detectors were themselves defective, and both were found by mutation rather than by reading.**
 
@@ -725,6 +769,11 @@ table is a claim about code, and confirming it in production means watching the 
 outage. The full DB suite has still only ever run per-file against a hosted database; the complete
 500+ test run needs CI's disposable `postgres:16`, and that CI run is the outstanding gate for every
 claim above.
+
+**The `*.db.test.ts` changes in this round are UNEXECUTED.** `musicIntelligenceService.db.test.ts`
+was edited to assert the raise instead of `[]`, and `albumService`'s db tests were reasoned about
+(guards placed after the cache read, so a cache hit still wins) but never run. They typecheck and
+they skip cleanly locally, and "skips cleanly" is not "passes".
 
 ## Definition of done: see the checklist at the bottom of `PLAN_B_PLUS_TO_A.md`.
 

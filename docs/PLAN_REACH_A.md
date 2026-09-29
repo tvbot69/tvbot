@@ -230,6 +230,116 @@ proves nothing, and had I stopped there I would have "verified" a test that had 
 same failure as a test that cannot fail. The corrected mutation *replaced* the throw and the
 assertion went red immediately, with the genuine-zero test staying green.
 
+### A-tier 1d — the ranking services: `genreService`, `countryService`, `artistsService` — **DONE** (`42c7abd`)
+
+Three services, 22 sites, all of the same shape. Every read wrapped a raw aggregate
+or a Prisma find in `catch { return [] }` / `catch { return null }`, which made a
+dropped connection indistinguishable from a user who has never pressed play:
+
+- `.topgenres` said "you have no genres"
+- `.topcountries` said "you have no country data"
+- `.whoknowsgenre` / `.whoknowscountry` said "nobody in this server listens to anything"
+
+Same `orDatabaseUnavailable` shape as the sites above: `Logger.error` naming the
+query, then `SourceUnavailableError`. No "not found" case needs splitting out the
+way Last.fm has one, because every site is a `GROUP BY` aggregate and an aggregate
+with no matching rows succeeds with a shorter result rather than erroring — so
+empty IS the answer and an error is always an error. That reasoning is in the code,
+because it is the non-obvious half.
+
+**Three things this is NOT, each left in place with the reason inline:**
+
+1. `BigInt(guildId)` throws a `SyntaxError` on a non-snowflake. That is a **caller**
+   bug, not an outage, and laundering it into "Database unavailable" would send
+   whoever reads the log to Postgres instead of to the caller. Guarded before the
+   query; the empty answer is returned with **no query issued**.
+2. `countryService`'s constructor reads two bundled JSON files and fires a
+   preload. Raising there would throw out of a constructor `startup.ts` builds by
+   hand and take the whole bot down for a country lookup — the `P3009` shape in
+   §10. The **preload latch** was the real bug found in passing: it survived a
+   failure, so one dropped connection at boot locked the map empty for the process
+   lifetime. Now cleared, so the next caller retries.
+3. Autocomplete suggesters, collage cover hydration and artwork lookups stay as
+   they are. No suggestions is a *working* autocomplete response, and a missing
+   cover is the designed state. Raising would blank a leaderboard over one
+   thumbnail.
+
+**Four existing tests asserted the bug** — the swallow was the subject, not an
+accident of it — and each was replaced with the pair: *a failure raises* AND *a
+query that RAN and found nothing still returns empty*. Asserting only the happy
+half cannot distinguish the fix from the bug.
+
+### A-tier 1e — `musicIntelligenceService`, `albumService`, `overviewService`, `fmFooterResolver` — **DONE** (`8dce609`)
+
+Twenty-three sites across four files. **The finding worth keeping is that this set
+could not be triaged by shape** — reading the list for "which sites render a wrong
+number" produced the wrong answer on the worst one.
+
+**`.iceberg` fabricated data, it did not merely lose it.** `artist.findMany` failing
+emptied the popularity map, `hasDbPopularity` went false, and the rank-ratio
+fallback then **invented a popularity score per artist from playcount position** —
+so an outage rendered a complete, confident, entirely fictional five-tier iceberg.
+The fallback itself STAYS (it is honest when the query ran and answered "these
+artists are unscored") and raising is what separates the two cases. There is a
+test pinning that the fallback still runs on an empty result, because a "fix" that
+also raised on empty would break a real feature.
+
+**`.affinity` is the `guildAdminService` class one layer out, and its worst site is
+not the obvious one:**
+
+- an empty **candidate** list renders "*Could not find indexed users with a similar
+  music taste in this server*"
+- an empty **target user-artist** list does not render empty at all — it empties
+  `targetArtistMap`, which zeroes `artistScore` and therefore `totalPercentage` for
+  every neighbour. A full affinity table of **real people, every number wrong,
+  sorted by those wrong numbers**.
+- the genre/country enrichment is the **partial-success** case: `artistPercentage`
+  is real and only the middle two columns were never measured, so the table looks
+  trustworthy right up to the columns that are not.
+
+**`albumService`: the catch that returned the unfiltered list.** Its own comment
+called empty-vs-degraded "the correct amount of deception". Raised.
+`getTopTracksForAlbum`'s method-wide catch was separately laundering a
+deliberately raised `LastFmUnavailableError` back into `[]`, silently, one layer
+up — now re-thrown, with genuine failures still degrading because it is rung 1 of a
+four-rung ladder.
+
+**`fmFooterResolver` logs and does NOT raise — and that is a decision, not an
+omission.** Raising would delete the entire Now Playing card over one clause:
+`footerBuilder` has no "could not load" affordance to render into, and both callers
+build the card on the next statement. That is a worse lie in the other direction.
+All eight catches now log at ERROR naming **the exact fields the failure cost** —
+narrowed against what the result actually holds, so a failure after `isLoved`
+landed reports `trackPlays` alone rather than both. Recorded as the half of A1 this
+file alone cannot close.
+
+**Five of the raises are in methods with zero production callers** (verified by
+grep; there is no dynamic dispatch in the bot). Raised anyway, because the lie is a
+property of the code and not of the caller graph, and raising from a dead method
+costs nothing. `filterAlbumsToReleasePeriod` still returns its input **unfiltered**
+on failure — a live trap for whoever wires it up, and the comment says so, which is
+not enforcement.
+
+**Twelve tests were replaced, not weakened.** The clearest was
+`musicIntelligenceService.db.test.ts`'s *"falls back to an empty array when the
+database genuinely rejects the query"* — titled for the defect, asserting
+`resolves.toEqual([])` against a real 42P01, using the one client in the repo that
+can produce a genuine SQL error. Asserting only the raise cannot tell the fix from
+a method that always throws, so every site is tested as a **pair**.
+
+**Mutation-checked, and one mutation of the two was invalid on the first attempt.**
+Replacing the helper's `throw` with `return [] as unknown as T` turned exactly the
+9 raise tests red and left all 13 honest-empty/fallback tests green. The *first*
+version appended the `return` **after** the unconditional `throw` — it passed, and
+proved nothing. That is the unreachable-code trap from §A-tier 1c and it nearly
+became a "verified" test.
+
+**A third bug the suite caught:** an inline multi-line generic
+(`$queryRawUnsafe<Array<{ ... }>>`) parses under `tsc` and **fails under esbuild**,
+so the whole file failed to collect while `tsc --noEmit` was clean. Row shapes are
+named at module scope now. A green typecheck and a green test suite are still two
+different claims.
+
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 
 `raw-query-without-db-test` reads 0, but that number was only as good as the audit behind it. Two
