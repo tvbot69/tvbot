@@ -1,6 +1,8 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { OverviewService } from './overviewService';
+import { Logger } from '@domain/logger';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import type { GenreService } from './genreService';
 
 /**
@@ -21,6 +23,16 @@ import type { GenreService } from './genreService';
  * The other thing worth pinning is that the day bucketing is done in the
  * *user's* timezone. Two plays twenty minutes apart can land in two different
  * blocks, and getting that wrong is a one-hour error in every daily total.
+ *
+ * THE SILENT-FAILURE CLASS, which was the last query in this file to be
+ * converted. The genre batch swallowed its error and fell through, and
+ * `overviewBuilders` renders the genre line as
+ * `block.genres.length > 0 ? ... : ''` while the footer still advertises
+ * "Top genres, artist, album and track". So a dropped connection deleted a
+ * clause the card had promised, on all 32 day blocks, and left every other
+ * number real - which is exactly the shape a user cannot distrust. The
+ * replacement is the PAIR: the failure RAISES, and a map that ran and found no
+ * genres for the played artist still yields a block with no genre line.
  */
 
 const db = vi.hoisted(() => ({
@@ -71,6 +83,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.user.findFirst.mockResolvedValue(userRow());
   setPlays([]);
+});
+
+// `vi.spyOn(Logger, 'error')` is used in the genre-failure test below, and a spy
+// left in place is the exact bug class this repo has been bitten by before:
+// `mockRestore()` on a shared module singleton can leave an own property set to
+// `undefined`, and every later test then fails silently against it. Restore
+// after every test rather than per-test, so a new failure test cannot forget.
+// Safe here because `beforeEach` re-arms both module-level doubles every time.
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('OverviewService.getOverview - early returns', () => {
@@ -525,18 +547,44 @@ describe('OverviewService.getOverview - genres', () => {
     expect(dailyBlocks[0]?.genres).toEqual([]);
   });
 
-  it('still returns the blocks when the genre lookup throws', async () => {
+  it('raises rather than rendering the overview with its genre line silently dropped', async () => {
+    // REPLACED. The assertion used to be a full block with `genres: []`, in a test
+    // named 'still returns the blocks when the genre lookup throws' - which pinned
+    // the bug exactly. Every other number on that block was real, so the card
+    // looked healthy right up to the one clause that had been deleted, and the
+    // footer promised "Top genres" the whole time.
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     setPlays([play()]);
     const genreService = {
       getGenresForArtistNames: vi.fn(async () => { throw new Error('genre db down'); }),
     };
     const { service } = build({ genreService });
 
+    const err = await service.getOverview('DreadRock').catch((e: unknown) => e);
+
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('overviewService.getOverview');
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('still returns blocks with no genres when the query RAN and found none', async () => {
+    // The other half of the pair. A map that came back without an entry for the
+    // played artist is a SUCCESS with a shorter result, so the honest answer is a
+    // block whose genre line is absent - not an exception. Asserting only the
+    // raise would pass against a service that always threw.
+    setPlays([play()]);
+    const genreService = {
+      // A different artist carries the genres, so the miss is proved to come
+      // from the map and not from a lookup that simply never ran.
+      getGenresForArtistNames: vi.fn(async () => new Map([['portishead', ['trip-hop']]])),
+    };
+    const { service } = build({ genreService });
+
     const { dailyBlocks } = await service.getOverview('DreadRock');
 
     expect(dailyBlocks).toHaveLength(1);
-    expect(dailyBlocks[0]?.genres).toEqual([]);
     expect(dailyBlocks[0]?.playCount).toBe(1);
+    expect(dailyBlocks[0]?.genres).toEqual([]);
   });
 
   it('works with no genre service at all', async () => {

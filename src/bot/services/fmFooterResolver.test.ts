@@ -1,10 +1,11 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { container } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { FmFooterResolver } from './fmFooterResolver';
 import type { FmFooterData } from './fmFooterResolver';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
+import { Logger } from '@domain/logger';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import { ArtistsService } from './artistsService';
@@ -26,10 +27,26 @@ import { CrownRepository } from '@persistence/repositories/crownRepository';
  * silently, is a branch wired to the wrong option: the two footer fields swap
  * while every count stays plausible. That is what the per-flag tests here pin.
  *
- * The other contract is that nothing here may throw. Every task body is
- * try/catch-and-drop, because a footer query failing must never take the
- * now-playing card with it.
+ * The second contract is the one A1 is about, and it is a decision rather than
+ * a mechanism. A failed query must not become a plausible wrong number, and it
+ * must not be silent either - so every task catch logs at ERROR naming the
+ * exact fields it cost. It does NOT raise, because both callers
+ * (`playCommands.fmAsync`, `userSlashCommands.fmAsync`) build the card on the
+ * next statement with no local try/catch: a throw would replace the user's own
+ * Now Playing card with "Sorry, something went wrong". The tests below
+ * therefore come in pairs - a failure is *reported*, and a query that ran and
+ * found nothing still leaves its field absent. Asserting only the second half is
+ * what let the silent version pass for so long.
  */
+
+// `vi.spyOn(Logger, 'error')` is used throughout the failure tests, and a spy
+// left in place is the exact bug class this repo has been bitten by before:
+// restoring on a shared module singleton can leave an own property set to
+// `undefined`, and every later test then fails silently against it. Restore
+// after every test rather than per-test, so a new failure test cannot forget.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const dummyUser: User = {
   userId: 123,
@@ -112,6 +129,32 @@ const deferred = <T>() => {
   let resolve!: (v: T) => void;
   const promise = new Promise<T>(r => { resolve = r; });
   return { promise, resolve };
+};
+
+/**
+ * Asserts a failure was *reported* rather than swallowed: one ERROR whose
+ * message and structured context both name the field, carrying the underlying
+ * reason.
+ *
+ * Takes the raw `mock.calls` so it works with the spy of whichever level was
+ * used, and matches on the field name rather than on call index - two tasks can
+ * fail in one resolve, and which one logged first is not a contract.
+ */
+const expectReported = (
+  calls: ReadonlyArray<readonly unknown[]>,
+  field: keyof FmFooterData,
+  reason: string,
+): void => {
+  const seen = calls.map(c => String(c[1] ?? ''));
+  const match = calls.find((c) => String(c[1] ?? '').includes(field));
+  expect(
+    match,
+    `no ERROR named "${field}" - logged messages were: ${JSON.stringify(seen)}`,
+  ).toBeDefined();
+  const [context, message] = match as [Record<string, unknown>, string];
+  expect(message).toContain('Now-playing footer: could not read');
+  expect(String(context.footerFields)).toContain(field);
+  expect(String(context.err)).toContain(reason);
 };
 
 describe('FmFooterResolver', () => {
@@ -392,23 +435,55 @@ describe('FmFooterResolver - artist plays', () => {
     expect(data.artistPlays).toBe(0);
   });
 
-  it('swallows a failing service', async () => {
+  it('reports a failing service instead of dropping the clause in silence', async () => {
+    // REPLACED an assertion of the bug. This test used to be titled "swallows a
+    // failing service" and asserted only `expect(data).toEqual({})`, which is
+    // exactly what the user saw: a footer with no artist-plays clause, no error,
+    // no log line - indistinguishable from never having played the artist. The
+    // card still survives (that part is the deliberate decision, pinned by the
+    // test below), but the failure is now REPORTED.
     const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     mockOf(deps.artistsService).getArtistInfo.mockRejectedValue(new Error('lastfm down'));
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
+    expectReported(logged.mock.calls, 'artistPlays', 'lastfm down');
     expect(data).toEqual({});
   });
 
-  it('swallows a failing aggregate', async () => {
+  it('reports a failing aggregate, and says which query it was', async () => {
+    // The pair to the one above: the database fallback is the other thing that
+    // can throw in this task, and it is the one A1 is actually about. The
+    // genuine-empty half is "omits the count entirely when the aggregate is
+    // zero" above - a query that RAN and found nothing must stay silent and
+    // stay empty, or the fix has replaced a lie with a different lie.
     const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     mockOf(deps.artistsService).getArtistInfo.mockResolvedValue(null);
     mockOf(deps.prisma).userArtist.aggregate.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
-    expect(data).toEqual({});
+    expectReported(logged.mock.calls, 'artistPlays', 'db down');
+    expect('artistPlays' in data).toBe(false);
+  });
+
+  it('keeps the other clauses when one task fails, because the card must not die', async () => {
+    // The other half of the decision. Raising here would skip `buildFmResponse`
+    // at both call sites and hand the user an apology instead of their card.
+    const deps = registerAll();
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    mockOf(deps.crownRepo).getCurrentCrown.mockRejectedValue(new Error('db down'));
+
+    const data = await FmFooterResolver.resolveFooterData(
+      dummyUser,
+      dummyTrack,
+      mask(FmFooterOption.ArtistPlays, FmFooterOption.CrownHolder),
+      GUILD,
+    );
+
+    expect(data).toEqual({ artistPlays: 263 });
   });
 });
 
@@ -452,12 +527,32 @@ describe('FmFooterResolver - album plays', () => {
   });
 
   it('omits the count when the aggregate is zero', async () => {
+    // The genuine-empty half of the pair below, and the reason the test was
+    // renamed: as written it made the *service* reject, so the aggregate was
+    // never reached and the assertion it actually made was "a throw is
+    // swallowed" - not what its title claimed. The service now declines
+    // normally, so the zero genuinely comes from the query.
     const deps = registerAll();
-    mockOf(deps.albumService).getAlbumInfo.mockRejectedValue(new Error('lastfm down'));
+    mockOf(deps.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
     mockOf(deps.prisma).userAlbum.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.AlbumPlays), GUILD);
 
+    expect('albumPlays' in data).toBe(false);
+  });
+
+  it('reports a failing album read instead of dropping the clause in silence', async () => {
+    // REPLACED an assertion of the bug. As written, this test made the service
+    // reject and asserted only that the field came back absent - the footer
+    // simply lost its album-plays clause, with nothing said anywhere.
+    const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    mockOf(deps.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
+    mockOf(deps.prisma).userAlbum.aggregate.mockRejectedValue(new Error('db down'));
+
+    const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.AlbumPlays), GUILD);
+
+    expectReported(logged.mock.calls, 'albumPlays', 'db down');
     expect('albumPlays' in data).toBe(false);
   });
 });
@@ -566,8 +661,15 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
     expect('trackPlays' in data).toBe(false);
   });
 
-  it('omits the playcount when the service knows none and the aggregate fails', async () => {
+  it('reports a fallback failure by name, and only for the half that was lost', async () => {
+    // REPLACED an assertion of the bug. This test used to be titled "omits the
+    // playcount when the service knows none and the aggregate fails" and
+    // asserted only `toEqual({ isLoved: true })` - the partial success with no
+    // report at all, which is the more insidious half of the class: the loved
+    // heart rendered, so the footer looked trustworthy right up to the playcount
+    // that silently was not there.
     const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     mockOf(deps.trackService).getTrackInfo.mockResolvedValue({ userLoved: true });
     mockOf(deps.prisma).userTrack.aggregate.mockRejectedValue(new Error('db down'));
 
@@ -577,6 +679,28 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
 
     // The loved half of the shared task still lands; only the playcount is lost.
     expect(data).toEqual({ isLoved: true });
+    expectReported(logged.mock.calls, 'trackPlays', 'db down');
+    // ...and the log must not claim `isLoved` was lost too. It was not.
+    expect(logged.mock.calls.flat().join(' ')).not.toContain('isLoved');
+  });
+
+  it('reports both halves of the shared task when the service itself fails', async () => {
+    // The other failure point of task 3. The Loved/TrackPlays coupling is
+    // deliberate and preserved: one service call answers both flags, so losing
+    // it loses both - and the log has to say so.
+    const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    mockOf(deps.trackService).getTrackInfo.mockRejectedValue(new Error('lastfm down'));
+
+    const data = await FmFooterResolver.resolveFooterData(
+      dummyUser, dummyTrack, mask(FmFooterOption.TrackPlays, FmFooterOption.Loved), GUILD,
+    );
+
+    expect(data).toEqual({});
+    expectReported(logged.mock.calls, 'trackPlays', 'lastfm down');
+    expectReported(logged.mock.calls, 'isLoved', 'lastfm down');
+    // Still one shared lookup, still one log line: a two-field loss is one event.
+    expect(logged.mock.calls).toHaveLength(1);
   });
 });
 
@@ -612,14 +736,19 @@ describe('FmFooterResolver - artist plays this week', () => {
     expect(data.artistPlaysThisWeek).toBe(0);
   });
 
-  it('swallows a failing count', async () => {
+  it('reports a failing count instead of dropping the clause in silence', async () => {
+    // REPLACED an assertion of the bug: the old title was "swallows a failing
+    // count" and the only assertion was `toEqual({})`. The pair is the genuine
+    // zero directly above - that one runs, answers, and stays silent.
     const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     mockOf(deps.prisma).userPlay.count.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlaysThisWeek), GUILD,
     );
 
+    expectReported(logged.mock.calls, 'artistPlaysThisWeek', 'db down');
     expect(data).toEqual({});
   });
 });
@@ -758,26 +887,39 @@ describe('FmFooterResolver - server listener counts', () => {
     expect('serverTrackListeners' in data).toBe(false);
   });
 
-  it('swallows a failing who-knows query', async () => {
+  it('reports a failing who-knows query instead of dropping the clause in silence', async () => {
+    // REPLACED an assertion of the bug: the old title was "swallows a failing
+    // who-knows query", asserting only `toEqual({})`. The genuine-empty half is
+    // "reports zero listeners when the server has none" above.
     const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     mockOf(deps.whoKnowsRepo).getIndexedUsersForArtist.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ServerArtistListeners), GUILD,
     );
 
+    expectReported(logged.mock.calls, 'serverArtistListeners', 'db down');
     expect(data).toEqual({});
   });
 
-  it('swallows a failing catalogue lookup', async () => {
+  it('reports a failing catalogue lookup by name, not as a missing track', async () => {
+    // REPLACED an assertion of the bug, and the worst version of it: the old
+    // test ("swallows a failing catalogue lookup") asserted `toEqual({})` for a
+    // `findFirst` that had *thrown*. An absent track row and an unreadable one
+    // rendered identically - the user could not tell "this track is not in our
+    // catalogue" from "the catalogue is down". The genuine-empty half is "omits
+    // the track listener count when the track is not in the catalogue" above.
     const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     mockOf(deps.prisma).track.findFirst.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ServerTrackListeners), GUILD,
     );
 
-    expect(data).toEqual({});
+    expectReported(logged.mock.calls, 'serverTrackListeners', 'db down');
+    expect('serverTrackListeners' in data).toBe(false);
   });
 });
 
@@ -816,12 +958,17 @@ describe('FmFooterResolver - crown holder', () => {
     expect(data).toEqual({});
   });
 
-  it('swallows a failing crown lookup', async () => {
+  it('reports a failing crown lookup instead of implying nobody holds it', async () => {
+    // REPLACED an assertion of the bug: the old title was "swallows a failing
+    // crown lookup", asserting only `toEqual({})` - byte-identical to the
+    // genuine "nobody holds the crown" below, which is the pair's other half.
     const deps = registerAll();
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     mockOf(deps.crownRepo).getCurrentCrown.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.CrownHolder), GUILD);
 
+    expectReported(logged.mock.calls, 'crownHolder', 'db down');
     expect(data).toEqual({});
   });
 });
@@ -880,9 +1027,13 @@ describe('FmFooterResolver - assembling the full mask', () => {
   });
 
   it('never throws, whatever every collaborator does', async () => {
+    // Half of the contract, and the half that is easy to get wrong by fixing the
+    // other one: the card survives total failure. The other half is asserted in
+    // the `A1` describe below - surviving is not the same as being silent.
     const boom = () => {
       throw new Error('boom');
     };
+    const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const deps = registerAll({
       artistsService: { getArtistInfo: boom },
       albumService: { getAlbumInfo: boom },
@@ -906,5 +1057,180 @@ describe('FmFooterResolver - assembling the full mask', () => {
     await expect(FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(...HANDLED), GUILD))
       .resolves.toEqual({});
     expect(deps).toBeDefined();
+
+    // Every task reports, and nothing outside the eight tasks does. Nine
+    // options map to EIGHT tasks - Loved and TrackPlays share one lookup - and
+    // that shared task reports both halves as a single line. Asserted by name
+    // rather than by count alone, so a task that logged the wrong field fails
+    // here instead of passing on arithmetic.
+    const reported = logged.mock.calls
+      .map(c => String((c[0] as { footerFields?: unknown }).footerFields))
+      .sort();
+    expect(reported).toEqual([
+      'albumPlays',
+      'artistPlays',
+      'artistPlaysThisWeek',
+      'crownHolder',
+      'serverAlbumListeners',
+      'serverArtistListeners',
+      'serverTrackListeners',
+      'trackPlays + isLoved',
+    ]);
   });
+});
+
+/**
+ * A1 for this file: no query may fail without saying so.
+ *
+ * Table-driven on purpose. The bug was eight identical `catch { // graceful
+ * fallback }` blocks, and a per-field test can be satisfied by fixing seven of
+ * them - this one entry per field fails if any single site is left silent, and
+ * the `field in data === false` half keeps the fix from being "log it and then
+ * fabricate a value", which is the non-fix the plan calls out by name.
+ */
+describe('FmFooterResolver - A1: a query that cannot be read says so', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    container.clearInstances();
+  });
+
+  type Deps = ReturnType<typeof registerAll>;
+
+  interface FailureCase {
+    /** The footer field whose query is broken. */
+    field: keyof FmFooterData;
+    /** The single option that switches that task on, in isolation. */
+    flag: FmFooterOption;
+    /** Breaks exactly one collaborator on the way to `field`. */
+    breakIt: (deps: Deps) => void;
+    /**
+     * Makes the same query RUN and answer "nothing here", and states whether
+     * that leaves the field set. The two answers are not interchangeable and
+     * the distinction is the point of the row:
+     *
+     *  - a 0 playcount is not a count, so it is left unset (the playcounts);
+     *  - "you played them zero times this week" and "zero listeners here" ARE
+     *    real answers and are written through as 0;
+     *  - a catalogue row that does not exist leaves the field unset.
+     */
+    answered: (deps: Deps) => void;
+    answeredPresent: boolean;
+  }
+
+  const CASES: FailureCase[] = [
+    {
+      field: 'artistPlays',
+      flag: FmFooterOption.ArtistPlays,
+      breakIt: d => mockOf(d.artistsService).getArtistInfo.mockRejectedValue(new Error('db down')),
+      answered: d => {
+        mockOf(d.artistsService).getArtistInfo.mockResolvedValue({ name: 'Gunna' });
+        mockOf(d.prisma).userArtist.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+      },
+      answeredPresent: false,
+    },
+    {
+      field: 'albumPlays',
+      flag: FmFooterOption.AlbumPlays,
+      // The service must decline first, or it answers with a playcount and the
+      // aggregate is never reached - which would make this row test nothing.
+      breakIt: d => {
+        mockOf(d.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
+        mockOf(d.prisma).userAlbum.aggregate.mockRejectedValue(new Error('db down'));
+      },
+      answered: d => {
+        mockOf(d.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
+        mockOf(d.prisma).userAlbum.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+      },
+      answeredPresent: false,
+    },
+    {
+      field: 'trackPlays',
+      flag: FmFooterOption.TrackPlays,
+      breakIt: d => mockOf(d.trackService).getTrackInfo.mockRejectedValue(new Error('db down')),
+      answered: d => {
+        mockOf(d.trackService).getTrackInfo.mockResolvedValue(null);
+        mockOf(d.prisma).userTrack.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+      },
+      answeredPresent: false,
+    },
+    {
+      field: 'artistPlaysThisWeek',
+      flag: FmFooterOption.ArtistPlaysThisWeek,
+      breakIt: d => mockOf(d.prisma).userPlay.count.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.prisma).userPlay.count.mockResolvedValue(0); },
+      answeredPresent: true,
+    },
+    {
+      field: 'serverArtistListeners',
+      flag: FmFooterOption.ServerArtistListeners,
+      breakIt: d => mockOf(d.whoKnowsRepo).getIndexedUsersForArtist.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.whoKnowsRepo).getIndexedUsersForArtist.mockResolvedValue([]); },
+      answeredPresent: true,
+    },
+    {
+      field: 'serverAlbumListeners',
+      flag: FmFooterOption.ServerAlbumListeners,
+      breakIt: d => mockOf(d.whoKnowsRepo).getIndexedUsersForAlbum.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.prisma).album.findFirst.mockResolvedValue(null); },
+      answeredPresent: false,
+    },
+    {
+      field: 'serverTrackListeners',
+      flag: FmFooterOption.ServerTrackListeners,
+      breakIt: d => mockOf(d.whoKnowsRepo).getIndexedUsersForTrack.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.prisma).track.findFirst.mockResolvedValue(null); },
+      answeredPresent: false,
+    },
+    {
+      field: 'crownHolder',
+      flag: FmFooterOption.CrownHolder,
+      breakIt: d => mockOf(d.crownRepo).getCurrentCrown.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.crownRepo).getCurrentCrown.mockResolvedValue(null); },
+      answeredPresent: false,
+    },
+  ];
+
+  // The list is stated here rather than derived from the resolver, so a ninth
+  // task added to production without a row here fails the test.
+  it('covers exactly the eight queried fields', () => {
+    expect(CASES.map(c => c.field).sort()).toEqual([
+      'albumPlays',
+      'artistPlays',
+      'artistPlaysThisWeek',
+      'crownHolder',
+      'serverAlbumListeners',
+      'serverArtistListeners',
+      'serverTrackListeners',
+      'trackPlays',
+    ]);
+  });
+
+  for (const { field, flag, breakIt, answered, answeredPresent } of CASES) {
+    it(`reports a throw on the ${field} query instead of omitting it silently`, async () => {
+      const deps = registerAll();
+      const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+      breakIt(deps);
+
+      const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(flag), GUILD);
+
+      expectReported(logged.mock.calls, field, 'db down');
+      // Absent, not zero and not a guess: the field the builder gates on
+      // `!== undefined` is genuinely unset, so no confident number is rendered.
+      expect(field in data).toBe(false);
+    });
+
+    it(`stays silent for the ${field} query that ran and found nothing`, async () => {
+      // The other half of the pair, and the one a careless fix breaks: a
+      // successful query with nothing to report is a real answer, so it must
+      // not be logged as a failure and must not become a fabricated value.
+      const deps = registerAll();
+      const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+      answered(deps);
+
+      const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(flag), GUILD);
+
+      expect(field in data).toBe(answeredPresent);
+      expect(logged.mock.calls).toEqual([]);
+    });
+  }
 });

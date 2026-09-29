@@ -1,5 +1,50 @@
 import { GenreService } from './genreService';
 import { prisma } from '@persistence/prismaClient';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
+
+/**
+ * A failed read is not "no genres".
+ *
+ * Same rule as `orDatabaseUnavailable` in `playHistoryService`,
+ * `guildAdminService`, `genreService`, `countryService` and `albumService`: a
+ * query that returns NO ROWS is a real answer and stays an empty map, but a
+ * query that THROWS is a failure and is raised rather than returned.
+ *
+ * This one earned its place on its own. `getGenresForArtistNames` is a single
+ * batched read over `artist_genres`, and its result is the ONLY source of the
+ * genre line on the overview card — `overviewBuilders` renders
+ * `block.genres.length > 0 ? ... : ''` while the footer still advertises "Top
+ * genres, artist, album and track". So a dropped connection did not just lose
+ * decoration: it deleted a clause the card had promised, on every one of the 32
+ * day blocks, and the user had no way to tell that from a week where nobody
+ * listened to a genre-tagged artist.
+ *
+ * There is no "not found" case to split out. It is a `findMany` over
+ * `artists -> artist_genres`; an artist with no genre rows comes back as an
+ * absent map entry and is the honest empty answer. So empty IS the answer, and
+ * an error is always an error.
+ *
+ * The wrapper covers the ONE call and nothing else. `getOverview`'s own
+ * `prisma.user.findFirst` and `prisma.userPlay.findMany` are deliberately left
+ * unguarded: they already propagate, and there are tests pinning that, so the
+ * genres were the only query in this class silently defaulting.
+ */
+const orDatabaseUnavailable = async <T>(
+  method: string,
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: `${method}:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${method} (${label}); refusing to render the overview with its genre line silently dropped`,
+    );
+    throw new SourceUnavailableError(`overviewService.${method}:${label}`, err, 'Database unavailable');
+  }
+};
 
 export interface DailyBlock {
   date: Date;
@@ -108,9 +153,11 @@ export class OverviewService {
     let genreMap = new Map<string, string[]>();
     if (this.genreService) {
       const allArtistNames = [...new Set(plays.map(p => p.artistName).filter(Boolean))];
-      try {
-        genreMap = await this.genreService.getGenresForArtistNames(allArtistNames);
-      } catch { /* ignore */ }
+      genreMap = await orDatabaseUnavailable(
+        'getOverview',
+        'genresForPlayedArtists',
+        () => this.genreService!.getGenresForArtistNames(allArtistNames),
+      );
     }
 
     for (const [dayKey, { plays: dayPlays, epochSeconds }] of sortedDays) {

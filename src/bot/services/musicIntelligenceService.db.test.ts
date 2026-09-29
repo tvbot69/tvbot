@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MusicIntelligenceService } from './musicIntelligenceService';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import {
   connect,
   databaseUrl,
@@ -135,24 +136,36 @@ suite('MusicIntelligenceService raw queries against a real database', () => {
     await expect(service!.getDiscoveries(userId, WINDOW_START, WINDOW_END)).resolves.toEqual([]);
   });
 
-  it('falls back to an empty array when the database genuinely rejects the query', async () => {
-    // Every query in this class ends in `.catch(() => [])`, so a swallowed SQL
-    // error is invisible - which is the reason this suite exists. Prove the
-    // catch is reachable rather than dead code, and prove the failure is REAL
-    // (a control assertion on the same client) so the empty result cannot be
-    // mistaken for "the user had no data".
+  it('raises rather than answering [] when the database genuinely rejects the query', async () => {
+    // REPLACED, not weakened, and the replacement is the point of the A1 work.
+    //
+    // This test used to be titled 'falls back to an empty array when the database
+    // genuinely rejects the query' and asserted `resolves.toEqual([])` on a real
+    // 42P01. It was pinning the defect: every query in this class ended in
+    // `.catch(() => [])`, so a swallowed SQL error was indistinguishable from
+    // "this user has no data", which is the exact reason this suite exists in
+    // the first place. Asserting only the empty half would still pin the bug, so
+    // both directions are now tested — and the empty half is covered by the
+    // test above it, which runs the SAME queries against a real schema that
+    // simply has no rows.
+    //
+    // The control assertion is kept and matters: without it, a client that
+    // silently never queried could make every rejection look like a raise.
     const blind = new PrismaClient({ datasources: { db: { url: urlWithoutTables() } } });
     await blind.$connect();
     try {
       await expect(blind.$queryRawUnsafe('SELECT 1 FROM user_plays')).rejects.toThrow();
 
       const blindService = new MusicIntelligenceService(blind, undefined);
-      await expect(blindService.getListeningGaps(userId, 'artist')).resolves.toEqual([]);
-      await expect(blindService.getListeningGaps(userId, 'album')).resolves.toEqual([]);
-      await expect(blindService.getListeningGaps(userId, 'track')).resolves.toEqual([]);
-      await expect(
-        blindService.getDiscoveries(userId, WINDOW_START, WINDOW_END),
-      ).resolves.toEqual([]);
+      for (const [what, run] of [
+        ['gaps/artist', () => blindService.getListeningGaps(userId, 'artist')],
+        ['gaps/album', () => blindService.getListeningGaps(userId, 'album')],
+        ['gaps/track', () => blindService.getListeningGaps(userId, 'track')],
+        ['discoveries', () => blindService.getDiscoveries(userId, WINDOW_START, WINDOW_END)],
+      ] as const) {
+        const thrown = await run().catch((e: unknown) => e);
+        expect(isSourceUnavailable(thrown), `${what} did not surface its failure`).toBe(true);
+      }
     } finally {
       await blind.$disconnect();
     }

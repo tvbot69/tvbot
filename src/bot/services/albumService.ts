@@ -15,8 +15,69 @@ import { PrismaClient } from '@prisma/client';
 import { Logger } from '@domain/logger';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
 const CACHE_TTL_SECONDS = 3600;
+
+/**
+ * The single place a query failure becomes a caller-visible result.
+ *
+ * Same rule as `orDatabaseUnavailable` in `playHistoryService`,
+ * `guildAdminService`, `genreService` and `countryService`: a query that returns
+ * NO ROWS is a real answer and stays an empty array, but a query that THROWS is
+ * a failure and is raised rather than returned. `getUserAllTimeTopAlbums` and
+ * `getUserAllTimeTopAlbumsByReleasePrefix` both ended in `catch { return [] }`,
+ * so a dropped connection told a user they had no albums at all — and worse, for
+ * the release-prefix variant, indistinguishable from a genuine decade with no
+ * matching releases.
+ *
+ * There is no "not found" case to split out the way Last.fm has one. Both are
+ * aggregates over `user_plays` / `user_albums`, and an aggregate with no
+ * matching rows succeeds with a shorter result rather than erroring. So empty IS
+ * the answer, and an error is always an error.
+ *
+ * The wrapper is deliberately NARROW — it covers the query and nothing else. A
+ * method-wide `try` would also swallow the `SourceUnavailableError` raised by
+ * the `throw` below and return `[]` for it, re-creating the exact bug through the
+ * back door, and it would turn a failed cache write into "you have no albums".
+ * `CacheService.set` cannot reject anyway: it writes memory first and swallows
+ * its own Redis errors.
+ */
+const orDatabaseUnavailable = async <T>(
+  method: string,
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: `${method}:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${method} (${label}); refusing to render it as an empty album list`,
+    );
+    throw new SourceUnavailableError(`albumService.${method}:${label}`, err, 'Database unavailable');
+  }
+};
+
+/**
+ * `discord_user_id` is BigInt and arrives as a string, so `BigInt()` throws a
+ * SyntaxError on anything non-numeric.
+ *
+ * A malformed id is a CALLER bug, not a source that failed to answer, and it
+ * must not be laundered into a "database unavailable" diagnosis — that would
+ * send whoever reads the log looking at Postgres instead of at the caller. Same
+ * shape and same reasoning as `parseGuildId` in `genreService` and `toGuildId`
+ * in `countryService`: the guard answers with the empty list WITHOUT opening a
+ * query, because no such user exists, so no rows can.
+ */
+const parseDiscordUserId = (discordUserId: string): bigint | null => {
+  if (!discordUserId || !/^\d+$/.test(discordUserId)) return null;
+  try {
+    return BigInt(discordUserId);
+  } catch {
+    return null;
+  }
+};
 
 export interface ResolvedAlbumTrack {
   name: string;
@@ -224,11 +285,24 @@ export class AlbumService {
 
         // Persist release data to DB if missing
         if (!albumRecord.releaseDate && spotifyReleaseDate) {
+          // CORRECT AS IS. A WRITE-BACK of data already in hand: the release date
+          // was read from Spotify and is about to be returned on the card
+          // regardless (the return reads `albumRecord.releaseDate ||
+          // spotifyReleaseDate`). Failing to persist it costs one more Spotify
+          // lookup next time and nothing the user can see, so raising here would
+          // fail a whole album card over a cache write. Same as the MusicBrainz
+          // write-back in `countryService.getArtistCountry`.
           await this.albumRepository.setReleaseData(albumRecord.albumId, {
             releaseDate: spotifyReleaseDate,
             releaseDatePrecision: spotifyAlbum.release_date_precision,
             spotifyAlbumType: spotifyAlbum.album_type,
-          }).catch(() => undefined);
+          }).catch((writeErr: unknown) => {
+            Logger.debug(
+              { albumId: albumRecord.albumId, err: (writeErr as Error)?.message ?? String(writeErr) },
+              'albumService could not persist Spotify release data; the next lookup will ask again',
+            );
+            return undefined;
+          });
         }
       }
     } catch (err) {
@@ -305,6 +379,14 @@ export class AlbumService {
         }
       }
     } catch (err) {
+      // CORRECT AS IS, and deliberately NOT raised. This is the PER-TRACK
+      // playcount enrichment: `track.playcount` is simply left undefined, so the
+      // album card drops one number per track. Nothing is fabricated — the card
+      // still shows the right album, artist, tracklist, durations, cover and play
+      // counts, and an absent clause is a visible absence rather than a confident
+      // wrong number. Raising would fail nine command entry points over
+      // decoration, and `userPlaycount` in the block below has a real fallback to
+      // Last.fm's own count anyway.
       Logger.warn({ err }, 'Failed to compute track playcounts');
     }
 
@@ -383,6 +465,16 @@ export class AlbumService {
         }
       }
     } catch (err) {
+      // CORRECT AS IS, for the same reason as the per-track block above, plus
+      // one that only this block has. The headline figure it would have set —
+      // `userPlaycount` — was seeded from `albumInfo.userPlayCount` (Last.fm's
+      // own number) BEFORE this try, so a failed indexed count degrades to a
+      // real number from a real source rather than to a zero. What is lost is
+      // `userMonthlyPlaycount`, `serverPlaycount` and `serverListeners`, all of
+      // which then render as absent clauses. `Logger.warn` is the honest weight
+      // for that; raising would fail nine command entry points over three
+      // omitted figures. It is WARN rather than DEBUG because a failed count is a
+      // lost capability, not an expected outcome.
       Logger.warn({ err }, 'Failed to query server/user stats for album');
     }
 
@@ -486,7 +578,14 @@ export class AlbumService {
             album.imageUrl = url;
           }
         } catch {
-          // ignore
+          // CORRECT AS IS. This is BATCH COVER HYDRATION: every album already in
+          // the list is returned unchanged either way, and a cover that cannot be
+          // found is the state the method is designed to leave alone (AGENTS.md
+          // §3.2, "a chapter whose art genuinely cannot be found holds the
+          // previous cover"). No number is invented and no row is dropped, so
+          // there is nothing here for a user to be misled about, and
+          // `getAlbumCoverUrl` raises nothing itself — `ArtworkService` owns that
+          // decision.
         }
       }),
     );
@@ -504,30 +603,32 @@ export class AlbumService {
       if (cached) return cached;
     }
 
-    try {
-      const rows = await this.prisma.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
+    const rows = await orDatabaseUnavailable(
+      'getUserAllTimeTopAlbums',
+      'userPlaysTopAlbums',
+      () => this.prisma.$queryRawUnsafe<Array<{ album_name: string; artist_name: string; playcount: bigint }>>(`
         SELECT album_name, artist_name, COUNT(*)::bigint AS playcount
         FROM user_plays
         WHERE user_id = $1 AND album_name IS NOT NULL AND album_name != ''
         GROUP BY album_name, artist_name
         ORDER BY playcount DESC
         LIMIT 1000
-      `, userId);
+      `, userId),
+    );
 
-      const albums: TopAlbum[] = rows.map((r) => ({
-        name: r.album_name,
-        artistName: r.artist_name,
-        playcount: Number(r.playcount),
-      }));
+    const albums: TopAlbum[] = rows.map((r) => ({
+      name: r.album_name,
+      artistName: r.artist_name,
+      playcount: Number(r.playcount),
+    }));
 
-      if (albums.length > 100) {
-        await this.cache.set(cacheKey, albums, 600);
-      }
-
-      return albums;
-    } catch {
-      return [];
+    // Cache write, deliberately OUTSIDE the guarded block: the rows are already
+    // in hand, and a cache failure must not turn a correct chart into an error.
+    if (albums.length > 100) {
+      await this.cache.set(cacheKey, albums, 600);
     }
+
+    return albums;
   }
 
   public async getTopTracksForAlbum(
@@ -630,6 +731,27 @@ export class AlbumService {
 
       return [];
     } catch (err) {
+      // CORRECT AS IS for a genuine query failure, and NOT for a raised one.
+      // The empty list is honest here because `getTopTracksForAlbum` is RUNG 1
+      // AND 2 of a four-rung ladder: `whoKnowsImageBuilder` falls through to the
+      // album's own metadata tracklist and then to Spotify when this returns
+      // nothing, so `[]` costs the caller one rung rather than the answer.
+      //
+      // But this is a method-wide try spanning `getAlbumInfo` — which goes
+      // through `lastFmRepository.getAlbumInfo`, and that method RAISES
+      // `LastFmUnavailableError` on a 5xx precisely so no caller can mistake a
+      // Last.fm outage for "this album has no tracks". Swallowing it here puts
+      // the lie straight back, one layer up, and does it silently. So the
+      // deliberately-raised signal is re-thrown and only genuine failures
+      // degrade, which is the same narrowing `genreService.getGenresForArtist`
+      // uses for the identical reason.
+      if (isSourceUnavailable(err)) {
+        Logger.error(
+          { artistName, albumName, err: (err as Error)?.message ?? String(err) },
+          'getTopTracksForAlbum: a source failed to answer; not degrading it to "no top tracks"',
+        );
+        throw err;
+      }
       Logger.warn({ err }, 'Failed to resolve top tracks for album');
       return [];
     }
@@ -643,15 +765,22 @@ export class AlbumService {
     prefix: string,
     prefixLength: number = 4,
   ): Promise<TopAlbum[]> {
-    try {
-      // Every column here was wrong before the real-Postgres suite ran
-      // (42703 ua.artist_name / 42883 left(text, bigint)):
-      //   - albums' PK is album_id, not id.
-      //   - user_albums has no artist_name; the artist name lives on artists,
-      //     reachable only through albums.artist_id.
-      //   - there is no albums.type; the column is spotify_album_type.
-      //   - $2 arrives as bigint and there is no left(text, bigint).
-      const rows = await this.prisma.$queryRawUnsafe<Array<{
+    // Every column here was wrong before the real-Postgres suite ran
+    // (42703 ua.artist_name / 42883 left(text, bigint)):
+    //   - albums' PK is album_id, not id.
+    //   - user_albums has no artist_name; the artist name lives on artists,
+    //     reachable only through albums.artist_id.
+    //   - there is no albums.type; the column is spotify_album_type.
+    //   - $2 arrives as bigint and there is no left(text, bigint).
+    // The catch used to sit around the WHOLE method and return the unfiltered
+    // all-time list, so a query that threw on every call produced a confident
+    // embed with a decade filter that had done nothing. It then "improved" to
+    // `return []`, which is still not good enough: a dropped connection and a
+    // decade with no matching releases would be the same empty chart. Raised now.
+    const rows = await orDatabaseUnavailable(
+      'getUserAllTimeTopAlbumsByReleasePrefix',
+      'userAlbumsByReleasePrefix',
+      () => this.prisma.$queryRawUnsafe<Array<{
         album_name: string;
         artist_name: string;
         playcount: bigint;
@@ -671,25 +800,16 @@ export class AlbumService {
           AND LEFT(a.release_date::text, $2::int) = $3
         ORDER BY ua.playcount DESC
         LIMIT 100
-      `, userId, prefixLength, prefix);
+      `, userId, prefixLength, prefix),
+    );
 
-      return rows.map((r) => ({
-        name: r.album_name,
-        artistName: r.artist_name,
-        playcount: Number(r.playcount),
-        releaseDate: r.release_date ?? undefined,
-        albumType: r.album_type ?? undefined,
-      }));
-    } catch (err) {
-      // Deliberately NOT the unfiltered all-time list. That was the worse bug:
-      // the catch returned every album, so a query that always threw produced a
-      // confident embed with a decade filter that had done nothing, and nothing
-      // in the logs distinguished it from success. An empty result and a
-      // degraded one now look the same to the user, which is the correct amount
-      // of deception for a broken join.
-      Logger.warn({ err }, 'getUserAllTimeTopAlbumsByReleasePrefix query failed; returning empty');
-      return [];
-    }
+    return rows.map((r) => ({
+      name: r.album_name,
+      artistName: r.artist_name,
+      playcount: Number(r.playcount),
+      releaseDate: r.release_date ?? undefined,
+      albumType: r.album_type ?? undefined,
+    }));
   }
   /**
    * Filters guild albums to release period
@@ -712,7 +832,17 @@ export class AlbumService {
 
       const matched = new Set(rows.map((r) => `${r.artist.name.toLowerCase()}|${r.name.toLowerCase()}`));
       return albums.filter((a) => matched.has(`${a.artistName.toLowerCase()}|${a.albumName.toLowerCase()}`));
-    } catch {
+    } catch (err) {
+      // NOT correct in the abstract, and NOT fixed here on purpose. Returning
+      // `albums` means the period filter silently did nothing, which is the very
+      // bug `getUserAllTimeTopAlbumsByReleasePrefix` above had and no longer has.
+      // It is left as-is for one reason that is verifiable rather than hopeful:
+      // `filterAlbumsToReleasePeriod` has ZERO production callers (grep the name
+      // outside `*.test.ts`), so no user can be shown a wrong decade today. That
+      // is an omission of the caller graph, not a property of the code — whoever
+      // wires this up must raise instead. The WARN exists so the shape is not
+      // mistaken for an endorsed default.
+      Logger.warn({ err }, 'filterAlbumsToReleasePeriod query failed; returning the input UNFILTERED');
       return albums;
     }
   }
@@ -730,6 +860,10 @@ export class AlbumService {
         const cs = this.colorService ?? container.resolve(ColorService);
         return cs.getColorFromImageUrl(albumCoverUrl);
       } catch {
+        // CORRECT AS IS, and it is not a query at all. This is a DECORATIVE
+        // accent colour for an embed, so the fallback is a fixed brand colour,
+        // never a fabricated fact about the album. Raising would fail four
+        // who-knows charts over a stripe.
         return DiscordConstants.LastFmColorRed;
       }
     }
@@ -768,9 +902,17 @@ export class AlbumService {
       if (cached) return cached;
     }
 
+    // Guarded BEFORE the query, and after the cache read, so a cache hit still
+    // wins (the db suite pins that) while a malformed id never opens a query.
+    const parsedId = parseDiscordUserId(discordUserId);
+    if (parsedId === null) {
+      Logger.debug({ discordUserId }, 'getLatestAlbums received a non-numeric discord id; no query was issued');
+      return [];
+    }
+
     try {
       const user = await this.prisma.user.findFirst({
-        where: { discordUserId: BigInt(discordUserId) },
+        where: { discordUserId: parsedId },
         select: { userId: true },
       });
       if (!user) return [];
@@ -801,6 +943,14 @@ export class AlbumService {
       await this.cache.set(cacheKey, result, 30);
       return result;
     } catch {
+      // CORRECT AS IS. This is an AUTOCOMPLETE SUGGESTION LIST, and an empty
+      // one is what autocomplete is for: no options is an honest, functional
+      // answer that the user simply keeps typing. The list it produces is never
+      // rendered as a chart, a play count or a claim about the user, so there is
+      // no plausible wrong number here to suppress — the opposite of the case
+      // `getUserAllTimeTopAlbums` makes, where `[]` would read as "you have no
+      // albums" on a chart. Raising would also risk an unacknowledged
+      // interaction on an autocomplete callback.
       return [];
     }
   }
@@ -818,9 +968,16 @@ export class AlbumService {
       if (cached) return cached;
     }
 
+    // Guarded BEFORE the query, and after the cache read — see `getLatestAlbums`.
+    const parsedId = parseDiscordUserId(discordUserId);
+    if (parsedId === null) {
+      Logger.debug({ discordUserId }, 'getRecentTopAlbums received a non-numeric discord id; no query was issued');
+      return [];
+    }
+
     try {
       const user = await this.prisma.user.findFirst({
-        where: { discordUserId: BigInt(discordUserId) },
+        where: { discordUserId: parsedId },
         select: { userId: true },
       });
       if (!user) return [];
@@ -847,6 +1004,9 @@ export class AlbumService {
       await this.cache.set(cacheKey, result, 120);
       return result;
     } catch {
+      // CORRECT AS IS. Autocomplete suggestion list — same reasoning as
+      // `getLatestAlbums` above. The `playcount` this raw query selects is
+      // discarded anyway; nothing is charted from it.
       return [];
     }
   }
@@ -872,6 +1032,9 @@ export class AlbumService {
         albumName: r.name,
       }));
     } catch {
+      // CORRECT AS IS. Autocomplete catalogue search — same reasoning as
+      // `getLatestAlbums`: no suggestions is a working autocomplete response, not
+      // a claim about the catalogue.
       return [];
     }
   }

@@ -4,6 +4,9 @@ import { container } from 'tsyringe';
 import { AlbumService } from './albumService';
 import { ColorService } from './colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
+import { Logger } from '@domain/logger';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import type { User } from '@domain/interfaces/iuserRepository';
 
 /**
@@ -16,6 +19,27 @@ import type { User } from '@domain/interfaces/iuserRepository';
  * Those paths are almost entirely try/catch-and-degrade, so the interesting
  * assertions are the ones that prove the degradation: a rejected query must
  * still yield a usable result, never a throw.
+ *
+ * THAT LAST SENTENCE IS NOW ONLY TRUE OF SOME OF THEM. Four methods end in a
+ * catch that produced a plausible wrong answer rather than an absence, and
+ * three of the four carried a test asserting exactly that:
+ *
+ *   - `getUserAllTimeTopAlbums`                  -> `[]`  (now raises)
+ *   - `getUserAllTimeTopAlbumsByReleasePrefix`   -> `[]`  (now raises)
+ *   - `getTopTracksForAlbum`                     -> `[]`  (now re-throws a
+ *     deliberately raised source outage, and still degrades for everything else
+ *     because it is rung 1 of a 4-rung ladder in `whoKnowsImageBuilder`)
+ *
+ * Each replacement is a PAIR: the failure RAISES, and a query that ran and found
+ * nothing still returns `[]`. Asserting only the raise would pass just as
+ * happily against a method that always threw, which trades one wrong answer for
+ * another - so both directions are pinned.
+ *
+ * The three AUTOCOMPLETE methods (`getLatestAlbums`, `getRecentTopAlbums`,
+ * `searchThroughAlbums`) keep their `catch { return [] }` on purpose: an empty
+ * suggestion list is what autocomplete is for, and nothing they produce is ever
+ * charted. Their failure tests are still there, unchanged, because unchanged is
+ * the point.
  *
  * Same construction pattern as albumService.searchAlbum.test.ts: the service
  * is built by hand with doubles, and every double is a vi.fn so individual
@@ -89,6 +113,16 @@ const build = (over: Record<string, unknown> = {}, opts: { noColor?: boolean } =
 // One `as any` at the boundary, so 48 call sites can reach .count/.groupBy/
 // .$queryRawUnsafe without each spelling out its mock shape. Warn-only rule.
 const mockOf = (fn: unknown) => fn as any;
+
+// `vi.spyOn(Logger, 'error')` is used in the failure tests below, and a spy left
+// in place is the exact bug class this repo has been bitten by before:
+// `mockRestore()` on a shared module singleton can leave an own property set to
+// `undefined`, and every later test then fails silently against it. Restore
+// after every test rather than per-test, so a new failure test cannot forget.
+// Safe here because every double is rebuilt by `build()` inside each test.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('AlbumService.getAlbumInfo', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -458,11 +492,34 @@ describe('AlbumService.getUserAllTimeTopAlbums', () => {
     expect(mockOf(deps.cache).set).not.toHaveBeenCalled();
   });
 
-  it('returns an empty list when the query fails', async () => {
+  it('raises instead of reporting "no albums" when the query fails', async () => {
+    // REPLACED. The assertion used to be `resolves.toEqual([])` in a test named
+    // 'returns an empty list when the query fails' - which pinned the bug
+    // exactly. This is a `GROUP BY` aggregate over `user_plays`, so a dropped
+    // connection produced the all-time top-albums chart for a user with
+    // thousands of plays, with nothing in the output to say so.
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, deps } = build();
     mockOf(deps.prisma).$queryRawUnsafe.mockRejectedValue(new Error('db down'));
 
+    const err = await service.getUserAllTimeTopAlbums(1).catch((e: unknown) => e);
+
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('albumService.getUserAllTimeTopAlbums');
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('still returns an empty array when the query RAN and found no rows', async () => {
+    // The other half of the pair, and the half a "just throw on error" fix
+    // breaks. An aggregate with no matching rows is a SUCCESS with a shorter
+    // result, so empty is the honest answer and must stay a plain empty array -
+    // not an exception. Without this, raising would be indistinguishable from a
+    // method that always throws.
+    const { service, deps } = build();
+    mockOf(deps.prisma).$queryRawUnsafe.mockResolvedValue([]);
+
     await expect(service.getUserAllTimeTopAlbums(1)).resolves.toEqual([]);
+    expect(mockOf(deps.prisma).$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -522,11 +579,34 @@ describe('AlbumService.getTopTracksForAlbum', () => {
   });
 
   it('returns an empty list when resolution fails', async () => {
+    // KEPT AS IS, and the contrast with the next test is the whole point. A
+    // Spotify outage is rung 1 of a ladder `whoKnowsImageBuilder` completes with
+    // the album's own metadata tracklist, so `[]` here costs the caller one rung
+    // and fabricates nothing.
     const { service, deps } = build();
     mockOf(deps.lastfmRepository).getAlbumInfo.mockResolvedValue(null);
     mockOf(deps.spotifyApi).getAlbumTrackNames.mockRejectedValue(new Error('spotify down'));
 
     await expect(service.getTopTracksForAlbum('Radiohead', 'OK Computer')).resolves.toEqual([]);
+  });
+
+  it('does not launder a raised source outage as "no top tracks"', async () => {
+    // The back-door case, and the one that was quietly reintroducing the bug one
+    // layer up. `lastFmRepository.getAlbumInfo` RAISES LastFmUnavailableError on
+    // a 5xx precisely so nothing downstream can read a Last.fm outage as "this
+    // album has no tracks" - and this method's try spans that call, so its catch
+    // turned the deliberate signal back into `[]`. Built through the same class
+    // the repository uses, so this is the real shape rather than a stand-in.
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    const { service, deps } = build();
+    mockOf(deps.lastfmRepository).getAlbumInfo.mockRejectedValue(
+      new LastFmUnavailableError('album.getinfo', new Error('Last.fm 5xx')),
+    );
+
+    const err = await service.getTopTracksForAlbum('Radiohead', 'OK Computer').catch((e: unknown) => e);
+
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect(error).toHaveBeenCalled();
   });
 });
 
@@ -558,21 +638,33 @@ describe('AlbumService.getUserAllTimeTopAlbumsByReleasePrefix', () => {
     ]);
   });
 
-  it('returns [] rather than an unfiltered list when the prefix query fails', () => {
-    // Was 'falls back to the in-memory list when the prefix query fails', and the
-    // assertion was the bug. The catch branch called getUserAllTimeTopAlbums and
-    // returned every album the user had, with the decade filter silently not
-    // applied. That is the failure mode that hid the 42703 for as long as it
-    // existed: the query threw on every single call and the embed still rendered
-    // a full, confident, wrong list. Nothing in the output distinguished degraded
-    // from working.
-    //
-    // Empty and degraded now look identical to the user, and Logger.warn records
-    // which one actually happened. Deliberate behaviour change, not an accident.
+  it('raises rather than reporting "no albums in that decade" when the query fails', async () => {
+    // REPLACED. The assertion used to be `resolves.toEqual([])` in a test whose
+    // own comment conceded the gap: "Empty and degraded now look identical to the
+    // user, and Logger.warn records which one actually happened." That is the
+    // lie PLAN_REACH_A.md A1 exists to remove, not a neutral description of it.
+    // A user asking for the 90s was told "nothing from the 90s" when the real
+    // answer was "we could not check".
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, deps } = build();
     mockOf(deps.prisma).$queryRawUnsafe.mockRejectedValue(new Error('db down'));
 
-    return expect(service.getUserAllTimeTopAlbumsByReleasePrefix(1, '1997')).resolves.toEqual([]);
+    const err = await service.getUserAllTimeTopAlbumsByReleasePrefix(1, '1997').catch((e: unknown) => e);
+
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('albumService.getUserAllTimeTopAlbumsByReleasePrefix');
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('still returns an empty array when the prefix query RAN and matched nothing', async () => {
+    // The other half of the pair. A decade with no matching releases is a real
+    // answer and must stay a plain empty array. It is a different sentence from
+    // the one above, and only one of them is true at a time.
+    const { service, deps } = build();
+    mockOf(deps.prisma).$queryRawUnsafe.mockResolvedValue([]);
+
+    await expect(service.getUserAllTimeTopAlbumsByReleasePrefix(1, '1997')).resolves.toEqual([]);
+    expect(mockOf(deps.prisma).$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -703,9 +795,13 @@ describe('AlbumService.getLatestAlbums', () => {
   });
 
   it('returns an empty list when the discord user is not registered', async () => {
-    const { service } = build();
+    // A well-formed but unknown snowflake. `'unknown'` would now be answered by
+    // the malformed-id guard below rather than by the user lookup, which would
+    // make this test pass without the `if (!user) return []` ever running.
+    const { service, deps } = build();
 
-    await expect(service.getLatestAlbums('unknown')).resolves.toEqual([]);
+    await expect(service.getLatestAlbums('999999999999999999')).resolves.toEqual([]);
+    expect(mockOf(deps.prisma).user.findFirst).toHaveBeenCalled();
   });
 
   it('dedupes albums case-insensitively and caches the result for 30 seconds', async () => {
@@ -727,10 +823,36 @@ describe('AlbumService.getLatestAlbums', () => {
   });
 
   it('returns an empty list when the query fails', async () => {
+    // CORRECT AS IS, and unchanged: this is an autocomplete suggestion list.
+    // No options is a working autocomplete response, not a claim about the user.
     const { service, deps } = build();
     mockOf(deps.prisma).user.findFirst.mockRejectedValue(new Error('db down'));
 
     await expect(service.getLatestAlbums('123')).resolves.toEqual([]);
+  });
+
+  it('issues no query at all for a discord id that is not a snowflake', async () => {
+    // `BigInt('not-a-number')` throws a SyntaxError. That is a CALLER bug, not a
+    // source that failed to answer, so it is answered BEFORE any query is opened
+    // rather than being caught and reported as the database being unavailable.
+    // Same separation as `parseGuildId` in genreService. The autocomplete empty
+    // result is unchanged - only the diagnosis and the wasted round trip are.
+    //
+    // The DEBUG assertion is what makes this mutation-sensitive. Without it the
+    // test also passes against the OLD code, where the SyntaxError was thrown
+    // and swallowed by the catch: same `[]`, same un-called query. The log line
+    // is the only observable difference between "we refused to ask" and "we
+    // asked and it blew up", so it is the thing to pin.
+    const debug = vi.spyOn(Logger, 'debug').mockImplementation(() => undefined);
+    const { service, deps } = build();
+
+    await expect(service.getLatestAlbums('not-a-number')).resolves.toEqual([]);
+    expect(mockOf(deps.prisma).user.findFirst).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma).userPlay.findMany).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith(
+      { discordUserId: 'not-a-number' },
+      expect.stringContaining('no query was issued'),
+    );
   });
 });
 
@@ -747,9 +869,11 @@ describe('AlbumService.getRecentTopAlbums', () => {
   });
 
   it('returns an empty list when the discord user is not registered', async () => {
-    const { service } = build();
+    // A well-formed but unknown snowflake - see `getLatestAlbums`.
+    const { service, deps } = build();
 
-    await expect(service.getRecentTopAlbums('unknown')).resolves.toEqual([]);
+    await expect(service.getRecentTopAlbums('999999999999999999')).resolves.toEqual([]);
+    expect(mockOf(deps.prisma).user.findFirst).toHaveBeenCalled();
   });
 
   it('maps the raw rows and caches them for 120 seconds', async () => {
@@ -766,10 +890,28 @@ describe('AlbumService.getRecentTopAlbums', () => {
   });
 
   it('returns an empty list when the query fails', async () => {
+    // CORRECT AS IS, and unchanged: autocomplete, as in `getLatestAlbums`.
     const { service, deps } = build();
     mockOf(deps.prisma).user.findFirst.mockRejectedValue(new Error('db down'));
 
     await expect(service.getRecentTopAlbums('123')).resolves.toEqual([]);
+  });
+
+  it('issues no query at all for a discord id that is not a snowflake', async () => {
+    // `BigInt('not-a-number')` throws a SyntaxError, which is a caller bug rather
+    // than a source that failed to answer - so the guard runs before the query
+    // instead of the SyntaxError falling into the catch below. The DEBUG
+    // assertion is what distinguishes the two paths; see `getLatestAlbums`.
+    const debug = vi.spyOn(Logger, 'debug').mockImplementation(() => undefined);
+    const { service, deps } = build();
+
+    await expect(service.getRecentTopAlbums('not-a-number')).resolves.toEqual([]);
+    expect(mockOf(deps.prisma).user.findFirst).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma).$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith(
+      { discordUserId: 'not-a-number' },
+      expect.stringContaining('no query was issued'),
+    );
   });
 });
 
@@ -796,6 +938,7 @@ describe('AlbumService.searchThroughAlbums', () => {
   });
 
   it('returns an empty list when the query fails', async () => {
+    // CORRECT AS IS, and unchanged: autocomplete catalogue search, as above.
     const { service, deps } = build();
     mockOf(deps.prisma).album.findMany.mockRejectedValue(new Error('db down'));
 

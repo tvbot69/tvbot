@@ -2,8 +2,107 @@ import { inject, injectable } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import { CountryService } from './countryService';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
+
+/**
+ * A query that could not run is not a query that found nothing.
+ *
+ * Every read in this file carried a `.catch(() => [])` — nine of them — and every
+ * one of them turned a dropped connection into an answer the user reads as a
+ * fact about themselves or about the people in their server:
+ *
+ *  - `.listeninggaps` said "no hiatuses found"
+ *  - `.discoveries` said "you discovered nothing new"
+ *  - `.iceberg` was the worst of them: `artist.findMany` failing emptied the
+ *    popularity map, `hasDbPopularity` went false, and the RANK-RATIO FALLBACK
+ *    then invented a popularity score per artist from playcount position — so an
+ *    outage rendered a complete, confident, entirely fabricated iceberg.
+ *  - `.affinity` was the `guildAdminService` class again, one layer out: an empty
+ *    `guildUser` list renders "*Could not find indexed users with a similar music
+ *    taste in this server*", and an empty TARGET `userArtist` list does not
+ *    render empty at all — it renders a full table of real people, every one at
+ *    `0%`, sorted by those zeros.
+ *
+ * Same rule as `orUnavailable` in `lastFmRepository` and `orDatabaseUnavailable`
+ * in `playHistoryService`, `guildAdminService`, `genreService`, `countryService`,
+ * `albumService` and `overviewService`: a query that returns NO ROWS is a real
+ * answer and stays empty; a query that THROWS raises `SourceUnavailableError`
+ * after a `Logger.error`.
+ *
+ * There is no "not found" case to split out the way Last.fm has one. Every read
+ * below is a `GROUP BY` aggregate or a `findMany` with no existence claim in it —
+ * an artist with no genre rows, a user with no plays, a server with no other
+ * indexed members — and each of those succeeds with a shorter result rather than
+ * erroring. So empty IS the answer, and an error is always an error.
+ *
+ * Every caller sits behind a boundary that replies on a throw: `commandHandler`
+ * at the message boundary, `interactionHandler.ts:353` for buttons (which
+ * replies "something went wrong" only when the interaction has not already been
+ * acknowledged, so the previous card survives untouched rather than being
+ * replaced by an empty one) and `:482` for slash commands.
+ */
+const orDatabaseUnavailable = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: `musicIntelligenceService:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in musicIntelligenceService (${label}); refusing to render the failure as a real answer`,
+    );
+    throw new SourceUnavailableError(`musicIntelligenceService:${label}`, err, 'Database unavailable');
+  }
+};
+
+/**
+ * `guild_id` is BigInt and every guild id arrives as a string, so `BigInt()`
+ * throws a SyntaxError on anything non-numeric.
+ *
+ * A malformed argument is a CALLER bug, not a source that failed to answer, and
+ * it must not be laundered into the same "Database unavailable" as a real outage
+ * — that would tell whoever reads the log to go and look at Postgres when the
+ * fault is upstream of it. The guard returns the empty answer WITHOUT opening a
+ * query, which is honest: no such guild exists, so it has no neighbours. Same
+ * shape and same reasoning as `parseGuildId` in `genreService`.
+ */
+const parseGuildId = (guildId: string): bigint | null => {
+  if (!guildId || !/^\d+$/.test(guildId)) return null;
+  try {
+    return BigInt(guildId);
+  } catch {
+    return null;
+  }
+};
 
 export type GapEntityType = 'artist' | 'album' | 'track';
+
+/**
+ * Row shapes for the raw gap queries.
+ *
+ * Named rather than inline because an inline multi-line generic argument
+ * (`$queryRawUnsafe<Array<{\n ... \n}>>(...)`) parses under `tsc` and FAILS under
+ * esbuild, which is what vitest transforms with — so the type went at module
+ * scope and the call sites carry a single-line generic. Found by running the
+ * suite, not by reading: `tsc --noEmit` was clean while every test in the file
+ * failed to collect.
+ */
+interface GapRow {
+  name: string;
+  resume_date: Date;
+  prev_played: Date;
+  gap_days: number;
+  total_plays: bigint;
+}
+
+interface GapRowWithArtist extends GapRow {
+  artist_name: string;
+}
+
+interface DiscoveryRow {
+  artist_name: string;
+  first_play: Date;
+  playcount: bigint;
+}
 
 export interface ListeningGapItem {
   name: string;
@@ -73,13 +172,8 @@ export class MusicIntelligenceService {
     minGapDays: number = 90,
   ): Promise<ListeningGapItem[]> {
     if (entityType === 'artist') {
-      const rows = await this.db.$queryRawUnsafe<Array<{
-        name: string;
-        resume_date: Date;
-        prev_played: Date;
-        gap_days: number;
-        total_plays: bigint;
-      }>>(`
+      const rows = await orDatabaseUnavailable('getListeningGaps:artist', () =>
+        this.db.$queryRawUnsafe<GapRow[]>(`
         WITH ordered_plays AS (
           SELECT artist_name, time_played,
                  LAG(time_played) OVER (PARTITION BY LOWER(artist_name) ORDER BY time_played ASC) AS prev_played,
@@ -103,7 +197,7 @@ export class MusicIntelligenceService {
         WHERE rn = 1
         ORDER BY gap_days DESC
         LIMIT 50;
-      `, userId, minGapDays).catch(() => []);
+      `, userId, minGapDays));
 
       return rows.map((r) => ({
         name: r.name,
@@ -113,14 +207,8 @@ export class MusicIntelligenceService {
         totalPlays: Number(r.total_plays),
       }));
     } else if (entityType === 'album') {
-      const rows = await this.db.$queryRawUnsafe<Array<{
-        name: string;
-        artist_name: string;
-        resume_date: Date;
-        prev_played: Date;
-        gap_days: number;
-        total_plays: bigint;
-      }>>(`
+      const rows = await orDatabaseUnavailable('getListeningGaps:album', () =>
+        this.db.$queryRawUnsafe<GapRowWithArtist[]>(`
         WITH ordered_plays AS (
           SELECT album_name, artist_name, time_played,
                  LAG(time_played) OVER (PARTITION BY LOWER(artist_name), LOWER(album_name) ORDER BY time_played ASC) AS prev_played,
@@ -145,7 +233,7 @@ export class MusicIntelligenceService {
         WHERE rn = 1
         ORDER BY gap_days DESC
         LIMIT 50;
-      `, userId, minGapDays).catch(() => []);
+      `, userId, minGapDays));
 
       return rows.map((r) => ({
         name: r.name,
@@ -156,14 +244,8 @@ export class MusicIntelligenceService {
         totalPlays: Number(r.total_plays),
       }));
     } else {
-      const rows = await this.db.$queryRawUnsafe<Array<{
-        name: string;
-        artist_name: string;
-        resume_date: Date;
-        prev_played: Date;
-        gap_days: number;
-        total_plays: bigint;
-      }>>(`
+      const rows = await orDatabaseUnavailable('getListeningGaps:track', () =>
+        this.db.$queryRawUnsafe<GapRowWithArtist[]>(`
         WITH ordered_plays AS (
           SELECT track_name, artist_name, time_played,
                  LAG(time_played) OVER (PARTITION BY LOWER(artist_name), LOWER(track_name) ORDER BY time_played ASC) AS prev_played,
@@ -188,7 +270,7 @@ export class MusicIntelligenceService {
         WHERE rn = 1
         ORDER BY gap_days DESC
         LIMIT 50;
-      `, userId, minGapDays).catch(() => []);
+      `, userId, minGapDays));
 
       return rows.map((r) => ({
         name: r.name,
@@ -206,11 +288,8 @@ export class MusicIntelligenceService {
     startDateTime: Date,
     endDateTime: Date,
   ): Promise<DiscoveryItem[]> {
-    const rows = await this.db.$queryRawUnsafe<Array<{
-      artist_name: string;
-      first_play: Date;
-      playcount: bigint;
-    }>>(`
+    const rows = await orDatabaseUnavailable('getDiscoveries', () =>
+      this.db.$queryRawUnsafe<DiscoveryRow[]>(`
       WITH artist_first_plays AS (
         SELECT artist_name, MIN(time_played) AS first_play
         FROM user_plays
@@ -229,7 +308,7 @@ export class MusicIntelligenceService {
       WHERE a.first_play >= $2 AND a.first_play <= $3
       ORDER BY p.playcount DESC
       LIMIT 100;
-    `, userId, startDateTime, endDateTime).catch(() => []);
+    `, userId, startDateTime, endDateTime));
 
     return rows.map((r) => ({
       artistName: r.artist_name,
@@ -247,15 +326,17 @@ export class MusicIntelligenceService {
   ): Promise<IcebergData> {
     const artistNames = topArtists.map((a) => a.name);
 
-    const dbArtists = await this.db.artist.findMany({
-      where: {
-        name: { in: artistNames, mode: 'insensitive' },
-      },
-      select: {
-        name: true,
-        popularity: true,
-      },
-    }).catch(() => []);
+    const dbArtists = await orDatabaseUnavailable('getIceberg:artistPopularity', () =>
+      this.db.artist.findMany({
+        where: {
+          name: { in: artistNames, mode: 'insensitive' },
+        },
+        select: {
+          name: true,
+          popularity: true,
+        },
+      }),
+    );
 
     const popMap = new Map<string, number>();
     for (const a of dbArtists) {
@@ -288,6 +369,15 @@ export class MusicIntelligenceService {
       }
     }
 
+    // THE RANK-RATIO FALLBACK BELOW IS STAYS, AND THE DIFFERENCE IS THE POINT.
+    // It is the honest answer when the query RAN and came back with no recorded
+    // popularity for these artists — we asked, and the answer was "we have not
+    // scored them". It is a fabrication when the query THREW, because then we do
+    // not know which of the two happened, and the old `.catch(() => [])` made
+    // those identical: an outage rendered a complete five-tier iceberg with a
+    // confident invented popularity on every artist, all of it derived from
+    // playcount rank. Raising above is what separates them. An empty result and
+    // a fabricated result now render identically, and only one of them is true.
     topArtists.forEach((artist, index) => {
       let pop = popMap.get(artist.name.toLowerCase());
       if (pop === undefined) {
@@ -329,26 +419,12 @@ export class MusicIntelligenceService {
     targetUserNameLastFm: string,
     guildName: string,
   ): Promise<AffinityData> {
-    const guildIdBigInt = BigInt(guildId);
-
-    const guildUsers = await this.db.guildUser.findMany({
-      where: {
-        guildId: guildIdBigInt,
-        userId: { not: targetUserId },
-        whoKnowsBanned: false,
-      },
-      include: {
-        user: {
-          select: {
-            userId: true,
-            discordUserId: true,
-            userNameLastFm: true,
-          },
-        },
-      },
-    }).catch(() => []);
-
-    if (guildUsers.length === 0) {
+    const guildIdBigInt = parseGuildId(guildId);
+    if (guildIdBigInt === null) {
+      Logger.warn(
+        { guildId },
+        'musicIntelligenceService received a guild id that is not a snowflake; no query was issued',
+      );
       return {
         userDisplayName: targetDisplayName,
         userNameLastFm: targetUserNameLastFm,
@@ -358,12 +434,56 @@ export class MusicIntelligenceService {
       };
     }
 
-    const targetArtistsRaw = await this.db.userArtist.findMany({
-      where: { userId: targetUserId },
-      orderBy: { playcount: 'desc' },
-      take: 100,
-      select: { name: true, playcount: true },
-    }).catch(() => []);
+    // The candidate list itself. Empty here renders "*Could not find indexed
+    // users with a similar music taste in this server*", which during an outage
+    // is a confident falsehood about real people in a real server.
+    const guildUsers = await orDatabaseUnavailable('getGuildAffinity:guildUsers', () =>
+      this.db.guildUser.findMany({
+        where: {
+          guildId: guildIdBigInt,
+          userId: { not: targetUserId },
+          whoKnowsBanned: false,
+        },
+        include: {
+          user: {
+            select: {
+              userId: true,
+              discordUserId: true,
+              userNameLastFm: true,
+            },
+          },
+        },
+      }),
+    );
+
+    if (guildUsers.length === 0) {
+      // Genuinely nobody else in the server is indexed. That IS the answer, and
+      // it is the one case the builder above renders correctly.
+      return {
+        userDisplayName: targetDisplayName,
+        userNameLastFm: targetUserNameLastFm,
+        guildName,
+        neighbors: [],
+        totalGuildUsers: 0,
+      };
+    }
+
+    // THE TARGET'S OWN TOP ARTISTS. This is the most insidious read in the
+    // file, and it is why a per-site judgement was not enough to triage this one.
+    // Failing here does NOT render an empty table. It empties `targetArtistMap`,
+    // which zeroes `artistScore` for every neighbour, which zeroes `totalPercentage`
+    // for every neighbour — so the user gets a FULL affinity table of real people,
+    // every number in it wrong, sorted by those wrong numbers. Identical in shape
+    // to `guildAdminService.getMembersOverview`, which sank the heaviest listener
+    // in a server to the bottom of the members table.
+    const targetArtistsRaw = await orDatabaseUnavailable('getGuildAffinity:targetArtists', () =>
+      this.db.userArtist.findMany({
+        where: { userId: targetUserId },
+        orderBy: { playcount: 'desc' },
+        take: 100,
+        select: { name: true, playcount: true },
+      }),
+    );
 
     const targetArtistMap = new Map<string, number>();
     for (const a of targetArtistsRaw) {
@@ -371,13 +491,18 @@ export class MusicIntelligenceService {
     }
 
     const otherUserIds = guildUsers.map((gu) => gu.userId);
-    const otherArtistsRaw = await this.db.userArtist.findMany({
-      where: {
-        userId: { in: otherUserIds },
-      },
-      orderBy: { playcount: 'desc' },
-      select: { userId: true, name: true, playcount: true },
-    }).catch(() => []);
+    // Same shape as the target read: empty here means every neighbour is skipped
+    // by the `uArtists.length === 0` guard below, so the table collapses to the
+    // same "could not find indexed users" line an empty candidate list produces.
+    const otherArtistsRaw = await orDatabaseUnavailable('getGuildAffinity:guildArtists', () =>
+      this.db.userArtist.findMany({
+        where: {
+          userId: { in: otherUserIds },
+        },
+        orderBy: { playcount: 'desc' },
+        select: { userId: true, name: true, playcount: true },
+      }),
+    );
 
     const allArtistNames = [...new Set([
       ...targetArtistsRaw.map((a) => a.name.toLowerCase().trim()),
@@ -386,8 +511,15 @@ export class MusicIntelligenceService {
 
     let dbArtists: Array<{ name: string; countryCode?: string | null; genres?: Array<{ name: string }> }> = [];
     if (allArtistNames.length > 0 && this.db.artist?.findMany) {
-      try {
-        const res = await this.db.artist.findMany({
+      // THE PARTIAL-SUCCESS CASE, which is the insidious one. `artistPercentage`
+      // above is real; only the genre and country columns depend on this read. So a
+      // failure here does not empty the table — it renders a table whose middle
+      // two columns are `0%` for everybody, with no hint that they were never
+      // measured. That is why `guildAdminService.getMembersOverview` has a
+      // separate test for a crowns-only failure: the playcounts are real, so the
+      // table looks trustworthy right up to the column that is not.
+      const res = await orDatabaseUnavailable('getGuildAffinity:artistEnrichment', () =>
+        this.db.artist.findMany({
           where: {
             name: { in: allArtistNames, mode: 'insensitive' },
           },
@@ -398,11 +530,9 @@ export class MusicIntelligenceService {
               select: { name: true },
             },
           },
-        });
-        if (Array.isArray(res)) dbArtists = res;
-      } catch {
-        dbArtists = [];
-      }
+        }),
+      );
+      if (Array.isArray(res)) dbArtists = res;
     }
 
     const artistGenreMap = new Map<string, string[]>();

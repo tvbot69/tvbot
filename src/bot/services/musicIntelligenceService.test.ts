@@ -1,8 +1,10 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MusicIntelligenceService } from './musicIntelligenceService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { PrismaClient } from '@prisma/client';
+import { Logger } from '@domain/logger';
+import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
 describe('MusicIntelligenceService', () => {
   let service: MusicIntelligenceService;
@@ -54,6 +56,15 @@ describe('MusicIntelligenceService', () => {
     };
 
     service = new MusicIntelligenceService(mockPrisma as PrismaClient, mockCountryService);
+  });
+
+  // The failure tests below spy on `Logger.error`. A spy left in place on a shared
+  // module singleton is the exact bug class this repo has been bitten by before
+  // (35 failures once, 12 more later): `mockRestore()` can leave an own property
+  // set to `undefined` and every later test then dies against it. Restore after
+  // EVERY test rather than per-test, so a new failure test cannot forget.
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe('getListeningGaps', () => {
@@ -209,6 +220,254 @@ describe('MusicIntelligenceService', () => {
       expect(affinity.neighbors[0]!.totalPercentage).toBeGreaterThan(0);
       expect(affinity.neighbors[0]!.sharedArtists).toContain('Radiohead');
       expect(affinity.neighbors[0]!.sharedArtists).toContain('Slowdive');
+    });
+  });
+
+  /**
+   * A1 — "no query is silent".
+   *
+   * Every read in this file ended in `.catch(() => [])`, so a dropped connection
+   * and a user who has never pressed play were the same value, and both cards
+   * said something confident about it. Each site is now tested as a PAIR:
+   *
+   *   1. a query that THROWS raises `SourceUnavailableError` after `Logger.error`
+   *   2. a query that RAN and found nothing still returns the empty answer
+   *
+   * Asserting only (1) cannot tell the fix from a method that always throws, and
+   * asserting only (2) cannot tell the fix from the bug. Both directions are
+   * pinned, for the same reason `guildAdminService` pins its genuine-zeros case.
+   */
+  describe('A1: a query that cannot run must not render as one that found nothing', () => {
+    const DB_DOWN = () => new Error('Connection terminated unexpectedly');
+
+    /** Silences and captures the mandatory ERROR so tests do not spam the log. */
+    const captureErrorLog = () => vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+
+    /**
+     * Answers EVERY read `getGuildAffinity` makes, so a test can break exactly one.
+     *
+     * The two `userArtist.findMany` calls are told apart by their own argument —
+     * the target's is `{ userId: <number> }`, the guild's is `{ userId: { in: [...] } }`.
+     * Keying on that is what makes "break the SECOND read only" expressible
+     * without depending on call ordering, which is a fragile thing to assert on.
+     */
+    const answerEveryAffinityRead = (
+      breakRead?: 'guildUsers' | 'targetArtists' | 'guildArtists' | 'enrichment',
+    ): void => {
+      mockPrisma.guildUser.findMany.mockImplementation(() =>
+        breakRead === 'guildUsers' ? Promise.reject(DB_DOWN()) : Promise.resolve([
+          {
+            userId: 2,
+            guildId: 1000n,
+            user: { userId: 2, discordUserId: 222222222222222222n, userNameLastFm: 'charlie_lfm' },
+          },
+        ]),
+      );
+      mockPrisma.userArtist.findMany.mockImplementation((args: { where?: { userId?: unknown } }) => {
+        const target = typeof args?.where?.userId === 'number';
+        if (target && breakRead === 'targetArtists') return Promise.reject(DB_DOWN());
+        if (!target && breakRead === 'guildArtists') return Promise.reject(DB_DOWN());
+        return Promise.resolve(
+          target
+            ? [{ name: 'Radiohead', playcount: 500 }]
+            : [{ userId: 2, name: 'Radiohead', playcount: 400 }],
+        );
+      });
+      mockPrisma.artist.findMany.mockImplementation(() =>
+        breakRead === 'enrichment' ? Promise.reject(DB_DOWN()) : Promise.resolve([]),
+      );
+    };
+
+    const affinityArgs = ['1000', 1, 'Alex', 'alex_lfm', 'Music Server'] as const;
+
+    // ------------------------------------------------------------- gaps ------
+
+    it.each(['artist', 'album', 'track'] as const)(
+      'raises instead of reporting "no %s hiatuses found" when the query fails',
+      async (entityType) => {
+        const error = captureErrorLog();
+        mockPrisma.$queryRawUnsafe.mockRejectedValue(DB_DOWN());
+
+        const thrown = await service.getListeningGaps(1, entityType, 90).catch((e: unknown) => e);
+
+        expect(isSourceUnavailable(thrown)).toBe(true);
+        expect((thrown as Error).message).toContain(`getListeningGaps:${entityType}`);
+        // The rule's first half: it must say so, not merely stop returning a lie.
+        expect(error).toHaveBeenCalledWith(
+          expect.objectContaining({ query: `musicIntelligenceService:getListeningGaps:${entityType}` }),
+          expect.stringContaining('refusing to render the failure as a real answer'),
+        );
+      },
+    );
+
+    it.each(['artist', 'album', 'track'] as const)(
+      'still returns an empty %s list when the query RAN and found no gap',
+      async (entityType) => {
+        captureErrorLog();
+        mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
+        await expect(service.getListeningGaps(1, entityType, 90)).resolves.toEqual([]);
+      },
+    );
+
+    // -------------------------------------------------------- discoveries ----
+
+    it('raises instead of reporting "you discovered nothing" when the query fails', async () => {
+      const error = captureErrorLog();
+      mockPrisma.$queryRawUnsafe.mockRejectedValue(DB_DOWN());
+
+      const thrown = await service
+        .getDiscoveries(1, new Date('2024-01-01'), new Date('2024-04-01'))
+        .catch((e: unknown) => e);
+
+      expect(isSourceUnavailable(thrown)).toBe(true);
+      expect((thrown as Error).message).toContain('getDiscoveries');
+      expect(error).toHaveBeenCalled();
+    });
+
+    it('still returns an empty discoveries list when the query RAN and found none', async () => {
+      captureErrorLog();
+      mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
+      await expect(
+        service.getDiscoveries(1, new Date('2024-01-01'), new Date('2024-04-01')),
+      ).resolves.toEqual([]);
+    });
+
+    // ----------------------------------------------------------- iceberg -----
+
+    it('raises instead of FABRICATING a popularity for every artist when the query fails', async () => {
+      // The worst of the nine. `artist.findMany` failing emptied the popularity
+      // map, `hasDbPopularity` went false, and the RANK-RATIO FALLBACK then
+      // invented a popularity score per artist out of playcount position — so an
+      // outage rendered a complete, confident, entirely fictional five-tier
+      // iceberg. Asserting the throw is the fix; asserting no tiers come back is
+      // what stops the fallback from quietly re-entering through the back door.
+      const error = captureErrorLog();
+      mockPrisma.artist.findMany.mockRejectedValue(DB_DOWN());
+
+      const topArtists = [
+        { name: 'Taylor Swift', playcount: 500 },
+        { name: 'Panchiko', playcount: 100 },
+      ];
+      const thrown = await service
+        .getIceberg(1, topArtists, 'Alex', 'alex_lfm', 'All time')
+        .catch((e: unknown) => e);
+
+      expect(isSourceUnavailable(thrown)).toBe(true);
+      expect((thrown as Error).message).toContain('getIceberg:artistPopularity');
+      expect(error).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'musicIntelligenceService:getIceberg:artistPopularity' }),
+        expect.any(String),
+      );
+    });
+
+    it('KEEPS the rank-ratio fallback when the query ran and simply has no popularity', async () => {
+      // The half that must NOT change. The fallback is honest when the query
+      // ANSWERED and the answer was "these artists are unscored". Distinguishing
+      // that from a throw is the entire point of the fix, so a "fix" that also
+      // raised on empty would break a real feature and this test is what catches it.
+      captureErrorLog();
+      mockPrisma.artist.findMany.mockResolvedValue([]);
+
+      const topArtists = [
+        { name: 'Taylor Swift', playcount: 500 },
+        { name: 'Panchiko', playcount: 100 },
+      ];
+      const iceberg = await service.getIceberg(1, topArtists, 'Alex', 'alex_lfm', 'All time');
+
+      expect(iceberg.tiers).toHaveLength(5);
+      const placed = iceberg.tiers.flatMap((t) => t.artists);
+      expect(placed).toHaveLength(2);
+      // Rank-derived: the top artist scores far above the bottom one, so the
+      // fallback really ran rather than every artist landing in one tier.
+      expect(placed[0]!.popularity!).toBeGreaterThan(placed[1]!.popularity!);
+    });
+
+    // ----------------------------------------------------------- affinity ----
+
+    it('raises instead of claiming nobody in the server has a similar taste when the candidate list fails', async () => {
+      const error = captureErrorLog();
+      answerEveryAffinityRead('guildUsers');
+
+      const thrown = await service.getGuildAffinity(...affinityArgs).catch((e: unknown) => e);
+
+      expect(isSourceUnavailable(thrown)).toBe(true);
+      expect((thrown as Error).message).toContain('getGuildAffinity:guildUsers');
+      expect(error).toHaveBeenCalled();
+    });
+
+    it('raises instead of listing every neighbour at 0% when the TARGET user read fails', async () => {
+      // The partial-success trap, and the reason this file could not be triaged
+      // by shape alone. An empty target list does NOT render an empty table — it
+      // empties `targetArtistMap`, which zeroes `artistScore` and therefore
+      // `totalPercentage` for EVERY neighbour. The user gets a full affinity
+      // table of real people, every number wrong, sorted by those wrong numbers.
+      // Identical in shape to `guildAdminService.getMembersOverview`.
+      const error = captureErrorLog();
+      answerEveryAffinityRead('targetArtists');
+
+      const thrown = await service.getGuildAffinity(...affinityArgs).catch((e: unknown) => e);
+
+      expect(isSourceUnavailable(thrown)).toBe(true);
+      expect((thrown as Error).message).toContain('getGuildAffinity:targetArtists');
+      expect(error).toHaveBeenCalled();
+    });
+
+    it('raises instead of collapsing the neighbour list when the GUILD artist read fails', async () => {
+      const error = captureErrorLog();
+      answerEveryAffinityRead('guildArtists');
+
+      const thrown = await service.getGuildAffinity(...affinityArgs).catch((e: unknown) => e);
+
+      expect(isSourceUnavailable(thrown)).toBe(true);
+      expect((thrown as Error).message).toContain('getGuildAffinity:guildArtists');
+      expect(error).toHaveBeenCalled();
+    });
+
+    it('raises instead of printing 0% genres and 0% countries for a real table when the enrichment fails', async () => {
+      // `artistPercentage` is real at this point and only the genre/country
+      // columns depend on the failed read, which is what makes it insidious: the
+      // table looks trustworthy right up to the columns that were never measured.
+      const error = captureErrorLog();
+      answerEveryAffinityRead('enrichment');
+
+      const thrown = await service.getGuildAffinity(...affinityArgs).catch((e: unknown) => e);
+
+      expect(isSourceUnavailable(thrown)).toBe(true);
+      expect((thrown as Error).message).toContain('getGuildAffinity:artistEnrichment');
+      expect(error).toHaveBeenCalled();
+    });
+
+    it('still answers "no neighbours" when the server genuinely has no other indexed member', async () => {
+      // The honest empty. The builder renders "*Could not find indexed users with
+      // a similar music taste in this server*", and for THIS input that sentence
+      // is true — which is exactly why an outage rendering the same sentence is
+      // indistinguishable from it and had to be separated.
+      const error = captureErrorLog();
+      mockPrisma.guildUser.findMany.mockResolvedValue([]);
+
+      const affinity = await service.getGuildAffinity(...affinityArgs);
+
+      expect(affinity.neighbors).toEqual([]);
+      expect(affinity.totalGuildUsers).toBe(0);
+      expect(error).not.toHaveBeenCalled();
+      // The later reads must not even be attempted once the answer is known.
+      expect(mockPrisma.userArtist.findMany).not.toHaveBeenCalled();
+    });
+
+    it('issues no query at all for a guild id that is not a snowflake', async () => {
+      // `BigInt('not-a-snowflake')` throws a SyntaxError. That is a CALLER bug,
+      // not an outage, and laundering it into "Database unavailable" would send
+      // whoever reads the log to look at Postgres instead of at the caller.
+      const error = captureErrorLog();
+
+      const affinity = await service.getGuildAffinity(
+        'not-a-snowflake', 1, 'Alex', 'alex_lfm', 'Music Server',
+      );
+
+      expect(affinity.neighbors).toEqual([]);
+      expect(mockPrisma.guildUser.findMany).not.toHaveBeenCalled();
+      // NOT an ERROR: nothing failed, there was simply nothing to ask.
+      expect(error).not.toHaveBeenCalled();
     });
   });
 });
