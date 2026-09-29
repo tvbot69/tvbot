@@ -313,6 +313,97 @@ const KINDS: Record<string, KindFn> = {
     }
     return n;
   },
+
+  /**
+   * Raw SQL queries with no `*.db.test.ts` that executes them.
+   *
+   * This is the most valuable ratchet in the file, and it exists because the
+   * original audit got this wrong. DoD 2.3 claimed "28 of 28 raw queries
+   * covered" because the audit matched `$queryRawUnsafe` only. There are 77 raw
+   * queries; the missing 49 were `$queryRaw` tagged templates. That
+   * under-count is what let 7 production bugs survive, including four found by
+   * the first-ever execution of the suite that did exist.
+   *
+   * BASELINE IS PER FILE, NOT PER COVERAGE. My first attempt skipped any file
+   * that already had a `*.db.test.ts`, and the mutation check killed it: adding
+   * a brand-new untested query to an already-covered file still reported 0. That
+   * is precisely the way coverage regresses - a covered file grows a new query -
+   * so the check was decoration. It now compares each file's query count against
+   * a recorded allowance in `scripts/raw-query-baseline.json` and reports the
+   * OVERFLOW, which is zero only when no covered file has grown.
+   *
+   * Files with no test at all contribute their full count, so deleting a
+   * `*.db.test.ts` is caught too.
+   */
+  'raw-query-without-db-test': (program) => {
+    // `fs` and `path` are already imported at the top of this file - a local
+    // `require()` to reach them was two lint errors for no reason.
+    const fsmod = fs;
+    const pathmod = path;
+
+    const hasDbTest = (stem: string): boolean => {
+      let found = false;
+      const walk = (dir: string): void => {
+        if (found) return;
+        for (const e of fsmod.readdirSync(dir, { withFileTypes: true })) {
+          if (found) return;
+          const full = pathmod.join(dir, e.name);
+          if (e.isDirectory()) walk(full);
+          else if (e.name === `${stem.replace(/\.ts$/, '')}.db.test.ts`) found = true;
+        }
+      };
+      walk('src');
+      return found;
+    };
+
+    let baseline: Record<string, number> = {};
+    try {
+      baseline = JSON.parse(fsmod.readFileSync('scripts/raw-query-baseline.json', 'utf8'));
+    } catch {
+      throw new Error(
+        'cannot read scripts/raw-query-baseline.json - it records the per-file query allowance',
+      );
+    }
+
+    let n = 0;
+    for (const sf of program.getSourceFiles()) {
+      if (!isProduction(sf)) continue;
+      const p = path.resolve(sf.fileName).replace(/\\/g, '/');
+      if (p.includes('/dbHarness')) continue;
+      const rel = p.split('/src/')[1] ?? p;
+      let count = 0;
+      const visit = (node: ts.Node): void => {
+        // BOTH forms, and missing one is the whole bug this ratchet exists to fix.
+        // A bare `p.$queryRaw`...`` is a CallExpression. But `p.$queryRaw<T>`...`` -
+        // a tagged template carrying a type argument, which is how almost every
+        // call in this repo is written - is a TaggedTemplateExpression, and
+        // isCallExpression is FALSE for it. My first version checked only
+        // CallExpression and reported ZERO raw queries in a file that has five.
+        // A ratchet that reports zero is worse than no ratchet.
+        let callee: ts.Node | null = null;
+        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+          callee = node.expression;
+        } else if (ts.isTaggedTemplateExpression(node) && ts.isPropertyAccessExpression(node.tag)) {
+          callee = node.tag;
+        }
+        if (callee) {
+          const m = (callee as ts.PropertyAccessExpression).name.text;
+          if (m === '$queryRawUnsafe' || m === '$queryRaw' || m === '$executeRaw' || m === '$executeRawUnsafe') {
+            count += 1;
+          }
+        }
+        node.forEachChild(visit);
+      };
+      visit(sf);
+      if (count === 0) continue;
+      const allowed = hasDbTest(pathmod.basename(p)) ? (baseline[rel] ?? 0) : 0;
+      const over = count - allowed;
+      if (over <= 0) continue;
+      n += over;
+      record(`${rel} (${count} queries, allowance ${allowed})`, 0);
+    }
+    return n;
+  },
 };
 
 /** Production source only: under src/, not a test, not a declaration. */
