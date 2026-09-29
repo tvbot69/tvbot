@@ -88,6 +88,42 @@ hoped for.
 
 **Next:** `playHistoryService.getYearOverview` — 6 raw queries, each becoming a confident zero.
 
+#### An audit of the throw found three things I had wrong
+
+A subagent audited every call site of the 9 converted methods. My own claim of "41 call sites
+across 17 files" was **undercounted by half** — the real number is 82, because grepping on the
+method name misses sites that use a different receiver name (`lastfmRepo` rather than
+`lastfmRepository`). 81 are safe, 1 was not, and the audit corrected two of my statements:
+
+1. **I claimed 9 methods converted; it was 8.** The auth-session lookup was not converted. The
+   message was wrong, and converting it *would* have been a bug: its only caller sits inside a
+   retry loop that depends on a `null` return. Left unchanged deliberately, and now documented
+   as such rather than left to look like an oversight.
+
+2. **I claimed `getUserFriends` was telling users their friend had been removed. It has zero
+   production callers** — the friends UI reads `friendsRepository`, not Last.fm. The fix is
+   still correct, but the impact I described for it was not real.
+
+3. **The one genuinely unsafe site:** `friendsCommands.ts:192` did a Last.fm lookup, then a
+   database write, inside a loop over `.addfriends a b c` arguments. A throw between them
+   aborted the loop *after earlier arguments were already committed*, so the user got a generic
+   error and no confirmation of friends that had in fact been added. Now caught per-argument.
+
+`indexService` was the other real risk and it is fixed: the `getUserInfo` call sat outside its
+try/catch, so a throw would have skipped `touchLastIndexed` entirely — the run would look
+neither successful nor failed and the user would never be retried. It now has its own
+try/catch that sets `stats.error`, which is the path that triggers a retry.
+
+**A mutation survived in `artworkService`, and that was informative.** I had added
+`if (!isLastFmUnavailable(err)) answered = true` to three catch blocks, believing it stopped an
+outage being cached as "no artwork exists". Mutating it to `|| true` changed nothing, because
+those methods decide the cache from `attempts.length`, and every catch already pushes an
+attempt. The flag was dead for that decision in all three places. Rather than keep a guard
+that looks protective and is not, I removed all three and left a comment saying why the flag is
+deliberately not set. The file's own header already states the rule: "Inconclusive runs
+(throws, rate-limits) are never cached." The behaviour was never wrong; my guard was a
+comment pretending to be a fix.
+
 
 **Definition of done for this tier:** a Last.fm 5xx in a test produces a visible error, and
 the year chart says "could not load" instead of "0 plays."

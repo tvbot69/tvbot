@@ -19,6 +19,7 @@ import type {
 } from '@domain/models/musicInfo';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
 import { LastfmApiError } from '@domain/models/lastfmError';
+import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import type {
   RecentTracksResponseLfm,
 } from '@lastfm/models/recentTracksLfm';
@@ -72,23 +73,6 @@ const NOT_FOUND_CODES = new Set([6, 7, 8]);
  */
 const isNotFound = (err: unknown): boolean =>
   err instanceof LastfmApiError && NOT_FOUND_CODES.has(err.code);
-
-/**
- * The `null` a caller gets when Last.fm could not be reached at all.
- *
- * Thrown rather than returned so it cannot be mistaken for "does not exist":
- * a `catch` that returns `null` without calling this is the bug this whole
- * helper exists to prevent.
- */
-export class LastFmUnavailableError extends Error {
-  constructor(
-    public readonly method: string,
-    public readonly cause: unknown,
-  ) {
-    super(`Last.fm unavailable during ${method}: ${(cause as Error)?.message ?? String(cause)}`);
-    this.name = 'LastFmUnavailableError';
-  }
-}
 
 /**
  * The single place a Last.fm failure becomes a caller-visible result.

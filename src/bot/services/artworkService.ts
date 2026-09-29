@@ -460,8 +460,11 @@ export class ArtworkService {
           answered = true;
         }
       } catch {
+        // `answered` is deliberately NOT set. The cache decision below keys off
+        // attempts.length, and this catch has already pushed an attempt, so the
+        // run is inconclusive regardless of why it threw. Setting it would look
+        // like it distinguished an outage from a miss and do nothing.
         attempts.push({ source: 'lastfm' });
-        answered = true;
       }
       if (!answered && this.isLastFmUnhealthy()) {
         // Ambiguous null during a hard outage — inconclusive, not definitive.
@@ -692,8 +695,9 @@ export class ArtworkService {
           if (isValidImageUrl(lfmUrl)) result = lfmUrl;
         }
       } catch {
+        // See the note in getAlbumCoverUrl: `answered` is not set here because
+        // the cache decision keys off attempts.length, not this flag.
         attempts.push({ source: 'lastfm' });
-        answered = true;
       }
       if (!answered && this.isLastFmUnhealthy()) {
         // Ambiguous null during a hard outage — inconclusive, not definitive.
@@ -840,7 +844,9 @@ export class ArtworkService {
         }
       } catch (err) {
         attempts.push({ source: 'lastfm' });
-        answered = true;
+        // `answered` is deliberately NOT set here: the cache decision below
+        // keys off attempts.length, and the catch has already pushed one, so
+        // the run is inconclusive either way. Setting it would be a no-op.
         Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: lastfm miss');
       }
       if (!answered && this.isLastFmUnhealthy()) {

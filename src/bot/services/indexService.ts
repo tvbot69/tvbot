@@ -241,13 +241,23 @@ export class IndexService {
     // Update user stats & timestamp.
     // lastIndexed is only touched on success: a failed/interrupted run must stay
     // stale so the next stale-index sweep retries it instead of skipping it.
-    const lastFmUser = await this.lastfmRepository.getUserInfo(user.userNameLastFm);
-    if (lastFmUser) {
-      stats.totalScrobbles = lastFmUser.playCount;
-      await this.userRepository.updateUserStats(user.userId, lastFmUser.playCount, new Date());
-      if (!freshUser.registeredLastFm && lastFmUser.registeredAt) {
-        await this.userRepository.setUserRegisteredLfm(user.userId, lastFmUser.registeredAt);
+    //
+    // Inside its own try because getUserInfo raises LastFmUnavailableError on a
+    // Last.fm outage rather than returning null, and an escaping throw here would
+    // skip touchLastIndexed entirely - the run would look neither successful nor
+    // failed, and the user would never be retried.
+    try {
+      const lastFmUser = await this.lastfmRepository.getUserInfo(user.userNameLastFm);
+      if (lastFmUser) {
+        stats.totalScrobbles = lastFmUser.playCount;
+        await this.userRepository.updateUserStats(user.userId, lastFmUser.playCount, new Date());
+        if (!freshUser.registeredLastFm && lastFmUser.registeredAt) {
+          await this.userRepository.setUserRegisteredLfm(user.userId, lastFmUser.registeredAt);
+        }
       }
+    } catch (err) {
+      Logger.error({ err }, `Index: failed updating stats for ${user.userNameLastFm}`);
+      stats.error = true;
     }
     if (!stats.error) {
       await this.touchLastIndexed(user.userId);

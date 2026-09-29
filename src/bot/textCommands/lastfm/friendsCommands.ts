@@ -10,6 +10,7 @@ import { ArtworkService } from '@bot/services/artworkService';
 import { ColorService } from '@bot/services/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import { Logger } from '@domain/logger';
 import { FriendType } from '@domain/enums/friendType';
 
 export class FriendsCommands implements ITextCommandModule {
@@ -189,7 +190,20 @@ export class FriendsCommands implements ITextCommandModule {
       }
 
       // Check if user exists on Last.fm
-      const lfmInfo = await this.lastfmRepository.getUserInfo(targetUsername);
+      //
+      // A Last.fm outage raises rather than returning null, and an escaping
+      // throw here would abort the loop AFTER earlier arguments were already
+      // written to the database - leaving the user with friends added and no
+      // confirmation of it. One bad minute must not lose the result of a
+      // multi-add, so the failure is per-argument.
+      let lfmInfo;
+      try {
+        lfmInfo = await this.lastfmRepository.getUserInfo(targetUsername);
+      } catch (err) {
+        Logger.error({ err, target: targetUsername }, 'addfriends: Last.fm lookup failed');
+        notFound.push(targetUsername);
+        continue;
+      }
       if (!lfmInfo) {
         notFound.push(targetUsername);
         continue;

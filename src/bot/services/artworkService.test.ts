@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ArtworkService, matchesArtistName, matchesTrackTitle, sanitizeMusicName, stripChannelSuffix } from './artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
+import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 
 describe('matcher name normalization', () => {
   it('folds diacritics in stylized artist and title names', () => {
@@ -411,7 +412,7 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
 
   const makeResilient = (opts: HarnessOpts = {}) => {
     const cache = memCache();
-    const calls = { spotifyTracks: 0 };
+    const calls = { spotifyTracks: 0, lastFmTrackInfo: 0 };
     const service = new ArtworkService(
       {
         searchTracks: async (..._a: unknown[]) => {
@@ -434,7 +435,10 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
       { getAlbumByNameAndArtist: async () => null, setSpotifyImage: async () => undefined, setDeezerImage: async () => undefined, setImageUrl: async () => undefined } as never,
       { getTrackByNameAndArtist: async () => null, setSpotifyImage: async () => undefined, setImageUrl: async () => undefined } as never,
       {
-        getTrackInfo: opts.lastFmTrackInfo ?? (async () => null),
+        getTrackInfo: async (...a: unknown[]) => {
+          calls.lastFmTrackInfo++;
+          return opts.lastFmTrackInfo ? opts.lastFmTrackInfo(...(a as [])) : null;
+        },
         getAlbumInfo: opts.lastFmAlbumInfo ?? (async () => null),
         getArtistInfo: async () => null,
       } as never,
@@ -527,5 +531,37 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
     expect(cache.store.get('art:track:mond|esme')).toBe('none');
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
     expect(calls.spotifyTracks).toBe(2);
+  });
+
+  it('treats a thrown Last.fm outage as inconclusive, not as a cached definitive miss', async () => {
+    // Proves the Last.fm call is actually reached in this cascade, so the
+    // inconclusive-marker assertions above are testing the real path and not
+    // short-circuiting on an earlier provider.
+    const { service, cache, calls } = makeResilient({
+      tracker: { isElevated: () => false },
+      lastFmTrackInfo: async () => {
+        throw new LastFmUnavailableError('track.getinfo', new Error('boom'));
+      },
+    });
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    expect(calls.lastFmTrackInfo).toBeGreaterThan(0);
+    // The catch pushes an attempt, so the run is inconclusive and must NOT be
+    // remembered as "this cover does not exist".
+    expect(cache.store.get('art:track:mond|esme')).toBe('inconclusive');
+  });
+
+  it('still treats an ordinary Last.fm throw as inconclusive, per this file contract', async () => {
+    // The header comment states the rule: "Inconclusive runs (throws,
+    // rate-limits) are never cached." LastFmUnavailableError was special-cased
+    // only to STOP it being treated as a definitive miss, which the outage
+    // branch already handles. An ordinary throw keeps its original behaviour.
+    const { service, cache } = makeResilient({
+      tracker: { isElevated: () => false },
+      lastFmTrackInfo: async () => {
+        throw new Error('unexpected shape');
+      },
+    });
+    await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBeNull();
+    expect(cache.store.get('art:track:mond|esme')).toBe('inconclusive');
   });
 });
