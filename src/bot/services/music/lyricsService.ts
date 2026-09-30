@@ -19,14 +19,39 @@ interface CacheEntry {
 }
 
 /**
- * Set by each provider leg as soon as that provider REPLIED, whatever the
- * reply was (a 404 and an empty list are answers). A thrown fetch never sets
- * it. The only use is the negative cache entry: "this song has no lyrics" is
- * only a fact when somebody actually said so.
+ * Set by a provider leg when that provider gave a **definitive answer about
+ * this track**. The only use is the negative cache entry: "this song has no
+ * lyrics" is only a fact when somebody actually said so.
  */
 interface ProviderProbe {
   answered: boolean;
 }
+
+/**
+ * Whether a provider's HTTP status is a verdict about the track, or a verdict
+ * about the provider.
+ *
+ * LRCLIB answers **404 `TrackNotFound`** for "no such track" and **503
+ * `ServerOverloaded`** for "I am busy" — measured live, 12 of 12 misses were
+ * 404 and 1 of 8 searches was 503 with no provocation. Genius answers **403**
+ * with a Cloudflare challenge document from a datacenter IP. Only the first of
+ * those three is a statement about the song.
+ *
+ * So a 4xx that means "not found" is an answer, and everything that means "I
+ * could not tell you" is not: 5xx, 429, 401 and 403 are all the provider
+ * failing rather than the track being absent. A 2xx is always an answer because
+ * the body is in hand and the caller decides what it says.
+ *
+ * This is the whole fix. It used to be `res.ok`-shaped, which is true for a 503's
+ * sibling — `Response.ok` is false but the *request* still completed, so setting
+ * `answered` before reading the status counted outages as answers and froze
+ * "no lyrics" for an hour after a ten-second blip.
+ */
+const statusIsAnAnswer = (status: number): boolean => {
+  if (status >= 200 && status < 300) return true;
+  if (status === 404 || status === 410) return true;
+  return false;
+};
 
 @singleton()
 export class LyricsService {
@@ -117,7 +142,7 @@ export class LyricsService {
         signal: AbortSignal.timeout(LyricsService.TIMEOUT_MS),
         headers: { 'User-Agent': 'tvbot-discord-music-bot/1.0' },
       });
-      if (probe) probe.answered = true;
+      if (probe && statusIsAnAnswer(res.status)) probe.answered = true;
 
       if (!res.ok) return null;
       const data = (await res.json()) as Record<string, unknown>;
@@ -138,7 +163,7 @@ export class LyricsService {
         signal: AbortSignal.timeout(LyricsService.TIMEOUT_MS),
         headers: { 'User-Agent': 'tvbot-discord-music-bot/1.0' },
       });
-      if (probe) probe.answered = true;
+      if (probe && statusIsAnAnswer(res.status)) probe.answered = true;
 
       if (!res.ok) return null;
       const results = (await res.json()) as Array<Record<string, unknown>>;
@@ -172,7 +197,7 @@ export class LyricsService {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
       });
-      if (probe) probe.answered = true;
+      if (probe && statusIsAnAnswer(searchRes.status)) probe.answered = true;
 
       if (!searchRes.ok) return null;
       const data = (await searchRes.json()) as {
