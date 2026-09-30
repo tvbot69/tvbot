@@ -166,23 +166,42 @@ describe('DeezerApi — live wire shapes', () => {
       expect(PLAYLIST_PAGE_1.data).toHaveLength(2);
     });
 
-    it('a playlist past the first page is truncated to that page, with no partial flag', async () => {
-      // Two real calls in a row: page 1 succeeds, then the cursor is handed to
-      // the same `${API_BASE}${path}` concatenation the pager uses.
+    it('a playlist past the first page now follows the cursor and returns every page', async () => {
+      // THE BUG THIS FIXES. `next` is an absolute URL and was handed to
+      // `${API_BASE}${path}`, producing
+      // `https://api.deezer.comhttps://api.deezer.com/...` — an unresolvable
+      // host. The request threw, the catch returned null, and pagination stopped
+      // after page one: 347 tracks on the wire, 2 returned, no partial flag.
+      //
+      // The old version of this test asserted the truncation and spelled out the
+      // doubled URL, which documented the defect precisely without catching it.
+      // Now the second request is made to the cursor as given.
+      const page2 = { data: [TRACK_SEARCH_HIT, TRACK_SEARCH_HIT], total: 347, next: null };
       const spy = vi.spyOn(globalThis, 'fetch');
       spy.mockResolvedValueOnce(jsonResponse(PLAYLIST_PAGE_1));
-      spy.mockRejectedValueOnce(new TypeError('fetch failed'));
+      spy.mockResolvedValueOnce(jsonResponse(page2));
 
       const tracks = await new DeezerApi().getPlaylistTracks('914651125');
 
-      // The honest statement of today's behaviour. 347 on the wire, 2 back,
-      // and `getPlaylistTracks` returns an array — the caller cannot tell.
-      expect(tracks).toHaveLength(2);
+      // 2 from page one plus 2 from page two.
+      expect(tracks).toHaveLength(4);
       expect(spy).toHaveBeenCalledTimes(2);
 
-      // The URL the pager actually requested, spelled out.
+      // The cursor is used verbatim. Doubling the base is the bug, so this is
+      // the assertion that fails against the old code.
       const requested = String(spy.mock.calls[1]?.[0]);
-      expect(requested).toBe('https://api.deezer.comhttps://api.deezer.com/playlist/914651125/tracks?limit=100&index=100');
+      expect(requested).toBe('https://api.deezer.com/playlist/914651125/tracks?limit=100&index=100');
+      expect(requested).not.toContain('api.deezer.comhttps://');
+    });
+
+    it('a path (not a cursor) is still resolved against API_BASE', async () => {
+      // The other direction. Without this, a fix that stops concatenating would
+      // turn every ordinary call into a relative-URL fetch that cannot resolve.
+      const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(jsonResponse(PLAYLIST_PAGE_1));
+
+      await new DeezerApi().getPlaylistTracks('914651125');
+
+      expect(String(spy.mock.calls[0]?.[0])).toBe('https://api.deezer.com/playlist/914651125/tracks?limit=100');
     });
 
     it('a playlist that fits on one page is unaffected', async () => {

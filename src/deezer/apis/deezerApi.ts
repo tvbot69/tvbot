@@ -95,25 +95,50 @@ export class DeezerApi {
     return page?.data ?? [];
   }
 
-  private async getNullable<T>(path: string): Promise<T | null> {
+  private async getNullable<T>(pathOrUrl: string): Promise<T | null> {
     try {
-      const response = await fetchWithTimeout(`${API_BASE}${path}`, {}, DEEZER_TIMEOUT_MS);
+      const response = await fetchWithTimeout(DeezerApi.toRequestUrl(pathOrUrl), {}, DEEZER_TIMEOUT_MS);
       if (!response.ok) {
         // Deezer answers 800s for unknown IDs — an expected miss.
-        Logger.debug({ status: response.status, path }, '[Deezer] Lookup miss');
+        Logger.debug({ status: response.status, path: pathOrUrl }, '[Deezer] Lookup miss');
         return null;
       }
       const json = (await response.json()) as (T & { error?: unknown }) | null;
       if (!json || (json as { error?: unknown }).error) return null;
       return json;
     } catch (err) {
-      Logger.debug({ err, path }, '[Deezer] Lookup exception');
+      Logger.debug({ err, path: pathOrUrl }, '[Deezer] Lookup exception');
       return null;
     }
   }
 
+  /**
+   * Accept either a path (`/album/1/tracks`) or an absolute URL, and return the
+   * URL to actually fetch.
+   *
+   * Deezer's `next` cursor is an ABSOLUTE url — measured live:
+   * `https://api.deezer.com/playlist/914651125/tracks?limit=100&index=100`. The
+   * old `getNullable` blindly prefixed `API_BASE`, producing
+   * `https://api.deezer.comhttps://api.deezer.com/...`, which is an unresolvable
+   * host. The request failed, the catch returned null, and pagination stopped
+   * after page one: a 347-track playlist came back as 100 tracks with no
+   * partial flag, which is a confident wrong answer rather than an absence.
+   *
+   * The liveShape fixture already asserted `next` matches
+   * `^https://api\.deezer\.com/` — the test documented the bug and the bug
+   * shipped anyway, because the fixture tested the *shape* of the cursor and
+   * nothing tested following it.
+   *
+   * Absolute URLs from the vendor are honoured rather than re-based, because
+   * Deezer is entitled to move the API host and the cursor is authoritative.
+   */
+  private static toRequestUrl(pathOrUrl: string): string {
+    if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+    return `${API_BASE}${pathOrUrl}`;
+  }
+
   private async get<T>(path: string): Promise<T> {
-    const response = await fetchWithTimeout(`${API_BASE}${path}`, {}, DEEZER_TIMEOUT_MS);
+    const response = await fetchWithTimeout(DeezerApi.toRequestUrl(path), {}, DEEZER_TIMEOUT_MS);
     if (!response.ok) {
       throw new Error(`Deezer HTTP ${response.status} for ${path}`);
     }

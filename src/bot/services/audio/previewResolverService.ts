@@ -18,6 +18,28 @@ export interface ResolvedPreview {
 }
 
 export class PreviewResolverService {
+  /**
+   * How long a resolved preview may be cached, by the rung that produced it.
+   *
+   * This used to be a flat 3600 for every source, which was correct for two of
+   * the three and wrong for Deezer. Measured live: a Deezer preview URL carries
+   * a signed token that **expires in ~907 seconds**, while an Apple
+   * (`audio-ssl.itunes.apple.com`) and a Spotify (`p.scdn.co`) preview do not
+   * expire at all. So 45 of every 60 cached minutes handed out a URL that 404s
+   * on fetch, and the failure surfaces to the user as a preview button that
+   * does nothing — an absence with no explanation, which is why the rung's
+   * expiry is now part of the cache decision rather than a constant.
+   *
+   * 600s is deliberately well under the measured 907s. A shorter TTL costs one
+   * extra search; a longer one serves a dead URL.
+   */
+  private static ttlForSource(result: ResolvedPreview): number {
+    return result.source === 'deezer' ? PreviewResolverService.DEEZER_TTL_SECONDS : PreviewResolverService.STABLE_TTL_SECONDS;
+  }
+
+  private static readonly DEEZER_TTL_SECONDS = 600;
+  private static readonly STABLE_TTL_SECONDS = 3600;
+
   constructor(
     private readonly appleApi: AppleMusicSearchApi,
     private readonly deezerApi: DeezerApi,
@@ -74,7 +96,7 @@ export class PreviewResolverService {
             artworkUrl: sp.artworkUrl ?? null,
             source: 'spotify',
           };
-          await this.cache.set(key, result, 3600);
+          await this.cache.set(key, result, PreviewResolverService.ttlForSource(result));
           return result;
         }
       } catch {
@@ -117,7 +139,7 @@ export class PreviewResolverService {
       }
     }
 
-    if (result) await this.cache.set(key, result, 3600);
+    if (result) await this.cache.set(key, result, PreviewResolverService.ttlForSource(result));
     return result;
   }
 
