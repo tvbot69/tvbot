@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { GuildAdminCommands } from './guildAdminCommands';
 import { GuildAdminSlashCommands } from '../../slashCommands/guildAdminSlashCommands';
@@ -83,6 +85,25 @@ const guildDisabledCommandServiceStub = () =>
     removeDisabledCommand: vi.fn(async () => undefined),
     getDisabledCommands: vi.fn(async () => [] as string[]),
   }) as unknown as GuildDisabledCommandService;
+
+/**
+ * The PER-CHANNEL toggle store. Distinct from `guildDisabledCommandServiceStub`:
+ * that one is the guild-wide gate (`isCommandDisabled`), this one is the only
+ * writer of the per-channel `*` list the gate reads. Passing the wrong one is
+ * the mistake the 7-argument arity forced, so both are named by their real type.
+ */
+const channelToggledCommandServiceStub = () =>
+  ({
+    toggleCommand: vi.fn(async () => true),
+    isCommandToggled: vi.fn(async () => false),
+  }) as unknown as ChannelToggledCommandService;
+
+/** The per-channel mute gate, NOT the guild-wide one. */
+const disabledChannelServiceStub = () =>
+  ({
+    setChannelDisabled: vi.fn(async () => undefined),
+    isChannelDisabled: vi.fn(async () => false),
+  }) as unknown as DisabledChannelService;
 
 /**
  * An in-memory `CacheService` with WORKING get/set/delete.
@@ -267,6 +288,8 @@ const buildWithoutWriters = () => {
     userServiceStub(),
     prefixServiceStub(),
     colorServiceStub(),
+    channelToggledCommandServiceStub(),
+    disabledChannelServiceStub(),
   );
   return { text, slash };
 };
@@ -698,14 +721,73 @@ describe('an unwired writer refuses instead of lying', () => {
     expect(description(result)).toContain('Nothing was changed');
   });
 
-  it('answers with an error in the slash family as well', async () => {
-    const { slash } = buildWithoutWriters();
+/**
+   * The slash family is the FIX for this, and it is a different kind of fix.
+   *
+   * `GuildAdminSlashCommands` now REQUIRES both writers, so "the writer was
+   * never passed" stopped being a reachable runtime state: it is a compile error
+   * instead. The `if (!this.channelToggledCommandService)` branch that answered
+   * "not available right now" is deleted, because it was the no-op that made the
+   * gate look enforced.
+   *
+   * That makes the "unwired writer" test above unreachable for slash, so the
+   * assertion that actually matters replaces it: a writer that FAILS must
+   * propagate. A swallowed rejection would be reported to the admin as a
+   * channel toggle that never happened - the exact lie this file exists to catch.
+   */
+  it('surfaces a FAILED write in the slash family instead of claiming success', async () => {
+    const boom = new Error('channel repository unreachable');
+    const toggled = {
+      toggleCommand: vi.fn(async () => {
+        throw boom;
+      }),
+      isCommandToggled: vi.fn(async () => false),
+    } as unknown as ChannelToggledCommandService;
+    const disabled = {
+      setChannelDisabled: vi.fn(async () => {
+        throw boom;
+      }),
+      isChannelDisabled: vi.fn(async () => false),
+    } as unknown as DisabledChannelService;
 
-    expect(
-      (await findSlash(slash, 'channeltogglecommand').executeAsync(slashCtx({ command: 'who' }))).commandResponse,
-    ).toBe(CommandResponse.Error);
-    expect(
-      (await findSlash(slash, 'disabledchannel').executeAsync(slashCtx({ subcommand: 'disable' }))).commandResponse,
-    ).toBe(CommandResponse.Error);
+    const slash = new GuildAdminSlashCommands(
+      guildServiceStub(),
+      guildAdminServiceStub(),
+      userServiceStub(),
+      prefixServiceStub(),
+      colorServiceStub(),
+      toggled,
+      disabled,
+    );
+
+    await expect(
+      findSlash(slash, 'channeltogglecommand').executeAsync(slashCtx({ command: 'who' })),
+    ).rejects.toThrow('channel repository unreachable');
+    await expect(
+      findSlash(slash, 'disabledchannel').executeAsync(slashCtx({ subcommand: 'disable' })),
+    ).rejects.toThrow('channel repository unreachable');
+  });
+
+  /**
+   * A no-op branch left behind by the optional-DI era is exactly the defect this
+   * test file was written for, so its absence is asserted from the source rather
+   * than trusted to a reader of the constructor: the slash class must not carry
+   * the "not available right now" wording, because its writers are required and
+   * the branch could only ever be unreachable.
+   *
+   * Scoped to the slash class on purpose. The TEXT twin still takes both writers
+   * as optional and still answers an error without touching anything - that is
+   * deliberate (several construction sites pass 6 arguments) and is asserted by
+   * the two tests above.
+   */
+  it('has no unreachable "not available right now" branch in the slash class', () => {
+    // `process.cwd()` rather than `import.meta.url`: this project compiles to
+    // CommonJS, so a test is invoked from the repo root. A wrong root makes
+    // `readFileSync` throw, which is a loud failure rather than a silent pass.
+    const source = readFileSync(
+      join(process.cwd(), 'src/bot/slashCommands/guildAdminSlashCommands.ts'),
+      'utf8',
+    );
+    expect(source).not.toContain('is not available right now');
   });
 });

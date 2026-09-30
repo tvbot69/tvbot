@@ -799,8 +799,21 @@ export class MusicService {
     // with 250k+ MAU. So the chunk manager is registered (harmless, and it
     // still drains anything a future source can provide) but the reply below
     // tells the truth instead of quietly handing back a fraction of the ask.
+    // Truncation is now three-valued, because "the count was unreadable" is not
+    // the same claim as "the count is larger than what we got".
+    //
+    // Before this, `totalTracks` silently meant `max(count, shard)` — the shard
+    // size when the count could not be read — and the gate
+    // `totalTracks > tracks.length` was then `100 > 100`, false. So a
+    // 347-track playlist rendered a confident "100 tracks" with no notice at
+    // all. The honest states are: a real count that exceeds the shard (truncated
+    // by a known amount), a real count that fits (complete), and no count
+    // (size unknown, so the number shown is a floor).
+    const totalUnknown = resolution.type === 'playlist' && resolution.totalKnown === false;
     const spotifyTruncated =
-      provider === 'spotify' && resolution.type === 'playlist' && resolution.totalTracks > resolution.tracks.length;
+      provider === 'spotify' &&
+      resolution.type === 'playlist' &&
+      (resolution.totalTracks > resolution.tracks.length || totalUnknown);
     if (spotifyTruncated && this.playlistChunkManager) {
       const parsed = this.spotifyResolver.parseSpotifyUrl(sourceUrl);
       if (parsed) {
@@ -831,8 +844,14 @@ export class MusicService {
       totalTracksAdded: addedTracks.length + pendingDomain.length,
       positionInQueue: player.queue.size - addedTracks.length + 1,
       partial: spotifyTruncated || undefined,
+      // Two different sentences, because they are two different claims. With a
+      // real count we can name what is missing; without one, naming a number
+      // would be inventing it — which is the exact bug this whole path exists
+      // to remove.
       partialReason: spotifyTruncated
-        ? `Spotify only exposes the first ${resolution.tracks.length} of ${resolution.totalTracks} tracks to bots — ${missing} more were not loaded`
+        ? totalUnknown
+          ? `Spotify only exposes ${resolution.tracks.length} tracks of this playlist to bots, and does not report the full size — more may exist beyond what was loaded`
+          : `Spotify only exposes the first ${resolution.tracks.length} of ${resolution.totalTracks} tracks to bots — ${missing} more were not loaded`
         : undefined,
     };
   }

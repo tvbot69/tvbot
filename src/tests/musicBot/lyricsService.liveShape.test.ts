@@ -171,11 +171,17 @@ describe('LyricsService — live LRCLIB wire shapes', () => {
   });
 
   describe('Genius', () => {
-    it('the unauthenticated search endpoint answers 403 with an HTML block page, not JSON', async () => {
-      // Measured live: every genius.com path — the API, the homepage, a lyrics
-      // page — returns 403 and an 11-12 KB Cloudflare challenge document from
-      // a datacenter IP. The JSON.parse in the service is inside the try, so
-      // it is caught, but only AFTER `probe.answered` was already set.
+    it('a 403 Cloudflare challenge is a FAILURE, not an answer and not lyrics', async () => {
+      // CORRECTED 2026-09-30: this test previously claimed the measurement was
+      // "every genius.com path returns 403 and an 11-12 KB Cloudflare challenge
+      // document from a datacenter IP", and the rung was recorded as dead.
+      // Re-probed the same day, Genius answers 200 from this machine with a real
+      // hit and real lyrics — so the claim was false, and it would have led the
+      // next person to delete a working rung.
+      //
+      // What survives is the BEHAVIOUR, which is correct whenever Genius does
+      // challenge us: a 403 must not be parsed as lyrics, must not be treated as
+      // a definitive "no lyrics", and must not freeze a negative cache entry.
       const html = '<!DOCTYPE html><html lang="en"><head><title>Genius</title></head><body>challenge-platform</body></html>';
       const spy = vi.spyOn(globalThis, 'fetch')
         .mockResolvedValueOnce(new Response(html, { status: 403 }))

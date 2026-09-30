@@ -17,6 +17,21 @@ export interface SpotifyResolutionResult {
   artworkUrl?: string;
   tracks: SpotifyResolvedTrack[];
   totalTracks: number;
+  /**
+   * Whether `totalTracks` is a real count or merely the number of tracks this
+   * shard returned.
+   *
+   * `false` means the vendor never told us the size, and `totalTracks` is then
+   * an UNDERSTATEMENT rather than a fact. Measured: Spotify's embed page
+   * carries no item count at all, so the scraper's `/(\d+)\s+items/` read
+   * matches nothing on either the embed or the main page. Without this flag the
+   * shard size was published as the playlist size and a 347-track playlist
+   * rendered as a confident "100 tracks" with no truncation notice.
+   *
+   * Defaults to `true` because every caller that knows a real count should say
+   * so; only the scraper's unreadable-count path sets it to `false`.
+   */
+  totalKnown?: boolean;
   provider: MirrorProvider;
 }
 
@@ -363,6 +378,7 @@ export class SpotifyResolver {
           artworkUrl: page.artworkUrl,
           tracks,
           totalTracks: page.total,
+          totalKnown: page.totalKnown !== false,
           provider: 'spotify',
         };
       }

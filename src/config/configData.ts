@@ -36,21 +36,14 @@ const buildSettings = (): BotSettings => {
     environment: optional('ENVIRONMENT') ?? 'local',
     discord: {
       token: required('DISCORD_TOKEN'),
-      botUserId: optional('DISCORD_BOT_USER_ID') ?? '0',
       applicationId: optional('DISCORD_APPLICATION_ID') ?? '0',
     },
     database: {
       connectionString: required('DATABASE_URL'),
     },
-    logging: {
-      seqServerUrl: optional('SEQ_SERVER_URL'),
-      seqApiKey: optional('SEQ_API_KEY'),
-    },
     bot: {
       prefix: optional('BOT_PREFIX') ?? '.',
-      baseServerId: optional('BASE_SERVER_ID'),
       stagingChannelId: optional('STAGING_CHANNEL_ID'),
-      useShardEnvConfig: false,
     },
     lastFm: {
       publicKey: required('LASTFM_API_KEY'),
@@ -89,15 +82,8 @@ const buildSettings = (): BotSettings => {
         credentials: credentials.length > 0 ? credentials : [{ key: primaryKey, secret: primarySecret }],
       };
     })(),
-    audd: {
-      apiToken: optional('AUDD_API_TOKEN') ?? '',
-    },
     google: {
       youtubeApiKey: optional('YOUTUBE_API_KEY') ?? '',
-    },
-    discogs: {
-      key: optional('DISCOGS_KEY') ?? '',
-      secret: optional('DISCOGS_SECRET') ?? '',
     },
     redis: {
       url: optional('REDIS_URL') ?? 'redis://localhost:6379',

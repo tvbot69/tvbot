@@ -41,6 +41,17 @@ export interface ScrapedPlaylist {
   owner: string;
   artworkUrl?: string;
   total: number;
+  /**
+   * `false` when the vendor never told us the playlist size, so `total` is the
+   * shard we received rather than a count. Measured 2026-09-30: Spotify's embed
+   * page and its main page both carry no item count, so the read below matches
+   * nothing on either. Publishing the shard size as the playlist size is what
+   * made a 347-track playlist render as "100 tracks" with no partial notice.
+   *
+   * Optional so every existing construction site keeps compiling; only the
+   * unreadable-count paths set it to `false`.
+   */
+  totalKnown?: boolean;
   tracks: ScrapedTrack[];
   hasMore: boolean;
   nextOffset: number | null;
@@ -241,6 +252,7 @@ export class SpotifyScraperService {
           .filter(Boolean) as ScrapedTrack[];
         if (tracks.length === 0) continue;
         let total = tracks.length;
+        let totalKnown = false;
         let totalMatch = html.match(/(\d+)\s+items/);
         if (!totalMatch) {
           try {
@@ -253,21 +265,29 @@ export class SpotifyScraperService {
             }
           } catch {}
         }
-        // CORRECT AS IS: an item count we never learned is not proof the
-        // playlist ENDS here. The whole page is one shard, and every sibling
-        // read in this file treats an unreadable answer as "unknown" and moves
-        // to the next strategy. Claiming `hasMore: false` would make the chunk
-        // manager log "streaming complete" for a 500-track playlist that
-        // yielded 100 — a confident total that was never read.
+        // An item count we never learned is not proof the playlist ENDS here.
+        // Measured live on 2026-09-30: this regex matches NOTHING on either the
+        // embed page or the main playlist page — Spotify's og:description reads
+        // "The hottest 50. Cover: ADÉLA", with no item token at all. So `total`
+        // was staying at the shard size and `hasMore` was reporting false,
+        // which is exactly the "streaming complete" lie the comment below
+        // describes. `totalKnown` is the honest signal: the count is unreadable,
+        // so the size is an understatement and the caller must say so.
         if (totalMatch?.[1]) {
           const parsed = parseInt(totalMatch[1], 10);
-          if (!isNaN(parsed) && parsed > total) total = parsed;
+          if (!isNaN(parsed) && parsed > total) {
+            total = parsed;
+            totalKnown = true;
+          }
+        } else {
+          Logger.debug({ playlistId, shard: tracks.length }, '[SpotifyScraper] playlist total unreadable; reporting the shard as a floor, not a count');
         }
         return {
           name: entity.name ?? 'Spotify Playlist',
           owner: entity.owner?.displayName ?? 'Spotify',
           artworkUrl: entity.images?.[0]?.url,
           total,
+          totalKnown,
           tracks,
           hasMore: total > tracks.length,
           nextOffset: total > tracks.length ? tracks.length : null,
@@ -508,11 +528,26 @@ export class SpotifyScraperService {
         if (result.length === 0) return null;
         const tracks: ScrapedTrack[] = result.slice(offset, offset + limit).map(r => ({ name: r.name, artist: r.artist, durationMs: 0 }));
         if (tracks.length === 0) return null;
-        const total = totalText ?? 473;
+        // The old code read `totalText ?? 473` — a hardcoded, invented playlist
+        // size. Measured 2026-09-30: the og:description regex above requires the
+        // literal word "items" and the live page does not contain it, so
+        // `totalText` is null on EVERY playlist this rung scrapes and the bot
+        // reported all of them as exactly 473 tracks. Downstream that renders as
+        // "Spotify only exposes the first N of 473 tracks" — a confident
+        // falsehood with a fabricated denominator, contradicting the
+        // unreadable-means-unknown rule the sibling rung in this same file
+        // follows.
+        //
+        // An unreadable count is now `tracks.length` with `totalKnown: false`,
+        // which is the same shape the embed rung uses. `hasMore` stays false so
+        // the pager does not loop on a number nobody can verify.
+        const totalKnown = totalText !== null;
+        const total = totalText ?? tracks.length;
         return {
           name: 'Spotify Playlist',
           owner: 'Spotify',
           total,
+          totalKnown,
           tracks,
           hasMore: offset + tracks.length < total,
           nextOffset: offset + tracks.length < total ? offset + tracks.length : null,

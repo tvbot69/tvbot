@@ -1,6 +1,5 @@
 export interface DiscordConfig {
   token: string;
-  botUserId: string;
   applicationId: string;
 }
 
@@ -8,16 +7,9 @@ export interface DatabaseConfig {
   connectionString: string;
 }
 
-export interface LoggingConfig {
-  seqServerUrl?: string;
-  seqApiKey?: string;
-}
-
 export interface BotConfig {
   prefix: string;
-  baseServerId?: string;
   stagingChannelId?: string;
-  useShardEnvConfig: boolean;
 }
 
 export interface ShardConfig {
@@ -52,17 +44,8 @@ export interface AppleMusicConfig {
   teamId: string;
 }
 
-export interface AuddConfig {
-  apiToken: string;
-}
-
 export interface GoogleConfig {
   youtubeApiKey: string;
-}
-
-export interface DiscogsConfig {
-  key: string;
-  secret: string;
 }
 
 export interface RedisConfig {
@@ -73,14 +56,11 @@ export interface BotSettings {
   environment: string;
   discord: DiscordConfig;
   database: DatabaseConfig;
-  logging?: LoggingConfig;
   bot: BotConfig;
   shards?: ShardConfig;
   lastFm: LastFmConfig;
   spotify: SpotifyConfig;
   appleMusic?: AppleMusicConfig;
-  audd: AuddConfig;
   google: GoogleConfig;
-  discogs: DiscogsConfig;
   redis: RedisConfig;
 }

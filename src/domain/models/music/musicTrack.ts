@@ -38,6 +38,17 @@ export interface MirrorResolution {
   artworkUrl?: string;
   tracks: MirrorTrack[];
   totalTracks: number;
+  /**
+   * `false` when the provider never reported a real size, so `totalTracks` is
+   * the shard we received rather than a count — an understatement, not a fact.
+   *
+   * Measured 2026-09-30: Spotify's embed page carries no item count at all, so
+   * this was silently false everywhere while the value looked authoritative.
+   * A consumer that renders `totalTracks` without reading this flag publishes a
+   * fabricated denominator — which is how a 347-track playlist came to render as
+   * a confident "100 tracks".
+   */
+  totalKnown?: boolean;
   provider: MirrorProvider;
 }
 

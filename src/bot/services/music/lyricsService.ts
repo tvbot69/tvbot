@@ -33,9 +33,18 @@ interface ProviderProbe {
  *
  * LRCLIB answers **404 `TrackNotFound`** for "no such track" and **503
  * `ServerOverloaded`** for "I am busy" — measured live, 12 of 12 misses were
- * 404 and 1 of 8 searches was 503 with no provocation. Genius answers **403**
- * with a Cloudflare challenge document from a datacenter IP. Only the first of
- * those three is a statement about the song.
+ * 404 and 1 of 8 searches was 503 with no provocation. Both are cases where the
+ * provider could not answer the question, and only the 404 is a statement about
+ * the song.
+ *
+ * CORRECTED 2026-09-30: an earlier version of this comment claimed Genius
+ * "answers 403 with a Cloudflare challenge document from a datacenter IP" and
+ * that the rung was dead. Re-probed, that is **false from this machine** — the
+ * search API answers 200 with a real hit and the lyrics page returns 200 with
+ * several thousand characters. Do not delete the Genius leg on the strength of
+ * the old note. A 403 remains a POSSIBILITY worth handling (and `statusIsAnAnswer`
+ * below already refuses to treat one as an answer), but it is not the
+ * measurement.
  *
  * So a 4xx that means "not found" is an answer, and everything that means "I
  * could not tell you" is not: 5xx, 429, 401 and 403 are all the provider

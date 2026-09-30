@@ -24,12 +24,16 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
     @inject(GuildAdminService) private readonly guildAdminService: GuildAdminService,
     @inject(UserService) private readonly userService: UserService,
     @inject(PrefixService) private readonly prefixService: PrefixService,
-    @inject(ColorService) private readonly colorService?: ColorService,
-    // Optional only so the existing 4- and 5-argument construction sites keep
-    // compiling. Both commands refuse to run when these are absent - a writer
-    // that resolved to nothing must not answer "disabled" and change nothing.
-    @inject(ChannelToggledCommandService) private readonly channelToggledCommandService?: ChannelToggledCommandService,
-    @inject(DisabledChannelService) private readonly disabledChannelService?: DisabledChannelService,
+    @inject(ColorService) private readonly colorService: ColorService,
+    // Both writers were optional "so the existing 4- and 5-argument construction
+    // sites keep compiling" — which is precisely how the channel-disable gate
+    // came to be enforced on every message and yet never able to fire: the only
+    // writer of '*' had no production caller, and the gate read a service that
+    // could be absent. `startup.ts` constructs and registers both, so the tokens
+    // are always bound. A writer that resolved to nothing must now fail loudly
+    // at construction, not answer "disabled" and change nothing.
+    @inject(ChannelToggledCommandService) private readonly channelToggledCommandService: ChannelToggledCommandService,
+    @inject(DisabledChannelService) private readonly disabledChannelService: DisabledChannelService,
   ) {
     this.commands = [
       {
@@ -377,13 +381,6 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildWrongInputResponse(`The command \`${commandName}\` cannot be disabled.`);
     }
 
-    if (!this.channelToggledCommandService) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.Error,
-        'Channel command toggling is not available right now. Nothing was changed.',
-      );
-    }
-
     const nowDisabled = await this.channelToggledCommandService.toggleCommand(
       context.guildId,
       channelId,
@@ -416,13 +413,6 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
     if (!channelId) {
       return GenericEmbedService.buildWrongInputResponse(
         'Run this command in the channel you want to change; it has no channel to apply to here.',
-      );
-    }
-
-    if (!this.disabledChannelService) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.Error,
-        'Disabling a channel is not available right now. Nothing was changed.',
       );
     }
 
