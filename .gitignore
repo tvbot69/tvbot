@@ -46,6 +46,9 @@ Thumbs.db
 # TRACKS markdown (AGENTS.md, docs/*.md, .opencode/skills/**/SKILL.md) and
 # blanket rules do not apply retroactively, so they would hide new files while
 # leaving the old ones tracked - the worst of both.
+# A handoff also goes stale the moment the next commit lands: it quotes a HEAD
+# hash and a test count. Tracking that is worse than losing it.
 A1-HANDOFF.md
+SESSION-HANDOFF.md
 full*.txt
 Screenshot_*.png
