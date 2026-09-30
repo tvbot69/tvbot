@@ -1,5 +1,13 @@
 # Plan: Reach A tier
 
+> ## ⚠️ Historical plan — the rounds are finished, the numbers are not current
+>
+> This file records the rounds that got the repo to A tier. Every figure below was measured by
+> the round that wrote it and is **out of date**; several A2 findings listed as open have since
+> been closed. The current, re-measured numbers live in the header of
+> [`PLAN_PROGRESS.md`](PLAN_PROGRESS.md) and in `AGENTS.md` §2. **If this file and a gate
+> disagree, the gate is right.**
+
 Replaces `PLAN_B_PLUS_TO_A.md`. That plan is kept for history, not followed.
 
 ## Why this plan exists
@@ -769,29 +777,37 @@ repo, because a user is told they configured something: `GENIUS_CLIENT_ID`/`_SEC
 (lyrics uses Genius's *unauthenticated* API), `DISCOGS_KEY`/`_SECRET` (no Discogs client exists),
 `AUDD_API_TOKEN` (no song recognition), `SEQ_SERVER_URL`/`_API_KEY` (no Seq), `BASE_SERVER_ID`,
 `DISCORD_BOT_USER_ID`, and `bot.useShardEnvConfig` which is **hardcoded `false`** — a feature flag
-with exactly one value ever assigned. All are in `.env.example`, so a reader reasonably believes
-they are load-bearing.
+with exactly one value ever assigned. They were all in `.env.example`, so a reader reasonably
+believed they were load-bearing. **Since cleaned up:** `AUDD_API_TOKEN`, `DISCOGS_KEY` and
+`DISCOGS_SECRET` were removed from `.env.example` on 2026-09-30; the others are no longer listed
+there either. Note that `src/config/configData.ts` still *parses* `AUDD_API_TOKEN`, `DISCOGS_KEY`,
+`DISCOGS_SECRET`, `SEQ_SERVER_URL`, `BASE_SERVER_ID` and `DISCORD_BOT_USER_ID` into its settings
+object, but nothing reads those fields — the boot-time validation that made them a promise is
+gone, so setting them no longer does anything.
 
-**Four dead features that present themselves as working, reported and not deleted**, because each
-is user-facing and the call is the user's: `/recap` and `.recap` are `/year` and `.year` under a
-new name — and the text twin carries the aliases `.rcp` and **`.wrapped`**, which is a materially
-different artefact; `/searchdb` is `/librarysearch` verbatim, burning one of Discord's 100 global
-slash slots to mirror a text alias; **`/localization numberformat` is stored, printed back to the
-user as "Current Number Format", and read by nothing** (`formatNumber` takes no format parameter
-and has 17 call sites, all en-US); and `AiJudgeService` is three hardcoded templates with
-`Math.random()` supplying the rating — a working joke whose class name claims a model call.
+**Four dead features that presented themselves as working — reported then, and since deleted.**
+They were left to the user at the time; the call has since been made and all four are gone.
+`/recap` and `.recap` were `/year` and `.year` renamed, and the text twin carried the aliases
+`.rcp` and `.wrapped`; `/searchdb` duplicated `/librarysearch` and burned one of Discord's 100
+global slash slots to mirror a text alias; `/localization numberformat` was stored, printed back
+to the user as "Current Number Format", and read by nothing; and `AiJudgeService` was three
+hardcoded templates with `Math.random()` supplying the rating — a working joke whose class name
+claimed a model call. Verified absent from `src/` on 2026-09-30: no `AiJudgeService`, no
+`/recap`, no `.rcap` or `.wrapped` trigger, and no number-format option — `/localization` now
+sets a **timezone** and `formatNumber` takes no format parameter. `/searchdb` is the surviving
+name of the library search slash command; the duplicate `librarysearch` slash name is what was
+removed, and the text command still answers to `.librarysearch`. **Do not restore any of them.**
 
-**A feature that is half-built, which is the honest kind of A2 finding**: `DisabledChannelService.setChannelDisabled`
-has no caller and is the **only writer of `'*'`** into `channel.toggledCommands`, while
-`isChannelDisabled` is live and gates every command. **So the per-channel disable gate is enforced
-on every single message and can never return true.** A member cannot mute a command in one channel.
-Its counterpart `.togglecommand` writes to a different, guild-level table, so the two halves of
-the idea were never connected.
+**A feature that was half-built, and has since been connected**: `DisabledChannelService.setChannelDisabled`
+used to have no caller and was the **only writer of `'*'`** into `channel.toggledCommands`, while
+`isChannelDisabled` was live and gates every command — so the per-channel disable gate was
+enforced on every single message and could never return true. A member could not mute a command in
+one channel. **That is fixed**: `src/bot/slashCommands/guildAdminSlashCommands.ts:429` now calls
+`setChannelDisabled` (verified 2026-09-30), so the two halves are joined.
 
-**`LocalizationService`** is constructed at boot, registered, and injected by nothing, with both
-its methods at zero callers. It hardcodes `'en'`. It is a localization service that cannot
-localize. Reported, not deleted: a registered service with no caller may be the next feature, and
-deleting a service is a far bigger act than raising inside one.
+**`LocalizationService`** was constructed at boot, registered, and injected by nothing, with both
+its methods at zero callers. It hardcodes `'en'`. It was a localization service that could not
+localize. **Since deleted** — there is no `LocalizationService` in `src/` as of 2026-09-30.
 
 **Gates, lead alone: `tsc --noEmit` clean, 4412 passed + 516 db skipped = 4928 (274 files), lint
 0 errors / 358 warnings, `silent-failure-default` 435 against budget 604.** The batch produced 6
@@ -843,8 +859,8 @@ actual failure — a gate no test can close, and the honest reason to keep readi
 
 **A2 is now closed on evidence rather than on one worked example.** That makes **A tier: A1, A2 and
 A3 all have the evidence behind them**, with the four reported-not-deleted product decisions above
-(the `.wrapped` alias, `/searchdb`, `/localization numberformat`, the `AiJudgeService` name, the
-channel-disable gate) explicitly left to the user rather than quietly closed by an agent.
+(the `.wrapped` alias, the duplicate `/librarysearch` slash name, `/localization numberformat`, the
+`AiJudgeService` name) since resolved by deletion, and the channel-disable gate since connected.
 
 ### A-tier 4 — A3, the last unexecuted query — **DONE**
 
@@ -889,11 +905,12 @@ disposable postgres and is not a static-analysis question.
 
 - **The 604 count is deleted, not reduced.** It measured catch blocks. Chasing it would be
   motion. Replaced by a smaller, honest count of the sites that actually lie.
-- **`as unknown as` (76), `container.resolve` (155), the 15 bot-to-Prisma files.** All
+- **`as unknown as` (75), `container.resolve` (154), the 15 bot-to-Prisma files.** All
   ratcheted, all non-increasing, all architecturally fine. Not a user-facing risk. Leave them.
-- **Coverage percentage.** 66.73% lines, ratcheted, above target. It has never once found a
-  bug in this repo that the DB suite did not find faster.
-- **Lint warnings** (351). Zero errors, ratcheted, non-blocking by design.
+  *(Re-measured 2026-09-30; the figures this bullet was written with were 76 and 155.)*
+- **Coverage percentage.** 70.49% lines, ratcheted, above target. It has never once found a
+  bug in this repo that the DB suite did not find faster. *(70.49% as of 2026-09-30.)*
+- **Lint warnings** (358). Zero errors, ratcheted, non-blocking by design.
 
 ## Honest limits
 
@@ -905,7 +922,8 @@ disposable postgres and is not a static-analysis question.
   test exhaust the pooler and Prisma blocks with no error). That CI run is the gate for
   every claim in this plan.
 - **A-tier 1 is not finished, and the remaining queue is not the interesting part.** 526
-  `silent-failure-default` sites remain, but the count is not the target and most of what is
+  `silent-failure-default` sites remained when this was written — **438 as of 2026-09-30**, still
+  against a budget of 604 — but the count is not the target and most of what is
   left is decoration, autocomplete, background enrichment and cache warming — the categories
   the plan says to leave alone with a `// CORRECT AS IS` comment. The queue that *is*
   interesting is the one the last round found by asking a different question: **which callers

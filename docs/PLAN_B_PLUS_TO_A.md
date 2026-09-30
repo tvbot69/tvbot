@@ -1,5 +1,16 @@
 # Plan: B+ → A
 
+> ## ⚠️ Superseded — kept for history, not followed
+>
+> This plan was replaced by [`PLAN_REACH_A.md`](PLAN_REACH_A.md) and then by
+> [`PLAN_PROGRESS.md`](PLAN_PROGRESS.md), which is the live progress log. Every number here was
+> measured by the round that wrote it — coverage percentages, test counts, line counts and
+> ratchet values are all **out of date** and are left as the record of that round. Two specific
+> things to know if you read it: the coverage ratchets it names (66.5 / 77.2 / 63.8) are still the
+> live thresholds in `vitest.config.ts`, but the *measured* values it quotes are not current
+> (70.49% lines / 78.11% branches / 68.72% functions as of 2026-09-30); and the "Definition of
+> done" checklist was written as of 2026-09-28.
+
 Source: an external review of the repo at commit `af2e95f`, which graded it **B+**.
 The repo's own `docs/QUALITY_REVIEW.md` said A−; that review missed the items below.
 

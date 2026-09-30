@@ -1,5 +1,18 @@
 # Code quality review — tvbot
 
+> **This is a dated snapshot, not a current-state document.** It was written on 2026-09-27
+> against commit `af2e95f`'s successor and is kept as the record of what the first pass found.
+> Every number below is what was measured *on that day*. Several have since moved a long way,
+> and a few findings have been closed. For the current figures see
+> [`PLAN_PROGRESS.md`](PLAN_PROGRESS.md) and the baseline in `AGENTS.md` §2.
+>
+> Measured **2026-09-30** on `main` at `66ad8d6`, for comparison:
+> **285 test files, 4548 unit passing + 516 db skipped = 5064**; lint **0 errors / 358 warnings**;
+> line coverage **70.49%**, branch **78.11%**; `explicit-any` **0**; `silent-failure-default` **438**
+> against a budget of 604; **400** production `.ts` files / **82,197** lines. Move 4 below
+> (builders reaching into the container) is effectively done — `src/bot/builders/` is down to
+> **7** `container.resolve` call sites from the 45 recorded here.
+
 Date: 2026-09-27 · baseline `main` · 126 test files / 987 tests · 376 production `.ts` files / 66,709 lines
 
 ## Verdict
@@ -30,6 +43,11 @@ Where I sampled rather than read, it says so. Ratings are therefore assigned per
 and per named file, not fabricated individually for 376 files.
 
 ## Measurements
+
+> **This table is the 2026-09-27 snapshot, not today's numbers** — see the header. It also
+> disagrees with itself on one row: the `Date:` line above says 126 test files / 987 tests while
+> the table row says 123 / 961. Both were measured that day; the discrepancy is recorded rather
+> than silently resolved because the underlying runs are gone. Current figures are in the header.
 
 | Metric | Value | Read |
 |---|---|---|

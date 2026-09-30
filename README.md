@@ -25,7 +25,12 @@ Live Last.fm sync (delta updates with backfill, full historical indexing), guild
 
 ## Playback
 
-Lavalink v4 (Moonlink.js) across a self-hosted Home node plus public failover. YouTube plays through a health-gated ladder — plugin first, yt-dlp resolver second, SoundCloud last — guarded by per-node outage and per-song breakers, so a dead source costs one fast skip, never a stall. Cipher solving and per-video token minting run as local sidecar services; the resolver keeps a permanent local audio library, making repeats instant and infrastructure-independent. Track analysis (BPM, musical key, previews as voice messages) runs on-device via Essentia DSP.
+Lavalink v4 (Moonlink.js) across a self-hosted Home node plus public failover. YouTube plays
+through a health-gated ladder — the Home yt-dlp resolver first, SoundCloud as the fallback — guarded
+by per-node outage and per-song breakers, so a dead source costs one fast skip, never a stall. The
+YouTube-plugin rung is off by default: it is still behind a login/cipher wall and each attempt costs
+dead air, so it is opt-in via `HOME_PLUGIN_RUNG=on` rather than part of the proven path. Track
+analysis (BPM, musical key, 30-second previews as voice messages) runs on-device via Essentia DSP.
 
 ## Platform
 

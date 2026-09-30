@@ -1,9 +1,45 @@
 # Progress: B+ → A
 
+> ## ⚠️ This file is a historical log, not a current-state document
+>
+> Everything below is the record of what each round found, in the order it found it. **The
+> numbers inside are the numbers as of the round that wrote them and are several rounds out of
+> date** — do not quote them as the state of the repo. The table under "Current numbers" is a
+> snapshot from the round that last edited this file, which is exactly why it says
+> *"re-measure, don't trust this table"*. Read that instruction as written.
+>
+> **The current figures, measured 2026-09-30 on `main` at `66ad8d6`:**
+>
+> | Metric | Measured 2026-09-30 | Gate / budget |
+> |---|---|---|
+> | Test files | **285** collected (268 passed, 17 skipped) | — |
+> | Tests | **4548** passing + **516** db skipped = **5064** | all green |
+> | Line coverage | **70.49%** (40987/58141) | ratchet 66.5 |
+> | Branch coverage | **78.11%** (10006/12810) | ratchet 77.2 |
+> | Function coverage | **68.72%** (1868/2718) | ratchet 63.8 |
+> | Lint | **0 errors / 358 warnings** | 0 errors |
+> | `explicit-any` | **0** | 0 |
+> | `as-unknown-as` | **75** | budget 101 |
+> | `silent-failure-default` | **438** | budget 604 |
+> | `container-resolve-outside-root` | **154** | budget 155 |
+> | `prisma-client-import-in-bot` | **15** | budget 17 |
+> | `raw-query-without-db-test` | **0** | 0 |
+> | Production `.ts` | **400** files / **82,197** lines | — |
+> | Slash commands | **77** | — |
+>
+> Coverage is read from `coverage/coverage-summary.json`, which `npm run test:coverage`
+> regenerates; `npm test` alone does not refresh it, so re-run the coverage script before
+> quoting a coverage number. Every other row comes straight from the gate command named in
+> `AGENTS.md` §2. **If any number here disagrees with a gate you just ran, the gate is right
+> and this file is stale.**
+
 Plan: `PLAN_REACH_A.md` (replaces `PLAN_B_PLUS_TO_A.md`, which is kept for history). Read both
 before starting work. **Update this file at the end of every task**, before the commit.
 
-## Current numbers (re-measure, don't trust this table)
+## Current numbers — snapshot from the round that last edited this file
+
+> Re-measure, don't trust this table. The figures in the **Now** column are from the round that
+> wrote this section and are **stale**; the measured 2026-09-30 figures are in the header above.
 
 | Metric | Start | Now | Target |
 |---|---|---|---|
@@ -1013,21 +1049,23 @@ before starting work. **Update this file at the end of every task**, before the 
     because the user is told they configured something. `GENIUS_CLIENT_ID/_SECRET/_ACCESS_TOKEN`
     (lyrics uses Genius's UNAUTHENTICATED api), `DISCOGS_KEY/_SECRET` (no client exists),
     `AUDD_API_TOKEN` (no recognition), `SEQ_SERVER_URL/_API_KEY` (no Seq), `BASE_SERVER_ID`,
-    `DISCORD_BOT_USER_ID`, and `bot.useShardEnvConfig` **hardcoded `false`**. All in
-    `.env.example`, so a reader believes they are load-bearing.
-  - **Four dead features reported, not deleted** — user-facing, so the call is the user's:
-    `/recap`+`.recap` are `/year`+`.year` renamed, and the text twin carries the alias **`.wrapped`**;
-    `/searchdb` is `/librarysearch` verbatim, burning a global slash slot; **`/localization
-    numberformat` is stored, printed as "Current Number Format", and read by nothing**;
-    `AiJudgeService` is three hardcoded templates with `Math.random()` for the rating.
-  - **A half-built feature, the honest kind of finding:** `DisabledChannelService.setChannelDisabled`
-    has no caller and is the only writer of `'*'`, while `isChannelDisabled` is live and gates
-    every command. **The per-channel disable gate is enforced on every message and can never return
-    true** — a member cannot mute a command in one channel. Its counterpart `.togglecommand` writes
-    to a different, guild-level table, so the two halves were never connected.
-  - **`LocalizationService`** is registered at boot, injected by nothing, both methods at zero
-    callers, and hardcodes `'en'`. A localization service that cannot localize. Reported, not
-    deleted: a registered service with no caller may be the next feature.
+    `DISCORD_BOT_USER_ID`, and `bot.useShardEnvConfig` **hardcoded `false`**. They were all in
+    `.env.example`, so a reader believed they were load-bearing. **Since cleaned up:**
+    `AUDD_API_TOKEN`, `DISCOGS_KEY` and `DISCOGS_SECRET` were removed from `.env.example` on
+    2026-09-30, and the Genius/Seq/`BASE_SERVER_ID`/`DISCORD_BOT_USER_ID` keys are no longer
+    listed there either.
+  - **Four dead features reported, then deleted** — user-facing, so the call was the user's to
+    make, and it has since been made: `/recap`+`.recap` (with the `.rcp` and `.wrapped` aliases)
+    and `/localization numberformat` are gone, the duplicate `/librarysearch` slash name is gone
+    leaving `/searchdb` as the real name, and `AiJudgeService` is gone. **Do not restore them.**
+  - **A half-built feature, the honest kind of finding, now closed:**
+    `DisabledChannelService.setChannelDisabled` used to have no caller and to be the only writer
+    of `'*'`, while `isChannelDisabled` was live and gated every command — so the per-channel
+    disable gate was enforced on every message and could never return true. It is now called from
+    `src/bot/slashCommands/guildAdminSlashCommands.ts:429`.
+  - **`LocalizationService`** was registered at boot, injected by nothing, both methods at zero
+    callers, and hardcoded `'en'` — a localization service that could not localize. **Now
+    deleted**; there is no `LocalizationService` in `src/` as of 2026-09-30.
   - 🐛 **A test that nearly proved nothing, reported by the agent that wrote it.** The first
     `autopostRepository.claimIsAuthoritative` double hard-picked the two conditions it expected, so
     adding a bogus extra condition to the production `where` left all 9 tests green — the mutation
