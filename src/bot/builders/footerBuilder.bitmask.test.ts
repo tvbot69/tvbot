@@ -199,12 +199,27 @@ describe('buildFooterText: small text', () => {
   });
 
   /**
-   * Recorded, not fixed: small text with nothing to render produces the literal
-   * string "-# ", an empty-looking footer row on the card. The other branch of
-   * the same ternary correctly returns ''. This asserts the behaviour so the
-   * asymmetry is on the record.
+   * Small text is a formatting decision about real text, so with no text there is
+   * no prefix either. The two branches of the same ternary have to agree: the
+   * small-text one used to return the literal "-# ", which renders as an
+   * empty-looking footer row — a card element carrying nothing, and a hint that
+   * there was something to say.
    */
-  it('renders a bare "-# " when small text was requested and there was nothing to say', () => {
-    expect(text({ footerOptions: 0n, track, useSmallText: true })).toBe('-# ');
+  it('renders nothing at all when small text was requested and there was nothing to say', () => {
+    expect(text({ footerOptions: 0n, track, useSmallText: true })).toBe('');
+  });
+
+  it('agrees with the non-small-text branch in every empty case', () => {
+    const mask = all(FmFooterOption.Loved, FmFooterOption.ArtistPlays, FmFooterOption.CrownHolder);
+    expect(text({ footerOptions: mask, track, useSmallText: true })).toBe(
+      text({ footerOptions: mask, track }),
+    );
+    expect(text({ footerOptions: 0n, track, useSmallText: true })).toBe('');
+  });
+
+  it('still prefixes a real fallback total, because that is text worth marking small', () => {
+    expect(text({ footerOptions: 0n, track, totalScrobbles: 188_022, useSmallText: true })).toBe(
+      '-# 188,022 total scrobbles',
+    );
   });
 });

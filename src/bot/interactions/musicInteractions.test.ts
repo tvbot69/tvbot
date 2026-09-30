@@ -3,6 +3,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { GuildMember, type ButtonInteraction, type StringSelectMenuInteraction } from 'discord.js';
 import { MusicInteractions } from './musicInteractions';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { playErrorMessage } from '@bot/services/music/musicService';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 
 const makeMember = () => {
   const member = Object.create(GuildMember.prototype);
@@ -1191,7 +1193,14 @@ describe('MusicInteractions search select menu', () => {
       channel: { send: ReturnType<typeof vi.fn> };
     };
 
-  const build = (playResult: unknown) => {
+  const build = (playResult: unknown, unavailable?: { reason: string; retryAfterMs: number }) => {
+    // The real sentence logic, reached the way production reaches it: the
+    // service's BOUND `playErrorMessage` is what supplies the manager, and the
+    // free function turns that manager's answer into words. Re-stating the
+    // strings here would make the assertion a test of this file instead.
+    const moonlinkManager = {
+      getUnavailableReason: () => unavailable ?? { reason: 'rate-limited', retryAfterMs: 30_000 },
+    };
     const svc = {
       getQueueInfo: vi.fn(() => ({
         current: track,
@@ -1203,6 +1212,8 @@ describe('MusicInteractions search select menu', () => {
         activeFilters: [],
       })),
       canControlPlayback: vi.fn(() => true),
+      playErrorMessage: (reason?: 'no-nodes' | 'voice' | 'search' | 'empty-spotify' | 'queue-full') =>
+        playErrorMessage(reason, moonlinkManager as unknown as MoonlinkManager),
       play: vi.fn(async () => playResult),
     };
     const mi = new MusicInteractions(
@@ -1253,5 +1264,27 @@ describe('MusicInteractions search select menu', () => {
 
     expect((press.channel.send.mock.calls[0]![0] as { content: string }).content).toContain('❌');
     expect(press.message.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a no-nodes pick from the real node state, not a rate limit', async () => {
+    // The same user-visible lie the `.play` command used to tell, reached by a
+    // different route: a search-menu pick. `playErrorMessage` is a free function
+    // with no `this`, so a caller that used it could never see a manager — and
+    // with `ENABLE_LAVALINK=false` the manager says `disabled`, while the reply
+    // claimed a rate limit and told the listener to wait. The bound method is
+    // what supplies the manager.
+    const { mi } = build(
+      { loadType: 'error', errorReason: 'no-nodes' },
+      { reason: 'disabled', retryAfterMs: 0 },
+    );
+    const press = makeSelect();
+    mi.storeSearchResults('msg-9', [track as never]);
+
+    await mi.handleSelectMenu(press);
+
+    const content = (press.channel.send.mock.calls[0]![0] as { content: string }).content;
+    expect(content).toContain('❌');
+    expect(content).toContain('disabled in this environment');
+    expect(content).not.toMatch(/rate-limited|try again/i);
   });
 });

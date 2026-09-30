@@ -220,6 +220,47 @@ describe('.love — resolving WHICH track to love', () => {
     // irreversible write for a track that does not exist.
     expect(lastfmRepository.loveTrack).not.toHaveBeenCalled();
   });
+
+  it('a leading separator reaches the WrongInput guard, instead of being searched as free text', async () => {
+    // `[" | Airbag"]` is a half-filled pipe with the pipe FIRST, which is what a
+    // user who typed the separator before the artist actually meant. The joined
+    // arguments were `.trim()`ed before the `' | '` test, so the leading space
+    // was gone, `raw` was `"| Airbag"`, and the whole thing fell through to the
+    // free-text search: Last.fm was asked about a track called "| Airbag" and
+    // the user was told it did not exist, instead of being told to name both
+    // halves. `.scrobble` and `.lyric` were fixed for exactly this and `.love`
+    // was not, so the sibling answered two different things to one typo.
+    const { commands, lastfmRepository } = build();
+
+    const result = await love(commands, [' | Airbag']);
+
+    expect(result.commandResponse).toBe(CommandResponse.WrongInput);
+    expect(desc(result)).toContain('both an artist and track name');
+    expect(lastfmRepository.searchTracks).not.toHaveBeenCalled();
+    expect(lastfmRepository.loveTrack).not.toHaveBeenCalled();
+  });
+
+  it('a trailing separator is rejected the same way, rather than loving a title that ends in a pipe', async () => {
+    // The same trimming, the other side: "Radiohead | " leaves an empty TRACK
+    // field, and this command had no `!artist || !trackName` guard at all, so
+    // it went to Last.fm as a write with a blank title.
+    const { commands, lastfmRepository } = build();
+
+    const result = await love(commands, ['Radiohead | ']);
+
+    expect(result.commandResponse).toBe(CommandResponse.WrongInput);
+    expect(lastfmRepository.loveTrack).not.toHaveBeenCalled();
+  });
+
+  it('a pipe entered from the right still splits, and still writes', async () => {
+    // The control for the two tests above, and the direction the fix must not
+    // break: the separator as an interior token, artist before track.
+    const { commands, lastfmRepository } = build();
+
+    await love(commands, ['Radiohead', '|', 'Airbag']);
+
+    expect(lastfmRepository.loveTrack).toHaveBeenCalledWith('Radiohead', 'Airbag', 'SK');
+  });
 });
 
 describe('.love — a refused write must not render as a success', () => {
@@ -287,6 +328,42 @@ describe('.unlove — the mirror of love, and the same two failures', () => {
 
     expect(result.commandResponse).toBe(CommandResponse.NotFound);
     expect(lastfmRepository.unloveTrack).not.toHaveBeenCalled();
+  });
+
+  it('a leading separator reaches the WrongInput guard, instead of being searched as free text', async () => {
+    // `.unlove` is `.love`'s mirror, so it gets the identical fix: the separator
+    // is tested on the JOINED arguments, because `.trim()` eats the space that
+    // makes `' | '` matchable. `| Airbag` used to be sent to Last.fm's search as
+    // a track literally named that.
+    const { commands, lastfmRepository } = build();
+
+    const result = await unlove(commands, [' | Airbag']);
+
+    expect(result.commandResponse).toBe(CommandResponse.WrongInput);
+    expect(desc(result)).toContain('both an artist and track name');
+    expect(lastfmRepository.searchTracks).not.toHaveBeenCalled();
+    expect(lastfmRepository.unloveTrack).not.toHaveBeenCalled();
+  });
+
+  it('a trailing separator is rejected the same way, rather than unloving a title that ends in a pipe', async () => {
+    // The direction that blocked a real write: "Radiohead | " left the TRACK
+    // field empty and there was no guard here, so the write went out with a
+    // blank title.
+    const { commands, lastfmRepository } = build();
+
+    const result = await unlove(commands, ['Radiohead | ']);
+
+    expect(result.commandResponse).toBe(CommandResponse.WrongInput);
+    expect(lastfmRepository.unloveTrack).not.toHaveBeenCalled();
+  });
+
+  it('a pipe entered from the right still splits, and still writes', async () => {
+    // The control for the two tests above: the interior form still resolves.
+    const { commands, lastfmRepository } = build();
+
+    await unlove(commands, ['Radiohead', '|', 'Airbag']);
+
+    expect(lastfmRepository.unloveTrack).toHaveBeenCalledWith('Radiohead', 'Airbag', 'SK');
   });
 });
 
@@ -434,30 +511,52 @@ describe('.scrobble — the write itself', () => {
     expect(TrackBuilders.buildScrobbleResponse).not.toHaveBeenCalled();
   });
 
-  it('CHARACTERISATION: a leading separator is TRIMMED away, so it is searched as free text, not rejected', async () => {
+  it('a leading separator reaches the WrongInput guard, instead of being searched as free text', async () => {
+    // `[" | Airbag"]` is a half-filled pipe with the pipe FIRST, which is what a
+    // user who typed the separator before the artist actually meant. The joined
+    // arguments were `.trim()`ed before the `' | '` test, so the leading space
+    // was gone, `raw` was `"| Airbag"`, and the whole thing fell through to the
+    // free-text search: the user was told "could not find a track matching
+    // `| Airbag`" instead of "specify both an artist and track name", and
+    // Last.fm was asked about a track called "| Airbag".
     const { commands, lastfmRepository } = build();
 
-    // `" | Airbag"` is a half-filled pipe with the pipe first, which is what a
-    // user who typed the separator before the artist actually meant. The
-    // load-bearing half holds: nothing is written, because the search finds
-    // nothing and the command says so.
-    //
-    // The `WrongInput` branch is NOT what answers, and the reason is the
-    // `.trim()` on the joined args: the leading space is gone, so `raw` is
-    // `"| Airbag"`, which does not contain `" | "` and falls through to the
-    // free-text search. The user is told "could not find a track matching
-    // `| Airbag`" rather than "specify both an artist and track name" — a less
-    // useful message, but not a wrong one. Pinned as observed; reported
-    // separately.
     const result = await scrobble(commands, [' | Airbag']);
 
-    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+    expect(result.commandResponse).toBe(CommandResponse.WrongInput);
+    expect(desc(result)).toContain('both an artist and track name');
+    expect(lastfmRepository.searchTracks).not.toHaveBeenCalled();
     expect(lastfmRepository.scrobbleTrack).not.toHaveBeenCalled();
   });
 
+  it('a trailing separator is rejected the same way, rather than scrobbling a title that ends in a pipe', async () => {
+    // The same trimming, the other side, and the reason the separator is tested
+    // on the joined string rather than on a trimmed copy: "Radiohead | " leaves
+    // an empty TRACK field, which is a write to Last.fm with a blank title.
+    const { commands, lastfmRepository } = build();
+
+    const result = await scrobble(commands, ['Radiohead | ']);
+
+    expect(result.commandResponse).toBe(CommandResponse.WrongInput);
+    expect(lastfmRepository.scrobbleTrack).not.toHaveBeenCalled();
+  });
+
+  it('a pipe entered from the right still splits, and still writes', async () => {
+    // The control for the two tests above, and the direction the fix must not
+    // break: the separator as an interior token, artist before track.
+    const { commands, lastfmRepository } = build();
+
+    await scrobble(commands, ['Radiohead', '|', 'Airbag']);
+
+    const [artist, name] = (lastfmRepository.scrobbleTrack as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(artist).toBe('Radiohead');
+    expect(name).toBe('Airbag');
+  });
+
   it('reaches the WrongInput branch for a genuinely half-filled pipe, and writes nothing', async () => {
-    // The reachable form: the separator is surrounded on BOTH sides, so `.trim()`
-    // cannot remove it and the middle field survives as an empty string.
+    // The interior form: the separator is surrounded on BOTH sides, so the
+    // middle field survives as an empty string. It shares the guard with the
+    // leading and trailing forms above, which reach it for the same reason.
     const { commands, lastfmRepository } = build();
 
     const result = await scrobble(commands, ['Radiohead |  | OK Computer']);

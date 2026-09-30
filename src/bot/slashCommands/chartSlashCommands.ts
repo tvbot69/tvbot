@@ -14,6 +14,7 @@ import { SettingService } from '@bot/services/settingService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { UpdateService } from '@bot/services/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import type { User } from '@domain/interfaces/iuserRepository';
 
 import { ColorService } from '@bot/services/colorService';
 
@@ -22,6 +23,30 @@ const notRegisteredResponse = (): ResponseModel =>
     CommandResponse.NotFound,
     'You have not connected your Last.fm account yet. Use `/register` first.',
   );
+
+/**
+ * `1990`, `1990s`, `90` and `90s` all name the same decade, and the refusal
+ * message promises two of those four. Two digits are expanded to the most
+ * recent decade beginning with them that has ALREADY STARTED, so `90s` is the
+ * 1990s today and the 2090s never. Returns undefined for anything else, which
+ * the caller turns into a refusal rather than an ignored filter.
+ */
+const parseDecade = (raw: string): number | undefined => {
+  const match = raw.trim().match(/^(\d{2}|\d{4})s?$/i);
+  const digits = match?.[1];
+  if (digits === undefined) return undefined;
+  const numeric = Number(digits);
+  if (digits.length === 4) {
+    return Math.floor(numeric / 10) * 10;
+  }
+  const currentYear = new Date().getFullYear();
+  for (let century = Math.floor(currentYear / 100) * 100; century >= 1000; century -= 100) {
+    if (century + numeric <= currentYear) {
+      return century + numeric;
+    }
+  }
+  return undefined;
+};
 
 export class ChartSlashCommands implements ISlashCommandModule {
   public commands: Array<{
@@ -294,7 +319,12 @@ export class ChartSlashCommands implements ISlashCommandModule {
     const member = context.interaction?.member as { displayName?: string } | null;
     return {
       userNameLastFm: user.userNameLastFm,
-      discordUserId: user.userId.toString(),
+      // `context.discordUserId`, NOT `user.userId.toString()`. This value is
+      // handed to `chartService.generate*Chart`, which looks it up again with
+      // `getUserByDiscordId`, and it is the id the Edit button's customId is
+      // keyed on. The database id was neither: every self-chart resolved to
+      // nobody, so the button could never be built for the majority of charts.
+      discordUserId: context.discordUserId,
       displayName: member?.displayName ?? context.interaction?.user.username,
       totalPlayCount: user.totalPlayCount ?? undefined,
     };
@@ -336,25 +366,18 @@ export class ChartSlashCommands implements ISlashCommandModule {
     }
 
     const decadeInput = interaction.options.getString('decade');
-    if (decadeInput && /^\d{4}s?$/i.test(decadeInput)) {
-      chartSettings.releaseDecadeFilter = Math.floor(Number(decadeInput.replace('s', '')) / 10) * 10;
-    } else if (decadeInput) {
-      return GenericEmbedService.buildWrongInputResponse(
-        '`decade` must be a year or decade like `1990` or `90s`.',
-      );
+    if (decadeInput) {
+      const decade = parseDecade(decadeInput);
+      if (decade === undefined) {
+        return GenericEmbedService.buildWrongInputResponse(
+          '`decade` must be a year or decade like `1990` or `90s`.',
+        );
+      }
+      chartSettings.releaseDecadeFilter = decade;
     }
 
     chartSettings.filteredArtistName =
       interaction.options.getString('artist') ?? undefined;
-
-    if (
-      (chartSettings.releaseYearFilter !== undefined ||
-        chartSettings.releaseDecadeFilter !== undefined ||
-        chartSettings.filteredArtistName !== undefined) &&
-      timeSettings.timePeriod === undefined
-    ) {
-      return GenericEmbedService.buildWrongInputResponse('Invalid time period.');
-    }
 
     chartSettings.timeSettings = timeSettings;
     chartSettings.timespanString = timeSettings.description;
@@ -406,10 +429,15 @@ export class ChartSlashCommands implements ISlashCommandModule {
         this.userService.enqueueUserUpdate(requestingUser, 'Command' as never);
       }
 
+      // `discordUserId` is the creator id the Edit button's customId is keyed
+      // on; `ChartInteractions.handleEditButton` compares it with the pressing
+      // user's id, so leaving it off makes the button refuse everyone, the
+      // creator included.
       const author = {
         userNameLastFm: chartUser.userNameLastFm,
+        discordUserId: chartUser.discordUserId,
         totalPlayCount: chartUser.totalPlayCount ?? requestingUser?.totalPlayCount,
-      };
+      } as User;
 
       let accentColor: number | undefined;
       if (this.colorService) {
@@ -422,7 +450,7 @@ export class ChartSlashCommands implements ISlashCommandModule {
 
       return trackChart
         ? ChartBuilders.buildTrackChartResponse(
-            author as never,
+            author,
             chartUser.displayName,
             chartResult,
             built,
@@ -430,14 +458,14 @@ export class ChartSlashCommands implements ISlashCommandModule {
           )
         : artistChart
         ? ChartBuilders.buildArtistChartResponse(
-            author as never,
+            author,
             chartUser.displayName,
             chartResult,
             built,
             accentColor,
           )
         : ChartBuilders.buildAlbumChartResponse(
-            author as never,
+            author,
             chartUser.displayName,
             chartResult,
             built,

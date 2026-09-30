@@ -6,13 +6,12 @@
  *   -# 1/2 - Top genres, artist, album and track
  *   -# 3 unique tracks - 20 total plays - 5 avg
  *
- * Every number in it is computed from the SLICE for the current page, and a
- * `page` index that is out of range produces an empty slice — which means the
- * card would say "0 unique tracks - 0 total plays - 0 avg" and a page counter
- * like "6/2". That is a confident wrong answer about somebody's listening, and
- * it is a real defect: this paginator does not clamp. It is recorded in the last
- * describe block rather than asserted as correct, and the in-range behaviour is
- * pinned honestly here.
+ * Every number in it is computed from the SLICE for the current page, and `page`
+ * is CLAMPED before the slice is taken, so an out-of-range index renders the last
+ * (or first) real page rather than an empty one. Without that clamp the card
+ * would say "0 unique tracks - 0 total plays - 0 avg" under a page counter like
+ * "6/2" — a confident wrong answer about somebody's listening, produced by a
+ * button press rather than by their data. Both ends are pinned at the bottom.
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
@@ -212,29 +211,59 @@ describe('OverviewBuilders.buildOverviewResponse', () => {
 });
 
 /**
- * Recorded, not fixed: `buildOverviewResponse` computes `totalPages` and then
- * slices on the raw `page`. An out-of-range page therefore renders a footer that
- * says "6/2" and "0 unique tracks - 0 total plays - 0 avg" — a fabricated zero
- * about somebody's listening, produced by a button press rather than by their
- * data. `first`/`prev` stay live, so the user can get back; the lie is in the
- * numbers, not in a dead end.
+ * The paginator clamps. An out-of-range `page` — a stale button, or a hand-edited
+ * custom id — used to render an empty slice under a page number that does not
+ * exist, so the footer said "6/2" and "0 unique tracks - 0 total plays - 0 avg":
+ * a fabricated zero about somebody's listening, produced by a button press rather
+ * than by their data. Both ends are pinned here, and the stats are asserted
+ * against the page actually rendered, because "clamped" is only half of it — the
+ * numbers on the clamped page must be the numbers of that page.
  */
 describe('OverviewBuilders.buildOverviewResponse: a page past the end', () => {
-  it('prints a page counter that does not exist', () => {
-    expect(footer(card(overview(days(8)), 5))).toContain('-# 6/2 -');
+  const result = overview(days(8).map(d => ({ ...d, playCount: 10 })));
+
+  it('clamps onto the last real page rather than printing a page number that does not exist', () => {
+    const text = footer(card(result, 5));
+    expect(text).toContain('-# 2/2 -');
+    expect(text).not.toContain('3/2');
+    expect(text).not.toContain('6/2');
   });
 
-  it('prints a fabricated zero for every measured total', () => {
-    expect(footer(card(overview(days(8)), 5))).toContain('0 unique tracks - 0 total plays - 0 avg');
+  it('prints the totals of the page it clamped onto, not zeroes', () => {
+    // Four days at ten plays each, all of the same track — so one unique track,
+    // which is what the genuine page 2 renders. The empty-slice footer this
+    // replaces said "0 unique tracks - 0 total plays - 0 avg".
+    expect(footer(card(result, 5))).toContain('1 unique tracks - 40 total plays - 10 avg');
+    expect(footer(card(result, 5))).toBe(footer(card(result, 1)));
   });
 
-  it('prints a zero page counter for a negative index', () => {
-    expect(footer(card(overview(days(8)), -1))).toContain('-# 0/2 -');
+  it('renders the day blocks of the clamped page, so the card is not empty', () => {
+    expect(texts(card(result, 5))).toHaveLength(6);
+    expect(body(card(result, 5))).toContain('-# 2/2 - Top genres, artist, album and track');
   });
 
-  it('leaves the escape-hatch buttons live so the user can recover', () => {
-    const row = buttons(card(overview(days(8)), 5));
+  it('clamps a negative index back onto page 1 instead of printing a zero page number', () => {
+    const text = footer(card(result, -1));
+    expect(text).toContain('-# 1/2 -');
+    expect(text).not.toContain('0/2');
+    expect(text).toBe(footer(card(result, 0)));
+  });
+
+  it('disables forward navigation on the clamped page, because there is nowhere past the end', () => {
+    const row = buttons(card(result, 5));
+    expect(row.find(b => b.custom_id?.startsWith('overview:next:'))?.disabled).toBe(true);
+    expect(row.find(b => b.custom_id?.startsWith('overview:last:'))?.disabled).toBe(true);
+  });
+
+  it('still leaves the way back live, so the user is not stranded', () => {
+    const row = buttons(card(result, 5));
     expect(row.find(b => b.custom_id?.startsWith('overview:first:'))?.disabled).toBe(false);
     expect(row.find(b => b.custom_id?.startsWith('overview:prev:'))?.disabled).toBe(false);
+  });
+
+  it('encodes the clamped page in every custom id, not the requested one', () => {
+    const ids = buttons(card(result, 5)).map(b => b.custom_id);
+    expect(ids.every(id => id?.includes(':1:'))).toBe(true);
+    expect(ids).toContain('overview:prev:1:tester:weekly');
   });
 });

@@ -38,18 +38,28 @@ describe('TelemetryService.recordCommandExecution', () => {
     expect(service.getCommandMetric('/play')).toBeUndefined();
   });
 
-  it('is case- and whitespace-insensitive about the name', () => {
-    // Normalisation is `toLowerCase().replace(/^\./, '').trim()` — the dot is
-    // removed BEFORE the trim, so LEADING whitespace defeats the strip and keys
-    // the metric as `.whoknews`. No real caller passes a padded name
-    // (`commandHandler` hands over an already-lowercased `split.shift()` and
-    // `interactionHandler` an already-lowercased `interaction.commandName`), so
-    // the test uses the shape production actually receives. The important
-    // property is that record and read normalise IDENTICALLY, so a lookup still
-    // finds the entry it wrote.
-    service.recordCommandExecution('.Whoknews  ', 10);
+  it('is case- and whitespace-insensitive about the name, in EITHER order', () => {
+    // Normalisation is `trim().toLowerCase().replace(/^\./, '')`. The dot used to
+    // be removed BEFORE the trim, so LEADING whitespace defeated the strip and
+    // keyed the metric as `.whoknews` — a second bucket for one command. Both
+    // shapes below must now land on the same key, whichever side the padding is
+    // on, and record and read must agree.
+    service.recordCommandExecution('  .Whoknews  ', 10);
     expect(service.getCommandMetric('whoknews')?.executions).toBe(1);
     expect(service.getCommandMetric('.Whoknews')?.executions).toBe(1);
+    expect(service.getCommandMetric('  .whoknews  ')?.executions).toBe(1);
+  });
+
+  it('a padded name and a bare name are ONE metric, so a p95 is over every sample', () => {
+    // The property the fold exists for, on the axis the old order broke. Two
+    // buckets means each p95 is computed over half the samples that exist, and
+    // the health report reads as a slower command than the bot is.
+    service.recordCommandExecution('.play', 10, true);
+    service.recordCommandExecution('  .play  ', 90, true);
+
+    const metric = service.getCommandMetric('play');
+    expect(metric?.executions).toBe(2);
+    expect(metric?.maxDurationMs).toBe(90);
   });
 
   it('keeps distinct commands apart', () => {

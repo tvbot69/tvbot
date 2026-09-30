@@ -52,5 +52,9 @@ export function buildFooterText(opts: {
   }
 
   const text = parts.join(' · ') || (opts.totalScrobbles !== undefined ? `${opts.totalScrobbles.toLocaleString()} total scrobbles` : '');
+  // Nothing to say means nothing rendered. The small-text prefix is a formatting
+  // decision about real text, so with no text there is no prefix either — prefixing
+  // an empty string produced a literal "-# ", an empty-looking footer row.
+  if (!text) return '';
   return opts.useSmallText ? `-# ${text}` : text;
 }

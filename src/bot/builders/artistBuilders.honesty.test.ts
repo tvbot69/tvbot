@@ -13,10 +13,10 @@
  *  2. The MusicBrainz block is entirely additive. A null `mbData`, a location
  *     with no country code, a birth date that is not today, a type with no gender
  *     — each must leave the card without that line and with nothing broken.
- *  3. `buildArtistTopAlbumsResponse` is a paginator that does NOT clamp. That is
- *     a real defect (reported, not fixed here), so this file pins the honest
- *     in-range behaviour and records the out-of-range behaviour separately rather
- *     than pretending it is fine.
+ *  3. `buildArtistTopAlbumsResponse` clamps its `page` before slicing, so a
+ *     stale button cannot render an empty list under a page number that does not
+ *     exist. "No albums found." is then only ever reachable when the artist
+ *     genuinely has no albums on this page.
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
@@ -408,32 +408,52 @@ describe('ArtistBuilders.buildArtistTopAlbumsResponse', () => {
   });
 
   /**
-   * Recorded, not fixed: `buildArtistTopAlbumsResponse` (and its sibling
-   * `ArtistTrackBuilders.buildArtistTopTracksResponse`) compute `totalPages` and
-   * then slice on the RAW `page`, so an out-of-range index prints a page number
-   * that does not exist together with an empty list, which reads as "this artist
-   * has no albums" rather than "you are off the end". These assertions make the
-   * current behaviour explicit so the next reader does not mistake it for an
-   * intended empty state.
-   *
-   * Nested inside the describe above because they call the same `page`/`albums`
-   * fixtures, which are deliberately scoped to that block.
+   * The paginator CLAMPS. `totalPages` is computed and `page` is pinned into
+   * `[0, totalPages - 1]` before the slice is taken, so an out-of-range index
+   * renders the last (or first) real page instead of printing a page number that
+   * does not exist together with an empty list. An empty list under "Page
+   * 100/3" read as "this artist has no albums", which is a claim about the
+   * artist, not about the button that was pressed.
    */
   describe('a page past the end', () => {
-    it('prints a page number that does not exist and an empty list', () => {
+    it('clamps onto the last real page and lists that page’s albums', () => {
       const text = body(page(albums(25), 99));
-      expect(text).toContain('Page 100/3 — 25 different albums');
-      expect(text).toContain('No albums found.');
+      expect(text).toContain('Page 3/3 — 25 different albums');
+      expect(text).toContain('21. **[Album 21](https://www.last.fm/music/Radiohead/Album+21)**');
+      expect(text).toContain('25. **[Album 25](https://www.last.fm/music/Radiohead/Album+25)**');
+      expect(text).not.toContain('No albums found.');
     });
 
-    it('prints a zero page number rather than refusing the request', () => {
-      expect(body(page(albums(25), -1))).toContain('Page 0/3 — 25 different albums');
+    it('never prints a page number that does not exist', () => {
+      const text = body(page(albums(25), 99));
+      expect(text).not.toContain('Page 100/3');
+      expect(text).toBe(body(page(albums(25), 2)));
     });
 
-    it('still leaves the escape-hatch buttons live, so the user is not stranded', () => {
+    it('clamps a negative index back onto page 1 rather than printing a zero page number', () => {
+      const text = body(page(albums(25), -1));
+      expect(text).toContain('Page 1/3 — 25 different albums');
+      expect(text).not.toContain('Page 0/3');
+      expect(text).toBe(body(page(albums(25), 0)));
+    });
+
+    it('disables forward navigation on the clamped page, because there is nowhere past the end', () => {
       const over = buttons(page(albums(25), 99));
-      expect(over.find(b => b.custom_id === 'aab:first:99:1:target-1:author-1')?.disabled).toBe(false);
-      expect(over.find(b => b.custom_id === 'artist-overview:1:target-1:author-1')).toBeDefined();
+      expect(over.find(b => b.custom_id === 'aab:next:2:1:target-1:author-1')?.disabled).toBe(true);
+      expect(over.find(b => b.custom_id === 'aab:last:2:1:target-1:author-1')?.disabled).toBe(true);
+    });
+
+    it('still leaves the way back live, so the user is not stranded', () => {
+      const over = buttons(page(albums(25), 99));
+      expect(over.find(b => b.custom_id === 'aab:first:2:1:target-1:author-1')?.disabled).toBe(false);
+      expect(over.find(b => b.custom_id === 'aab:prev:2:1:target-1:author-1')?.disabled).toBe(false);
+      expect(over.some(b => b.custom_id === 'artist-overview:1:target-1:author-1')).toBe(true);
+    });
+
+    it('encodes the clamped page in the custom ids, not the requested one', () => {
+      const ids = buttons(page(albums(25), 99)).map(b => b.custom_id);
+      expect(ids).toContain('aab:next:2:1:target-1:author-1');
+      expect(ids.every(id => !id?.includes(':99:'))).toBe(true);
     });
   });
 });

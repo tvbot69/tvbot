@@ -168,18 +168,36 @@ describe('ServerSlashCommands routing: each subcommand must ask its own question
     expect(cardText(response)).toContain(phrase);
   });
 
-  it('CHARACTERISATION: an unrecognised subcommand silently answers with the artists chart', async () => {
-    // `handleSubcommandAsync` ends with `return this.serverArtistsSlashAsync(...)`
-    // as its fall-through, so a subcommand nobody declared is answered as if the
-    // user had asked for artists. Discord constrains the option set, so this is
-    // a defensive default rather than a live hole - but it is a wrong answer
-    // shaped exactly like a right one, and it is reported separately.
+  it('REFUSES an unrecognised subcommand rather than answering with the artists chart', async () => {
+    // `handleSubcommandAsync` used to END with `return
+    // this.serverArtistsSlashAsync(...)` as its fall-through, so a subcommand
+    // nobody declared was answered as if the user had asked for artists - a
+    // confident, entirely plausible chart for a question that was never asked.
+    // Discord constrains the option set, so this arm is defensive rather than a
+    // live hole, but "I do not understand that" is the only honest answer to
+    // input the command does not know.
     const { cmd, guildRankingService } = build();
     const response = await run(cmd, makeCtx({ sub: 'playlists' }));
 
-    expect(guildRankingService.getGuildTopArtists).toHaveBeenCalled();
-    expect(response.commandResponse).toBe(CommandResponse.Ok);
-    expect(cardText(response)).toContain('artists in Loud Room');
+    expect(response.commandResponse).toBe(CommandResponse.WrongInput);
+    expect(cardText(response)).toContain('playlists');
+    // The point of the fix: no ranking query of any kind ran, so there is no
+    // chart left on screen to be mistaken for the answer.
+    expect(guildRankingService.getGuildTopArtists).not.toHaveBeenCalled();
+    expect(guildRankingService.getGuildTopAlbums).not.toHaveBeenCalled();
+    expect(guildRankingService.getGuildTopTracks).not.toHaveBeenCalled();
+    expect(guildRankingService.getGuildTopGenres).not.toHaveBeenCalled();
+  });
+
+  it('refuses a missing subcommand as unknown input, not as artists', async () => {
+    // The dispatcher used to default a null subcommand to `artists`, which is
+    // the same wrong answer by a different route: it invents the question the
+    // user asked rather than admitting there wasn't one.
+    const { cmd, guildRankingService } = build();
+    const response = await run(cmd, makeCtx({ sub: null }));
+
+    expect(response.commandResponse).toBe(CommandResponse.WrongInput);
+    expect(guildRankingService.getGuildTopArtists).not.toHaveBeenCalled();
   });
 
   it('forwards the artist filter to albums and tracks', async () => {

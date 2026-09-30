@@ -146,6 +146,14 @@ export class WhoKnowsBuilders {
         : baseLine;
 
       const extraFooterLines: string[] = [];
+      // Genres go in here, not only in the default mode's `footerLines`. They used
+      // to be pushed to `footerLines` alone, which nothing in this branch reads, so
+      // pagination mode silently dropped a caller-supplied genre list while default
+      // mode printed it — same data, two modes, one lying by omission. Capped at
+      // five, matching the default-mode footer.
+      if (genres && genres.length > 0) {
+        extraFooterLines.push(genres.slice(0, 5).join(' - '));
+      }
       if (filterStats) {
         const filterItems: string[] = [];
         if (filterStats.blockedFiltered && filterStats.blockedFiltered > 0) {
@@ -163,6 +171,20 @@ export class WhoKnowsBuilders {
       }
 
       const buildContainerForPage = (pageIdx: number): ContainerBuilder => {
+        // `renderPage` is installed on the paginator session, so this is a
+        // dynamic entry point: a stale session can hand us an index outside
+        // `pages`. A non-null assertion here would throw on `page.lines` and
+        // take the whole message down, so say the page is gone instead.
+        const page = pages[pageIdx];
+        if (!page) {
+          const gone = new ContainerBuilder();
+          gone.addTextDisplayComponents(new TextDisplayBuilder().setContent(`### ${title}`));
+          gone.addTextDisplayComponents(
+            new TextDisplayBuilder().setContent('This page of the leaderboard is no longer available.'),
+          );
+          return gone;
+        }
+
         const container = new ContainerBuilder();
 
         // 0: Header (clean plain text title, no link, no section/thumbnail accessory)
@@ -176,7 +198,6 @@ export class WhoKnowsBuilders {
         );
 
         // 2: Leaderboard content
-        const page = pages[pageIdx]!;
         let pageContent = page.lines;
         if (pageIdx === 0 && footerExtra) {
           pageContent += `\n\n${footerExtra}`;

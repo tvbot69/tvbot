@@ -20,9 +20,34 @@ const CELL_SIZE = 300;
 
 const dimensionsRegex = /^([1-9]|[1-4][0-9]|50)x([1-9]|[1-4][0-9]|50)$/i;
 
+/**
+ * The artist filter, normalised, for the cache key. Both cascades below key on
+ * this string while filtering with `toLowerCase()`, so an un-normalised key made
+ * `artist:Radiohead` and `artist:radiohead` two cache entries for one chart —
+ * duplicate Puppeteer renders and duplicate Last.fm reads for a byte-identical
+ * result. Duplicate work rather than a wrong answer, which is why it survived.
+ */
+const artistFilterKey = (filteredArtistName: string | undefined): string =>
+  filteredArtistName === undefined ? 'all' : filteredArtistName.toLowerCase();
+
 export class NotEnoughAlbumsError extends Error {
   public readonly available: number;
   public readonly required: number;
+
+  /**
+   * True when something downstream of the Last.fm fetch — a user-configured
+   * filter, or the cover pass under `skipWithoutImage` — is what left too few
+   * items, rather than the library itself. `chartBuilders` reads it to choose
+   * between "widen the filter" and "use a smaller chart / a different period",
+   * and that split is only useful advice when the flag is true whenever a filter
+   * actually ran.
+   *
+   * The name is narrower than the meaning (a missing cover is not a filter) and
+   * the builder's own copy says "after filters or missing covers", which is the
+   * honest description of it. Renaming would touch the builder and every reader;
+   * the defect was the two call sites that reported a filter shortfall as a
+   * false, and those are fixed rather than renamed.
+   */
   public readonly afterFilters: boolean;
 
   constructor(available: number, required: number, afterFilters = false) {
@@ -105,7 +130,7 @@ export class ChartService {
       throw new TooManyImagesError();
     }
 
-    const cacheKey = `chart:album:${userNameLastFm.toLowerCase()}:${chartSettings.width}x${chartSettings.height}:${chartSettings.timespanString}:${chartSettings.titleSetting}:${chartSettings.filteredArtistName ?? 'all'}:${chartSettings.releaseYearFilter ?? 'all'}:${chartSettings.releaseDecadeFilter ?? 'all'}:${chartSettings.filterSingles ? '1' : '0'}:${chartSettings.rainbowSortingEnabled ? '1' : '0'}`;
+    const cacheKey = `chart:album:${userNameLastFm.toLowerCase()}:${chartSettings.width}x${chartSettings.height}:${chartSettings.timespanString}:${chartSettings.titleSetting}:${artistFilterKey(chartSettings.filteredArtistName)}:${chartSettings.releaseYearFilter ?? 'all'}:${chartSettings.releaseDecadeFilter ?? 'all'}:${chartSettings.filterSingles ? '1' : '0'}:${chartSettings.rainbowSortingEnabled ? '1' : '0'}`;
 
     if (this.cache) {
       const cached = await this.cache.get<ChartResult>(cacheKey);
@@ -158,7 +183,18 @@ export class ChartService {
     }
 
     if (albums.length < chartSettings.imagesNeeded) {
-      throw new NotEnoughAlbumsError(albums.length, chartSettings.imagesNeeded);
+      // The artist filter has demonstrably run by this point — it is the `if`
+      // above — so a shortfall here is `afterFilters`. Reporting it as an upstream
+      // shortfall told a user who asked for `artist Radiohead` and has two
+      // Radiohead albums to make the chart smaller, which is the wrong advice and
+      // hides the real cause. Keyed off the SAME truthiness the filter test uses,
+      // because a flag that claims a filter ran when it did not is the same bug
+      // wearing the other hat.
+      throw new NotEnoughAlbumsError(
+        albums.length,
+        chartSettings.imagesNeeded,
+        Boolean(chartSettings.filteredArtistName),
+      );
     }
 
     if (
@@ -335,7 +371,7 @@ export class ChartService {
       throw new TooManyImagesError();
     }
 
-    const cacheKey = `chart:track:${userNameLastFm.toLowerCase()}:${chartSettings.width}x${chartSettings.height}:${chartSettings.timespanString}:${chartSettings.titleSetting}:${chartSettings.filteredArtistName ?? 'all'}:${chartSettings.rainbowSortingEnabled ? '1' : '0'}`;
+    const cacheKey = `chart:track:${userNameLastFm.toLowerCase()}:${chartSettings.width}x${chartSettings.height}:${chartSettings.timespanString}:${chartSettings.titleSetting}:${artistFilterKey(chartSettings.filteredArtistName)}:${chartSettings.rainbowSortingEnabled ? '1' : '0'}`;
 
     if (this.cache) {
       const cached = await this.cache.get<ChartResult>(cacheKey);
@@ -378,7 +414,14 @@ export class ChartService {
     }
 
     if (tracks.length < chartSettings.imagesNeeded) {
-      throw new NotEnoughAlbumsError(tracks.length, chartSettings.imagesNeeded);
+      // Same as the album cascade: the artist filter ran, so this is a filtered
+      // shortfall rather than an upstream one, and keyed off the same truthiness
+      // the filter test uses.
+      throw new NotEnoughAlbumsError(
+        tracks.length,
+        chartSettings.imagesNeeded,
+        Boolean(chartSettings.filteredArtistName),
+      );
     }
 
     let selected: TopTrack[];

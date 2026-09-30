@@ -2,22 +2,24 @@
  * `/gaps`, `/discoveries`, `/iceberg`, `/affinity` - the four intelligence
  * commands, and the target resolution they share.
  *
- * THE TRUST BOUNDARY HERE IS TARGET RESOLUTION, and one of its branches is a
- * real gap worth reading before the tests.
+ * THE TRUST BOUNDARY HERE IS TARGET RESOLUTION, and its weakest branch was a
+ * silent one.
  *
- * `resolveTarget` (`intelligenceSlashCommands.ts:148-154`) does:
+ * `resolveTarget` (`intelligenceSlashCommands.ts:148-158`) used to do:
  *
  *     if (targetDiscordUserId && targetDiscordUserId !== context.discordUserId) {
  *       const foundUser = await this.userService.getUserByDiscordId(targetDiscordUserId);
  *       if (foundUser) { targetUser = foundUser; displayName = foundUser.userNameLastFm; }
  *     }
  *
- * There is no `else`. A user who runs `/gaps user:@someone` and `@someone` has
- * never registered gets their OWN listening gaps, under their OWN display name,
- * with no indication the named target was dropped. Nothing printed is false -
- * which is what makes it survive a code review - but the question that was
- * asked is not the question that got answered. The branch is pinned here as
- * characterisation, NOT as endorsement, and it is reported separately.
+ * There was no `else`. A user who ran `/gaps user:@someone` and `@someone` had
+ * never registered got their OWN listening gaps, under their OWN display name,
+ * with no indication the named target had been dropped. Nothing printed was
+ * false - which is what made it survive a code review - but the question that
+ * was asked is not the question that got answered. It now refuses, in the same
+ * shape and with the same wording as `playcountSlashCommands` and
+ * `userSlashCommands`, and the test below pins the refusal against the
+ * registered-target case directly above it.
  *
  * The rest of the file is the A1 pair, for all four commands: a source that
  * cannot be read must not render as a confident "there is nothing here". The
@@ -246,17 +248,34 @@ describe('IntelligenceSlashCommands target resolution', () => {
     expect(intelligenceService.getListeningGaps).toHaveBeenCalledWith(7, 'artist', 90);
   });
 
-  it('CHARACTERISATION: an unregistered target is silently replaced by the caller', async () => {
-    // See the file header. There is no `else` on the `foundUser` check, so the
-    // named user vanishes and the caller's own data is rendered under the
-    // caller's own name. Pinned so the behaviour is visible and so a future fix
-    // has to change this test on purpose.
-    const { cmd, intelligenceService } = build({ target: null });
+  it('REFUSES an unregistered target instead of silently answering with the caller', async () => {
+    // The opposite of the case above, and the two are locked together: a
+    // handler that refused everything would pass the refusal and fail the
+    // registered-target read, and one that dropped the mention would pass that
+    // and fail this.
+    const { cmd, intelligenceService, lastfmRepository } = build({ target: null });
     const response = await gaps(cmd, makeCtx(), 'artist', 'other1');
 
-    expect(intelligenceService.getListeningGaps).toHaveBeenCalledWith(7, 'artist', 90);
-    expect(cardText(response)).toContain('DreadRock');
-    expect(response.commandResponse).toBe(CommandResponse.Ok);
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    expect(cardText(response)).toContain('<@other1>');
+    expect(cardText(response)).not.toContain('DreadRock');
+    expect(intelligenceService.getListeningGaps).not.toHaveBeenCalled();
+    expect(lastfmRepository.getTopArtists).not.toHaveBeenCalled();
+  });
+
+  it('refuses the same unregistered target for every command that takes one', async () => {
+    // One resolver, four commands. If a command ever forgets to run it, that
+    // command is one bad edit away from the silent-caller bug again.
+    const { cmd } = build({ target: null });
+    for (const run of [
+      () => gaps(cmd, makeCtx(), 'artist', 'other1'),
+      () => discoveries(cmd, makeCtx(), 'quarterly', 'other1'),
+      () => iceberg(cmd, makeCtx(), 'overall', 'other1'),
+      () => affinity(cmd, makeCtx(), 'other1'),
+    ]) {
+      const response = await run();
+      expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    }
   });
 });
 

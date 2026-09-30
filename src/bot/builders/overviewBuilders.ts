@@ -36,7 +36,13 @@ export class OverviewBuilders {
   ): ResponseModel {
     const perPage = 4;
     const totalPages = Math.max(1, Math.ceil(overview.dailyBlocks.length / perPage));
-    const slice = overview.dailyBlocks.slice(page * perPage, (page + 1) * perPage);
+    // Clamp before slicing. `page` arrives from a button's custom id, so a stale
+    // or hand-edited index used to render an empty slice and a footer reading
+    // "6/2 - 0 unique tracks - 0 total plays - 0 avg": a fabricated zero about
+    // somebody's listening, produced by a button press. Same shape as the album
+    // tracks card's clamp.
+    const currentPage = Math.min(Math.max(0, page), totalPages - 1);
+    const slice = overview.dailyBlocks.slice(currentPage * perPage, (currentPage + 1) * perPage);
 
     // Calculate stats for current page (4 days on this page) matching fmbot
     const pagePlays = slice.reduce((sum, b) => sum + b.playCount, 0);
@@ -71,9 +77,9 @@ export class OverviewBuilders {
       container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
     }
 
-    const footer = `-# ${page + 1}/${totalPages} - Top genres, artist, album and track\n-# ${pageUniqueTracks.size} unique tracks - ${pagePlays} total plays - ${pageAvg} avg`;
+    const footer = `-# ${currentPage + 1}/${totalPages} - Top genres, artist, album and track\n-# ${pageUniqueTracks.size} unique tracks - ${pagePlays} total plays - ${pageAvg} avg`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
-    container.addActionRowComponents(buildPaginatorRow(page, totalPages, userNameLastFm, timeDescription));
+    container.addActionRowComponents(buildPaginatorRow(currentPage, totalPages, userNameLastFm, timeDescription));
 
     response.setComponentsV2Container(container);
     response._overviewData = { userNameLastFm, displayName, timeDescription, overview };

@@ -8,8 +8,8 @@
  *     indexing renders a shorter list, and the ONLY thing that tells the user
  *     the list is short is that extra line. Losing it turns "we have not finished
  *     counting" into "these are your top ten", so both directions are asserted.
- *  2. The paginator does not clamp, exactly like its album sibling — see the last
- *     describe block, which records that rather than endorsing it.
+ *  2. The paginator clamps its `page` before slicing, exactly like its album
+ *     sibling — see the last describe block.
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
@@ -153,19 +153,38 @@ describe('ArtistTrackBuilders.buildArtistTopTracksResponse', () => {
 });
 
 /**
- * Recorded, not fixed: this paginator slices on the RAW `page` after computing
- * `totalPages`, so an out-of-range index prints a page number that does not
- * exist and "No tracks found." — a claim about the listener's music on a card
- * that is really a claim about their button press.
+ * The paginator CLAMPS. `totalPages` is computed and `page` is pinned into
+ * `[0, totalPages - 1]` before the slice is taken, so an out-of-range index
+ * renders the last (or first) real page instead of printing a page number that
+ * does not exist together with "No tracks found." — which read as a claim about
+ * the listener's music on a card that was really a claim about their button press.
  */
 describe('ArtistTrackBuilders.buildArtistTopTracksResponse: a page past the end', () => {
-  it('prints a page number that does not exist and an empty list', () => {
+  it('clamps onto the last real page and lists that page’s tracks', () => {
     const text = body(card(tracks(25), { page: 99 }));
-    expect(text).toContain('Page 100/3 — 25 different tracks');
-    expect(text).toContain('No tracks found.');
+    expect(text).toContain('Page 3/3 — 25 different tracks');
+    expect(text).toContain('21. **Track 21** - *21 plays*');
+    expect(text).toContain('25. **Track 25** - *25 plays*');
+    expect(text).not.toContain('No tracks found.');
   });
 
-  it('prints a zero page number for a negative index', () => {
-    expect(body(card(tracks(25), { page: -1 }))).toContain('Page 0/3 — 25 different tracks');
+  it('never prints a page number that does not exist', () => {
+    expect(body(card(tracks(25), { page: 99 }))).not.toContain('Page 100/3');
+    expect(body(card(tracks(25), { page: 99 }))).toBe(body(card(tracks(25), { page: 2 })));
+  });
+
+  it('clamps a negative index back onto page 1 rather than printing a zero page number', () => {
+    const text = body(card(tracks(25), { page: -1 }));
+    expect(text).toContain('Page 1/3 — 25 different tracks');
+    expect(text).not.toContain('Page 0/3');
+    expect(text).toBe(body(card(tracks(25), { page: 0 })));
+  });
+
+  it('disables forward navigation on the clamped page and leaves the way back live', () => {
+    const over = buttons(card(tracks(25), { page: 99, artistId: 7, targetUserId: 't', authorUserId: 'a' }));
+    expect(over.find(b => b.custom_id === 'at:next:2:7:t:a')?.disabled).toBe(true);
+    expect(over.find(b => b.custom_id === 'at:last:2:7:t:a')?.disabled).toBe(true);
+    expect(over.find(b => b.custom_id === 'at:first:2:7:t:a')?.disabled).toBe(false);
+    expect(over.find(b => b.custom_id === 'at:prev:2:7:t:a')?.disabled).toBe(false);
   });
 });

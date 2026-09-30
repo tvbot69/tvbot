@@ -14,11 +14,12 @@ import type { MusicTrack } from '@domain/models/music/musicTrack';
  * process. That is a slow leak, which is the easiest kind to ship and the
  * hardest to notice.
  *
- * The eviction is FIFO on INSERTION order, and that is the subtle part: a Map
- * re-`set` on an existing key does not move it to the end. So a guild the bot
- * plays in every day stays at the front of the insertion order and is the
- * first thing evicted, while a guild that joined a minute ago is kept. Pinned
- * below as current behaviour.
+ * The eviction is LRU on WRITE, and that is the subtle part: `Map.set` on a key
+ * that is already present does NOT move it to the end, so a guild the bot plays
+ * in every day used to stay at the front of the insertion order and be the first
+ * thing evicted, while a guild that joined a minute ago was kept. The cache lost
+ * its hottest entries first. `addHistory` now deletes before re-setting, so the
+ * order tracks the last play. Pinned below as current behaviour.
  *
  * This is a pure in-memory class with no Prisma dependency, so it is the one
  * repository in the directory that can be tested for real rather than over a
@@ -54,14 +55,14 @@ describe('MusicHistoryRepository.addHistory guild cap', () => {
     expect(repo.getHistory(`g${GUILD_CAP - 1}`, 10)).toHaveLength(1);
   });
 
-  it('evicts the OLDEST-INSERTED guild when the cap is exceeded', () => {
+  it('evicts the COLDEST guild when the cap is exceeded', () => {
     const repo = new MusicHistoryRepository();
     for (let n = 0; n < GUILD_CAP; n += 1) repo.addHistory(`g${n}`, track(n));
 
     repo.addHistory('overflow', track(9999));
 
-    // One guild was dropped, and it was the first one inserted. Without the
-    // eviction, this entry is retained for the life of the process.
+    // One guild was dropped, and it was the one written longest ago. Without
+    // the eviction, this entry is retained for the life of the process.
     expect(repo.getHistory('g0', 10)).toEqual([]);
     expect(repo.getHistory('overflow', 10)).toHaveLength(1);
     expect(repo.getHistory(`g${GUILD_CAP - 1}`, 10)).toHaveLength(1);
@@ -80,12 +81,12 @@ describe('MusicHistoryRepository.addHistory guild cap', () => {
     expect(alive).toBe(GUILD_CAP);
   });
 
-  it('evicts in insertion order, not least-recently-USED order', () => {
-    // DOCUMENTED BEHAVIOUR, and the more surprising of the two. `Map.set` on
-    // an existing key keeps its original position, so a guild the bot plays in
-    // every day is still sitting at the front of the order and is the next
-    // eviction - while a guild that arrived a moment ago survives. The result
-    // is a cache that loses its hottest entries first.
+  it('evicts the LEAST RECENTLY PLAYED guild, not the longest-tracked one', () => {
+    // The more surprising of the two orders used to be live. `Map.set` on an
+    // existing key keeps its original position, so 'veteran' - first inserted,
+    // then played again - sat at the front of the order and went first, while
+    // the guild that had just arrived survived. The cache lost its hottest
+    // entry every time it was asked to make room.
     const repo = new MusicHistoryRepository();
     repo.addHistory('veteran', track(1));
     for (let n = 0; n < GUILD_CAP - 1; n += 1) repo.addHistory(`g${n}`, track(n));
@@ -94,9 +95,30 @@ describe('MusicHistoryRepository.addHistory guild cap', () => {
     repo.addHistory('veteran', track(2));
     repo.addHistory('overflow', track(3));
 
-    // 'veteran' was the first key inserted, so it is the one that went.
-    expect(repo.getHistory('veteran', 10)).toEqual([]);
+    // 'g0' is now the coldest guild: written once, never again. The veteran
+    // played a moment ago, so it is the one that has to go next.
+    expect(repo.getHistory('g0', 10)).toEqual([]);
+    expect(repo.getHistory('veteran', 10)).toHaveLength(2);
     expect(repo.getHistory('overflow', 10)).toHaveLength(1);
+  });
+
+  it('a guild that plays stays, however long ago it first appeared', () => {
+    // The bounding property, stated directly: one more play is worth more than
+    // however many new servers joined since. Without the delete-before-set, a
+    // busy guild's own history is what the cap threw away.
+    const repo = new MusicHistoryRepository();
+    repo.addHistory('veteran', track(1));
+    for (let n = 0; n < GUILD_CAP - 1; n += 1) repo.addHistory(`g${n}`, track(n));
+
+    for (let n = 0; n < 25; n += 1) repo.addHistory('veteran', track(n));
+    for (let n = 0; n < 25; n += 1) repo.addHistory(`new-${n}`, track(n));
+
+    // 25 newcomers pushed 25 of the never-replayed guilds out — g0 through g24,
+    // oldest write first — and the veteran was never among them.
+    expect(repo.getHistory('veteran', 60)).toHaveLength(26);
+    expect(repo.getHistory('g0', 10)).toEqual([]);
+    expect(repo.getHistory('g24', 10)).toEqual([]);
+    expect(repo.getHistory('g25', 10)).toHaveLength(1);
   });
 
   it('evicts one guild per new guild, not a batch', () => {
@@ -109,8 +131,8 @@ describe('MusicHistoryRepository.addHistory guild cap', () => {
     // A cap that evicted everything over the limit on each insert would empty
     // the map; a cap that evicted nothing would grow it. One in, one out — and
     // because `size` is back at the cap after the first insert, the SECOND
-    // overflow evicts again. Two guilds in means two out: `g0` then `g1`, both
-    // from the front of the insertion order.
+    // overflow evicts again. Two guilds in means two out: `g0` then `g1`, each
+    // the coldest at the time it was evicted.
     expect(repo.getHistory('g0', 10)).toEqual([]);
     expect(repo.getHistory('g1', 10)).toEqual([]);
     expect(repo.getHistory('over-1', 10)).toHaveLength(1);

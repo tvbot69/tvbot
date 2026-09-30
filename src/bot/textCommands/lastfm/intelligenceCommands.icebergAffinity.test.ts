@@ -96,6 +96,8 @@ const affinityData = (over: Partial<AffinityData> = {}): AffinityData => ({
 type Over = {
   caller?: User | null;
   mentioned?: User | null;
+  /** What `getUserByLastFmName` resolves. `null` (the default) = an account the bot has never indexed. */
+  byLfmName?: User | null;
   topArtists?: unknown[] | null;
   generateThrows?: unknown;
   withGenerator?: boolean;
@@ -115,7 +117,7 @@ const build = (over: Over = {}) => {
       if (id !== '111') return (over.mentioned ?? null) as User | null;
       return over.caller === undefined ? caller() : over.caller;
     }),
-    getUserByLastFmName: vi.fn(async () => null),
+    getUserByLastFmName: vi.fn(async () => (over.byLfmName ?? null) as User | null),
   };
   const settingService = { getTimePeriod: vi.fn(() => (over.timeSettings as TimeSettingsModel) ?? settings()) };
   const lastfmRepository = {
@@ -321,6 +323,21 @@ describe('.iceberg — the image is decoration and must stay that way', () => {
 
     expect(icebergParams().data.displayName).toBe('Beta');
   });
+
+  it('REFUSES a mention that resolves to nobody, rather than iceberging the caller', async () => {
+    // The same refusal `playcountCommands` and the genre family make. Dropping
+    // the mention answered with the caller's own top artists under the caller's
+    // own name, so the card looked correct and was about the wrong person.
+    const { commands, lastfmRepository, icebergGenerator } = build({ mentioned: null });
+
+    const result = await iceberg(commands, '<@333>');
+
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+    expect(desc(result)).toContain('<@333>');
+    expect(lastfmRepository.getTopArtists).not.toHaveBeenCalled();
+    expect(icebergGenerator.generateIceberg).not.toHaveBeenCalled();
+    expect(IntelligenceBuilders.buildIcebergResponse).not.toHaveBeenCalled();
+  });
 });
 
 describe('.affinity — guild only, and the guard costs nothing', () => {
@@ -432,9 +449,95 @@ describe('.affinity — nobody similar is a real answer', () => {
   });
 });
 
+describe('.affinity — an `lfm:` target the bot has no index for is REFUSED', () => {
+  // `getGuildAffinity` excludes the target BY `userId` and reads the target's top
+  // artists BY `userId`. The `userId: 0` sentinel the unindexed-name path builds
+  // is what stopped the caller's rows leaking under a stranger's name, and it is
+  // also why the card cannot be trusted: an empty target profile zeroes
+  // `artistScore` for every neighbour, and `totalGuildUsers` stays real, so the
+  // card renders a full table of real people, every number wrong, sorted by
+  // those wrong numbers — reading as "nobody in this server has a similar
+  // taste". `.gaps` and `.discoveries` already refuse in this shape; the third
+  // index-keyed command has to refuse the same way or the family is two-thirds
+  // fixed.
+  it('refuses the same way `.gaps` does, naming the target and the reason', async () => {
+    const { commands, userService, intelligenceService } = build({ byLfmName: null });
+
+    const result = await affinity(commands, 'lfm:stranger');
+
+    // Same response shape as `.gaps`: an error embed carrying NotFound, not a
+    // card. A `toBeDefined()` here would pass on any response at all.
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+    expect(desc(result)).toContain('stranger');
+    // The refusal has to state the reason, or the user reads "no such command".
+    expect(desc(result)).toContain('no indexed listening history');
+    expect(userService.getUserByLastFmName).toHaveBeenCalledWith('stranger');
+    // The neighbour query never runs — this is the whole point. Running it
+    // costs a `guildUser` scan plus two `userArtist` reads and produces a table
+    // of fabricated zeros about real neighbours.
+    expect(intelligenceService.getGuildAffinity).not.toHaveBeenCalled();
+    expect(IntelligenceBuilders.buildAffinityResponse).not.toHaveBeenCalled();
+  });
+
+  it('refuses through an alias too — the guard is in the body, not the trigger', async () => {
+    const { commands, intelligenceService } = build({ byLfmName: null });
+    const cmd = commands.commands.find((c) => c.name === 'affinity')!;
+
+    // A value assertion on the trigger surface, not `toBeDefined()`: this test
+    // is about the refusal being wired into the body, so it has to be
+    // trigger-independent.
+    expect(cmd.aliases).toEqual(['n', 'aff', 'neighbors', 'soulmates', 'neighbours']);
+
+    const result = (await cmd.executeAsync(ctx(), ['lfm:stranger'])) as unknown as {
+      commandResponse: CommandResponse;
+    };
+
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+    expect(intelligenceService.getGuildAffinity).not.toHaveBeenCalled();
+  });
+
+  it('still asks about a REGISTERED `lfm:` target, under that account\'s own id', async () => {
+    // The direction that keeps the refusal specific rather than blanket: refusing
+    // every `lfm:` name would be a different bug, and a silent one.
+    const { commands, intelligenceService } = build({
+      byLfmName: caller({ userId: 42, discordUserId: '888', userNameLastFm: 'Beta' }),
+    });
+
+    const result = await affinity(commands, 'lfm:Beta');
+
+    expect(result).toEqual({ marker: 'affinity' });
+    expect(intelligenceService.getGuildAffinity).toHaveBeenCalledWith('222', 42, 'Beta', 'Beta', 'Test Guild');
+  });
+
+  it('leaves `.iceberg` alone: the same unindexed name still gets an iceberg', async () => {
+    // The control. `getIceberg` classifies artists by catalogue popularity and
+    // never reads a user id (its parameter is `_userId`), so an unlinked `lfm:`
+    // name is a real Last.fm account to it and the card is honest. A blanket
+    // refusal in this module would break a command that works.
+    const { commands, lastfmRepository, intelligenceService } = build({ byLfmName: null });
+
+    const result = await iceberg(commands, 'lfm:stranger');
+
+    expect(result).toEqual({ marker: 'iceberg' });
+    // Last.fm was asked about the NAME, not about the sentinel account.
+    expect(lastfmRepository.getTopArtists).toHaveBeenCalledWith('stranger', TimePeriod.AllTime, 100, 1, 'SK');
+    const [userId, , displayName, userNameLastFm] = (intelligenceService.getIceberg as ReturnType<typeof vi.fn>)
+      .mock.calls[0]!;
+    expect(userId).toBe(0);
+    expect(displayName).toBe('stranger');
+    expect(userNameLastFm).toBe('stranger');
+    expect(IntelligenceBuilders.buildIcebergResponse).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('the iceberg and affinity triggers reach those bodies through the registry', () => {
   it('routes every iceberg alias to the same body', async () => {
-    const { commands, icebergGenerator } = build();
+    // The mention in the third call has to RESOLVE: an unresolvable mention is
+    // refused now (see the file's own test above), so leaving it in would make
+    // this a test of the refusal with an alias-routing label on it.
+    const { commands, icebergGenerator } = build({
+      mentioned: caller({ userId: 7, discordUserId: '999', userNameLastFm: 'Beta' }),
+    });
     const cmd = commands.commands.find((c) => c.name === 'iceberg')!;
     expect(cmd.aliases).toEqual(['ice', 'icebergify', 'berg']);
 

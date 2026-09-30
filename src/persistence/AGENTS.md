@@ -210,20 +210,24 @@ Every guild id and Discord id arrives from the interaction layer as a **string**
 `BigInt('abc')` **throws** `SyntaxError`. So:
 
 - **Guard every external id before it reaches a query.** `crownRepository.safeBigInt`
-  (`repositories/crownRepository.ts:9-24`) validates with `/^\d+$/` and returns `null`,
-  and its callers return an empty answer. `albumService.parseDiscordUserId`
+  (`repositories/crownRepository.ts:18-33`) validates with `/^\d+$/` and returns `null`,
+  and its callers return an empty answer. `guildRepository` has the same guard as a
+  module-level `toGuildId` (`repositories/guildRepository.ts:11-24`), and both files
+  contain exactly ONE `BigInt()` call — inside the guard — so a new writer has no
+  second conversion to reach for by accident. `albumService.parseDiscordUserId`
   (`src/bot/services/albumService.ts:73-80`) is the same shape and says why in the
   comment: a malformed id is a **caller** bug, and laundering it into "database
   unavailable" sends the operator to look at Postgres instead of at the caller. Same
   reasoning as `parseGuildId` in `genreService` / `musicIntelligenceService` and
   `toGuildId` in `countryService`.
-- **The guards are not uniform, and the inconsistency is pinned on purpose.**
-  `crownRepository.reads.test.ts:912-947` records that `safeBigInt` guards nine methods
-  while `createCrown`, `killCrown`, `removeUserCrowns` and `setCrownBlock` call
-  `BigInt(guildId)` directly and therefore raise `SyntaxError: Cannot convert … to a
-  BigInt` out of the repository. That block exists so unifying it is a visible edit
-  rather than an accident, and so the count of un-guarded methods is exact. Do not
-  "tidy" it silently.
+- **A method with an empty answer returns it; a method that must produce a row
+  raises.** That is the whole rule for a malformed id, and it is why `killCrown`,
+  `removeUserCrowns` and `setCrownBlock` answer `false` / `0` / do-nothing while
+  `createCrown` and `replaceCrown` raise a `TypeError` that names the ARGUMENT.
+  `replaceCrown` must not answer `null`: that value already means "a concurrent
+  steal got there first", and reusing it for a bad argument would send the caller
+  round the re-read loop for a crown that was never written
+  (`crownRepository.reads.test.ts:940-1023`).
 - **A raw bigint column is not a JS number.** Raw queries cast explicitly —
   `c.guild_id::text as "guildId"` and `u.discord_user_id::text as "discordUserId"`
   (`crownRepository.ts:33, 43, 197, 207, 232, 263, 273, 409`) — and every `map` then

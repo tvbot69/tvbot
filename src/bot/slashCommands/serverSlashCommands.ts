@@ -168,7 +168,7 @@ export class ServerSlashCommands implements ISlashCommandModule {
       );
     }
 
-    const sub = context.interaction?.options.getSubcommand() ?? 'artists';
+    const sub = context.interaction?.options.getSubcommand();
     const timePeriodOpt = context.interaction?.options.getString('time-period') ?? '';
     const orderOpt = context.interaction?.options.getString('order') ?? '';
     const artistOpt = context.interaction?.options.getString('artist') ?? '';
@@ -190,7 +190,14 @@ export class ServerSlashCommands implements ISlashCommandModule {
       return this.serverGenresSlashAsync(context, combinedOptions);
     }
 
-    return this.serverArtistsSlashAsync(context, combinedOptions);
+    // NO FALL-THROUGH. A subcommand nobody declared used to be answered with the
+    // artists billboard, which is a confident, entirely plausible chart for a
+    // question that was never asked. Discord constrains the option set, so this
+    // arm is defensive - but the honest answer to input this command does not
+    // understand is "I do not understand it", not a different leaderboard.
+    return GenericEmbedService.buildWrongInputResponse(
+      `Unknown \`/server\` subcommand${sub ? ` \`${sub}\`` : ''}. Try \`artists\`, \`albums\`, \`tracks\` or \`genres\`.`,
+    );
   }
 
   private async serverArtistsSlashAsync(context: ContextModel, extraOptions: string): Promise<ResponseModel> {

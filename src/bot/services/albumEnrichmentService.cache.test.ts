@@ -17,7 +17,10 @@ import type { TopAlbum } from '@domain/models/topLists';
  *
  * `enrichTopAlbums` swallows a per-album throw, which is correct for the batch
  * (one bad album must not blank a whole chart) and is why the cache matters:
- * the next chart run re-reads it.
+ * the next chart run re-reads it. What it must not do is re-read it through a
+ * provider that is still down, so a throw is now recorded as an `inconclusive`
+ * marker — a third state beside "found it" and "the provider answered and there
+ * was nothing there".
  */
 
 type Rec = Record<string, unknown>;
@@ -244,6 +247,131 @@ describe('AlbumEnrichmentService.enrichTopAlbums', () => {
     await service.enrichTopAlbums([album('Kid A', { albumType: 'album' })]);
 
     expect(spotifyApi.searchAlbums).toHaveBeenCalled();
+  });
+});
+
+describe('AlbumEnrichmentService: a provider outage must not re-query every render', () => {
+  const throwing = () => {
+    throw new Error('upstream 500');
+  };
+
+  it('marks the album inconclusive rather than leaving no trace at all', async () => {
+    // The throw was swallowed with no attempt recorded and no cache marker, so
+    // the next chart render re-queried the whole album list through the same
+    // broken provider. A year-filtered chart then dropped every album it could
+    // not date — a full grid quietly emptying because a provider was down.
+    const { service, cache } = build({ spotify: { searchAlbums: vi.fn(throwing) } });
+
+    await service.enrichTopAlbums([album('Kid A')]);
+
+    expect(cache.store.get('album-enrich:radiohead|kid a')).toBe('inconclusive');
+  });
+
+  it('does NOT record a definitive no-match marker for a throw', async () => {
+    // The difference that matters: `{}` means "the provider answered and there
+    // was nothing there" and is cached for a day. A throw is not that, and
+    // writing `{}` would remember an outage as a fact about the album.
+    const { service, cache } = build({ spotify: { searchAlbums: vi.fn(throwing) } });
+
+    await service.enrichTopAlbums([album('Kid A')]);
+
+    expect(cache.store.get('album-enrich:radiohead|kid a')).not.toEqual({});
+  });
+
+  it('serves the second render from the marker without asking the provider again', async () => {
+    const searchAlbums = vi.fn(throwing);
+    const { service } = build({ spotify: { searchAlbums } });
+
+    await service.enrichTopAlbums([album('Kid A')]);
+    await service.enrichTopAlbums([album('Kid A')]);
+    await service.enrichTopAlbums([album('Kid A')]);
+
+    // Three renders, one search. The marker is short-lived (90s, like the
+    // artwork cascade) so a recovered provider is picked up quickly — the point
+    // is to stop the hammer, not to cache the outage.
+    expect(searchAlbums).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the album itself un-enriched, so the filter drops it rather than inventing a date', async () => {
+    const { service } = build({ spotify: { searchAlbums: vi.fn(throwing) } });
+    const target = album('Kid A');
+
+    await service.enrichTopAlbums([target]);
+
+    // An inconclusive run is not a fact about the album. Inventing a date here
+    // is precisely the "plausible wrong number" the whole ladder avoids.
+    expect(target.releaseDate).toBeUndefined();
+    expect(target.albumType).toBeUndefined();
+  });
+
+  it('the marker is SHORT-lived, so a recovered provider is retried rather than written off', async () => {
+    // The third state has to expire. A permanent "inconclusive" would mean an
+    // album that failed once is never enriched again, which is worse than the
+    // outage it was meant to survive.
+    //
+    // (The in-file cache double stores values forever, so the marker cannot be
+    // watched expiring here. What is asserted is the lifetime each marker is
+    // WRITTEN with, side by side: the inconclusive one must be far shorter than
+    // the day-long definitive no-match, or the two states are not distinguished
+    // in any way a reader of the cache could act on.)
+    const ttls: unknown[] = [];
+    const store = new Map<string, unknown>();
+    const recording = {
+      get: async (k: string) => (store.has(k) ? store.get(k) : null),
+      set: async (k: string, v: unknown, ttl?: number) => {
+        store.set(k, v);
+        ttls.push(ttl);
+      },
+    };
+    const { service } = build({ spotify: { searchAlbums: vi.fn(throwing) }, cache: recording as never });
+
+    await service.enrichTopAlbums([album('Kid A')]);
+    expect(ttls).toEqual([90]);
+
+    // And the definitive no-match for comparison: a day.
+    const ttls2: unknown[] = [];
+    const store2 = new Map<string, unknown>();
+    const { service: service2 } = build({
+      spotify: { searchAlbums: vi.fn(async () => []) },
+      cache: {
+        get: async (k: string) => (store2.has(k) ? store2.get(k) : null),
+        set: async (k: string, v: unknown, ttl?: number) => {
+          store2.set(k, v);
+          ttls2.push(ttl);
+        },
+      } as never,
+    });
+    await service2.enrichTopAlbums([album('Amnesiac')]);
+    expect(ttls2).toEqual([86_400]);
+  });
+
+  it('marks each album separately, so one bad name does not silence the rest', async () => {
+    const searchAlbums = vi.fn(async (q: string) => {
+      if (q.includes('Boom')) throw new Error('upstream 500');
+      return [spotifyAlbum({ name: q.split(' ')[0] })];
+    });
+    const { service, cache } = build({ spotify: { searchAlbums } });
+
+    await service.enrichTopAlbums([album('Kid A'), album('Boom'), album('Amnesiac')]);
+
+    expect(cache.store.get('album-enrich:radiohead|boom')).toBe('inconclusive');
+    // The two that succeeded are cached as DATA, not as markers, so a second
+    // render serves them and re-queries only the one that failed.
+    expect(cache.store.get('album-enrich:radiohead|kid a')).toMatchObject({ albumType: 'album' });
+  });
+
+  it('a cache that cannot be written does not break the batch', async () => {
+    // The marker is a courtesy to the next render; it must not become a new way
+    // for a render to fail.
+    const brokenCache = {
+      get: async () => null,
+      set: async () => {
+        throw new Error('redis down');
+      },
+    };
+    const { service } = build({ spotify: { searchAlbums: vi.fn(throwing) }, cache: brokenCache as never });
+
+    await expect(service.enrichTopAlbums([album('Kid A')])).resolves.toBeUndefined();
   });
 });
 

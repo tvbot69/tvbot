@@ -608,17 +608,15 @@ describe('searchTracks — the +search picker', () => {
     const res = await ladder.searchTracks('zaid khaled lame');
     expect(res).toHaveLength(1);
     expect(res[0]).toMatchObject({ title: 'Lame', author: 'Zaid Khaled', source: 'spotify', artworkUrl: COVER });
-    // KNOWN GAP (pinned as current behaviour, NOT asserted to be correct):
-    // musicSearchLadder.ts:403 stamps `st.spotifyUri` VERBATIM. Every other
-    // place a mirror spotifyUri becomes a `uri` runs it through
-    // `spotifyUriToUrl` first — musicTrackAdoption.ts:46, musicService.ts:890,
-    // playlistChunkManager.ts:367/397 — so this is the ONE picker row that
-    // carries a bare `spotify:track:` id instead of an open.spotify.com link.
-    // It is not user-visible today: both picker call sites
-    // (musicSlashCommands.ts:381 and musicCommands.ts:340) pass
-    // `spotifyFirst: false`, so the Spotify-first branch above is never taken
-    // in production. It is a trap for the first caller that does.
-    expect(res[0]!.uri).toBe('spotify:track:abc');
+    // The row's `uri` runs the mirror `spotifyUri` through `spotifyUriToUrl`
+    // first, like every other site that turns one into a `uri`
+    // (musicTrackAdoption.ts:46, musicService.ts:915,
+    // playlistChunkManager.ts:367/397). It used to be stamped VERBATIM, so this
+    // one row carried a bare `spotify:track:` id — which Discord does not
+    // hyperlink, so it renders as dead text on the pick. Not reachable in
+    // production today (both picker call sites pass `spotifyFirst: false`),
+    // which is exactly why it was a trap for the first caller that did.
+    expect(res[0]!.uri).toBe('https://open.spotify.com/track/abc');
     expect(search).not.toHaveBeenCalled();
   });
 

@@ -49,10 +49,23 @@ export class TelemetryService {
   private readonly maxRollingHistory = 100;
 
   /**
+   * The one key a command is recorded and read under, so a text command and its
+   * slash twin share a bucket. `.trim()` runs FIRST: the other order let a
+   * leading space defeat the dot strip, so `.whoknews` and `whoknews` became two
+   * metrics. It stayed self-consistent (the read path normalises identically, so
+   * a lookup still found what it wrote) and no caller passes a padded name, which
+   * is why it went unnoticed — but "a p95 computed over half the samples that
+   * exist" is exactly the failure this fold exists to prevent.
+   */
+  private static normaliseName(commandName: string): string {
+    return commandName.trim().toLowerCase().replace(/^\./, '');
+  }
+
+  /**
    * Record execution of a command (text or slash)
    */
   public recordCommandExecution(commandName: string, durationMs: number, success: boolean = true): void {
-    const name = commandName.toLowerCase().replace(/^\./, '').trim();
+    const name = TelemetryService.normaliseName(commandName);
     let metric = this.commandMetrics.get(name);
 
     if (!metric) {
@@ -84,8 +97,7 @@ export class TelemetryService {
    * Get raw metrics for a specific command
    */
   public getCommandMetric(commandName: string): CommandMetric | undefined {
-    const name = commandName.toLowerCase().replace(/^\./, '').trim();
-    return this.commandMetrics.get(name);
+    return this.commandMetrics.get(TelemetryService.normaliseName(commandName));
   }
 
   /**

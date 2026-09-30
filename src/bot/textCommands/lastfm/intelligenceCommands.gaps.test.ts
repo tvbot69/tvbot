@@ -21,19 +21,22 @@ import type { DiscoveryItem, ListeningGapItem } from '@bot/services/musicIntelli
  * gaps of 90+ days found in your listening history", which is a claim about a
  * listener's whole history and would be a lie produced by an outage.
  *
- * The two target-grammar behaviours in this file are named for what they DO,
- * not for what they should do, because both silently answer a question about
- * one person with another's data:
+ * The two target-grammar behaviours in this file are both refusals, and both
+ * are refusals because the alternative silently answers a question about one
+ * person with another's data:
  *
- *  - `lfm:someone` fabricates a user carrying the CALLER's `userId`, so the
- *    SQL runs against the caller's own indexed plays and the card is labelled
- *    with the named stranger. (The playcount family solves the same problem
- *    with a `userId: 0` sentinel that skips the local read entirely.)
- *  - a mention that resolves to nobody is dropped rather than refused, so
- *    `.gaps <@333>` quietly becomes the caller's own gaps. (The playcount and
- *    genre families both refuse.)
+ *  - `lfm:someone` names an account the bot has never indexed. The two queries
+ *    below are keyed on `userId`, so running them for an unindexed name would
+ *    read the CALLER's own rows and label them with a stranger's name. The
+ *    fabricated target carries the `userId: 0` sentinel the playcount family
+ *    uses, and the command refuses before either query runs - "no gaps found"
+ *    is also a false claim when there is no history to have gaps in.
+ *  - a mention that resolves to nobody is refused rather than dropped, so
+ *    `.gaps <@333>` cannot quietly become the caller's own gaps. (The playcount
+ *    and genre families refuse in the same shape and with the same wording.)
  *
- * Both are pinned as current behaviour so that fixing either is a visible diff.
+ * Both were pinned as the buggy behaviour; both assertions below now pin the
+ * refusal.
  */
 
 const caller = (over: Partial<User> = {}): User =>
@@ -145,6 +148,10 @@ const discoveries = (c: IntelligenceCommands, raw: string, context: ContextModel
 
 const gapParams = () => vi.mocked(IntelligenceBuilders.buildListeningGapsResponse).mock.calls[0]![0];
 const discoveryParams = () => vi.mocked(IntelligenceBuilders.buildDiscoveriesResponse).mock.calls[0]![0];
+
+/** The refusal text, read off the embed the real builder produced. */
+const desc = (r: unknown): string =>
+  (r as { embed: { data: { description?: string } } }).embed.data.description ?? '';
 
 const dbDown = () =>
   new SourceUnavailableError('getListeningGaps:artist', new Error('connect ECONNREFUSED'), 'Database unavailable');
@@ -323,35 +330,50 @@ describe('.gaps — who the card is about', () => {
     expect(gapParams().displayName).toBe('Beta');
   });
 
-  it('CURRENT BEHAVIOUR: an unregistered mention silently becomes the caller', async () => {
-    // NOT endorsed, and not the same answer the playcount or genre families
-    // give. `.gaps <@333>` returns the CALLER's gaps with the caller's name on
-    // it, so nothing on screen contradicts what happened — which is exactly why
-    // it is worth pinning rather than leaving to chance.
+  it('REFUSES an unregistered mention instead of answering with the caller', async () => {
+    // The opposite of the case above. Dropping the mention made `.gaps <@333>`
+    // return the CALLER's gaps under the CALLER's name, with nothing on screen
+    // contradicting what happened. `playcountCommands` and the genre family
+    // refuse in exactly this shape; the two are locked in both directions.
     const { commands, userService, intelligenceService } = build({ mentioned: null });
 
     const result = await gaps(commands, '<@333>', 'artist');
 
-    expect(result).toEqual({ marker: 'gaps' });
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+    expect(desc(result)).toContain('<@333>');
     expect(userService.getUserByDiscordId).toHaveBeenCalledWith('333');
-    expect(intelligenceService.getListeningGaps).toHaveBeenCalledWith(1, 'artist', 90);
-    expect(gapParams().targetDiscordId).toBe('111');
+    expect(intelligenceService.getListeningGaps).not.toHaveBeenCalled();
+    expect(IntelligenceBuilders.buildListeningGapsResponse).not.toHaveBeenCalled();
   });
 
-  it('CURRENT BEHAVIOUR: `lfm:` keeps the CALLER’s userId, so the SQL reads the caller’s rows', async () => {
-    // NOT endorsed. The fabricated target carries `discordUserId: '0'` but
-    // inherits `userId`, and `getListeningGaps` is keyed on `userId`. The card
-    // is titled with the stranger's Last.fm name and filled with the caller's
-    // own listening history. The playcount family uses a `userId: 0` sentinel
-    // for exactly this trap.
+  it('REFUSES an `lfm:` account the bot has no index for, without reading the caller', async () => {
+    // `getListeningGaps` is keyed on `userId`, so the fabricated target has to
+    // be a `userId: 0` sentinel AND the query has to be skipped: running it
+    // would answer with the caller's own listening history under a stranger's
+    // name. Refusing also beats the honest-looking empty card, which claims a
+    // whole history of gaps that does not exist.
+    const { commands, userService, intelligenceService } = build({ byLfmName: null });
+
+    const result = await gaps(commands, 'lfm:ghost', 'artist');
+
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+    expect(desc(result)).toContain('ghost');
+    expect(userService.getUserByLastFmName).toHaveBeenCalledWith('ghost');
+    expect(intelligenceService.getListeningGaps).not.toHaveBeenCalled();
+    expect(IntelligenceBuilders.buildListeningGapsResponse).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES the discovery query for the same unindexed `lfm:` account', async () => {
+    // `getDiscoveries` is keyed on `userId` too, so the second of the pair has
+    // to be covered or the fix only holds for one of the two commands.
     const { commands, intelligenceService } = build({ byLfmName: null });
 
-    await gaps(commands, 'lfm:ghost', 'artist');
+    const result = await discoveries(commands, 'lfm:ghost weekly');
 
-    expect(intelligenceService.getListeningGaps).toHaveBeenCalledWith(1, 'artist', 90);
-    expect(gapParams().displayName).toBe('ghost');
-    expect(gapParams().userNameLastFm).toBe('ghost');
-    expect(gapParams().targetDiscordId).toBe('0');
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+    expect(desc(result)).toContain('ghost');
+    expect(intelligenceService.getDiscoveries).not.toHaveBeenCalled();
+    expect(IntelligenceBuilders.buildDiscoveriesResponse).not.toHaveBeenCalled();
   });
 
   it('uses a registered `lfm:` target’s own rows', async () => {
@@ -370,6 +392,21 @@ describe('.gaps — who the card is about', () => {
     await gaps(commands, 'LFM:Beta', 'artist');
 
     expect(userService.getUserByLastFmName).toHaveBeenCalledWith('Beta');
+  });
+
+  it('reads a dotted Last.fm name whole, and leaves the period to the period parser', async () => {
+    // The prefix used to stop at the first dot, so `lfm:john.smith weekly`
+    // captured `john`, looked THAT name up, and left `.smith weekly` for the
+    // period parser - which knows no such period and reads the window as all
+    // time. A weekly card titled with a nine-month window.
+    const { commands, userService, settingService } = build({
+      byLfmName: caller({ userId: 42, discordUserId: '888', userNameLastFm: 'john.smith' }),
+    });
+
+    await discoveries(commands, 'lfm:john.smith weekly');
+
+    expect(userService.getUserByLastFmName).toHaveBeenCalledWith('john.smith');
+    expect(settingService.getTimePeriod).toHaveBeenCalledWith('weekly');
   });
 });
 
@@ -433,12 +470,13 @@ describe('.discoveries — the window, which is the whole claim on the card', ()
 
   it('parses the period from the query after the target token is removed', async () => {
     const { commands, settingService } = build({
+      byLfmName: caller({ userId: 42, discordUserId: '888', userNameLastFm: 'Beta' }),
       timeSettings: settings({ timePeriod: TimePeriod.Weekly, description: 'Weekly' }),
     });
 
-    await discoveries(commands, 'lfm:ghost weekly');
+    await discoveries(commands, 'lfm:Beta weekly');
 
-    // A surviving `lfm:ghost` in the period parser is how a weekly chart
+    // A surviving `lfm:Beta` in the period parser is how a weekly chart
     // becomes an all-time one.
     expect(settingService.getTimePeriod).toHaveBeenCalledWith('weekly');
   });

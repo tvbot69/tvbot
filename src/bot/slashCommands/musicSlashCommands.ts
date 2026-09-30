@@ -4,7 +4,7 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
+import { MusicService } from '@bot/services/music/musicService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { chapterIndexAt, type VideoChapter } from '@bot/services/music/videoChapters';
 import { ColorService } from '@bot/services/colorService';
@@ -334,7 +334,10 @@ export class MusicSlashCommands implements ISlashCommandModule {
     if (result.loadType === 'error') {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
-        playErrorMessage(result.errorReason),
+        // The BOUND form: a no-nodes failure is answered from the real node
+        // state, so "playback is switched off" is never reported as a rate
+        // limit the user is told to wait out.
+        this.musicService.playErrorMessage(result.errorReason),
       );
     }
 
@@ -364,7 +367,11 @@ export class MusicSlashCommands implements ISlashCommandModule {
       ).setAutoDelete(10);
     }
 
-    return MusicBuilders.buildSimpleResponse('🎵 Added to Queue', `Added **${query}** to the queue.`, accentColor);
+    // Every collection load type carries its tracks (musicService.ts:594-603,
+    // :839-845), so reaching here means the source resolved to nothing.
+    // Announcing "Added to Queue" for it is a claim about a queue change that
+    // never happened.
+    return GenericEmbedService.buildNotFoundResponse(`No tracks found for: **${query}**.`);
   }
 
   private async executeSearch(ctx: ContextModel): Promise<ResponseModel> {
@@ -585,8 +592,13 @@ export class MusicSlashCommands implements ISlashCommandModule {
     const level = ctx.interaction?.options.getInteger('level');
     if (level === undefined || level === null) {
       const queue = this.musicService.getQueueInfo(ctx.guildId);
-      const currentVol = queue?.volume ?? 100;
-      return MusicBuilders.buildSimpleResponse('🔊 Current Volume', `The player volume is currently set to **${currentVol}%**.`);
+      // No queue means no player, so there is no volume to report. `?? 100`
+      // invented one: "The player volume is currently set to 100%" is a claim
+      // about a player this guild does not have.
+      if (!queue) {
+        return GenericEmbedService.buildNotFoundResponse('No music is currently playing.');
+      }
+      return MusicBuilders.buildSimpleResponse('🔊 Current Volume', `The player volume is currently set to **${queue.volume}%**.`);
     }
 
     const applied = this.musicService.setVolume(ctx.guildId, level);

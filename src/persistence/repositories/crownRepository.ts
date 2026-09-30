@@ -6,6 +6,15 @@ import type { UserCrownDto, CrownViewType } from '@domain/models/crownModels';
 export class CrownRepository {
   constructor(@inject(PrismaClient) private readonly prisma: PrismaClient) {}
 
+  /**
+   * The ONLY `BigInt()` call in this file, and therefore the only place a
+   * Discord id is ever coerced. Every method below goes through this and
+   * answers with its own empty value or a named `TypeError` — there is no
+   * second conversion for a new writer to reach for by accident.
+   *
+   * It serves the guild id AND the crown role id, because both arrive from the
+   * interaction layer as strings and both land in `BigInt` columns.
+   */
   private safeBigInt(id: string): bigint | null {
     if (!id || !/^\d+$/.test(id)) return null;
     try {
@@ -21,6 +30,25 @@ export class CrownRepository {
       // genreService and musicIntelligenceService.
       return null;
     }
+  }
+
+  /**
+   * For the two writers that MUST produce a row, so there is no empty answer to
+   * return. They raise — but a `TypeError` naming the argument, which is what a
+   * caller bug is, rather than `SyntaxError: Cannot convert … to a BigInt` thrown
+   * from inside the driver call and pointing at Prisma. `replaceCrown` in
+   * particular cannot answer `null` for a malformed id: `null` already means
+   * "a concurrent steal got there first", and conflating the two would tell the
+   * caller to re-read for a crown that was never written.
+   */
+  private requireGuildId(guildId: string): bigint {
+    const gid = this.safeBigInt(guildId);
+    if (gid === null) {
+      throw new TypeError(
+        `crownRepository: guildId must be a decimal string, got ${JSON.stringify(String(guildId).slice(0, 32))}`,
+      );
+    }
+    return gid;
   }
 
   public async getCurrentCrown(guildId: string, artistName: string): Promise<UserCrownDto | null> {
@@ -78,9 +106,10 @@ export class CrownRepository {
     currentPlaycount: number;
     seededCrown?: boolean;
   }): Promise<UserCrownDto> {
+    const gid = this.requireGuildId(data.guildId);
     const created = await this.prisma.userCrown.create({
       data: {
-        guildId: BigInt(data.guildId),
+        guildId: gid,
         userId: data.userId,
         artistName: data.artistName,
         startPlaycount: data.startPlaycount,
@@ -125,6 +154,9 @@ export class CrownRepository {
       seededCrown?: boolean;
     },
   ): Promise<UserCrownDto | null> {
+    // Parsed BEFORE the transaction opens: a malformed id must not hold a
+    // connection open or roll back a steal that was never going to happen.
+    const gid = this.requireGuildId(data.guildId);
     return this.prisma.$transaction(
       async (tx) => {
         const current = await tx.userCrown.findUnique({
@@ -138,7 +170,7 @@ export class CrownRepository {
         });
         const created = await tx.userCrown.create({
           data: {
-            guildId: BigInt(data.guildId),
+            guildId: gid,
             userId: data.userId,
             artistName: data.artistName,
             startPlaycount: data.startPlaycount,
@@ -345,9 +377,12 @@ export class CrownRepository {
   }
 
   public async killCrown(guildId: string, artistName: string): Promise<boolean> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return false;
+
     const res = await this.prisma.userCrown.updateMany({
       where: {
-        guildId: BigInt(guildId),
+        guildId: gid,
         active: true,
         artistName: {
           equals: artistName,
@@ -363,9 +398,12 @@ export class CrownRepository {
   }
 
   public async removeUserCrowns(guildId: string, userId: number): Promise<number> {
+    const gid = this.safeBigInt(guildId);
+    if (!gid) return 0;
+
     const res = await this.prisma.userCrown.updateMany({
       where: {
-        guildId: BigInt(guildId),
+        guildId: gid,
         userId,
         active: true,
       },
@@ -378,7 +416,11 @@ export class CrownRepository {
   }
 
   public async setCrownBlock(guildId: string, userId: number, blocked: boolean): Promise<void> {
-    const gid = BigInt(guildId);
+    const gid = this.safeBigInt(guildId);
+    // A malformed id is a no-op, not a partial write: the `upsert` and the
+    // crown drop below are one intent, so neither may run alone.
+    if (!gid) return;
+
     await this.prisma.guildUser.upsert({
       where: {
         guildId_userId: { guildId: gid, userId },
@@ -420,11 +462,29 @@ export class CrownRepository {
     const gid = this.safeBigInt(guildId);
     if (!gid) return;
 
-    const validRoleId = roleId && /^\d+$/.test(roleId) ? BigInt(roleId) : null;
-    const roles = validRoleId ? [validRoleId] : [];
+    // `null` is the ONLY value that clears the configuration. Anything else that
+    // is not a decimal role id is a caller bug, and it used to be read as
+    // "remove the role": a typo silently emptied `crownRoles` while the caller
+    // was told the role had been set, so the next crown notification went out
+    // unpinged and nothing said why. Clearing is now an explicit `null`; garbage
+    // raises and names itself.
+    if (roleId !== null) {
+      const parsedRole = this.safeBigInt(roleId);
+      if (parsedRole === null) {
+        throw new TypeError(
+          `crownRepository.setCrownRole: roleId must be a decimal string, or null to clear, got ${JSON.stringify(String(roleId).slice(0, 32))}`,
+        );
+      }
+      await this.prisma.guild.update({
+        where: { guildId: gid },
+        data: { crownRoles: [parsedRole] },
+      });
+      return;
+    }
+
     await this.prisma.guild.update({
       where: { guildId: gid },
-      data: { crownRoles: roles },
+      data: { crownRoles: [] },
     });
   }
 

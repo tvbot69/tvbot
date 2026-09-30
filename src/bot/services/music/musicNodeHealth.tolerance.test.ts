@@ -72,19 +72,19 @@ describe('isNodeCooling', () => {
     expect(isNodeCooling(mm({ isNodeCoolingDown: 'not a function' }), 'Home')).toBe(false);
   });
 
-  it('a truthy non-boolean answer from the manager is passed through, not coerced', () => {
-    // Coercion here would hide a manager bug behind a plausible boolean.
-    // The pass-through is TOTAL: `isNodeCooling` declares `: boolean` but
-    // returns `fn.call(mm, id)` verbatim, so at runtime the caller's value
-    // arrives unchanged. Read it as `unknown` — asserting `toBe(true)` would
-    // be asserting a coercion the code does not perform, and `toBe('yes')` on
-    // a `boolean`-typed expression is a type error, which is the signature
-    // disagreeing with the behaviour rather than the behaviour being wrong.
-    const answer: unknown = isNodeCooling(mm({ isNodeCoolingDown: () => 'yes' }), 'Home');
-    expect(answer).toBe('yes');
-    // A falsy non-boolean is likewise not laundered into `false`.
-    const falsy: unknown = isNodeCooling(mm({ isNodeCoolingDown: () => 0 }), 'Home');
-    expect(falsy).toBe(0);
+  it('a non-boolean answer is read for its truthiness, and the answer really is a boolean', () => {
+    // The old body returned `fn.call(mm, id)` VERBATIM under a `: boolean`
+    // signature, so a manager answering `'yes'` handed both call sites a string
+    // their own types said could not happen. Coercing is not "hiding a manager
+    // bug" here — it is exactly what `musicPlayerRegistry.ts:180` and
+    // `musicSearchLadder.ts:302` already did with the raw value at their
+    // `if` sites. Now the declared type is true by construction.
+    const truthy: boolean = isNodeCooling(mm({ isNodeCoolingDown: () => 'yes' }), 'Home');
+    expect(truthy).toBe(true);
+    const falsy: boolean = isNodeCooling(mm({ isNodeCoolingDown: () => 0 }), 'Home');
+    expect(falsy).toBe(false);
+    // The annotation above is the point: a widened return type would not
+    // compile into a `boolean`, so this line is the lock on the signature.
   });
 });
 

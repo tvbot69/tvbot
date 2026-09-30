@@ -157,41 +157,55 @@ export class MusicTrackArtwork {
       );
       // Never-rejecting lookup: exact by-ID first (no matching risk), then
       // the name cascade, then the artist profile picture. One slow leg
-      // can't hang the race.
+      // can't hang the race, and every rung below the first is STILL ASKED
+      // when the rung above it fails.
+      //
+      // There is deliberately no `try` around this body: every rung below
+      // carries its own containment, `spotifyTrackId` catches its own resolver
+      // throw, and `extractArtistFromTitle`/`leadArtist` are pure string work,
+      // so a wrapper `catch` would be unreachable — and an unreachable catch
+      // here is worse than none, because it reads as "the sweep cannot reject"
+      // while being the thing that would turn a future uncontained throw into a
+      // silent `miss`.
       const lookup: Promise<string | null> = (async () => {
-        try {
-          const id = this.spotifyTrackId(spotifyUri);
-          if (id) {
-            const byId = await svc.getTrackCoverBySpotifyId(id);
-            if (byId) return byId;
-          }
-          const cover = await svc.getTrackCoverUrl(t, a);
-          if (cover) return cover;
-          // Artist fallback (live sets, bootlegs, cover-less tracks): the
-          // artist's profile picture beats a blank card. When the title
-          // names the performer ("EsDeeKid - Live...") THAT is the search
-          // target and the uploader channel is skipped entirely — channels
-          // ("gloss") can strictly match same-named wrong artists.
-          // Otherwise the billed author is tried as before.
-          const titleLead = extractArtistFromTitle(t);
-          const candidates =
-            titleLead && titleLead.toLowerCase() !== leadArtist(a).toLowerCase() ? [titleLead] : [leadArtist(a)];
-          for (const lead of candidates) {
-            if (!lead) continue;
-            const pic = await svc.getArtistImageUrl(lead, t).catch(() => null);
-            // CORRECT AS IS: one candidate artist picture failing is a rung
-            // failing — the loop tries the next candidate, then the lookup ends
-            // in the "miss" branch, which holds the previous cover rather than
-            // painting a wrong image.
-            if (pic) return pic;
-          }
-          return null;
-        } catch {
-          // CORRECT AS IS: a cascade leg that throws is treated as "no art
-          // found", and the caller holds the previous cover. It never rejects
-          // into playback, and never trips the pause/alert machinery.
-          return null;
+        const id = this.spotifyTrackId(spotifyUri);
+        if (id) {
+          // Contained per-rung, exactly like the name cascade and the artist
+          // leg: one 5xx from the exact-by-id lookup is a RUNG failing. Letting
+          // it escape aborted the whole lookup, so the name cascade and the
+          // artist picture were never asked and a track that
+          // Spotify→Deezer→Apple would have covered lost its art — silently
+          // recorded as a clean miss, indistinguishable from "this song has no
+          // cover".
+          const byId = await svc.getTrackCoverBySpotifyId(id).catch(() => null);
+          if (byId) return byId;
         }
+        // The name cascade was the rung left unguarded, and it is the one that
+        // throws most: four provider calls in a row, any of which can 5xx. Its
+        // throw used to skip the artist rung below and end the whole lookup as
+        // a silent `miss` — the same containment bug as the by-id leg, one rung
+        // later.
+        const cover = await svc.getTrackCoverUrl(t, a).catch(() => null);
+        if (cover) return cover;
+        // Artist fallback (live sets, bootlegs, cover-less tracks): the
+        // artist's profile picture beats a blank card. When the title
+        // names the performer ("EsDeeKid - Live...") THAT is the search
+        // target and the uploader channel is skipped entirely — channels
+        // ("gloss") can strictly match same-named wrong artists.
+        // Otherwise the billed author is tried as before.
+        const titleLead = extractArtistFromTitle(t);
+        const candidates =
+          titleLead && titleLead.toLowerCase() !== leadArtist(a).toLowerCase() ? [titleLead] : [leadArtist(a)];
+        for (const lead of candidates) {
+          if (!lead) continue;
+          const pic = await svc.getArtistImageUrl(lead, t).catch(() => null);
+          // CORRECT AS IS: one candidate artist picture failing is a rung
+          // failing — the loop tries the next candidate, then the lookup ends
+          // in the "miss" branch, which holds the previous cover rather than
+          // painting a wrong image.
+          if (pic) return pic;
+        }
+        return null;
       })();
       let timer: NodeJS.Timeout | undefined;
       try {
@@ -230,16 +244,22 @@ export class MusicTrackArtwork {
               }
             })
             // CORRECT AS IS: the late leg is a bonus, not a dependency. The
-            // `lookup` promise above never rejects (its own catch returns
-            // null), so this catch is belt-and-braces; swallowing it keeps a
-            // late rejection from becoming an unhandled rejection.
+            // `lookup` promise above cannot reject — every rung in it is
+            // contained — so this catch covers only the `then` body itself;
+            // swallowing it keeps a late failure from becoming an unhandled
+            // rejection in a fire-and-forget path.
             .catch(() => undefined);
         }
       } finally {
         if (timer) clearTimeout(timer);
       }
     } catch {
-      // ignore — playback without art beats no playback
+      // This one is NOT the per-leg containment (each rung above carries its
+      // own, and the lookup body has no wrapper catch left). It is the
+      // never-reject boundary of a method playback calls fire-and-forget:
+      // `trackRec` bookkeeping on a hostile track object, a logger, or a timer
+      // failure must not surface as a rejected promise in the resolve path.
+      // Nothing downstream reads a rejection from here.
     }
   }
 
@@ -265,21 +285,22 @@ export class MusicTrackArtwork {
         let timer: NodeJS.Timeout | undefined;
         try {
           const svc = this.artworkService!;
+          // Same per-rung containment as `maybeBackfillArt`, and for the same
+          // reason: a by-id 5xx is a RUNG failing. Uncontained, it skipped the
+          // name prefill below — which is the whole point of the warm, since the
+          // name cascade is what the resolve-time backfill is going to run.
+          // Impact is bounded (the prefill is a cache warmer and the real
+          // backfill still runs at play time), but the shape was identical and
+          // the wrapper `catch` is gone for the same reason it is gone there.
           const run: Promise<string | null> = (async () => {
-            try {
-              const id = this.spotifyTrackId(entry.spTrack.spotifyUri);
-              if (id) {
-                const byId = await svc.getTrackCoverBySpotifyId(id);
-                if (byId) return byId;
-              }
-              return await svc.getTrackCoverUrl(entry.spTrack.name, entry.spTrack.artist);
-            } catch {
-              // CORRECT AS IS: warmup is a pure cache prefill. A failed leg
-              // leaves the memory cache cold and nothing else — the track is
-              // still resolved and backfilled at play time, so this cannot
-              // affect what the listener hears.
-              return null;
+            const id = this.spotifyTrackId(entry.spTrack.spotifyUri);
+            if (id) {
+              const byId = await svc.getTrackCoverBySpotifyId(id).catch(() => null);
+              if (byId) return byId;
             }
+            return await svc
+              .getTrackCoverUrl(entry.spTrack.name, entry.spTrack.artist)
+              .catch(() => null);
           })();
           const timeout = new Promise<null>((resolve) => {
             timer = setTimeout(() => resolve(null), BACKGROUND_ARTWORK_TIMEOUT_MS);

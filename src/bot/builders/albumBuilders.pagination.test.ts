@@ -6,29 +6,30 @@
  * are all claims that are wrong rather than claims that are missing.
  *
  *  1. A value the service could not supply is OMITTED. `serverPlaycount`,
- *     `userTimeListenedSeconds` and a track's own `playcount` are all guarded by
- *     a real presence test, so an unread number produces a missing clause rather
- *     than a fabricated "0 plays". Two fields are NOT guarded (`userPlaycount`
- *     on the tracks footer and on the info card) and are documented at the
- *     bottom of this file as defects, because a green test that hides them is
- *     worse than a red one.
+ *     `userTimeListenedSeconds`, `userPlaycount` — on the tracks footer and on
+ *     the info card — and a track's own `playcount` are all guarded by a real
+ *     presence test, so an unread number produces a missing clause rather than a
+ *     fabricated "0 plays". A SUPPLIED zero still renders, because a zero that
+ *     was measured is a real answer; both directions are asserted.
  *  2. Genuinely empty data still produces a valid container: an album with zero
  *     tracks, no cover, no release date and no label must not throw, and must
  *     not render an empty-looking row.
- *  3. `buildAlbumTracksResponse` is the paginator that DOES clamp, and the clamp
- *     is what keeps the footer honest: a page index past the end renders the last
+ *  3. `buildAlbumTracksResponse` is the paginator that clamps, and the clamp is
+ *     what keeps the footer honest: a page index past the end renders the last
  *     page with the real track count, never "Page 99/2". Its `page` argument is
  *     ONE-based — unlike the raw zero-based index the artist paginators take — so
  *     page 1 is the first page and a page of 0 clamps onto it.
  *
- * `buildAlbumInfoResponse` has a third defect, at the bottom: a section with no
- * accessory cannot be serialised, so the info card is unsendable for an album
- * with no cover. That is why the accessors here walk to the leaves instead of
- * calling `ContainerBuilder.toJSON()`.
+ * Every assertion in this file reads the SERIALISED container, because a card
+ * that cannot be serialised cannot be sent: discord.js validates a Section's
+ * accessory through a required union, so a section built without one throws at
+ * `toJSON()`. The info card therefore hangs the cover on a section when it has
+ * one and falls back to a plain text block when it does not, and both shapes
+ * serialise.
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { ComponentType, SectionBuilder, ThumbnailBuilder } from 'discord.js';
+import { ComponentType } from 'discord.js';
 import { AlbumBuilders } from './albumBuilders';
 import type { AlbumSearchResult } from '@bot/services/albumService';
 import type { User } from '@domain/interfaces/iuserRepository';
@@ -39,7 +40,9 @@ import type { ResponseModel } from '@bot/models/responseModel';
 interface Cv2Component {
   type: number;
   content?: string;
+  components?: Cv2Component[];
   items?: Array<{ media?: { url?: string }; description?: string }>;
+  accessory?: { media?: { url?: string } };
   emoji?: string | { id?: string; name?: string };
   custom_id?: string;
   label?: string;
@@ -51,27 +54,18 @@ interface Cv2Component {
 const json = (response: ResponseModel) =>
   response.componentsV2Container!.toJSON() as unknown as { components: Cv2Component[]; accent_color?: number };
 
-/** A node of the component tree: only a Section or an ActionRow nests. */
-interface ComponentNode {
-  components?: ComponentNode[];
-  toJSON: () => unknown;
-}
-
 /**
  * Every leaf component, serialised, in render order.
  *
- * `ContainerBuilder.toJSON()` is deliberately not used for the content
- * assertions. It validates the whole tree, and discord.js rejects a `Section`
- * with no accessory — which is exactly what `buildAlbumInfoResponse` builds for an
- * album with no cover (see the describe at the bottom of this file). Reading the
- * leaves serialises the same production output without an unrelated crash
- * standing in front of the assertion. `json()` is still used wherever the
- * container itself is the thing under test.
+ * Reading the SERIALISED tree rather than the builder objects is deliberate: a
+ * card that throws in `toJSON()` cannot be sent, so every content assertion here
+ * is also a serialisation assertion. A Section or an ActionRow nests; a Text
+ * Display, Button or Media Gallery is a leaf.
  */
 const leaves = (response: ResponseModel): Cv2Component[] => {
-  const walk = (nodes: ComponentNode[]): Cv2Component[] =>
-    nodes.flatMap(node => (node.components ? walk(node.components) : [node.toJSON() as Cv2Component]));
-  return walk(response.componentsV2Container!.components as unknown as ComponentNode[]);
+  const walk = (nodes: Cv2Component[]): Cv2Component[] =>
+    nodes.flatMap(node => (node.components ? walk(node.components) : [node]));
+  return walk(json(response).components);
 };
 
 /** Every rendered text block, in order. */
@@ -87,9 +81,9 @@ const galleryItems = (response: ResponseModel): Array<{ media?: { url?: string }
 
 const body = (response: ResponseModel): string => texts(response).join('\n');
 
-/** The Section components of a card, read off the container without serialising it. */
-const sections = (response: ResponseModel): SectionBuilder[] =>
-  response.componentsV2Container!.components.filter((c): c is SectionBuilder => c instanceof SectionBuilder);
+/** The serialised Section components of a card. There are none when nothing can hang on one. */
+const sections = (response: ResponseModel): Cv2Component[] =>
+  json(response).components.filter(c => c.type === ComponentType.Section);
 
 /**
  * The nav row is Album, Cover, then (only when there is more than one page) ◀️
@@ -437,17 +431,17 @@ describe('AlbumBuilders.buildAlbumInfoResponse', () => {
     expect(labels).toEqual(['Tracks', 'Cover']);
   });
 
-  it('attaches the cover as a thumbnail accessory, and omits the accessory when there is none', () => {
-    // Read off the Section rather than off the serialised container: a section
-    // with no accessory is exactly what makes the container unsendable, which is
-    // the defect pinned in the last describe block of this file.
+  it('hangs the cover on a section, and falls back to a plain text block when there is none', () => {
+    // Both shapes serialise, which is the whole point: discord.js validates a
+    // Section's accessory through a required union, so a section with no accessory
+    // throws in `toJSON()` and the card can never be sent. With no cover the header
+    // is a plain text block, exactly as the artist cards already do it.
     const withCover = AlbumBuilders.buildAlbumInfoResponse(makeAlbum({ albumCoverUrl: 'https://img/cover.jpg' }), targetUser, 'req');
     const without = AlbumBuilders.buildAlbumInfoResponse(makeAlbum(), targetUser, 'req');
-    expect(JSON.stringify(json(withCover))).toContain('https://img/cover.jpg');
     expect(sections(withCover)).toHaveLength(1);
-    expect(sections(withCover)[0]?.accessory).toBeInstanceOf(ThumbnailBuilder);
-    expect(sections(without)).toHaveLength(1);
-    expect(sections(without)[0]?.accessory).toBeUndefined();
+    expect(sections(withCover)[0]?.accessory?.media?.url).toBe('https://img/cover.jpg');
+    expect(sections(without)).toEqual([]);
+    expect(json(without).components.some(c => (c.content ?? '').includes('Album by **Aphex Twin**'))).toBe(true);
   });
 });
 
@@ -485,56 +479,78 @@ describe('AlbumBuilders.buildCoverResponse', () => {
 });
 
 /**
- * Two spots in this file render a playcount the builder was never given. They
- * are asserted here as they behave so the defect is on the record rather than
- * hidden, and both are reported rather than fixed (production code is untouchable
- * for this pass).
+ * An unread playcount is omitted, and a supplied zero is still rendered. The two
+ * directions are opposites, so both are asserted: the fix is the guard, not the
+ * removal of the clause.
  */
-describe('AlbumBuilders: an unread playcount becomes a printed zero', () => {
-  it('prints 0 album plays on the tracks footer when userPlaycount was never supplied', () => {
+describe('AlbumBuilders: an unread playcount is omitted rather than printed as zero', () => {
+  it('drops the listener play clause from the tracks footer when userPlaycount was never supplied', () => {
     const text = body(AlbumBuilders.buildAlbumTracksResponse(makeAlbum(), targetUser, 'req'));
-    expect(text).toContain('listener has 0 total album plays');
+    // The rest of the footer line still stands, so this is not a bare "no text".
+    expect(text).toContain('-# Album source: Last.fm');
+    expect(text).not.toContain('total album plays');
+    expect(text).not.toMatch(/has \d+ total album plays/);
   });
 
-  it('prints 0 plays by the listener on the info card when userPlaycount was never supplied', () => {
+  it('drops the "plays by" clause from the info card when userPlaycount was never supplied', () => {
     const text = body(AlbumBuilders.buildAlbumInfoResponse(makeAlbum(), targetUser, 'req'));
-    expect(text).toContain('**0** plays by **listener**');
+    expect(text).not.toMatch(/\*\*\d+\*\* plays by \*\*/);
+    expect(text).not.toContain('plays by **listener**');
   });
 
-  it('still prints the real number when one is supplied, so the zero above is the fallback and not the path', () => {
-    const text = body(AlbumBuilders.buildAlbumInfoResponse(makeAlbum({ userPlaycount: 3 }), targetUser, 'req'));
-    expect(text).toContain('**3** plays by **listener**');
+  it('leaves no empty-looking separator or text block behind when the clause is the only stat', () => {
+    // Two separators back to back with nothing between them is exactly the
+    // empty-looking row the rest of this file is against.
+    const response = AlbumBuilders.buildAlbumInfoResponse(makeAlbum(), targetUser, 'req');
+    const texts = json(response).components.filter(c => c.type === ComponentType.TextDisplay);
+    expect(texts.every(c => (c.content ?? '').trim().length > 0)).toBe(true);
+  });
+
+  it('still prints the real number when one is supplied, on both cards', () => {
+    const info = body(AlbumBuilders.buildAlbumInfoResponse(makeAlbum({ userPlaycount: 3 }), targetUser, 'req'));
+    const tracks = body(AlbumBuilders.buildAlbumTracksResponse(makeAlbum({ userPlaycount: 3 }), targetUser, 'req'));
+    expect(info).toContain('**3** plays by **listener**');
+    expect(tracks).toContain('listener has 3 total album plays');
+  });
+
+  it('still prints a supplied zero, because a measured zero is a real answer', () => {
+    const info = body(AlbumBuilders.buildAlbumInfoResponse(makeAlbum({ userPlaycount: 0 }), targetUser, 'req'));
+    const tracks = body(AlbumBuilders.buildAlbumTracksResponse(makeAlbum({ userPlaycount: 0 }), targetUser, 'req'));
+    expect(info).toContain('**0** plays by **listener**');
+    expect(tracks).toContain('listener has 0 total album plays');
   });
 });
 
 /**
- * Recorded, not fixed: `buildAlbumInfoResponse` wraps its header in a
- * `SectionBuilder` and only calls `setThumbnailAccessory` when the album has a
- * cover. discord.js does NOT treat a section's accessory as optional — its
- * `toJSON()` runs the accessory through a required union validator — so an album
- * with no `albumCoverUrl` yields a container that throws at the moment of
- * serialisation, which is the moment the dispatcher hands it to Discord. The card
- * is unsendable rather than merely plainer than intended, and the user gets
- * `.album`'s error path instead of a card.
- *
- * This is why the content assertions above read the leaves. Every one of them
- * describes text the card WOULD show; none of them can reach a user until the
- * accessory is given something to be.
+ * The info card is SENDABLE whether or not the album has a cover. discord.js does
+ * NOT treat a section's accessory as optional — its `toJSON()` runs the accessory
+ * through a required union validator — so the old shape (a section built
+ * unconditionally, with the accessory set only when a cover existed) threw at the
+ * moment the dispatcher handed the card to Discord, and the user got `.album`'s
+ * error path instead of a card.
  */
-describe('AlbumBuilders: the info card cannot be serialised without a cover', () => {
-  it('builds the card without throwing, but cannot serialise it', () => {
+describe('AlbumBuilders: the info card serialises with and without a cover', () => {
+  it('serialises an album with no cover instead of throwing', () => {
     const response = AlbumBuilders.buildAlbumInfoResponse(makeAlbum(), targetUser, 'req');
-    expect(() => json(response)).toThrow();
+    expect(() => json(response)).not.toThrow();
+    expect(json(response).components.length).toBeGreaterThan(0);
   });
 
-  it('serialises cleanly as soon as there is a cover to hang on the section', () => {
+  it('serialises an album with a cover', () => {
     const response = AlbumBuilders.buildAlbumInfoResponse(makeAlbum({ albumCoverUrl: 'https://img/c.jpg' }), targetUser, 'req');
     expect(() => json(response)).not.toThrow();
   });
 
-  it('is the missing accessory and not a malformed header: the text itself reads fine', () => {
-    expect(body(AlbumBuilders.buildAlbumInfoResponse(makeAlbum(), targetUser, 'req'))).toContain(
-      'Album by **Aphex Twin**',
-    );
+  it('is the accessory and not a malformed header: the text itself reads fine either way', () => {
+    const withCover = body(AlbumBuilders.buildAlbumInfoResponse(makeAlbum({ albumCoverUrl: 'https://img/c.jpg' }), targetUser, 'req'));
+    const without = body(AlbumBuilders.buildAlbumInfoResponse(makeAlbum(), targetUser, 'req'));
+    expect(withCover).toContain('Album by **Aphex Twin**');
+    expect(without).toBe(withCover);
+  });
+
+  it('sends the same nav buttons whichever shape the header took', () => {
+    const labels = (over: Partial<AlbumSearchResult>) =>
+      buttons(AlbumBuilders.buildAlbumInfoResponse(makeAlbum(over), targetUser, 'req')).map(b => b.label);
+    expect(labels({})).toEqual(labels({ albumCoverUrl: 'https://img/c.jpg' }));
   });
 });

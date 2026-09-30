@@ -10,6 +10,7 @@ import {
   cleanArtistName,
   isSpotifyMatchValid,
   mapMoonlinkTrack,
+  spotifyUriToUrl,
   type MusicTrack,
 } from '@domain/models/music/musicTrack';
 import type { MoonlinkManager } from './moonlinkManager';
@@ -400,7 +401,12 @@ export class MusicSearchLadder {
             identifier: `spotify:${idx}:${st.name}`,
             title: st.name,
             author: st.artist,
-            uri: st.spotifyUri || `${st.artist} - ${st.name}`,
+            // Discord does not hyperlink a `spotify:track:` URI, so a row
+            // carrying the bare id renders dead text on the pick. Every other
+            // site that turns a mirror `spotifyUri` into a `uri` runs it
+            // through this helper first (musicTrackAdoption.ts:46,
+            // musicService.ts:915, playlistChunkManager.ts:367/397).
+            uri: spotifyUriToUrl(st.spotifyUri) || `${st.artist} - ${st.name}`,
             duration: st.durationMs,
             isSeekable: true,
             isStream: false,

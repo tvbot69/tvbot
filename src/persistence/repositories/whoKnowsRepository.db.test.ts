@@ -34,9 +34,11 @@ import {
  *     in the mapper is load-bearing for one query and a no-op for the other. If
  *     the cast were dropped from the first, every artist leaderboard would rank
  *     by string comparison and the ordering would be wrong rather than absent.
- *  2. `NOT EXISTS (... abuse_flags ...)` appears in the three indexed queries
- *     and NOT in the three friend queries. That asymmetry is pinned below and is
- *     flagged as suspected, not endorsed.
+ *  2. `NOT EXISTS (... abuse_flags ...)` is carried by ALL SIX queries. The three
+ *     friend queries used to omit it, so a banned account vanished from the
+ *     guild leaderboard and stayed on the personal friends list; the exclusion is
+ *     asserted below for the artist variant with real rows and for the SQL shape
+ *     of all six in `whoKnowsRepository.scopedReads.test.ts`.
  */
 
 const skip = skipReason();
@@ -483,15 +485,14 @@ suite('WhoKnowsRepository raw queries against a real database', () => {
       await expect(repo!.getFriendUsersForArtist(userId, 'Radiohead', otherGuildId)).resolves.toHaveLength(1);
     });
 
-    it('DOES include a flagged user, unlike the three indexed queries', async () => {
-      // SUSPECTED INCONSISTENCY, pinned rather than endorsed. The three
-      // `getIndexedUsersFor*` queries all carry
+    it('EXCLUDES a flagged user, the same as the three indexed queries', async () => {
+      // The three `getIndexedUsersFor*` queries carry
       //   NOT EXISTS (SELECT 1 FROM abuse_flags ...)
-      // and these three do not, so an abusive account is removed from the guild
-      // leaderboard and still appears in the personal "your friends" list. The
-      // alias in the source is the tell: `_guildId` unused, no flags clause.
-      // This test records the current behaviour so a decision to unify the two
-      // is visible in the diff.
+      // and these three did not, so an abusive account was removed from the
+      // guild leaderboard and still appeared in the personal "your friends"
+      // list — one moderation decision answered two ways from two queries about
+      // the same user. All six now carry the clause. A friends list is personal,
+      // not guild-scoped, but "personal" is not "exempt".
       const friend = userId + 5000;
       await seedNamedUser(friend, 'alice');
       await prisma!.friend.create({ data: { userId, lastFmUserName: 'alice', friendUserId: friend } });
@@ -501,6 +502,18 @@ suite('WhoKnowsRepository raw queries against a real database', () => {
       await seedGuildMember(friend);
       await flag(friend, null);
       await expect(repo!.getIndexedUsersForArtist(guildId, 'Radiohead')).resolves.toEqual([]);
+      await expect(repo!.getFriendUsersForArtist(userId, 'Radiohead')).resolves.toEqual([]);
+    });
+
+    it('a LAPSED flag does not keep a friend out of the list', async () => {
+      // The other direction, and the one a missing `> NOW()` arm would break:
+      // an expired ban must not exclude anyone forever, on either family of
+      // query.
+      const friend = userId + 5000;
+      await seedNamedUser(friend, 'alice');
+      await prisma!.friend.create({ data: { userId, lastFmUserName: 'alice', friendUserId: friend } });
+      await seedUserArtistRow(friend, 'Radiohead', 40);
+      await flag(friend, new Date(Date.now() - DAY * 1000));
       await expect(repo!.getFriendUsersForArtist(userId, 'Radiohead')).resolves.toHaveLength(1);
     });
   });

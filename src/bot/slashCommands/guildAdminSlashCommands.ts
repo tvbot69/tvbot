@@ -235,8 +235,20 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
       );
     }
 
-    const members = await context.guild.members.fetch().catch(() => context.guild?.members.cache);
-    const memberIds = members ? Array.from(members.keys()) : [];
+    const fetchedMembers = await context.guild.members.fetch().catch(() => null);
+    const memberIds = Array.from((fetchedMembers ?? context.guild.members.cache).keys());
+
+    // A failed fetch over an empty cache is an UNREADABLE member list - a
+    // missing intent, a lost permission, a Discord outage. Reporting that as
+    // "Scanned 0 total Discord members" states a fact about the server that
+    // nobody measured, and the two counts beneath it (indexed, newly added)
+    // fall out of that same unread list. So there is nothing to report.
+    if (!fetchedMembers && memberIds.length === 0) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        'Could not read the member list for this server, so there is nothing to refresh. Check that the bot has the Server Members Intent and permission to view members, then try again.',
+      );
+    }
 
     const result = await this.guildAdminService.refreshGuildMembers(context.guildId, memberIds);
 
@@ -297,6 +309,15 @@ export class GuildAdminSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NotSupportedInDm,
         'This command can only be used in a server.',
+      );
+    }
+
+    // `setDefaultMemberPermissions(ManageGuild)` at the builder is a client-side
+    // convenience, not a security boundary. Every sibling re-checks here.
+    if (!context.userIsGuildAdmin) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NoPermission,
+        'You need the Manage Server permission to view the blocklist.',
       );
     }
 

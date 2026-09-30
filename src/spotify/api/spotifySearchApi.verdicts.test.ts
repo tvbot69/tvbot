@@ -164,22 +164,51 @@ describe('getArtistById — a 4xx is a miss, a 5xx is inconclusive', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('KNOWN GAP — a network failure answers null, not a raise, unlike every sibling method', async () => {
-    // The gap this test documents. `getTrack` wraps its fetch in a try and raises
-    // `Spotify network error`; `getArtistIdViaTrackSample` reaches that code
-    // through `search()`. `getArtistById` does not, so a DNS failure or a
-    // timeout falls to the outer catch, is not a `SpotifyUnavailableError`, and
-    // is answered with `null` — the value `artworkService` then caches as
-    // `'none'` (artworkService.ts:543). The doc comment above the method says
-    // the null "is cached as a fact about the artist", which is precisely what
-    // a five-second DNS blip then produces.
+  it('RAISES on a network failure, because nothing asked Spotify anything', async () => {
+    // The gap this test used to document, inverted. `getTrack` wraps its fetch in
+    // a try and raises `Spotify network error`; `getArtistIdViaTrackSample`
+    // reaches that code through `search()`. `getArtistById` did not, so a DNS
+    // failure or a timeout fell to the outer catch, was not a
+    // `SpotifyUnavailableError`, and was answered with `null` — the value
+    // `artworkService` then caches as `'none'` (artworkService.ts:543). A
+    // five-second DNS blip therefore recorded "this artist has no cover" as a
+    // FACT for the whole negative-cache TTL, which is what the doc comment
+    // above the method describes as the danger rather than as a justification.
     //
-    // Pinned as OBSERVED behaviour so that fixing it shows up as a change to
-    // this test rather than silently.
+    // The paired half is the 404 test above, which must still answer null: a
+    // transport failure and Spotify saying "no such artist" are opposites, and
+    // fixing one by inverting the other would swap one lie for another.
     const { api } = build();
     vi.spyOn(globalThis, 'fetch').mockImplementation(fetchFails);
 
-    await expect(api.getArtistById('a')).resolves.toBeNull();
+    await expect(api.getArtistById('a')).rejects.toThrow(/network error/i);
+  });
+
+  it('counts a network failure toward the transport-outage breaker, like getTrack', async () => {
+    // Not decoration: the breaker is the mechanism that stops the next artwork
+    // lookup re-running the doomed leg, and it only advances if the failure is
+    // recorded where it happens rather than swallowed.
+    const { api } = build();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(fetchFails);
+
+    for (let i = 0; i < 3; i++) {
+      await expect(api.getArtistById('a')).rejects.toThrow(/network error/i);
+      expect(SpotifySearchApi.isRateLimited(), `after failure ${String(i + 1)}`).toBe(false);
+    }
+    await expect(api.getArtistById('a')).rejects.toThrow(/network error/i);
+    expect(SpotifySearchApi.isRateLimited()).toBe(true);
+  });
+
+  it('RAISES on a timeout, which is the same story as a refused connection', async () => {
+    // `fetchWithTimeout` converts an abort into a plain `Error`, so this is not a
+    // `TypeError` and it is not a `DOMException` either — the case a
+    // name-based inconclusive check has to survive.
+    const { api } = build();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      throw new Error('Fetch timed out after 10000ms for https://api.spotify.com/v1/artists/a');
+    });
+
+    await expect(api.getArtistById('a')).rejects.toThrow(/network error/i);
   });
 
   it('a 200 whose body is not JSON also answers null, without arming the breaker', async () => {
@@ -355,6 +384,37 @@ describe('the rate-limit and outage gate', () => {
     await expect(api.searchArtists('anything')).rejects.toThrow(
       /cooldown active \(\d+s remaining\)/,
     );
+  });
+
+  it('the shared search path honours the OUTAGE window too, and only while it is live', async () => {
+    // `checkRateLimit` — the gate on `search()`, which every ladder search and
+    // every search-rung artwork lookup shares — read only `rateLimitedUntil`. So
+    // a 429 stopped the world while the 5xx / DNS / timeout outage this breaker
+    // exists for stopped only the four methods that consult `isRateLimited()`
+    // for themselves. The doc comment on `outageUntil` claimed the gate covered
+    // "every artwork lookup and every ladder search", and it did not. The 429
+    // half of the same gate is pinned by "a cooldown message states how much
+    // longer the caller has to wait" below, which must keep passing.
+    const { api, getToken } = build();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ tracks: { items: [] } }));
+    const realNow = Date.now();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(realNow);
+
+    for (let i = 0; i < 4; i++) SpotifySearchApi.noteTransportFailure();
+    expect(SpotifySearchApi.isRateLimited()).toBe(true);
+
+    await expect(api.searchTracks('airbag', 5)).rejects.toThrow(/cooldown active/i);
+    expect(getToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // And the gate is a cooldown, not a latch: once the window passes the same
+    // search runs again. Without this half a fix that made the gate permanent
+    // would pass.
+    now.mockReturnValue(realNow + 20_001);
+    await expect(api.searchTracks('airbag', 5)).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('noteTransportSuccess() clears the gate noteTransportFailure() armed', () => {

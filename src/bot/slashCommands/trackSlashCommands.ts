@@ -101,7 +101,14 @@ export class TrackSlashCommands implements ISlashCommandModule {
 
     const trackName = context.interaction?.options.getString('track')?.trim() ?? '';
     const artistName = context.interaction?.options.getString('artist')?.trim() ?? '';
-    const searchValue = trackName && artistName ? `${trackName} | ${artistName}` : (trackName || artistName || null);
+    // `artist | track`, NOT `track | artist`. `TrackService.searchTrack`
+    // (trackService.ts:107-110) splits the joined string on ' | ' and reads
+    // parts[0] as the ARTIST, so composing it the other way round searched for a
+    // track called "Radiohead" by an artist called "Airbag". The one-string form
+    // is split the same way in `/love` and `/trackdetails`, which is where the
+    // order this line must follow comes from — not from the option order, which
+    // is track-then-artist for the user.
+    const searchValue = trackName && artistName ? `${artistName} | ${trackName}` : (trackName || artistName || null);
 
     const result = await this.trackService.searchTrack(
       searchValue,
@@ -193,18 +200,26 @@ export class TrackSlashCommands implements ISlashCommandModule {
           artist = searchResults[0]!.artistName;
           trackName = searchResults[0]!.name;
         } else {
-          artist = 'Unknown Artist';
-          trackName = searchValue;
+          // Not "Unknown Artist" + the raw text. That was a confident metadata
+          // card for a question Last.fm could not answer, and it is the only
+          // thing on the card. `/love`, `/unlove` and the text `.trackdetails`
+          // answer the same empty search with a not-found.
+          return GenericEmbedService.buildNotFoundResponse(`Could not find track matching \`${searchValue}\`.`);
         }
       }
     }
 
     const uniqueId = `td_${context.discordUserId}_${Date.now()}`;
-    const details = await this.trackDetailsService.getDetails(artist, trackName, uniqueId);
+    // CORRECT AS IS, and the same trade as `trackAsync` above and as the text
+    // twin: `getDetails` contributes decoration only and no number on this card,
+    // so a failed enrichment costs the metadata block and not the command. It
+    // used to PROPAGATE while `/track` swallowed the identical failure — two
+    // twins of one read disagreeing about what a preview-resolver outage does.
+    const details = await this.trackDetailsService.getDetails(artist, trackName, uniqueId).catch(() => null);
 
-    const accentColor = await this.colorService?.getColorFromImageUrl(details.artworkUrl) ?? DiscordConstants.LastFmColorRed;
+    const accentColor = await this.colorService?.getColorFromImageUrl(details?.artworkUrl ?? null) ?? DiscordConstants.LastFmColorRed;
 
-    if (!details.resolved) {
+    if (!details?.resolved) {
       return TrackDetailsBuilders.buildNoMetadataResponse(artist, trackName, accentColor);
     }
 

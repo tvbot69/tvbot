@@ -24,14 +24,18 @@
  *
  * The `size` / `released` / `decade` option grammar is pinned too, because a
  * silently-ignored filter produces a chart that looks fine and is about the
- * wrong thing entirely - a filter the user believes is applied and is not.
+ * wrong thing entirely - a filter the user believes is applied and is not. The
+ * `decade` arm is the sharp end of that: the refusal text names `90s` as an
+ * example and the guard used to reject it, so the form the bot recommends was
+ * the one form it refused.
  *
  * `SettingService` is the REAL class here, not a double: the period parse is
- * what decides whether the "invalid time period" arm can ever fire, and a stub
- * would let me assert a branch that production can never reach. (It cannot -
+ * what decides whether the "invalid time period" arm can ever fire. It cannot.
  * `TimeSettingsModel` initialises `timePeriod` to `AllTime` and every arm of
- * `getTimePeriod` assigns it, so `timeSettings.timePeriod === undefined` is
- * unreachable. That is reported separately.)
+ * `getTimePeriod` either assigns it or falls through to that same initial
+ * value, so `timeSettings.timePeriod === undefined` is unreachable. That guard
+ * was deleted rather than left as decoration, and a test that could only pass
+ * with a stub no longer exists.
  *
  * Constructor arity, read from `chartSlashCommands.ts`, undecorated and
  * positional: chartService, userService, settingService, updateService,
@@ -52,10 +56,20 @@ import type { ColorService } from '@bot/services/colorService';
 
 const DB_DOWN = () => new Error("Can't reach database server");
 
+/**
+ * Synthetic snowflakes, not real accounts. A Discord user id is a 17-19 digit
+ * number, and `ChartBuilders` only renders the Edit button when the creator id
+ * matches that shape - so a test double called `caller1` cannot reach the
+ * button at all, and would have made the assertions below pass for the wrong
+ * reason (no button, because the id was not a real one).
+ */
+const CALLER_DISCORD_ID = '900000000000000001';
+const OTHER_DISCORD_ID = '900000000000000002';
+
 const CALLER = {
   userId: 7,
   userNameLastFm: 'DreadRock',
-  discordUserId: 'caller1',
+  discordUserId: CALLER_DISCORD_ID,
   // Fresh enough that `UpdateService.needsUpdate` is false unless a test says
   // otherwise, so the fire-and-forget resync is not noise in every other test.
   lastUpdate: new Date(),
@@ -92,7 +106,7 @@ const makeCtx = (spec: CtxSpec = {}): ContextModel => {
     members: { cache: { get: () => undefined }, fetch: async () => null },
   };
   return {
-    discordUserId: 'caller1',
+    discordUserId: CALLER_DISCORD_ID,
     guildId: '222',
     guild,
     member: { displayName: 'Caller' },
@@ -101,7 +115,7 @@ const makeCtx = (spec: CtxSpec = {}): ContextModel => {
       id: 'i1',
       guild,
       member: { displayName: 'Caller' },
-      user: { id: 'caller1', username: 'caller' },
+      user: { id: CALLER_DISCORD_ID, username: 'caller' },
       options: {
         getSubcommand: () => spec.sub ?? 'albums',
         getString: (name: string) => spec.strings?.[name] ?? null,
@@ -192,20 +206,43 @@ describe('ChartSlashCommands routing: each subcommand asks for its own chart', (
 
   it('passes the resolved discord id and Last.fm name, not the caller\'s, when a target is named', async () => {
     const { cmd, chartService } = build({
-      byDiscordId: { other1: { userId: 9, userNameLastFm: 'SomeUser', discordUserId: 'other1' } },
+      byDiscordId: { [OTHER_DISCORD_ID]: { userId: 9, userNameLastFm: 'SomeUser', discordUserId: OTHER_DISCORD_ID } },
     });
-    await run(cmd, makeCtx({ sub: 'albums', users: { user: { id: 'other1', username: 'other' } } }));
+    await run(
+      cmd,
+      makeCtx({ sub: 'albums', users: { user: { id: OTHER_DISCORD_ID, username: 'other' } } }),
+    );
 
-    expect(chartService.generateAlbumChart).toHaveBeenCalledWith('other1', 'SomeUser', expect.anything());
+    expect(chartService.generateAlbumChart).toHaveBeenCalledWith(
+      OTHER_DISCORD_ID,
+      'SomeUser',
+      expect.anything(),
+    );
+  });
+
+  it('hands a self chart the CALLER\'s Discord id, not the database row id', async () => {
+    // `resolveChartUser` used to answer `user.userId.toString()` here. That
+    // value goes straight into `chartService.generateAlbumChart`, which looks
+    // it up again with `getUserByDiscordId` - so on the commonest path of all,
+    // the service looked up a Discord id of `"7"`, found nobody, and silently
+    // skipped the user-update step at the end of the pipeline.
+    const { cmd, chartService } = build();
+    await run(cmd, makeCtx({ sub: 'albums' }));
+
+    expect(chartService.generateAlbumChart).toHaveBeenCalledWith(
+      CALLER_DISCORD_ID,
+      'DreadRock',
+      expect.anything(),
+    );
   });
 });
 
 describe('ChartSlashCommands user resolution: nobody reads an album before the user is known', () => {
   it('refuses a Discord target who has not registered, and reads nothing', async () => {
-    const { cmd, chartService } = build({ byDiscordId: { other1: null } });
+    const { cmd, chartService } = build({ byDiscordId: { [OTHER_DISCORD_ID]: null } });
     const response = await run(
       cmd,
-      makeCtx({ sub: 'albums', users: { user: { id: 'other1', username: 'other' } } }),
+      makeCtx({ sub: 'albums', users: { user: { id: OTHER_DISCORD_ID, username: 'other' } } }),
     );
 
     expect(response.commandResponse).toBe(CommandResponse.NotFound);
@@ -225,13 +262,17 @@ describe('ChartSlashCommands user resolution: nobody reads an album before the u
   it('strips the `lfm:` prefix before looking the name up', async () => {
     const { cmd, chartService, userService } = build({
       byLastFmName: {
-        SomeUser: { userId: 9, userNameLastFm: 'SomeUser', discordUserId: 'other1' },
+        SomeUser: { userId: 9, userNameLastFm: 'SomeUser', discordUserId: OTHER_DISCORD_ID },
       },
     });
     await run(cmd, makeCtx({ sub: 'albums', strings: { lfm: 'lfm:SomeUser' } }));
 
     expect(userService.getUserByLastFmName).toHaveBeenCalledWith('SomeUser');
-    expect(chartService.generateAlbumChart).toHaveBeenCalledWith('other1', 'SomeUser', expect.anything());
+    expect(chartService.generateAlbumChart).toHaveBeenCalledWith(
+      OTHER_DISCORD_ID,
+      'SomeUser',
+      expect.anything(),
+    );
   });
 
   it('refuses a caller who has never connected an account', async () => {
@@ -301,26 +342,54 @@ describe('ChartSlashCommands option grammar: a silently-ignored filter charts th
     expect(settings.releaseDecadeFilter).toBe(1990);
   });
 
-  it('CHARACTERISATION: `90s` is rejected by a regex that demands four digits', async () => {
-    // The refusal text promises "`1990` or `90s`", and the guard is
-    // `/^\d{4}s?$/i`, so the exact example the user is told to type is the one
-    // form that does not work. Reported separately; pinned here so the
-    // contradiction is visible rather than re-derived.
+  it('ACCEPTS `90s` - the example its own refusal message prints', async () => {
+    // The guard was `/^\d{4}s?$/i`, which needs four digits, while the refusal
+    // told the user to type "`1990` or `90s`". The one form the message
+    // promised was the one form that failed. Two digits now expand to the most
+    // recent decade beginning with them that has already started.
     const { cmd, chartService } = build();
-    const response = await run(cmd, makeCtx({ sub: 'albums', strings: { decade: '90s' } }));
+    await run(cmd, makeCtx({ sub: 'albums', strings: { decade: '90s' } }));
 
-    expect(response.commandResponse).toBe(CommandResponse.WrongInput);
-    expect(cardText(response)).toContain('`1990` or `90s`');
-    expect(chartService.generateAlbumChart).not.toHaveBeenCalled();
+    const settings = (chartService.generateAlbumChart as ReturnType<typeof vi.fn>).mock.calls[0]![2] as {
+      releaseDecadeFilter?: number;
+    };
+    expect(settings.releaseDecadeFilter).toBe(1990);
+    expect(chartService.generateAlbumChart).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses a decade it cannot read rather than charting every album', async () => {
+  it('expands a short decade into the past, never into the future', async () => {
+    // `30s` in 2026 is the 1930s, not the 2030s. Anything that resolved
+    // `90s` to `90` or to this century unconditionally would put a filter on
+    // the chart that matches nothing at all - and an unmatched filter is
+    // indistinguishable from a chart the user got.
+    const { cmd, chartService } = build();
+    await run(cmd, makeCtx({ sub: 'albums', strings: { decade: '30s' } }));
+
+    const settings = (chartService.generateAlbumChart as ReturnType<typeof vi.fn>).mock.calls[0]![2] as {
+      releaseDecadeFilter?: number;
+    };
+    expect(settings.releaseDecadeFilter).toBe(1930);
+  });
+
+  it('still refuses a decade it cannot read rather than charting every album', async () => {
     const { cmd, chartService } = build();
     const response = await run(cmd, makeCtx({ sub: 'albums', strings: { decade: 'last year' } }));
 
     expect(response.commandResponse).toBe(CommandResponse.WrongInput);
     expect(cardText(response)).toContain('`1990` or `90s`');
     expect(chartService.generateAlbumChart).not.toHaveBeenCalled();
+  });
+
+  it('still takes a plain four-digit decade, with no `s`', async () => {
+    // The other half of the acceptance: widening the guard for `90s` must not
+    // have narrowed the form the message named first.
+    const { cmd, chartService } = build();
+    await run(cmd, makeCtx({ sub: 'albums', strings: { decade: '1990' } }));
+
+    const settings = (chartService.generateAlbumChart as ReturnType<typeof vi.fn>).mock.calls[0]![2] as {
+      releaseDecadeFilter?: number;
+    };
+    expect(settings.releaseDecadeFilter).toBe(1990);
   });
 
   it('turns rainbow on and forces skipWithoutImage with it', async () => {
@@ -446,19 +515,52 @@ describe('ChartSlashCommands: the resync is fire-and-forget and never blocks the
 });
 
 describe('ChartSlashCommands: the Edit button on a chart card', () => {
-  it('CHARACTERISATION: the button carries no creator id, so nobody can ever press it', async () => {
-    // `chartAsync` builds `author` as `{ userNameLastFm, totalPlayCount }` and
-    // casts it to `User`; `ChartBuilders` then reads `user.discordUserId` for the
-    // `chart-edit:` customId, which is therefore the literal string "undefined".
-    // `ChartInteractions.handleEditButton` compares `interaction.user.id` with
-    // that field and refuses anyone who does not match, so the control is dead
-    // for every user including the chart's creator. Reported separately; pinned
-    // here so the fix has to change this test on purpose.
+  it('carries the real creator id, so the chart owner can actually press it', async () => {
+    // `chartAsync` built `author` as `{ userNameLastFm, totalPlayCount }` and
+    // cast it to `User`; `ChartBuilders` reads `user.discordUserId` for the
+    // `chart-edit:` customId, so the id segment was the literal string
+    // "undefined". `ChartInteractions.handleEditButton` compares
+    // `interaction.user.id` with that segment and refuses anyone who does not
+    // match - so the control was dead for every user, the creator included.
     const { cmd } = build();
     const response = await run(cmd, makeCtx({ sub: 'albums' }));
 
     const json = JSON.stringify(response.componentsV2Container?.toJSON());
     expect(json).toContain('chart-edit:');
-    expect(json).toContain('chart-edit:undefined:a:');
+    expect(json).toContain(`chart-edit:${CALLER_DISCORD_ID}:a:`);
+    // A customId that still said "undefined" anywhere is the same dead button.
+    expect(json).not.toContain('chart-edit:undefined');
+  });
+
+  it('keys the button on the CHART target, not on whoever pressed the command', async () => {
+    // Otherwise a moderator charts a friend, the button is addressed to the
+    // moderator, and the friend - the only person who should be able to edit
+    // their own chart - is refused.
+    const { cmd } = build({
+      byDiscordId: {
+        [OTHER_DISCORD_ID]: { userId: 9, userNameLastFm: 'SomeUser', discordUserId: OTHER_DISCORD_ID },
+      },
+    });
+    const response = await run(
+      cmd,
+      makeCtx({ sub: 'albums', users: { user: { id: OTHER_DISCORD_ID, username: 'other' } } }),
+    );
+
+    const json = JSON.stringify(response.componentsV2Container?.toJSON());
+    expect(json).toContain(`chart-edit:${OTHER_DISCORD_ID}:a:`);
+    expect(json).not.toContain(`chart-edit:${CALLER_DISCORD_ID}:a:`);
+  });
+
+  it('keys a track chart the same way, and a self chart on the caller', async () => {
+    const { cmd } = build();
+    const track = await run(cmd, makeCtx({ sub: 'tracks' }));
+    const album = await run(cmd, makeCtx({ sub: 'albums' }));
+
+    expect(JSON.stringify(track.componentsV2Container?.toJSON())).toContain(
+      `chart-edit:${CALLER_DISCORD_ID}:t:`,
+    );
+    expect(JSON.stringify(album.componentsV2Container?.toJSON())).toContain(
+      `chart-edit:${CALLER_DISCORD_ID}:a:`,
+    );
   });
 });

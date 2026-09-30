@@ -120,15 +120,20 @@ export class AlbumBuilders {
 
     const headerText = `## ${albumLink}\nAlbum by **${artistLink}**${releaseLine}${labelLine}`;
 
-    const section = new SectionBuilder().addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(headerText),
-    );
-
+    // A Section's accessory is NOT optional in discord.js: `SectionBuilder.toJSON()`
+    // runs the accessory through a required union validator, so a section with no
+    // accessory throws at serialisation and the card can never be sent. With a
+    // cover the header goes in a section; without one it goes in as a plain text
+    // block, which is the same shape the artist cards use.
     if (album.albumCoverUrl) {
-      section.setThumbnailAccessory(new ThumbnailBuilder().setURL(album.albumCoverUrl));
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText))
+          .setThumbnailAccessory(new ThumbnailBuilder().setURL(album.albumCoverUrl)),
+      );
+    } else {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText));
     }
-
-    container.addSectionComponents(section);
 
     if (album.summary) {
       container.addSeparatorComponents(new SeparatorBuilder());
@@ -159,12 +164,17 @@ export class AlbumBuilders {
 
     const userStatsLines: string[] = [];
     const targetName = targetUser.userNameLastFm;
-    const plays = album.userPlaycount ?? 0;
-    let playsLine = `**${plays}** play${plays !== 1 ? 's' : ''} by **${targetName}**`;
-    if (album.userMonthlyPlaycount) {
-      playsLine += ` — **${album.userMonthlyPlaycount}** last month`;
+    // Presence, not magnitude. `serverPlaycount` and `userTimeListenedSeconds`
+    // above are guarded the same way: an unread count is a missing clause, and a
+    // supplied 0 is a real answer.
+    if (album.userPlaycount !== undefined) {
+      const plays = album.userPlaycount;
+      let playsLine = `**${plays}** play${plays !== 1 ? 's' : ''} by **${targetName}**`;
+      if (album.userMonthlyPlaycount) {
+        playsLine += ` — **${album.userMonthlyPlaycount}** last month`;
+      }
+      userStatsLines.push(playsLine);
     }
-    userStatsLines.push(playsLine);
 
     if (album.userTimeListenedSeconds) {
       let timeLine = `**${formatDurationFriendly(album.userTimeListenedSeconds)}** listened`;
@@ -174,10 +184,12 @@ export class AlbumBuilders {
       userStatsLines.push(timeLine);
     }
 
-    container.addSeparatorComponents(new SeparatorBuilder());
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(userStatsLines.join('\n')),
-    );
+    if (userStatsLines.length > 0) {
+      container.addSeparatorComponents(new SeparatorBuilder());
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(userStatsLines.join('\n')),
+      );
+    }
 
     const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
@@ -267,9 +279,14 @@ export class AlbumBuilders {
     const durationStr = album.totalDurationSeconds
       ? ` — ${formatSecondsToClock(album.totalDurationSeconds)}`
       : '';
+    // Same presence rule as the info card: an unread listener playcount drops the
+    // clause rather than printing a 0 nobody measured.
+    const listenerPlaysClause = album.userPlaycount !== undefined
+      ? ` | ${targetUser.userNameLastFm} has ${album.userPlaycount} total album plays`
+      : '';
     const footerText =
       `-# Page ${currentPage}/${totalPages} — ${totalTracks} total tracks${durationStr}\n` +
-      `-# Album source: Last.fm | ${targetUser.userNameLastFm} has ${album.userPlaycount ?? 0} total album plays`;
+      `-# Album source: Last.fm${listenerPlaysClause}`;
 
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(footerText),

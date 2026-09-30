@@ -17,11 +17,12 @@
  * `sk`, so a user who never ran `/login` cannot have a love applied at all, and
  * the handler must say so before it reaches the repository.
  *
- * There is also an argument-shape bug in `/track`, characterised at the bottom:
- * the two separate options are joined as `track | artist` and handed to
- * `TrackService.searchTrack`, which parses that string as `artist | track`. The
- * one-string form the command documents is parsed the other way round in
- * `/love` and `/trackdetails`, so the two commands disagree.
+ * There is also an argument-shape property in `/track`, pinned at the bottom:
+ * the two separate options are joined into the one string the command documents,
+ * and they must be joined in the order `TrackService.searchTrack` parses that
+ * string — `artist | track`. The one-string form is parsed the other way round
+ * in `/love` and `/trackdetails`, which is correct for their own option, and
+ * that disagreement is what made the inverted join look plausible.
  *
  * Constructor arity, read from `trackSlashCommands.ts`: userService,
  * trackService, trackDetailsService, lastfmRepository, updateService,
@@ -189,7 +190,12 @@ const build = (over: Doubles = {}) => {
   } as unknown as TrackDetailsService;
   const lastfmRepository = {
     getUserRecentTracks: vi.fn(async () => (over.recent ?? [])),
-    searchTracks: vi.fn(async () => (over.searchResults ?? [])),
+    // The search double answers a HIT by default: real Last.fm knows "Airbag",
+    // and an empty list for a well-known track is a claim about the provider
+    // that only became visible when `/trackdetails` started answering an empty
+    // search with a not-found instead of building an "Unknown Artist" card. Tests
+    // that want the empty answer pass `searchResults: []`.
+    searchTracks: vi.fn(async () => (over.searchResults ?? [{ artistName: 'Radiohead', name: 'Airbag' }])),
     loveTrack: vi.fn(async () => over.loveOk ?? true),
     unloveTrack: vi.fn(async () => over.unloveOk ?? true),
     scrobbleTrack: vi.fn(async () => over.scrobbleOk ?? true),
@@ -299,16 +305,33 @@ describe('/track: the voice preview is decoration, the numbers are not', () => {
     expect(cardLinks(response)).toContain('https://open.spotify.com/track/abc');
   });
 
-  it('CHARACTERISATION: the two options are joined in the opposite order the parser expects', async () => {
+  it('composes the two options in the order the parser splits them, so the search runs for the right song', async () => {
     // The command documents `Track name (or "Artist | Track")`, and
-    // `TrackService.searchTrack` splits on ' | ' as `artist | track`. Supplying
-    // BOTH options builds `"${track} | ${artist}"` (trackSlashCommands.ts:104),
-    // so the search runs for track="Radiohead" by artist="Airbag". Reported
-    // separately; pinned so the fix has to change this test on purpose.
+    // `TrackService.searchTrack` (trackService.ts:107-110) splits on ' | ' as
+    // `artist | track`. Supplying BOTH options built `"${track} | ${artist}"`
+    // (trackSlashCommands.ts:104), so `/track track:"Airbag" artist:"Radiohead"`
+    // searched for a track called "Radiohead" by an artist called "Airbag".
+    //
+    // Asserted as composer-versus-splitter rather than as a string, so the test
+    // is about the agreement and not about one literal: the same split the
+    // service performs is applied here to whatever the command handed it.
     const { cmd, trackService } = build();
     await h(cmd).trackAsync(makeCtx({ strings: { track: 'Airbag', artist: 'Radiohead' } }));
 
-    expect(trackService.searchTrack).toHaveBeenCalledWith('Airbag | Radiohead', CALLER, '222');
+    const composed = vi.mocked(trackService.searchTrack).mock.calls[0]![0] as string;
+    const [searchedArtist, searchedTrack] = composed.split(' | ').map((part) => part.trim());
+    expect(searchedArtist).toBe('Radiohead');
+    expect(searchedTrack).toBe('Airbag');
+  });
+
+  it('still hands a single option through untouched, so the "by" grammar keeps working', async () => {
+    // The control. Only the two-option join is this command's business: with one
+    // option the raw string must reach the service untouched, or `/track
+    // track:"Airbag by Radiohead"` would stop resolving.
+    const { cmd, trackService } = build();
+    await h(cmd).trackAsync(makeCtx({ strings: { track: 'Airbag by Radiohead' } }));
+
+    expect(trackService.searchTrack).toHaveBeenCalledWith('Airbag by Radiohead', CALLER, '222');
   });
 });
 
@@ -357,17 +380,31 @@ describe('/trackdetails', () => {
     );
   });
 
-  it('says so plainly when a bare search matches nothing at all', async () => {
-    // "Unknown Artist" is a visible label, not a fabricated credit: the card
-    // names the fallback so nobody believes the metadata came from Last.fm.
+  it('says not-found when a bare search matches nothing at all', async () => {
+    // It used to build a metadata card labelled "Unknown Artist" with the user's
+    // raw text as the track name — a confident card for a question Last.fm could
+    // not answer. `/love`, `/unlove` and the text `.trackdetails` answer the same
+    // empty search with a not-found, and so does this.
     const { cmd, trackDetailsService } = build({ searchResults: [] });
-    await h(cmd).trackDetailsAsync(makeCtx({ strings: { track: 'qzx nonexistent' } }));
+    const response = await h(cmd).trackDetailsAsync(makeCtx({ strings: { track: 'qzx nonexistent' } }));
 
-    expect(trackDetailsService.getDetails).toHaveBeenCalledWith(
-      'Unknown Artist',
-      'qzx nonexistent',
-      expect.stringMatching(/^td_caller1_\d+$/),
-    );
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    expect(cardText(response)).toContain('qzx nonexistent');
+    expect(trackDetailsService.getDetails).not.toHaveBeenCalled();
+  });
+
+  it('renders the no-metadata card when the details read raises, exactly as /track does', async () => {
+    // The twins disagreed: `/track` swallowed the enrichment failure and rendered
+    // the card without the preview, `/trackdetails` propagated it and the user got
+    // a Discord error instead of a card. Same read, same failure, two answers.
+    // `getDetails` is decoration only — no number on either card comes from it —
+    // so an outage of the preview resolver costs the metadata block, not the
+    // command.
+    const { cmd } = build({ getDetails: async () => { throw new Error('preview resolver exploded'); } });
+    const response = await h(cmd).trackDetailsAsync(makeCtx({ strings: { track: 'Airbag' } }));
+
+    expect(response.commandResponse).toBe(CommandResponse.Ok);
+    expect(cardText(response)).toContain("don't have any metadata for");
   });
 
   it('renders the no-metadata card for a track no provider knows', async () => {

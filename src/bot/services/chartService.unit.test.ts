@@ -159,6 +159,73 @@ describe('ChartService.generateAlbumChart validation', () => {
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
     expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
   });
+
+  it('sets afterFilters for an ARTIST-filter shortfall, because that filter ran too', async () => {
+    // The artist filter is applied before the release filters and shares this
+    // error. It used to report `afterFilters: false`, so a user with two Radiohead
+    // albums who asked for nine was told to make the chart smaller or change
+    // period — advice that cannot help, and which hides the actual cause.
+    const { service, lastfmRepository } = build();
+    (lastfmRepository.getTopAlbums as ReturnType<typeof vi.fn>).mockResolvedValue([
+      album('OK Computer'), album('Kid A'),
+    ]);
+
+    const err = await service
+      .generateAlbumChart('u1', 'DreadRock', settings({ imagesNeeded: 3, filteredArtistName: 'Radiohead' }))
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(NotEnoughAlbumsError);
+    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
+    expect((err as NotEnoughAlbumsError).available).toBe(2);
+  });
+
+  it('CONTROL: an empty artist filter is not a filter that ran', async () => {
+    // `filteredArtistName: ''` is falsy, so the filter is skipped entirely and
+    // the shortfall really is upstream. Keying the flag off `!== undefined`
+    // instead would claim a filter ran when it did not.
+    const { service, lastfmRepository } = build();
+    (lastfmRepository.getTopAlbums as ReturnType<typeof vi.fn>).mockResolvedValue([album('Only')]);
+
+    const err = await service
+      .generateAlbumChart('u1', 'DreadRock', settings({ imagesNeeded: 3, filteredArtistName: '' }))
+      .catch((e: unknown) => e);
+
+    expect((err as NotEnoughAlbumsError).afterFilters).toBe(false);
+    expect((err as NotEnoughAlbumsError).available).toBe(1);
+  });
+});
+
+describe('ChartService album cache key', () => {
+  it('carries the artist filter NORMALISED, so two spellings are one entry', async () => {
+    // The key held the raw spelling while the filter ran on `toLowerCase()`, so
+    // `Radiohead` and `radiohead` each cost a Last.fm read and a Puppeteer render
+    // for a byte-identical result. Duplicate work, never a wrong answer.
+    const { service, cache } = build();
+
+    await service.generateAlbumChart('u1', 'DreadRock', settings({ imagesNeeded: 3, filteredArtistName: 'Radiohead' }));
+    await service.generateAlbumChart('u1', 'DreadRock', settings({ imagesNeeded: 3, filteredArtistName: 'radiohead' }));
+
+    // BOTH calls' writes are collected — clearing the mock between them would
+    // leave one key either way and make this pass on the code it is written
+    // against.
+    const keys = (cache.set as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+    expect(keys[0]).toContain(':radiohead:');
+  });
+
+  it('still keys an unfiltered album chart apart from a filtered one', async () => {
+    const { service, cache } = build();
+
+    await service.generateAlbumChart('u1', 'DreadRock', settings({ imagesNeeded: 3 }));
+    const unfiltered = (cache.set as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    (cache.set as ReturnType<typeof vi.fn>).mockClear();
+    await service.generateAlbumChart('u1', 'DreadRock', settings({ imagesNeeded: 1, filteredArtistName: 'Radiohead' }));
+    const filtered = (cache.set as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+
+    expect(unfiltered).toContain(':all:');
+    expect(filtered).not.toBe(unfiltered);
+  });
 });
 
 describe('ChartService.generateAlbumChart filters', () => {

@@ -30,10 +30,12 @@ import type { RecentTrack } from '@domain/models/recentTrack';
  *     trailing collaborator, so `?? DiscordConstants.LastFmColorRed` is a live
  *     branch rather than dead defensive code.
  *
- * `trackDetailsAsync` is the noisier twin and has one behaviour worth naming:
- * a Last.fm search that finds NOTHING still proceeds, labelling the card
- * "Unknown Artist" and the user's raw text as a track name. The test is named
- * for what it pins rather than endorsed.
+ * `trackDetailsAsync` shares the two rules the rest of the family is held to: a
+ * Last.fm search that finds NOTHING answers not-found rather than building a
+ * card labelled "Unknown Artist" (a confident card for a question that had no
+ * answer, and `love`/`scrobble` never did it), and a failed `getDetails` costs
+ * the metadata block rather than the command, which is what `.track` has always
+ * done and what `/trackdetails` now does too.
  */
 
 const user = (over: Partial<User> = {}): User =>
@@ -92,6 +94,7 @@ type Over = {
   caller?: User | null;
   mentioned?: User | null;
   searchResult?: unknown;
+  searchHits?: unknown[];
   detailsResult?: unknown;
   detailsThrows?: unknown;
   withColorService?: boolean;
@@ -115,7 +118,15 @@ const build = (over: Over = {}) => {
   };
   const lastfmRepository = {
     getUserRecentTracks: vi.fn(async (..._a: unknown[]) => [] as RecentTrack[]),
-    searchTracks: vi.fn(async (..._a: unknown[]) => [] as unknown[]),
+    // A HIT by default, because real Last.fm knows "airbag" and a double that
+    // answers an empty list for a well-known track is claiming a provider
+    // failure. It went unnoticed while `.trackdetails` turned an empty search
+    // into an "Unknown Artist" card; now that the empty search answers
+    // not-found, an empty default would make every card test below assert the
+    // not-found branch instead of the branch it is named for.
+    searchTracks: vi.fn(async (..._a: unknown[]) =>
+      (over.searchHits ?? [{ artistName: 'Radiohead', name: 'Airbag' }]) as unknown[],
+    ),
   };
   const updateService = { updateUser: vi.fn(async (..._a: unknown[]) => undefined) };
   const colorService = { getColorFromImageUrl: vi.fn(async (..._a: unknown[]) => 0x112233) };
@@ -416,20 +427,24 @@ describe('.trackdetails — the hand-written argument grammar', () => {
     expect(name).toBe('Airbag');
   });
 
-  it('CURRENT BEHAVIOUR, a search that finds nothing is answered with an "Unknown Artist" card', async () => {
-    // NOT endorsed. A query Last.fm does not know produces a metadata card for
-    // a fictional artist, which is a confident answer to a question that had
-    // none. Pinned so a future fix is a visible diff, and so nobody reads the
-    // existing behaviour as intentional. The sibling commands (`love`,
-    // `scrobble`) answer the same empty search with a NotFound.
-    const { commands, trackDetailsService } = build();
+  it('a search that finds nothing is answered with a not-found, like every sibling command', async () => {
+    // Used to be a metadata card for a fictional artist, built from the user's
+    // raw text as the track name: a confident answer to a question Last.fm could
+    // not answer, which is the thing this repo does not ship. `love`, `unlove`
+    // and `scrobble` all answer the same empty search with a not-found, and so
+    // does `/trackdetails`.
+    const { commands, lastfmRepository, trackDetailsService } = build({ searchHits: [] });
 
     const result = await trackDetails(commands, 'zzzznotatrack');
 
-    const [artist, name] = (trackDetailsService.getDetails as ReturnType<typeof vi.fn>).mock.calls[0]!;
-    expect(artist).toBe('Unknown Artist');
-    expect(name).toBe('zzzznotatrack');
-    expect(result).toEqual({ marker: 'details' });
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+    expect(desc(result)).toContain('zzzznotatrack');
+    // It DID ask Last.fm, and the answer was nothing — so the not-found is a
+    // report, not a refusal to look.
+    expect(lastfmRepository.searchTracks).toHaveBeenCalledWith('zzzznotatrack');
+    expect(trackDetailsService.getDetails).not.toHaveBeenCalled();
+    expect(TrackDetailsBuilders.buildNoMetadataResponse).not.toHaveBeenCalled();
+    expect(TrackDetailsBuilders.buildTrackDetailsResponse).not.toHaveBeenCalled();
   });
 
   it('uses the most recent track when no query is given', async () => {
@@ -497,15 +512,32 @@ describe('.trackdetails — resolved versus unresolved', () => {
     expect(colorService.getColorFromImageUrl).toHaveBeenCalledWith('https://img/details.png');
   });
 
-  it('lets a failed details read raise, unlike .track, which catches it', async () => {
-    // The asymmetry is real: `.track` degrades to a card without a preview,
-    // `.trackdetails` has nothing left to show and so propagates. Both are
-    // defensible; the point is that they are different, and a test that assumes
-    // they behave alike would be wrong in one direction or the other.
+  it('degrades a failed details read to the no-metadata card, exactly as .track does', async () => {
+    // The twins disagreed: `.track` swallowed the enrichment failure and rendered
+    // a card without the preview, `.trackdetails` propagated it and the user got
+    // a Discord error instead of a card. Same read, same failure, two answers.
+    // SWALLOW is the right one: `getDetails` contributes only decoration
+    // (preview, store link, duration, bpm, key), it is not a source for any
+    // number on either card, and a preview-resolver outage should cost the
+    // metadata block — not the whole command. The no-metadata card is the honest
+    // rendering of that: it says what is missing instead of asserting anything.
     const { commands } = build({ detailsThrows: new Error('preview resolver timed out') });
 
-    await expect(trackDetails(commands, 'airbag')).rejects.toThrow(/preview resolver timed out/);
-    expect(TrackDetailsBuilders.buildNoMetadataResponse).not.toHaveBeenCalled();
+    const result = await trackDetails(commands, 'airbag');
+
+    expect(result).toEqual({ marker: 'nometa' });
+    expect(TrackDetailsBuilders.buildTrackDetailsResponse).not.toHaveBeenCalled();
+  });
+
+  it('treats a details read that resolved nothing at all the same way', async () => {
+    // A `null` from the service is a shape a test double can produce and a
+    // provider can imitate; it must land on the no-metadata card, not on a
+    // property access of null.
+    const { commands } = build({ detailsResult: null });
+
+    const result = await trackDetails(commands, 'airbag');
+
+    expect(result).toEqual({ marker: 'nometa' });
   });
 });
 

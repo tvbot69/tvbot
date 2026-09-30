@@ -75,17 +75,23 @@ async function getDuration(oggPath: string): Promise<number> {
   }
 }
 
-async function generateWaveformAndDuration(oggPath: string, _isAac: boolean): Promise<{ waveform: string; duration: number }> {
-  const waveBuf = Buffer.alloc(100);
-  for (let i = 0; i < 100; i++) waveBuf[i] = Math.floor(20 + Math.random() * 130);
-  const duration = await getDuration(oggPath);
-  return { waveform: waveBuf.toString('base64'), duration };
-}
-
+/**
+ * Sends an Opus/OGG preview as a Discord voice message (flag 8192) over two
+ * paths: a multipart webhook followup, and the three-step channel attachment
+ * flow.
+ *
+ * NEITHER PATH SENDS A `waveform` FIELD. This service never decodes the audio,
+ * so any 100-byte array it produced was noise dressed as measurement: a loud
+ * passage and a silent one drew identically, and the drawing changed on every
+ * send — a plausible falsehood rendered as data. Discord draws a flat bar when
+ * the field is absent, which is the truthful answer. Deriving real peaks is a
+ * separate piece of work (ffmpeg); until one exists the payload carries the
+ * duration alone, and that duration is measured, not invented.
+ */
 export class VoiceMessageService {
   // Send via interaction webhook (slash) — preferred, shows as followup with flags 8192
   public async sendViaWebhook(appId: string, interactionToken: string, oggPath: string, botToken: string): Promise<void> {
-    const durationInfo = await generateWaveformAndDuration(oggPath, oggPath.endsWith('.m4a'));
+    const duration = await getDuration(oggPath);
     const oggBytes = await fs.readFile(oggPath);
 
     // Use multipart webhook: payload_json + files[0]
@@ -94,7 +100,7 @@ export class VoiceMessageService {
     form.append('files[0]', blob, 'voice-message.ogg');
     const payload = {
       flags: 8192,
-      attachments: [{ id: '0', filename: 'voice-message.ogg', duration_secs: durationInfo.duration, waveform: durationInfo.waveform }],
+      attachments: [{ id: '0', filename: 'voice-message.ogg', duration_secs: duration }],
     };
     form.append('payload_json', JSON.stringify(payload));
 
@@ -136,11 +142,8 @@ export class VoiceMessageService {
     });
     if (!putRes.ok) throw new Error(`PUT failed ${putRes.status}`);
 
-    const waveBuf = Buffer.alloc(100);
-    for (let i = 0; i < 100; i++) waveBuf[i] = Math.floor(20 + Math.random() * 130);
-
     const payload = {
-      attachments: [{ id: '0', filename: fileName, uploaded_filename: attachment.upload_filename, duration_secs: Number.isFinite(duration) ? duration : 30, waveform: waveBuf.toString('base64') }],
+      attachments: [{ id: '0', filename: fileName, uploaded_filename: attachment.upload_filename, duration_secs: Number.isFinite(duration) ? duration : 30 }],
       flags: 8192,
     };
     if (replyToMessageId) (payload as Record<string, unknown>).message_reference = { message_id: replyToMessageId };

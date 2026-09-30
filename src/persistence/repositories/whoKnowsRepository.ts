@@ -75,6 +75,15 @@ export class WhoKnowsRepository implements IWhoKnowsRepository {
     }));
   }
 
+  /**
+   * The three friend queries carry the SAME `NOT EXISTS (... abuse_flags ...)`
+   * clause as the three indexed ones, and they must keep carrying it: without it
+   * an account banned for abuse vanished from the guild leaderboard and still
+   * appeared on the caller's personal "your friends also listen to this" list,
+   * which is the same moderation decision answered two ways from two queries
+   * about the same user. The friend list is personal, so it is not
+   * `guild_users`-scoped — but "personal" is not "exempt".
+   */
   public async getFriendUsersForArtist(
     userId: number,
     artistName: string,
@@ -92,6 +101,7 @@ export class WhoKnowsRepository implements IWhoKnowsRepository {
         JOIN friends AS fr ON fr.friend_user_id = ua.user_id
         WHERE fr.user_id = ${userId}
         AND UPPER(ua.name) = UPPER(${artistName})
+        AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ua.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         ORDER BY UPPER(u.user_name_last_fm) DESC, ua.playcount DESC
       ) sub
       ORDER BY sub."playcount" DESC;
@@ -121,6 +131,7 @@ export class WhoKnowsRepository implements IWhoKnowsRepository {
         JOIN friends AS fr ON fr.friend_user_id = ub.user_id
         WHERE fr.user_id = ${userId}
         AND ub.album_id = ${albumId}
+        AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ub.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         ORDER BY UPPER(u.user_name_last_fm) DESC, ub.playcount DESC
       ) sub
       ORDER BY sub."playcount" DESC;
@@ -150,6 +161,7 @@ export class WhoKnowsRepository implements IWhoKnowsRepository {
         JOIN friends AS fr ON fr.friend_user_id = ut.user_id
         WHERE fr.user_id = ${userId}
         AND ut.track_id = ${trackId}
+        AND NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE af.user_id = ut.user_id AND (af.expires_at IS NULL OR af.expires_at > NOW()))
         ORDER BY UPPER(u.user_name_last_fm) DESC, ut.playcount DESC
       ) sub
       ORDER BY sub."playcount" DESC;

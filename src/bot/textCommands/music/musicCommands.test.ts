@@ -3,6 +3,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MusicCommands } from './musicCommands';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { playErrorMessage } from '@bot/services/music/musicService';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 
@@ -27,6 +29,17 @@ const mkContext = (over: Record<string, unknown> = {}): ContextModel =>
   }) as unknown as ContextModel;
 
 const build = (over: Record<string, unknown> = {}) => {
+  // The real sentence logic, reached the way production reaches it: the service's
+  // BOUND `playErrorMessage` is what supplies the manager, and the free function
+  // is what turns that manager's answer into words. Re-stating the strings in
+  // this file would make every assertion below a test of the double instead.
+  const moonlinkManager = {
+    getUnavailableReason: () =>
+      (over.unavailable as { reason: string; retryAfterMs: number } | undefined) ?? {
+        reason: 'rate-limited',
+        retryAfterMs: 30_000,
+      },
+  };
   const musicService = {
     canControlPlayback: vi.fn(() => true),
     getQueueInfo: vi.fn(() => ({
@@ -39,6 +52,8 @@ const build = (over: Record<string, unknown> = {}) => {
       position: 0,
     })),
     getPlayer: vi.fn(() => undefined),
+    playErrorMessage: (reason?: 'no-nodes' | 'voice' | 'search' | 'empty-spotify' | 'queue-full') =>
+      playErrorMessage(reason, moonlinkManager as unknown as MoonlinkManager),
     play: vi.fn(async () => ({ loadType: 'empty' as const, totalTracksAdded: 0, positionInQueue: 0 })),
     searchTracks: vi.fn(async (..._a: unknown[]) => []),
     skip: vi.fn(async () => true),
@@ -132,6 +147,25 @@ describe('MusicCommands.playAsync', () => {
     const result = await call(service, 'playAsync', mkContext(), ['song']);
     expect(result.commandResponse).toBe(CommandResponse.Error);
     expect(result.embed.data.description).toContain('rate-limited');
+  });
+
+  it('answers a no-nodes failure from the real node state, not a rate limit', async () => {
+    // The user-visible shape of the bug. `playErrorMessage` has no `this` of its
+    // own, so a command that called the free function could never see a manager
+    // and every no-nodes failure rendered the generic sentence: with
+    // `ENABLE_LAVALINK=false` the manager reports `disabled`, and the reply used
+    // to be "All music nodes are rate-limited right now. Try again in 30-60
+    // seconds." — wrong, and waiting can never clear it. `.play` now goes
+    // through the service's BOUND method, which is what supplies the manager.
+    const { service, musicService } = build({ unavailable: { reason: 'disabled', retryAfterMs: 0 } });
+    (musicService.play as ReturnType<typeof vi.fn>).mockResolvedValue({ loadType: 'error', errorReason: 'no-nodes', totalTracksAdded: 0, positionInQueue: 0 });
+
+    const result = await call(service, 'playAsync', mkContext(), ['airbag']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    const text = result.embed.data.description ?? '';
+    expect(text).toContain('disabled in this environment');
+    expect(text).not.toMatch(/rate-limited|try again/i);
   });
 
   it('passes the requester identity through to the service', async () => {

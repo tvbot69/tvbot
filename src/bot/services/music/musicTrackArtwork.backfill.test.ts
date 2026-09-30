@@ -269,29 +269,17 @@ describe('maybeBackfillArt — a hit', () => {
   });
 
   /**
-   * FINDING — REAL PRODUCTION BUG (pinned as current behaviour, NOT asserted
-   * to be correct).
+   * A by-id leg that THROWS is a RUNG failing, not the whole cascade failing.
    *
-   * `maybeBackfillArt` wraps the ENTIRE cascade in one `try { … } catch { return
-   * null }` (musicTrackArtwork.ts:162-194). A `getTrackCoverBySpotifyId` that
-   * THROWS therefore aborts the lookup and returns `null`: the name cascade at
-   * line 168 and the artist rung at line 181 are never reached. The module
-   * breaks its own rule twice over —
-   *   - line 181 gives the artist leg its own `.catch(() => null)` precisely
-   *     "so one candidate artist picture failing" does not end the cascade;
-   *   - the comment at lines 189-193 says "a cascade leg that throws is treated
-   *     as 'no art found'… never trips the pause/alert machinery" — but it is
-   *     treated as the WHOLE cascade failing, not as a rung failing.
-   * The sibling artist test in this file ("an artist leg that throws is a rung
-   * failing") passes; this one does not, and that asymmetry is the bug.
-   *
-   * Cost: one 5xx from the exact-by-id lookup costs a track its real cover even
-   * though Spotify → Deezer → Apple → Last.fm by name would have found it.
-   *
-   * Pinned so the day the by-id leg gets its own `.catch`, this test is the one
-   * that fails.
+   * `maybeBackfillArt` used to wrap the whole lookup in one
+   * `try { … } catch { return null }`, so an unguarded `getTrackCoverBySpotifyId`
+   * aborted it: the name cascade and the artist rung were never asked, and a
+   * track that Spotify→Deezer→Apple→Last.fm would have covered lost its art —
+   * recorded as a clean `miss`, indistinguishable from "this song has no cover".
+   * One 5xx cost a track its real cover. The by-id leg now carries its own
+   * `.catch(() => null)`, so a throw is contained at the rung.
    */
-  it('FINDING: a by-id leg that THROWS kills the WHOLE cascade instead of falling through', async () => {
+  it('a by-id leg that THROWS still falls through to the name cascade', async () => {
     const svc = artwork({
       getTrackCoverBySpotifyId: vi.fn(async () => {
         throw new Error('by-id 500');
@@ -301,15 +289,129 @@ describe('maybeBackfillArt — a hit', () => {
     const { art } = build(svc);
     const t = track();
     await art.maybeBackfillArt(t, undefined, 'Lame', 'Zaid Khaled', ARTWORK_TIMEOUT_MS, 'spotify:track:abc123');
-    // Not "no art" from a clean sweep — the downstream rungs were NEVER ASKED.
+
     expect(svc.getTrackCoverBySpotifyId).toHaveBeenCalledWith('abc123');
-    expect(svc.getTrackCoverUrl).not.toHaveBeenCalled();
-    expect(svc.getArtistImageUrl).not.toHaveBeenCalled();
-    // The previous (absent) cover is held rather than a wrong one painted, and
-    // the outcome is recorded as a miss — indistinguishable from a real miss,
-    // which is what makes this silent.
+    // The downstream rungs are asked, and the cover they find is taken.
+    expect(svc.getTrackCoverUrl).toHaveBeenCalledWith('Lame', 'Zaid Khaled');
+    expect(t.artworkUrl).toBe(COVER);
+    expect(rec(t)._artLookupOutcome).toBe('hit');
+  });
+
+  it('a by-id leg that THROWS with nothing behind it is a miss, never a wrong image', async () => {
+    // The opposite direction, and it must keep passing: containing a rung must
+    // not turn a genuine clean sweep into a cover. Both remaining legs miss.
+    const svc = artwork({
+      getTrackCoverBySpotifyId: vi.fn(async () => {
+        throw new Error('by-id 500');
+      }),
+      getTrackCoverUrl: vi.fn(async () => null),
+      getArtistImageUrl: vi.fn(async () => null),
+    });
+    const { art } = build(svc);
+    const t = track();
+    await art.maybeBackfillArt(t, undefined, 'Lame', 'Zaid Khaled', ARTWORK_TIMEOUT_MS, 'spotify:track:abc123');
+
+    expect(svc.getTrackCoverUrl).toHaveBeenCalled();
+    expect(svc.getArtistImageUrl).toHaveBeenCalled();
     expect(t.artworkUrl).toBeNull();
     expect(rec(t)._artLookupOutcome).toBe('miss');
+  });
+
+  /**
+   * The name cascade was the rung left unguarded after the by-id leg was fixed —
+   * the same bug, one rung later.
+   *
+   * It is the rung that throws most (Spotify → Deezer → Apple → Last.fm, four
+   * provider calls in a row), and while it was unwrapped its throw skipped the
+   * artist rung below and ended the lookup as a `miss`. A live set with no
+   * catalogue cover has exactly one rung left after it, and that rung is the
+   * artist's picture: losing it painted a blank card for a track the bot could
+   * have covered, and the `miss` marker recorded it as "this song has no cover".
+   */
+  it('a name cascade that THROWS still reaches the artist rung, and takes what it found', async () => {
+    const svc = artwork({
+      getTrackCoverUrl: vi.fn(async () => {
+        throw new Error('cascade 500');
+      }),
+      getArtistImageUrl: vi.fn(async () => 'https://img.example/artist.jpg'),
+    });
+    const { art } = build(svc);
+    const t = track();
+    await art.maybeBackfillArt(t, undefined, 'Lame', 'Zaid Khaled');
+
+    // The rung below the failure is still asked, and its answer is the answer.
+    expect(svc.getArtistImageUrl).toHaveBeenCalledWith('Zaid Khaled', 'Lame');
+    expect(t.artworkUrl).toBe('https://img.example/artist.jpg');
+    expect(rec(t)._artLookupOutcome).toBe('hit');
+  });
+
+  it('a name cascade that THROWS does not skip the artist rung when the by-id rung ran first', async () => {
+    // Both failure modes in one sweep: two contained rungs, and the third still
+    // gets its turn. Containment is per rung, not "the first failure wins".
+    const svc = artwork({
+      getTrackCoverBySpotifyId: vi.fn(async () => {
+        throw new Error('by-id 500');
+      }),
+      getTrackCoverUrl: vi.fn(async () => {
+        throw new Error('cascade 500');
+      }),
+      getArtistImageUrl: vi.fn(async () => 'https://img.example/artist.jpg'),
+    });
+    const { art } = build(svc);
+    const t = track();
+    await art.maybeBackfillArt(t, undefined, 'Lame', 'Zaid Khaled', ARTWORK_TIMEOUT_MS, 'spotify:track:abc123');
+
+    expect(svc.getTrackCoverBySpotifyId).toHaveBeenCalledWith('abc123');
+    expect(svc.getTrackCoverUrl).toHaveBeenCalledWith('Lame', 'Zaid Khaled');
+    expect(svc.getArtistImageUrl).toHaveBeenCalledWith('Zaid Khaled', 'Lame');
+    expect(t.artworkUrl).toBe('https://img.example/artist.jpg');
+  });
+
+  it('EVERY rung failing is a MISS, never a wrong image', async () => {
+    // The direction that keeps the containment honest. With no wrapper `catch`
+    // left in the lookup, "all three rungs threw" and "all three rungs found
+    // nothing" have to produce the SAME honest result: a bare track, recorded
+    // as a miss. A containment bug that turned an outage into a cover would show
+    // up here as a non-null `artworkUrl`.
+    const svc = artwork({
+      getTrackCoverBySpotifyId: vi.fn(async () => {
+        throw new Error('by-id 500');
+      }),
+      getTrackCoverUrl: vi.fn(async () => {
+        throw new Error('cascade 500');
+      }),
+      getArtistImageUrl: vi.fn(async () => {
+        throw new Error('artist 500');
+      }),
+    });
+    const { art } = build(svc);
+    const t = track();
+    await expect(art.maybeBackfillArt(t, undefined, 'Lame', 'Zaid Khaled', ARTWORK_TIMEOUT_MS, 'spotify:track:abc123'))
+      .resolves.toBeUndefined();
+
+    expect(t.artworkUrl).toBeNull();
+    expect(rec(t)._artLookupOutcome).toBe('miss');
+    // All three were actually asked — the miss is a real sweep, not a short
+    // circuit that stopped at the first failure.
+    expect(svc.getTrackCoverBySpotifyId).toHaveBeenCalledTimes(1);
+    expect(svc.getTrackCoverUrl).toHaveBeenCalledTimes(1);
+    expect(svc.getArtistImageUrl).toHaveBeenCalledTimes(1);
+    // An outage is not a reason to repaint the card.
+    expect(rec(t)._artLookupResolvedAt).toBeUndefined();
+  });
+
+  it('a name cascade that THROWS never reaches the card-refresh notifier', async () => {
+    const notify = vi.fn();
+    const svc = artwork({
+      getTrackCoverUrl: vi.fn(async () => {
+        throw new Error('cascade 500');
+      }),
+      getArtistImageUrl: vi.fn(async () => null),
+    });
+    const { art } = build(svc);
+    art.setCardRefreshNotifier(notify);
+    await art.maybeBackfillArt(track(), undefined, 'Lame', 'Zaid Khaled', ARTWORK_TIMEOUT_MS, null, 'g-1');
+    expect(notify).not.toHaveBeenCalled();
   });
 
   it('the artist profile picture is the last rung, for a cover-less track', async () => {
@@ -600,6 +702,52 @@ describe('warmUpcomingArt — cache prefill, never a dependency', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(svc.getTrackCoverBySpotifyId).toHaveBeenCalledWith('abc123');
     expect(svc.getTrackCoverUrl).not.toHaveBeenCalled();
+  });
+
+  it('a by-id leg that THROWS during warmup still runs the name prefill', async () => {
+    // The same containment hole as the resolve-time path, in the prefill: the
+    // by-id 5xx used to abort the sweep, so the entry never got the cache
+    // prefill that exists to make the REAL backfill hit cache instead of racing
+    // four providers while the listener waits. Impact is bounded — the track is
+    // still backfilled at play time — so a skipped prefill is a cold cache, not
+    // a wrong cover, which is exactly why it survived the by-id fix in
+    // `maybeBackfillArt` unfixed.
+    const svc = artwork({
+      getTrackCoverBySpotifyId: vi.fn(async () => {
+        throw new Error('by-id 500');
+      }),
+      getTrackCoverUrl: vi.fn(async () => COVER),
+    });
+    const pending = pendingView();
+    pending.set('g-1', [entry({ spotifyUri: 'spotify:track:abc123' })]);
+    const { art } = build(svc, pending);
+    expect(() => art.warmUpcomingArt('g-1')).not.toThrow();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(svc.getTrackCoverBySpotifyId).toHaveBeenCalledWith('abc123');
+    expect(svc.getTrackCoverUrl).toHaveBeenCalledWith('Lame', 'Zaid Khaled');
+  });
+
+  it('a name prefill that THROWS is silent, and the warm ends without rejecting', async () => {
+    // The last rung failing has no rung behind it, so its outcome is identical
+    // whether it is caught at the rung or by the outer never-reject boundary —
+    // but it must be a silent cold cache either way, never an unhandled
+    // rejection in a fire-and-forget path.
+    const svc = artwork({
+      getTrackCoverUrl: vi.fn(() => Promise.reject(new Error('warmup 500'))),
+    });
+    const pending = pendingView();
+    pending.set('g-1', [entry({ spotifyUri: 'spotify:track:abc123' })]);
+    const { art } = build(svc, pending);
+    expect(() => art.warmUpcomingArt('g-1')).not.toThrow();
+    // A rejection escaping the fire-and-forget sweep is an unhandled rejection,
+    // which vitest fails the run on — so reaching the next line at all is half
+    // the assertion.
+    await vi.advanceTimersByTimeAsync(0);
+    // The dedupe key is released even when the sweep failed, or a failed warm
+    // would block every later warmup of the same track.
+    const keys = (art as unknown as { artWarmKeys: Set<string> }).artWarmKeys;
+    expect(keys.size).toBe(0);
   });
 
   it('a warming leg that throws is silent — the track is still backfilled at play time', async () => {

@@ -333,11 +333,11 @@ describe('ChartService.generateTrackChart', () => {
     expect(asked).toBe(1000);
   });
 
-  it('reports an artist-filter shortfall with the count it actually had', async () => {
+  it('reports an artist-filter shortfall as afterFilters, because a filter demonstrably ran', async () => {
     // The artist filter runs before the cover pass and shares the first
-    // `NotEnoughAlbumsError`, so `afterFilters` is false here even though a
-    // filter did run — the flag distinguishes cover exhaustion, not this.
-    // Asserted so a future change to the labelling is visible.
+    // `NotEnoughAlbumsError`, so this used to report `afterFilters: false` and
+    // the user was told to make the chart smaller or change period — advice that
+    // cannot possibly help when the cause is that they have two Radiohead albums.
     const { service, lastfmRepository } = build();
     (lastfmRepository.getTopTracks as ReturnType<typeof vi.fn>).mockResolvedValue([
       track('A', { artistName: 'Radiohead' }),
@@ -346,8 +346,18 @@ describe('ChartService.generateTrackChart', () => {
     const err = await service
       .generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 3, filteredArtistName: 'Radiohead' }))
       .catch((e: unknown) => e);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(false);
+    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
     expect((err as NotEnoughAlbumsError).available).toBe(2);
+  });
+
+  it('CONTROL: an upstream shortfall with no filter is still afterFilters false', async () => {
+    // So the pair above cannot both pass by the flag always being true.
+    const { service, lastfmRepository } = build();
+    (lastfmRepository.getTopTracks as ReturnType<typeof vi.fn>).mockResolvedValue([track('Only')]);
+    const err = await service
+      .generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 4 }))
+      .catch((e: unknown) => e);
+    expect((err as NotEnoughAlbumsError).afterFilters).toBe(false);
   });
 
   it('resolves each track cover through the artwork cascade', async () => {
@@ -474,7 +484,7 @@ describe('ChartService.generateTrackChart', () => {
     expect(lastfmRepository.getTopTracks).not.toHaveBeenCalled();
   });
 
-  it('caches an artist filter in the key, so two filters never share an entry', async () => {
+  it('caches an artist filter in the key, NORMALISED, so two spellings share one entry', async () => {
     // Both filters have to be satisfiable. The track chart throws
     // `NotEnoughAlbumsError` BEFORE it ever writes the cache, so a filter with
     // no matching tracks would never produce a second key to compare against.
@@ -494,14 +504,58 @@ describe('ChartService.generateTrackChart', () => {
     await service.generateTrackChart('u1', 'DreadRock', settings({ filteredArtistName: 'Portishead' }));
     const other = (cache.set as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
 
-    // The filter lands in the key VERBATIM — unlike the username, which is
-    // lowercased (chartService.ts:338). Two spellings of one artist therefore
-    // produce two cache entries; the claim under test is only that the filter is
-    // part of the key at all, so a chart filtered to Portishead is never served
-    // from a Radiohead chart's entry.
-    expect(filtered).toContain('Radiohead');
-    expect(other).toContain('Portishead');
+    // Distinct filters must still be distinct keys, or a Portishead chart is
+    // served from a Radiohead entry — that is the part that was always true.
+    expect(filtered).toContain('radiohead');
+    expect(other).toContain('portishead');
     expect(filtered).not.toBe(other);
+  });
+
+it('two spellings of one artist filter are ONE cache entry, not two renders', async () => {
+    // The filter is applied with `toLowerCase()`, so `Radiohead` and `radiohead`
+    // select exactly the same tracks — but the key used to carry the raw
+    // spelling, so each got its own entry and each cost a Last.fm read and a
+    // Puppeteer render for a byte-identical result. Duplicate work, never a
+    // wrong answer, which is why it survived.
+    const { service, cache, lastfmRepository } = build();
+    (lastfmRepository.getTopTracks as ReturnType<typeof vi.fn>).mockResolvedValue([
+      track('A', { artistName: 'Radiohead' }),
+      track('B', { artistName: 'Radiohead' }),
+    ]);
+
+    await service.generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 2, filteredArtistName: 'Radiohead' }));
+    await service.generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 2, filteredArtistName: 'radiohead' }));
+
+    // BOTH calls' writes are collected — clearing the mock between them would
+    // leave one key either way and make this test pass on the code it is
+    // written against.
+    const keys = (cache.set as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as string);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
+    // The filter segment is lowercased. (The timespan and title segments are
+    // settings the caller spells and are not part of this claim.)
+    expect(keys[0]).toContain(':radiohead:');
+    expect(keys[0]).not.toContain(':Radiohead:');
+  });
+
+  it('an unfiltered chart is still keyed apart from a filtered one', async () => {
+    // `undefined` must not collapse onto the string "all" by accident, and the
+    // filtered key must not contain the literal "all" in a way that would.
+    const { service, cache, lastfmRepository } = build();
+    (lastfmRepository.getTopTracks as ReturnType<typeof vi.fn>).mockResolvedValue([
+      track('A', { artistName: 'Radiohead' }),
+      track('B', { artistName: 'Portishead' }),
+      track('C', { artistName: 'Massive Attack' }),
+    ]);
+
+    await service.generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 3 }));
+    const unfiltered = (cache.set as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    (cache.set as ReturnType<typeof vi.fn>).mockClear();
+    await service.generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 1, filteredArtistName: 'Radiohead' }));
+    const filtered = (cache.set as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+
+    expect(unfiltered).toContain(':all:');
+    expect(filtered).not.toBe(unfiltered);
   });
 
   it('queues a user update and survives a missing user row', async () => {

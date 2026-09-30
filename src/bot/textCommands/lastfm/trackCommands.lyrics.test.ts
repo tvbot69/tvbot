@@ -18,6 +18,11 @@ import type { LyricsResult } from '@bot/services/music/lyricsService';
  *     throwing the rest away turns "Sigma - Rickroll - Sigma" into artist
  *     "Sigma" and track "Rickroll". The rest is rejoined, and the test pins it
  *     with a title that actually contains the separator.
+ *  1b. **The separator at either END of the query.** It is tested on the raw
+ *     query rather than a trimmed copy, because trimming is what made `" - X"`
+ *     and `"X - "` invisible to the split. A leading one means "no artist"; a
+ *     trailing one leaves an empty title and is a usage error, not a song
+ *     called "X -".
  *  2. **A provider that answers with whitespace.** `plainLyrics: '   '` is
  *     "this song has no lyrics" and must render as the honest not-found. An
  *     embed built from it would show a titled card with a blank body, which
@@ -135,32 +140,43 @@ describe('.lyric — splitting "Artist - Track" without losing the rest of the t
     expect(lyricsService.getLyrics).toHaveBeenCalledWith('Airbag', undefined);
   });
 
-  it('CHARACTERISATION: a leading separator is TRIMMED away, so the dash stays in the title and the artist is absent', async () => {
+  it('a leading separator is seen by the split, so the title is searched and the artist is simply absent', async () => {
     // `" - Airbag"` is a user who typed the separator before the artist. The
-    // `.trim()` on line 473 removes the leading space, so `trimmed` is
-    // `"- Airbag"`, which does not contain `" - "` — the split branch is never
-    // taken. The whole string, dash included, becomes the track name and the
-    // artist is left `undefined` rather than empty.
+    // `.trim()` on the raw query removed the leading space, so `trimmed` was
+    // `"- Airbag"`, which does not contain `" - "` — the split branch was never
+    // taken and the dash became part of the track name.
     //
-    // That is an honest degradation, not a wrong answer: the card says
-    // "Could not find lyrics for **- Airbag**" with no `Artist – ` prefix,
-    // which is exactly what was asked for. What it loses is the artist's name,
-    // so the lookup is less likely to resolve than `"Airbag"` would be.
-    // Pinned as observed; reported separately.
+    // The fix is to test the separator on the joined query, where the space that
+    // makes it matchable still exists. An empty artist half then means "no
+    // artist given", which is the same thing the bare-title path above passes,
+    // so the provider is asked for `"Airbag"` with `undefined` — a title that can
+    // actually resolve — rather than for a song called "- Airbag".
     const { commands, lyricsService } = build({ result: null });
 
     const result = await run(commands, ' - Airbag');
 
-    expect(lyricsService.getLyrics).toHaveBeenCalledWith('- Airbag', undefined);
+    expect(lyricsService.getLyrics).toHaveBeenCalledWith('Airbag', undefined);
+    // Still the honest not-found when nothing has lyrics for it, and still with
+    // no `Artist – ` prefix, because there is no artist.
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
     expect(desc(result)).toContain('Airbag');
-    // No `Artist – ` prefix, because there is no artist: the NotFound sentence
-    // falls back to the bare track name.
     expect(desc(result)).not.toContain('–');
   });
 
+  it('a trailing separator is a usage error rather than a title ending in a dash', async () => {
+    // The same trimming, the other side. `"Radiohead - "` leaves an empty title,
+    // which used to be searched for as a song literally called "Radiohead -".
+    const { commands, lyricsService } = build();
+
+    const result = await run(commands, 'Radiohead - ');
+
+    expect(lyricsService.getLyrics).not.toHaveBeenCalled();
+    expect(result.commandResponse).toBe(CommandResponse.WrongInput);
+  });
+
   it('really does keep a title that legitimately contains a dash', async () => {
-    // The control for the test above: the same branch, entered from the RIGHT
-    // side, does split and does keep the tail.
+    // The control for the two tests above: the same branch, entered from the
+    // RIGHT side, does split and does keep the tail.
     const { commands, lyricsService } = build({ result: null });
 
     await run(commands, 'Radiohead - Airbag - Live');

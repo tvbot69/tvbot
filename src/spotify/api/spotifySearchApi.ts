@@ -49,6 +49,11 @@ export class SpotifySearchApi {
    * the doomed Spotify leg (and, because an inconclusive run is never cached
    * as a definitive miss, nothing was memoised either). A run of transport
    * failures now opens the same gate, briefly.
+   *
+   * Read in two places, and they used to disagree: `isRateLimited()`, which the
+   * four methods below consult for themselves, and `checkRateLimit()`, which
+   * guards the shared `search()` path. The window armed here is the one the
+   * comment above claims stops a doomed leg, so both readers see it.
    */
   private static outageUntil: number = 0;
   private static consecutiveTransportFailures = 0;
@@ -99,9 +104,20 @@ export class SpotifySearchApi {
   }
 
   private static checkRateLimit(): void {
-    if (Date.now() < SpotifySearchApi.rateLimitedUntil) {
-      const waitSec = Math.ceil((SpotifySearchApi.rateLimitedUntil - Date.now()) / 1000);
+    // BOTH deadlines, and that is the whole point: this is the gate on the
+    // shared `search()` path, which every ladder search and every search-rung
+    // artwork lookup goes through. It used to read `rateLimitedUntil` alone, so
+    // the 20-second outage window armed below was invisible here — a 429 stopped
+    // every lookup, while the 5xx / DNS / timeout outage this module exists to
+    // absorb stopped only the methods that check `isRateLimited()` themselves.
+    const now = Date.now();
+    if (now < SpotifySearchApi.rateLimitedUntil) {
+      const waitSec = Math.ceil((SpotifySearchApi.rateLimitedUntil - now) / 1000);
       throw new SpotifyUnavailableError(`Spotify rate limit cooldown active (${waitSec}s remaining)`);
+    }
+    if (now < SpotifySearchApi.outageUntil) {
+      const waitSec = Math.ceil((SpotifySearchApi.outageUntil - now) / 1000);
+      throw new SpotifyUnavailableError(`Spotify outage cooldown active (${waitSec}s remaining)`);
     }
   }
 
@@ -199,9 +215,22 @@ export class SpotifySearchApi {
       // used to return was indistinguishable from "no such artist" — and that is
       // the value `artworkService` caches as `'none'`.
       if (!token) throw new SpotifyUnavailableError('Spotify credentials not configured');
-      const res = await fetchWithTimeout(`https://api.spotify.com/v1/artists/${artistId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      let res: Response;
+      try {
+        res = await fetchWithTimeout(`https://api.spotify.com/v1/artists/${artistId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        // A DNS failure, a refused connection or a timeout is not an answer
+        // about the ARTIST. Unwrapped, it reached the outer catch, was not a
+        // `SpotifyUnavailableError`, and became the `null` that
+        // `artworkService` writes into its cache as `'none'` — so a five-second
+        // network blip recorded "this artist has no cover" as a fact for the
+        // whole negative-cache TTL. Same shape as `getTrack` and `search()`:
+        // count it toward the breaker and raise.
+        SpotifySearchApi.noteTransportFailure();
+        throw new SpotifyUnavailableError(`Spotify network error: ${String(err)}`);
+      }
       if (res.status === 401) {
         this.tokenManager.invalidate();
         // A rejected token is not a verdict on the artist, and the caller has a
@@ -709,13 +738,23 @@ export class SpotifySearchApi {
         SpotifySearchApi.handleRateLimit(res);
         throw new SpotifyUnavailableError('Spotify rate limited');
       }
-      if (res.status >= 500) {
-        SpotifySearchApi.noteTransportFailure();
+      // A 404 is Spotify saying the album has no tracklist. That IS an answer,
+      // and it stays an empty list. A 200 is the OTHER answer — the tracklist —
+      // so this branch used to read `res.status < 500`, which a 200 satisfies:
+      // the body parse below it was unreachable, `noteTransportSuccess` never
+      // ran, and the method answered `[]` for every successful response, so
+      // `albumService` fell back to the Last.fm tracklist for every album with
+      // nothing logged. Only the statuses that are not answers reach the raise.
+      if (res.status === 404) return [];
+      if (!res.ok) {
+        // A 4xx this module built and got rejected is a client bug, so it must
+        // NOT arm the transport breaker — the same split as
+        // `getArtistDiscographyCovers` — but it still must not be reported as
+        // "this album has no tracks". A 5xx is a genuine outage, and the raise
+        // reaches `albumService`'s existing WARN, which names the real reason.
+        if (res.status >= 500) SpotifySearchApi.noteTransportFailure();
         throw new SpotifyUnavailableError(`Spotify HTTP ${res.status}`);
       }
-      // A 404 is Spotify saying the album has no tracklist. That IS an answer,
-      // and it stays an empty list; a 5xx raised above is not.
-      if (res.status < 500) return [];
       SpotifySearchApi.noteTransportSuccess();
       const data = await res.json() as { items?: Array<{ name?: string }> };
       return (data.items ?? []).map((t) => t.name).filter((n): n is string => Boolean(n));

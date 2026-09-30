@@ -37,6 +37,8 @@ import { MusicSlashCommands } from './musicSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
+import { playErrorMessage } from '@bot/services/music/musicService';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import type { MusicService } from '@bot/services/music/musicService';
 import type { ColorService } from '@bot/services/colorService';
 import type { LyricsService } from '@bot/services/music/lyricsService';
@@ -132,6 +134,8 @@ const makeCtx = (spec: CtxSpec = {}): ContextModel => {
 interface Doubles {
   playResult?: unknown;
   queueInfo?: unknown;
+  /** What the node manager says is wrong, for a no-nodes play error. */
+  unavailable?: { reason: string; retryAfterMs: number };
   setVolume?: number | null;
   setLoop?: unknown;
   toggleAutoplay?: boolean | null;
@@ -151,10 +155,18 @@ interface Doubles {
 }
 
 const build = (over: Doubles = {}) => {
+  // The real sentence logic, reached the way production reaches it: a manager
+  // plus the module function. Re-implementing the strings here would make every
+  // assertion below a test of this file instead of of the service.
+  const moonlinkManager = {
+    getUnavailableReason: () => over.unavailable ?? { reason: 'rate-limited', retryAfterMs: 30_000 },
+  };
   const musicService = {
     // `play` is not a control subcommand, so it is never gated, but the gate
     // stub keeps a stray call from throwing.
     canControlPlayback: vi.fn(() => true),
+    playErrorMessage: (reason?: 'no-nodes' | 'voice' | 'search' | 'empty-spotify' | 'queue-full') =>
+      playErrorMessage(reason, moonlinkManager as unknown as MoonlinkManager),
     play: vi.fn(async () =>
       over.playResult ?? { loadType: 'track', track: TRACK, totalTracksAdded: 1, positionInQueue: 1 },
     ),
@@ -240,18 +252,39 @@ describe('/music play: the query the user typed, or the reason it failed', () =>
     expect(cardText(response)).toContain('queue is full');
   });
 
-  it('CHARACTERISATION: announces "Added to Queue" even when the service added nothing', async () => {
-    // The final `buildSimpleResponse('Added to Queue', ...)` arm fires for any
-    // loadType that is not empty/error/track and carries no `tracks`. So a
-    // playlist that resolved to nothing is announced as added. Pinned as a fact
-    // rather than a wish, and reported separately.
+  it('a no-nodes play error is answered from the real node state, not a rate limit', async () => {
+    // The user-visible shape of the bug: with `ENABLE_LAVALINK=false` the
+    // manager reports `disabled`, and the reply used to be "All music nodes are
+    // rate-limited right now. Try again in 30-60 seconds." — wrong, and waiting
+    // can never clear it. The command reaches this through the service's BOUND
+    // form (`musicService.playErrorMessage`), which is what supplies the
+    // manager; the free function has no way to.
+    const { cmd } = build({
+      playResult: { loadType: 'error', errorReason: 'no-nodes', totalTracksAdded: 0, positionInQueue: 0 },
+      unavailable: { reason: 'disabled', retryAfterMs: 0 },
+    });
+    const response = await call(cmd, 'executePlay', inVoice({ strings: { query: 'airbag' } }));
+
+    expect(response.commandResponse).toBe(CommandResponse.Error);
+    const text = cardText(response);
+    expect(text).toContain('disabled in this environment');
+    expect(text).not.toMatch(/rate-limited|try again/i);
+  });
+
+  it('refuses a source that resolved to nothing instead of announcing it as added', async () => {
+    // Every collection load type carries its tracks (musicService.ts:594-603,
+    // :839-845), so a `playlist` with none means NOTHING was added. The old
+    // final arm answered "Added to Queue" for it, which is a claim about a
+    // queue change that never happened.
     const { cmd } = build({
       playResult: { loadType: 'playlist', totalTracksAdded: 0, positionInQueue: 0 },
     });
     const response = await call(cmd, 'executePlay', inVoice({ strings: { query: 'my playlist' } }));
 
-    expect(response.commandResponse).toBe(CommandResponse.Ok);
-    expect(cardText(response)).toContain('Added to Queue');
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    const text = cardText(response);
+    expect(text).toContain('No tracks found');
+    expect(text).not.toContain('Added to Queue');
   });
 
   it('renders the now-playing card for a single resolved track', async () => {
@@ -290,15 +323,20 @@ describe('/music volume: a null from the service is not a volume of zero, and no
     expect(cardText(response)).toContain('currently set to **42%**');
   });
 
-  it('CHARACTERISATION: reports 100% for a player that does not exist', async () => {
-    // `const currentVol = queue?.volume ?? 100` - with no queue at all the
-    // fallback is a fabricated number, and "The player volume is currently set
-    // to 100%" is a claim about a player the server does not have. Reported
-    // separately; pinned so the fix has to change this test on purpose.
-    const { cmd } = build({ queueInfo: null });
+  it('refuses to report a volume for a player that does not exist', async () => {
+    // `const currentVol = queue?.volume ?? 100` made up a 100% for a guild with
+    // no queue at all, and "The player volume is currently set to 100%" is a
+    // claim about a player this server does not have. The opposite direction —
+    // a real player reporting its real volume — is the test above.
+    const { cmd, musicService } = build({ queueInfo: null });
     const response = await call(cmd, 'executeVolume', makeCtx({ sub: 'volume' }));
 
-    expect(cardText(response)).toContain('currently set to **100%**');
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    const text = cardText(response);
+    expect(text).toContain('No music is currently playing');
+    expect(text).not.toMatch(/currently set to/);
+    // And it never even tries to change anything.
+    expect(musicService.setVolume).not.toHaveBeenCalled();
   });
 
   it('refuses instead of printing "Volume set to null%" when there is no player', async () => {

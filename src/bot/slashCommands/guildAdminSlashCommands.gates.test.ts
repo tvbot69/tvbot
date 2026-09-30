@@ -26,12 +26,18 @@
  * there is nothing to count them for. That is the difference between an honest
  * not-found and a dashboard of zeroes.
  *
- * There IS a gap, and it is characterised rather than endorsed at the bottom of
- * this file: `/blocklist list` is the one handler in the module with no
- * `userIsGuildAdmin` check. Discord's `setDefaultMemberPermissions` hides the
- * command from non-admins at the interaction layer, so it is defence in depth
- * rather than a live hole - but every sibling command re-checks in the handler,
- * and this one does not.
+ * `/refreshmembers` has the same property one level down. Its card reports
+ * "Scanned N total Discord members", and N has to be a number somebody
+ * measured. A failed `members.fetch()` used to fall back to `members.cache`,
+ * and an EMPTY cache then rendered "Scanned 0 total Discord members" - a
+ * missing intent or a Discord outage reported as a guild with no members at
+ * all. It now refuses instead.
+ *
+ * Every one of the seven handlers re-checks `userIsGuildAdmin` in the handler
+ * body, including `/blocklist list`, which used to rely on the builder's
+ * `setDefaultMemberPermissions(ManageGuild)` alone. That is a client-side
+ * convenience, not a security boundary, and a moderator inviting the bot
+ * without the intent still reaches the interaction layer.
  *
  * Constructor arity, read from `guildAdminSlashCommands.ts`, all seven
  * positional and all required: guildService, guildAdminService, userService,
@@ -200,6 +206,7 @@ describe('GuildAdminSlashCommands: no Manage Server, no admin read, no admin wri
     ['/refreshmembers', (cmd, ctx) => h(cmd).refreshMembersSlashAsync(ctx)],
     ['/blocklist add', (cmd, ctx) => h(cmd).setBlockSlashAsync(ctx, 'other1', true)],
     ['/blocklist remove', (cmd, ctx) => h(cmd).setBlockSlashAsync(ctx, 'other1', false)],
+    ['/blocklist list', (cmd, ctx) => h(cmd).blockedUsersSlashAsync(ctx)],
     ['/crownthreshold', (cmd, ctx) => h(cmd).crownThresholdSlashAsync(ctx, 30)],
     ['/channeltogglecommand', (cmd, ctx) => h(cmd).channelToggleCommandSlashAsync(ctx, 'who')],
     ['/disabledchannel disable', (cmd, ctx) => h(cmd).disabledChannelSlashAsync(ctx, true)],
@@ -236,6 +243,17 @@ describe('GuildAdminSlashCommands: no Manage Server, no admin read, no admin wri
     expect(guildAdminService.getMembersOverview).not.toHaveBeenCalled();
     expect(guildAdminService.getBlockedUsers).not.toHaveBeenCalled();
     expect(prefixService.getPrefix).not.toHaveBeenCalled();
+  });
+
+  it('/blocklist list reads no blocklist for a non-admin', async () => {
+    // The gate has to fire BEFORE the read. A handler that computed the
+    // blocklist and then refused still leaked the data through its timing and
+    // its logs.
+    const { cmd, guildAdminService } = build({
+      blocked: [{ userId: 11, discordUserId: 'other2', userNameLastFm: 'Blocked', totalPlayCount: 1, crownsCount: 0, whoKnowsBanned: true }],
+    });
+    await h(cmd).blockedUsersSlashAsync(makeCtx({ admin: false }));
+    expect(guildAdminService.getBlockedUsers).not.toHaveBeenCalled();
   });
 });
 
@@ -290,13 +308,20 @@ describe('/members and /blocklist list', () => {
     expect(cardText(response)).toContain('No users are currently blocked');
   });
 
-  it('CHARACTERISATION: /blocklist list has no in-handler admin check', async () => {
-    // See the file header. The command declares ManageGuild so Discord hides it
-    // from non-admins, which is the real gate; this is the one handler of the
-    // seven that does not re-check. Pinned as a fact, not as a wish.
-    const { cmd } = build();
-    const response = await h(cmd).blockedUsersSlashAsync(makeCtx({ admin: false }));
+  it('CHARACTERISATION-FIXED: /blocklist list re-checks the admin gate in the handler', async () => {
+    // This handler used to be the one of the seven with no in-handler check, on
+    // the strength of the builder's `setDefaultMemberPermissions(ManageGuild)`
+    // alone. It now refuses, so this case is covered by the GATED table above;
+    // this test pins the opposite direction, because a handler that refused
+    // everything would pass that table.
+    const { cmd, guildAdminService } = build({
+      blocked: [{ userId: 11, discordUserId: 'other2', userNameLastFm: 'Blocked', totalPlayCount: 1, crownsCount: 0, whoKnowsBanned: true }],
+    });
+    const response = await h(cmd).blockedUsersSlashAsync(makeCtx({ admin: true }));
+
     expect(response.commandResponse).toBe(CommandResponse.Ok);
+    expect(guildAdminService.getBlockedUsers).toHaveBeenCalledWith('222');
+    expect(cardText(response)).toContain('Blocked');
   });
 });
 
@@ -314,9 +339,8 @@ describe('/refreshmembers: the member list it reports is the one it actually rea
 
   it('falls back to the member CACHE when the fetch fails, and says how many it scanned', async () => {
     // A Discord-side failure must not become a confident "0 members in this
-    // server". The degraded answer is the cache, and the card reports the count
-    // it really used. (With an EMPTY cache that still reads as zero - reported
-    // separately.)
+    // server" - but a CACHE that actually holds members is a real answer, and
+    // the card says it came from the cache.
     const cache = new Map<string, unknown>([['a', {}], ['b', {}], ['c', {}]]);
     const { cmd, guildAdminService } = build();
     const response = await h(cmd).refreshMembersSlashAsync(
@@ -331,6 +355,45 @@ describe('/refreshmembers: the member list it reports is the one it actually rea
 
     expect(guildAdminService.refreshGuildMembers).toHaveBeenCalledWith('222', ['a', 'b', 'c']);
     expect(cardText(response)).toContain('Scanned **3** total Discord members');
+  });
+
+  it('REFUSES when the fetch fails over an EMPTY cache, rather than reporting zero members', async () => {
+    // THE A1 TEST. A missing Server Members Intent, a revoked permission and a
+    // Discord outage all land here, and the card used to say "Scanned **0**
+    // total Discord members" with two derived counts beneath it - all three
+    // computed from a member list nobody managed to read. A guild with no
+    // members and a guild the bot cannot see are different facts, and only one
+    // of them is true here.
+    const { cmd, guildAdminService } = build();
+    const response = await h(cmd).refreshMembersSlashAsync(
+      makeCtx({
+        admin: true,
+        fetch: async () => {
+          throw new Error('Missing Access');
+        },
+        cache: new Map(),
+      }),
+    );
+
+    expect(response.commandResponse).toBe(CommandResponse.Error);
+    expect(cardText(response)).toContain('Could not read the member list');
+    // No "Scanned 0" anywhere: the absent value has to actually be absent from
+    // what the card renders, not merely be absent from the input.
+    expect(cardText(response)).not.toContain('Scanned');
+    expect(guildAdminService.refreshGuildMembers).not.toHaveBeenCalled();
+  });
+
+  it('does not mistake a successful empty fetch for a failure', async () => {
+    // The other half of the branch above. A fetch that SUCCEEDED is a
+    // measurement, and the handler is not allowed to second-guess it - that
+    // would turn a real answer into a refusal.
+    const { cmd, guildAdminService } = build();
+    const response = await h(cmd).refreshMembersSlashAsync(
+      makeCtx({ admin: true, fetch: async () => new Map(), cache: new Map() }),
+    );
+
+    expect(response.commandResponse).toBe(CommandResponse.Ok);
+    expect(guildAdminService.refreshGuildMembers).toHaveBeenCalledWith('222', []);
   });
 
   it('refuses outside a guild before it fetches anything', async () => {

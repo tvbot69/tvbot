@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AutopostService } from './autopostService';
 import type { AutopostConfig } from './autopostService';
 import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logger';
 
 /**
  * A scheduled post is a claim the user never asked for, and it outlives the
@@ -101,6 +102,31 @@ const textChannel = (guildName = 'The Guild') => {
 const clientWith = (channel: unknown) => ({
   channels: { fetch: vi.fn(async () => channel) },
 });
+
+/** A client whose fetch rejects with `err`, standing in for a Discord REST error. */
+const clientThrowing = (err: unknown) => ({
+  channels: { fetch: vi.fn(async () => { throw err; }) },
+});
+
+/** A `DiscordAPIError` shape: a numeric JSON error code, which is what the fix reads. */
+const discordError = (code: number, message: string) =>
+  Object.assign(new Error(message), { code, status: code });
+
+/**
+ * Every WARN line the service emitted, flattened, so a test can say "the operator
+ * is told THIS" rather than "something was logged". A test that only counted
+ * calls would pass on a single line that named none of the causes.
+ */
+const warnLines = (): string[] => {
+  return vi
+    .mocked(Logger.warn)
+    .mock.calls.map((call) => call.map((part) => (typeof part === 'string' ? part : JSON.stringify(part))).join(' '));
+};
+
+/** Log capture for the channel-failure cases; the real logger must stay quiet. */
+const captureWarns = (): void => {
+  vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+};
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -346,6 +372,135 @@ describe('AutopostService.postAutopost', () => {
 
     await expect(service.postAutopost(autopost, clientWith(channel) as never)).resolves.toBe(false);
     expect(autopost.lastPosted).toBeNull();
+  });
+});
+
+/**
+ * A channel the bot cannot post in, a channel that does not exist, and a fetch
+ * that failed for a moment are three different operator problems with three
+ * different fixes, and all three used to produce the SAME single WARN line. The
+ * sharpest is 50013: the channel is right there, the bot simply cannot use it,
+ * and nothing about that improves on its own — so an autopost re-failing every
+ * fifteen minutes looked in the log exactly like a network blip that would clear
+ * up on its own.
+ *
+ * The RETRY POLICY is deliberately unchanged: every one of these returns false,
+ * the sweep rolls the due-claim back and tries again next cycle. What is pinned
+ * here is only that the operator can tell them apart.
+ */
+describe('AutopostService.postAutopost — a missing capability is not a missing channel', () => {
+  it('names 50013 as a PERMISSIONS problem, with the fix, and not as a missing channel', async () => {
+    captureWarns();
+    const { service } = build();
+
+    await expect(
+      service.postAutopost(config(), clientThrowing(discordError(50013, 'Missing Access')) as never),
+    ).resolves.toBe(false);
+
+    const line = warnLines().join('\n');
+    expect(line).toContain('50013');
+    expect(line).toContain('cannot access');
+    // The channel EXISTS. Reporting it as gone is what sent an operator looking
+    // for a deleted channel that was still sitting right there.
+    expect(line).not.toMatch(/no longer exists|could not be found/);
+  });
+
+  it('names 50001 as a DELETED channel, distinctly from a permissions problem', async () => {
+    captureWarns();
+    const { service } = build();
+
+    await expect(
+      service.postAutopost(config(), clientThrowing(discordError(50001, 'Unknown Channel')) as never),
+    ).resolves.toBe(false);
+
+    const line = warnLines().join('\n');
+    expect(line).toContain('50001');
+    expect(line).toMatch(/no longer exists/);
+    expect(line).not.toMatch(/cannot access/);
+  });
+
+  it('names a transport failure as TRANSIENT, so it is read as neither of the other two', async () => {
+    captureWarns();
+    const { service } = build();
+
+    await expect(
+      service.postAutopost(config(), clientThrowing(new Error('socket hang up')) as never),
+    ).resolves.toBe(false);
+
+    const line = warnLines().join('\n');
+    expect(line).toMatch(/transient/);
+    expect(line).not.toMatch(/no longer exists|cannot access/);
+  });
+
+  it('separates a channel that EXISTS but is not a text channel from all three', async () => {
+    captureWarns();
+    const { service } = build();
+    const channel = { isTextBased: () => false, guild: { name: 'G' }, send: vi.fn() };
+
+    await expect(service.postAutopost(config(), clientWith(channel) as never)).resolves.toBe(false);
+
+    const line = warnLines().join('\n');
+    expect(line).toMatch(/not a text channel/);
+    expect(line).not.toMatch(/transient|no longer exists|cannot access/);
+  });
+
+  it('a fetch that RESOLVES to null is a missing channel, not a transient failure', async () => {
+    // discord.js answers `null` rather than throwing when the channel is not in
+    // the cache, so this arm needs its own line as well.
+    captureWarns();
+    const { service } = build();
+
+    await expect(service.postAutopost(config(), clientWith(null) as never)).resolves.toBe(false);
+
+    const line = warnLines().join('\n');
+    expect(line).toMatch(/could not be found/);
+    expect(line).not.toMatch(/transient/);
+  });
+
+  it('the four outcomes produce FOUR DIFFERENT lines, which is the actual claim', async () => {
+    captureWarns();
+    const { service } = build();
+    const voice = { isTextBased: () => false, guild: { name: 'G' }, send: vi.fn() };
+
+    await service.postAutopost(config(), clientThrowing(discordError(50013, 'Missing Access')) as never);
+    await service.postAutopost(config(), clientThrowing(discordError(50001, 'Unknown Channel')) as never);
+    await service.postAutopost(config(), clientThrowing(new Error('socket hang up')) as never);
+    await service.postAutopost(config(), clientWith(voice) as never);
+
+    // Four calls, four distinct messages. Any pair sharing a line is the bug.
+    expect(new Set(warnLines()).size).toBe(4);
+  });
+
+  it('does NOT change the retry policy: all four still return false and stamp nothing', async () => {
+    captureWarns();
+    const { service } = build();
+    const voice = { isTextBased: () => false, guild: { name: 'G' }, send: vi.fn() };
+
+    for (const client of [
+      clientThrowing(discordError(50013, 'Missing Access')),
+      clientThrowing(discordError(50001, 'Unknown Channel')),
+      clientThrowing(new Error('socket hang up')),
+      clientWith(voice),
+    ]) {
+      const autopost = config({ lastPosted: null });
+      await expect(service.postAutopost(autopost, client as never)).resolves.toBe(false);
+      // Unchanged on purpose. The sweep rolls the claim back and retries, which
+      // is right for a blip and is the only thing standing between a 50013 and a
+      // silently abandoned autopost; the fix here is diagnosability, not policy.
+      expect(autopost.lastPosted).toBeNull();
+    }
+  });
+
+  it('CONTROL: a healthy channel logs no warning at all', async () => {
+    // So the four-line assertion above cannot pass by the service warning more
+    // than it should.
+    captureWarns();
+    const { service } = build();
+    const { channel } = textChannel();
+
+    await expect(service.postAutopost(config(), clientWith(channel) as never)).resolves.toBe(true);
+
+    expect(Logger.warn).not.toHaveBeenCalled();
   });
 });
 

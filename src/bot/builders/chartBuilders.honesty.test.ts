@@ -2,17 +2,20 @@
  * `ChartBuilders` — the `.chart` album/artist/track cards and the
  * "not enough images" refusal.
  *
- * A chart card is almost entirely a claim about an IMAGE, and the two ways that
- * can go wrong are both here:
+ * A chart card is almost entirely a claim about an IMAGE, and the ways that can
+ * go wrong are all here:
  *
- *  1. The scrobble count line. `(user.totalPlayCount ?? 0)` means an unread
- *     play count renders as "has 0 scrobbles". Recorded at the bottom of this
- *     file, not endorsed — a chart with no image and a scroble count of zero is
- *     two confident wrong claims stacked on one card.
- *  2. A `ChartResult` with neither `imageUrl` nor `buffer` produces a card with a
- *     heading, an edit button and no chart, and nothing on it says the render
- *     failed. That is a silent wrong answer about the user's listening, so it is
- *     asserted here as current behaviour and reported.
+ *  1. The scrobble count line. `totalPlayCount` is `number | undefined` on the
+ *     user row, so the line is guarded by presence: an unread count is never
+ *     rendered as "has 0 scrobbles". A supplied zero still renders.
+ *  2. A `ChartResult` with neither `imageUrl` nor `buffer` used to produce a card
+ *     with a heading, an Edit button and no chart, and nothing on it saying the
+ *     render failed. It now says so.
+ *  3. The Edit button. Its custom id embeds the creator's Discord id and
+ *     `ChartInteractions.handleEditButton` refuses anyone whose
+ *     `interaction.user.id` does not match it, so a card that renders the button
+ *     without a real creator id offers a control its own handler will reject. The
+ *     button is rendered only when the author object carries a Discord snowflake.
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
@@ -67,16 +70,35 @@ const editButton = (response: ResponseModel) =>
     .components.filter(c => c.type === ComponentType.Section)
     .flatMap(c => (c.accessory ? [c.accessory] : []));
 
+/**
+ * The scrobble line rides in a Section when the Edit button is present and is a
+ * plain top-level text block when it is not, so an assertion about it has to read
+ * both. Reading only the section would pass for the wrong reason.
+ */
+const scrobbleLine = (response: ResponseModel): string => [...sectionTexts(response), ...texts(response)].join('\n');
+
 const user: User = {
   userId: 3,
   userNameLastFm: 'listener',
-  discordUserId: 'discord-1',
+  // A real Discord snowflake: the Edit button's custom id embeds it and
+  // `ChartInteractions` compares it against `interaction.user.id`.
+  discordUserId: '100000000000000001',
   registeredOn: new Date('2024-01-01T00:00:00Z'),
   userType: UserType.User,
   dataSource: DataSource.LastFm,
   privacyLevel: PrivacyLevel.Default,
   totalPlayCount: 188_022,
 };
+
+/**
+ * What `chartSlashCommands` actually passes: an author object carrying only the
+ * Last.fm name and the play count. There is no Discord id on it, so no button
+ * whose handler could ever accept a press.
+ */
+const userWithoutCreator: User = {
+  userNameLastFm: 'listener',
+  totalPlayCount: 188_022,
+} as User;
 
 const topAlbum = (name: string, artistName = 'Radiohead', playcount = 10): TopAlbum => ({ name, artistName, playcount });
 const topArtist = (name: string, playcount = 10): TopArtist => ({ name, playcount });
@@ -218,9 +240,9 @@ describe('ChartBuilders chart cards', () => {
     const track = editButton(
       ChartBuilders.buildTrackChartResponse(user, undefined, result(), settings({ trackChart: true })),
     );
-    expect(album[0]?.custom_id).toContain('chart-edit:discord-1:a:3x3:weekly:');
-    expect(artist[0]?.custom_id).toContain('chart-edit:discord-1:r:3x3:weekly:');
-    expect(track[0]?.custom_id).toContain('chart-edit:discord-1:t:3x3:weekly:');
+    expect(album[0]?.custom_id).toContain('chart-edit:100000000000000001:a:3x3:weekly:');
+    expect(artist[0]?.custom_id).toContain('chart-edit:100000000000000001:r:3x3:weekly:');
+    expect(track[0]?.custom_id).toContain('chart-edit:100000000000000001:t:3x3:weekly:');
   });
 
   it('falls back to an "overall" period token when the time settings are missing', () => {
@@ -245,7 +267,8 @@ describe('ChartBuilders chart cards', () => {
     const response = ChartBuilders.buildAlbumChartResponse(user, undefined, result({ imageUrl: undefined }), settings());
     expect(response.isComponentsV2).toBe(true);
     expect(json(response).components.length).toBeGreaterThan(0);
-    expect(texts(response)[0]).toContain('[3x3 weekly chart]');
+    // The failure notice is rendered, so the title is no longer the first block.
+    expect(texts(response).some(t => t.includes('[3x3 weekly chart]'))).toBe(true);
   });
 
   it('sets the container accent only when one was supplied', () => {
@@ -290,19 +313,129 @@ describe('ChartBuilders.buildNotEnoughAlbumsError', () => {
 });
 
 /**
- * Recorded, not fixed: `totalPlayCount` is `number | undefined` on the user row,
- * and the `?? 0` in `applyV2Container` turns "we do not know" into "0
- * scrobbles", which is a measurement claim about the listener.
+ * `totalPlayCount` is `number | undefined` on the user row, so the line is guarded
+ * by presence. The old `?? 0` turned "we do not know" into "0 scrobbles", which
+ * is a measurement claim about the listener — and a chart with no image AND a
+ * scroble count of zero is two confident wrong claims stacked on one card. A
+ * supplied zero is still rendered, because a zero that was measured is an answer.
  */
-describe('ChartBuilders: an unread play count becomes a printed zero', () => {
-  it('prints 0 scrobbles when the user row has no stored total', () => {
+describe('ChartBuilders: an unread play count is not rendered as a number', () => {
+  it('never prints a scrobble count the user row does not have', () => {
     const { totalPlayCount: _ignored, ...withoutCount } = user;
     const response = ChartBuilders.buildAlbumChartResponse(withoutCount as User, undefined, result(), settings());
-    expect(sectionTexts(response)).toContain('-# listener has 0 scrobbles');
+    expect(scrobbleLine(response)).not.toMatch(/has \d+ scrobbles/);
+    expect(scrobbleLine(response)).not.toContain('0 scrobbles');
+    expect(scrobbleLine(response)).toContain('Scrobble total unavailable');
   });
 
-  it('still prints the real total when one is stored, so the zero is only the fallback', () => {
+  it('still prints the real total when one is stored, so the omission is a guard and not the path', () => {
     const response = ChartBuilders.buildAlbumChartResponse(user, undefined, result(), settings());
-    expect(sectionTexts(response)).toContain('-# listener has 188,022 scrobbles');
+    expect(scrobbleLine(response)).toContain('-# listener has 188,022 scrobbles');
+  });
+
+  it('still prints a supplied zero, because a measured zero is a real answer', () => {
+    const response = ChartBuilders.buildAlbumChartResponse(
+      { ...user, totalPlayCount: 0 },
+      undefined,
+      result(),
+      settings(),
+    );
+    expect(scrobbleLine(response)).toContain('-# listener has 0 scrobbles');
+  });
+});
+
+/**
+ * A `ChartResult` with neither `imageUrl` nor `buffer` means the render produced
+ * nothing. The card used to be a heading, an Edit button and an empty space, which
+ * is a chart-shaped hole: the user cannot tell a failed render from a blank album.
+ */
+describe('ChartBuilders: a chart that failed to render says so', () => {
+  const nothing = { imageUrl: undefined, buffer: undefined } as Partial<ChartResult>;
+
+  it('states the failure in words instead of leaving a chart-shaped hole', () => {
+    const response = ChartBuilders.buildAlbumChartResponse(user, undefined, result(nothing), settings());
+    const notice = texts(response).find(t => t.includes('chart'));
+    expect(notice).toBeDefined();
+    expect(notice).toContain('The chart image could not be generated');
+  });
+
+  it('sends no gallery item and no attachment for a render that produced nothing', () => {
+    const response = ChartBuilders.buildAlbumChartResponse(user, undefined, result(nothing), settings());
+    expect(galleryItems(response)).toEqual([]);
+    expect(response.hasFile()).toBe(false);
+  });
+
+  it('says nothing of the sort when the chart did render', () => {
+    const rendered = texts(ChartBuilders.buildAlbumChartResponse(user, undefined, result(), settings()));
+    expect(rendered.some(t => t.includes('could not be generated'))).toBe(false);
+  });
+
+  it('says the same thing whichever of the three chart types failed', () => {
+    const album = ChartBuilders.buildAlbumChartResponse(user, undefined, result(nothing), settings());
+    const artist = ChartBuilders.buildArtistChartResponse(
+      user,
+      undefined,
+      result(nothing),
+      settings({ artistChart: true }),
+    );
+    const track = ChartBuilders.buildTrackChartResponse(user, undefined, result(nothing), settings({ trackChart: true }));
+    const notice = (r: ResponseModel) => texts(r).find(t => t.includes('could not be generated'));
+    // Asserting the notice exists first, or `undefined === undefined` would pass
+    // on a card that says nothing at all.
+    expect(notice(album)).toBeDefined();
+    expect(notice(artist)).toBe(notice(album));
+    expect(notice(track)).toBe(notice(album));
+  });
+});
+
+/**
+ * The Edit button is only honest when its own handler can accept it.
+ * `ChartInteractions.handleEditButton` compares `interaction.user.id` against the
+ * id embedded in the custom id and replies "Only the chart creator can edit this
+ * chart." to everyone else — and `chartSlashCommands` builds its author object
+ * from `{ userNameLastFm, totalPlayCount }` alone, so the id is `undefined` at
+ * runtime and the button refuses everybody. A control that can only fail is not a
+ * control.
+ */
+describe('ChartBuilders: the Edit button is rendered only when it can work', () => {
+  it('embeds a real creator id whenever the button is present', () => {
+    const buttons = editButton(ChartBuilders.buildAlbumChartResponse(user, undefined, result(), settings()));
+    expect(buttons).toHaveLength(1);
+    const creatorId = buttons[0]?.custom_id?.split(':')[1];
+    expect(creatorId).toBe('100000000000000001');
+    expect(creatorId).not.toBe('undefined');
+  });
+
+  it('renders no button at all when the author object carries no Discord id', () => {
+    const response = ChartBuilders.buildAlbumChartResponse(userWithoutCreator, undefined, result(), settings());
+    expect(editButton(response)).toEqual([]);
+    expect(JSON.stringify(json(response).components)).not.toContain('chart-edit');
+  });
+
+  it('renders no button when the author id is not a Discord snowflake', () => {
+    // A placeholder string is not an id: `interaction.user.id` can never equal it,
+    // so the handler would refuse every press just the same.
+    const response = ChartBuilders.buildAlbumChartResponse(
+      { ...user, discordUserId: 'discord-1' },
+      undefined,
+      result(),
+      settings(),
+    );
+    expect(editButton(response)).toEqual([]);
+  });
+
+  it('still sends the scrobble line as a plain text block, since a Section needs an accessory', () => {
+    // The honest no-button shape must still serialise, and must not lose the line
+    // in the process.
+    const response = ChartBuilders.buildAlbumChartResponse(userWithoutCreator, undefined, result(), settings());
+    expect(() => json(response)).not.toThrow();
+    expect(scrobbleLine(response)).toContain('-# listener has 188,022 scrobbles');
+  });
+
+  it('serialises with and without a creator id and with and without a play count', () => {
+    const { totalPlayCount: _ignored, ...withoutCount } = user;
+    for (const author of [user, userWithoutCreator, { ...user, discordUserId: 'discord-1' }, withoutCount as User]) {
+      expect(() => json(ChartBuilders.buildAlbumChartResponse(author, undefined, result(), settings()))).not.toThrow();
+    }
   });
 });

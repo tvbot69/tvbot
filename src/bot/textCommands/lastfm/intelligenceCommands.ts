@@ -23,6 +23,16 @@ interface TargetResolution {
   targetUser: User;
   displayName: string;
   cleanSearchValue: string;
+  /**
+   * False when `targetUser` is a Last.fm name the bot holds no indexed history
+   * for - the `lfm:` prefix with no registered match. `getListeningGaps`,
+   * `getDiscoveries` and `getGuildAffinity` are all keyed on `userId`, so
+   * asking them about a name we never indexed would answer with the CALLER's
+   * rows under a stranger's name (`.gaps`/`.discoveries`), or score every
+   * neighbour in the server against an empty target profile and print "nobody
+   * here has a similar taste" (`.affinity`).
+   */
+  hasIndexedHistory: boolean;
 }
 
 import { IcebergGenerator } from '@images/generators/icebergGenerator';
@@ -90,18 +100,26 @@ export class IntelligenceCommands implements ITextCommandModule {
     let cleanSearchValue = rawOptions.trim();
     let targetUser = callerUser;
     let displayName = context.discordDisplayName;
+    let hasIndexedHistory = true;
 
     const mentionMatch = cleanSearchValue.match(/<@!?(\d+)>/);
     if (mentionMatch && mentionMatch[1]) {
       const mentionedDiscordId = mentionMatch[1];
       const foundUser = await this.userService.getUserByDiscordId(mentionedDiscordId);
-      if (foundUser) {
-        targetUser = foundUser;
-        displayName = foundUser.userNameLastFm;
+      if (!foundUser) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `<@${mentionedDiscordId}> hasn't connected their Last.fm account yet.`,
+        );
       }
+      targetUser = foundUser;
+      displayName = foundUser.userNameLastFm;
       cleanSearchValue = cleanSearchValue.replace(mentionMatch[0], '').trim();
     } else {
-      const lfmMatch = cleanSearchValue.match(/lfm:([a-zA-Z0-9_-]+)/i);
+      // Same prefix grammar as `playcountCommands`: the name runs to the next
+      // whitespace, so `lfm:john.smith` is one name rather than `john` plus a
+      // leftover `.smith` that the period parser would read as part of it.
+      const lfmMatch = cleanSearchValue.match(/\blfm:(\S+)/i);
       if (lfmMatch && lfmMatch[1]) {
         const lfmName = lfmMatch[1];
         const foundUser = await this.userService.getUserByLastFmName(lfmName);
@@ -109,12 +127,19 @@ export class IntelligenceCommands implements ITextCommandModule {
           targetUser = foundUser;
           displayName = foundUser.userNameLastFm;
         } else {
+          // `userId: 0` is a sentinel, not a real account: nothing is indexed
+          // under it, so no per-user query can silently read the caller's rows.
+          // `icebergAsync` is unaffected - `getIceberg` classifies artists by
+          // catalogue popularity and never looks at the user id at all. The
+          // commands that DO read a user id refuse below.
           targetUser = {
             ...callerUser,
+            userId: 0,
             userNameLastFm: lfmName,
             discordUserId: '0',
-          };
+          } as User;
           displayName = lfmName;
+          hasIndexedHistory = false;
         }
         cleanSearchValue = cleanSearchValue.replace(lfmMatch[0], '').trim();
       }
@@ -125,7 +150,27 @@ export class IntelligenceCommands implements ITextCommandModule {
       targetUser,
       displayName,
       cleanSearchValue,
+      hasIndexedHistory,
     };
+  }
+
+  /**
+   * The three commands below read the bot's own index, which exists only for
+   * accounts somebody here has linked. A `lfm:` name nobody has linked has no
+   * history to read, and saying so beats the honest-looking empty card - that
+   * card is a claim about a whole listening history we have never seen, and for
+   * `.affinity` it is a claim about a server full of real people.
+   *
+   * `.iceberg` is deliberately NOT in this set: `getIceberg` classifies artists
+   * by catalogue popularity and never reads a user id, so an unlinked `lfm:`
+   * name is a real Last.fm account to it and `.iceberg lfm:stranger` answers
+   * correctly.
+   */
+  private noIndexedHistoryResponse(displayName: string): ResponseModel {
+    return GenericEmbedService.buildCommandErrorResponse(
+      CommandResponse.NotFound,
+      `I have no indexed listening history for **${displayName}**. This is computed from the bot's own index, which only covers accounts that have linked it - so an unlinked account has nothing to show here.`,
+    );
   }
 
   private async listeningGapsAsync(
@@ -135,6 +180,7 @@ export class IntelligenceCommands implements ITextCommandModule {
   ): Promise<ResponseModel> {
     const target = await this.resolveTarget(context, rawOptions);
     if ('commandResponse' in target) return target;
+    if (!target.hasIndexedHistory) return this.noIndexedHistoryResponse(target.displayName);
 
     let entityType: GapEntityType = defaultType;
     let clean = target.cleanSearchValue;
@@ -188,6 +234,8 @@ export class IntelligenceCommands implements ITextCommandModule {
   ): Promise<ResponseModel> {
     const target = await this.resolveTarget(context, rawOptions);
     if ('commandResponse' in target) return target;
+
+    if (!target.hasIndexedHistory) return this.noIndexedHistoryResponse(target.displayName);
 
     const timeSettings = this.settingService.getTimePeriod(target.cleanSearchValue);
     const start = timeSettings.startDateTime ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -293,6 +341,15 @@ export class IntelligenceCommands implements ITextCommandModule {
 
     const target = await this.resolveTarget(context, rawOptions);
     if ('commandResponse' in target) return target;
+
+    // The refusal `.gaps` and `.discoveries` make, for the same reason and in
+    // the same shape. `getGuildAffinity` excludes the target BY `userId` and
+    // reads the target's top artists by `userId`, so the `userId: 0` sentinel
+    // is what stopped the leak of the caller's rows — and it is also why the
+    // card is now unsupported: every neighbour scores 0% against an empty target
+    // profile and the card reads "nobody in this server has a similar taste",
+    // which is a claim about real people built on a target we never indexed.
+    if (!target.hasIndexedHistory) return this.noIndexedHistoryResponse(target.displayName);
 
     const guildName = context.guild?.name || 'this server';
 

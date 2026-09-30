@@ -31,6 +31,22 @@ const MAX_MEDIA_DESCRIPTION_LENGTH = 340;
 const lastfmUserUrl = (userName: string): string =>
   `https://www.last.fm/user/${encodeURIComponent(userName)}`;
 
+/**
+ * The Edit button's custom id carries the creator's Discord id, and
+ * `ChartInteractions.handleEditButton` refuses anyone whose `interaction.user.id`
+ * does not equal it. A card that ships a button nobody can ever press is a
+ * control that lies, so the builder only offers the button when the author object
+ * actually carries a Discord user id — a snowflake. `chartSlashCommands` builds
+ * that author from `{ userNameLastFm, totalPlayCount }` alone, so the id is
+ * genuinely absent in production and the button must not appear.
+ */
+const CREATOR_ID_PATTERN = /^\d{5,}$/;
+
+const creatorIdOf = (user: User): string | null => {
+  const id = user.discordUserId;
+  return typeof id === 'string' && CREATOR_ID_PATTERN.test(id) ? id : null;
+};
+
 const libraryUrl = (userName: string, chartSettings: ChartSettings): string => {
   const preset = chartSettings.timeSettings?.urlParameter;
   const sub = chartSettings.trackChart
@@ -119,17 +135,25 @@ export class ChartBuilders {
       `**[${sizeLabel} ${timespanLower} chart]` +
       `(${libraryUrl(user.userNameLastFm, chartSettings)}) for ${displayName}**`;
 
+    // Presence, not magnitude. `totalPlayCount` is `number | undefined` on the
+    // user row, and an unread count must not become "has 0 scrobbles". It is
+    // still rendered when a real count — including a real zero — was supplied.
     const scrobblesText =
-      `-# ${user.userNameLastFm} has ${(user.totalPlayCount ?? 0).toLocaleString()} scrobbles`;
+      user.totalPlayCount !== undefined
+        ? `-# ${user.userNameLastFm} has ${user.totalPlayCount.toLocaleString()} scrobbles`
+        : '-# Scrobble total unavailable';
 
     const typeCode = chartSettings.trackChart ? 't' : chartSettings.artistChart ? 'r' : 'a';
-    const editButton = new ButtonBuilder()
-      .setCustomId(
-        `chart-edit:${user.discordUserId}:${typeCode}:` +
-          `${sizeLabel}:${periodToken}:1:0:0:0:0:0:0:${user.userNameLastFm}`,
-      )
-      .setLabel('Edit')
-      .setStyle(ButtonStyle.Secondary);
+    const creatorId = creatorIdOf(user);
+    const editButton = creatorId
+      ? new ButtonBuilder()
+        .setCustomId(
+          `chart-edit:${creatorId}:${typeCode}:` +
+            `${sizeLabel}:${periodToken}:1:0:0:0:0:0:0:${user.userNameLastFm}`,
+        )
+        .setLabel('Edit')
+        .setStyle(ButtonStyle.Secondary)
+      : null;
 
     const container = new ContainerBuilder();
     if (accentColor !== undefined && accentColor !== null) {
@@ -163,15 +187,29 @@ export class ChartBuilders {
         'chart.png',
         `${chartSettings.width}x${chartSettings.height} ${chartType} chart`,
       );
+    } else {
+      // No image and no upload. Say so: a card with a heading and an Edit button
+      // and no chart reads as a chart the user is being shown.
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(
+          '-# The chart image could not be generated. Try a smaller size, or a different time period.',
+        ),
+      );
     }
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
 
-    container.addSectionComponents(
-      new SectionBuilder()
-        .addTextDisplayComponents(new TextDisplayBuilder().setContent(scrobblesText))
-        .setButtonAccessory(editButton),
-    );
+    // A Section needs both an accessory and at least one text component, so the
+    // scrobble line is a plain text block whenever the Edit button is absent.
+    if (editButton) {
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(scrobblesText))
+          .setButtonAccessory(editButton),
+      );
+    } else {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(scrobblesText));
+    }
 
     response.setComponentsV2Container(container);
   }

@@ -10,16 +10,16 @@ import { WhoKnowsRepository } from './whoKnowsRepository';
  * Two things are load-bearing across all six and neither is visible in a
  * return value:
  *
- *  1. THE ABUSE-FLAG CLAUSE IS NOT UNIFORM. All three `getIndexedUsersFor*`
- *     queries carry
- *       NOT EXISTS (SELECT 1 FROM abuse_flags af WHERE ...)
- *     and none of the three `getFriendUsersFor*` queries do. An account that
- *     was removed from the guild leaderboard for abuse still appears in the
- *     personal "your friends also listen to this" list. The source tells the
- *     story in its own naming: the friend variants declare `_guildId` and never
- *     use it. `whoKnowsRepository.db.test.ts` already pins the behaviour with
- *     real rows for the artist variant; this file pins the SQL SHAPE for all
- *     six, so unifying them is a visible edit.
+ *  1. ALL SIX QUERIES NOW CARRY THE ABUSE-FLAG CLAUSE. The three
+ *     `getIndexedUsersFor*` queries always did; the three `getFriendUsersFor*`
+ *     queries did not, so an account banned for abuse disappeared from the
+ *     guild leaderboard and still appeared in the personal "your friends also
+ *     listen to this" list — the same moderation decision answered two ways
+ *     from two queries about the same user. The friend variants still declare
+ *     `_guildId` and still ignore it, which is a separate (deliberate) fact:
+ *     a friends list is personal, but "personal" is not "exempt".
+ *     `whoKnowsRepository.db.test.ts` asserts the same thing with real rows.
+ *     Pinned here for all six so the two halves cannot drift apart again.
  *
  *  2. THE NUMERIC COERCION IS NOT COSMETIC. `user_artists.playcount` is an
  *     `int4`, but the artist query sums it and casts to `::bigint`, and a
@@ -240,15 +240,16 @@ describe('WhoKnowsRepository.getFriendUsersForArtist', () => {
     expect(sqlOf(d.$queryRaw).sql).toMatch(/UPPER\(ua\.name\) = UPPER\(\?\)/);
   });
 
-  it('DOCUMENTS THE INCONSISTENCY: this query does NOT exclude abuse-flagged users', async () => {
+  it('excludes abuse-flagged users, the same clause the indexed queries carry', async () => {
     d = makePrisma([]);
     repo = new WhoKnowsRepository(d as never);
     await repo.getFriendUsersForArtist(1, 'Radiohead');
-    // The three `getIndexedUsersFor*` queries all carry this clause. Its
-    // absence here is why an account banned for abuse disappears from the
-    // guild board and reappears in the personal friends list. Pinned, not
-    // endorsed.
-    expect(sqlOf(d.$queryRaw).sql).not.toMatch(/abuse_flags/);
+    const { sql } = sqlOf(d.$queryRaw);
+    // The three `getIndexedUsersFor*` queries all carry this clause. Its absence
+    // here used to be why an account banned for abuse disappeared from the
+    // guild board and reappeared in the personal friends list.
+    expect(sql).toMatch(/NOT EXISTS \(SELECT 1 FROM abuse_flags af WHERE af\.user_id = ua\.user_id/);
+    expect(sql).toMatch(/af\.expires_at IS NULL OR af\.expires_at > NOW\(\)/);
   });
 
   it('ignores the optional guildId argument, because a friends list is personal', async () => {
@@ -293,11 +294,29 @@ describe('WhoKnowsRepository.getFriendUsersForAlbum', () => {
     expect(values).toEqual([1, 42]);
   });
 
-  it('DOCUMENTS THE INCONSISTENCY: this query does NOT exclude abuse-flagged users', async () => {
+  it('excludes abuse-flagged users, the same clause the indexed queries carry', async () => {
     d = makePrisma([]);
     repo = new WhoKnowsRepository(d as never);
-    await repo.getFriendUsersForAlbum(1, 42);
-    expect(sqlOf(d.$queryRaw).sql).not.toMatch(/abuse_flags/);
+    // Positional: (userId, albumId, guildId). The third argument is unused by the
+    // method today — the clause is keyed on the user, not the guild — and is passed
+    // here so that a future guild-scoped flag has to be argued for explicitly.
+    await repo.getFriendUsersForAlbum(1, 42, GUILD);
+    const { sql } = sqlOf(d.$queryRaw);
+
+    // `expires_at IS NULL` is the permanent flag; the `> NOW()` arm is the
+    // TTL-bound one. Dropping either leaves lapsed flags applied forever.
+    expect(sql).toMatch(/NOT EXISTS \(SELECT 1 FROM abuse_flags af WHERE af\.user_id = ub\.user_id/);
+    expect(sql).toMatch(/af\.expires_at IS NULL OR af\.expires_at > NOW\(\)/);
+  });
+
+  it('CONTROL: a friend who is not flagged is still returned, so this is a filter and not a wipe', () => {
+    d = makePrisma([rawRow({ playcount: '12', userNameLastFm: 'alice' })]);
+    repo = new WhoKnowsRepository(d as never);
+    // The clause lives in SQL, so a double cannot evaluate it — this is here so
+    // the test above cannot pass by the query returning nothing at all.
+    return expect(repo.getFriendUsersForAlbum(1, 42)).resolves.toEqual([
+      { userId: 7, playcount: 12, userNameLastFm: 'alice' },
+    ]);
   });
 
   it('returns an empty list when no friend has played the album', async () => {
@@ -332,11 +351,13 @@ describe('WhoKnowsRepository.getFriendUsersForTrack', () => {
     expect(values).toEqual([1, 77]);
   });
 
-  it('DOCUMENTS THE INCONSISTENCY: this query does NOT exclude abuse-flagged users', async () => {
+  it('excludes abuse-flagged users, the same clause the indexed queries carry', async () => {
     d = makePrisma([]);
     repo = new WhoKnowsRepository(d as never);
     await repo.getFriendUsersForTrack(1, 77);
-    expect(sqlOf(d.$queryRaw).sql).not.toMatch(/abuse_flags/);
+    const { sql } = sqlOf(d.$queryRaw);
+    expect(sql).toMatch(/NOT EXISTS \(SELECT 1 FROM abuse_flags af WHERE af\.user_id = ut\.user_id/);
+    expect(sql).toMatch(/af\.expires_at IS NULL OR af\.expires_at > NOW\(\)/);
   });
 
   it('returns an empty list when no friend has played the track', async () => {
@@ -350,6 +371,31 @@ describe('WhoKnowsRepository.getFriendUsersForTrack', () => {
 });
 
 describe('WhoKnowsRepository: the album and track indexed queries share one guild-scoping shape', () => {
+  it('ALL SIX queries exclude abuse-flagged users, identically', async () => {
+    // The single assertion that makes the moderation rule uniform, because it
+    // is the one thing the three per-method tests above cannot prove on their
+    // own: six queries written six times drift, and this is the drift that
+    // mattered. A new seventh query is not covered here until it is added to
+    // this list, which is the point.
+    for (const call of [
+      () => repo.getIndexedUsersForArtist(GUILD, 'Radiohead'),
+      () => repo.getIndexedUsersForAlbum(GUILD, 42),
+      () => repo.getIndexedUsersForTrack(GUILD, 77),
+      () => repo.getFriendUsersForArtist(1, 'Radiohead'),
+      () => repo.getFriendUsersForAlbum(1, 42),
+      () => repo.getFriendUsersForTrack(1, 77),
+    ] as Array<() => Promise<unknown>>) {
+      d = makePrisma([]);
+      repo = new WhoKnowsRepository(d as never);
+      await call();
+      const { sql } = sqlOf(d.$queryRaw);
+      // The alias differs per query, so it is pinned as "one of the three" — the
+      // thing that must not vary is whether the clause is there at all.
+      expect(sql).toMatch(/NOT EXISTS \(SELECT 1 FROM abuse_flags af WHERE af\.user_id = (ua|ub|ut)\.user_id/);
+      expect(sql).toMatch(/af\.expires_at IS NULL OR af\.expires_at > NOW\(\)/);
+    }
+  });
+
   it('both bind the guild id LAST, after the entity key', async () => {
     // The same two placeholders in the same order across all three, so a
     // refactor that reorders one of them is caught here rather than as a

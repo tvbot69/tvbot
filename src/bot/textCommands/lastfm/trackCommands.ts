@@ -206,16 +206,30 @@ export class TrackCommands implements ITextCommandModule {
           artist = searchResults[0]!.artistName;
           trackName = searchResults[0]!.name;
         } else {
-          artist = 'Unknown Artist';
-          trackName = raw;
+          // A card labelled "Unknown Artist" with the user's raw text as the
+          // track name is a confident answer to a question Last.fm could not
+          // answer, and it is the only thing on that card. `love`, `unlove` and
+          // `scrobble` all answer the same empty search with a not-found, and so
+          // does `/trackdetails`.
+          return GenericEmbedService.buildNotFoundResponse(`Could not find track matching \`${raw}\`.`);
         }
       }
     }
 
     const uniqueId = `td_${context.discordUserId}_${Date.now()}`;
-    const details = await this.trackDetailsService.getDetails(artist, trackName, uniqueId);
-    const accentColor = await this.colorService?.getColorFromImageUrl(details.artworkUrl) ?? DiscordConstants.LastFmColorRed;
-    if (!details.resolved) return TrackDetailsBuilders.buildNoMetadataResponse(artist, trackName, accentColor);
+    // CORRECT AS IS, and the same trade as `trackAsync` above: `getDetails`
+    // contributes decoration only (preview, store link, duration, bpm, key) and
+    // no number on this card, so a failed enrichment costs the metadata block
+    // and not the command. It used to PROPAGATE here while `.track` swallowed
+    // the identical failure — two twins of one read disagreeing about what a
+    // preview-resolver outage does to the user. The no-metadata card below is
+    // the honest rendering of "we could not read that": it names what is
+    // missing instead of asserting anything.
+    const details = await this.trackDetailsService.getDetails(artist, trackName, uniqueId).catch(() => null);
+    const accentColor = await this.colorService?.getColorFromImageUrl(details?.artworkUrl ?? null) ?? DiscordConstants.LastFmColorRed;
+    if (!details?.resolved) {
+      return TrackDetailsBuilders.buildNoMetadataResponse(artist, trackName, accentColor);
+    }
     return TrackDetailsBuilders.buildTrackDetailsResponse(details, uniqueId, accentColor);
   }
 
@@ -236,7 +250,14 @@ export class TrackCommands implements ITextCommandModule {
 
     let artist: string;
     let trackName: string;
-    const raw = (args?.join(' ') ?? '').trim();
+    // The joined arguments, BEFORE the trim, are what the separator is tested
+    // on — the same rule, and the same reason, as `scrobbleAsync` below.
+    // `.trim()` eats the space that makes `' | '` matchable, so `| Airbag` did
+    // not contain the separator at all and fell through to the free-text search
+    // (Last.fm was asked about a track called "| Airbag"), and `Radiohead | `
+    // loved a track literally named `Radiohead | ` with an empty title beside it.
+    const joined = args?.join(' ') ?? '';
+    const raw = joined.trim();
 
     if (!raw) {
       const tracks = await this.lastfmRepository.getUserRecentTracks(user.userNameLastFm, 1, 1, undefined, user.sessionKey);
@@ -245,8 +266,8 @@ export class TrackCommands implements ITextCommandModule {
       }
       artist = tracks[0]!.artistName;
       trackName = tracks[0]!.name;
-    } else if (raw.includes(' | ')) {
-      const [a, t] = raw.split(' | ');
+    } else if (joined.includes(' | ')) {
+      const [a, t] = joined.split(' | ');
       artist = (a ?? '').trim();
       trackName = (t ?? '').trim();
     } else if (raw.toLowerCase().includes(' by ')) {
@@ -261,6 +282,13 @@ export class TrackCommands implements ITextCommandModule {
       } else {
         return GenericEmbedService.buildNotFoundResponse(`Could not find track matching \`${raw}\`.`);
       }
+    }
+
+    if (!artist || !trackName) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.WrongInput,
+        `Please specify both an artist and track name: \`${context.prefix}love Artist | Track\`.`,
+      );
     }
 
     const success = await this.lastfmRepository.loveTrack(artist, trackName, user.sessionKey);
@@ -291,7 +319,11 @@ export class TrackCommands implements ITextCommandModule {
 
     let artist: string;
     let trackName: string;
-    const raw = (args?.join(' ') ?? '').trim();
+    // Joined, untrimmed, for the same reason as `loveAsync` above and
+    // `scrobbleAsync` below: two twins of one command must not disagree about
+    // where a half-filled pipe belongs.
+    const joined = args?.join(' ') ?? '';
+    const raw = joined.trim();
 
     if (!raw) {
       const tracks = await this.lastfmRepository.getUserRecentTracks(user.userNameLastFm, 1, 1, undefined, user.sessionKey);
@@ -300,8 +332,8 @@ export class TrackCommands implements ITextCommandModule {
       }
       artist = tracks[0]!.artistName;
       trackName = tracks[0]!.name;
-    } else if (raw.includes(' | ')) {
-      const [a, t] = raw.split(' | ');
+    } else if (joined.includes(' | ')) {
+      const [a, t] = joined.split(' | ');
       artist = (a ?? '').trim();
       trackName = (t ?? '').trim();
     } else if (raw.toLowerCase().includes(' by ')) {
@@ -316,6 +348,13 @@ export class TrackCommands implements ITextCommandModule {
       } else {
         return GenericEmbedService.buildNotFoundResponse(`Could not find track matching \`${raw}\`.`);
       }
+    }
+
+    if (!artist || !trackName) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.WrongInput,
+        `Please specify both an artist and track name: \`${context.prefix}unlove Artist | Track\`.`,
+      );
     }
 
     const success = await this.lastfmRepository.unloveTrack(artist, trackName, user.sessionKey);
@@ -403,7 +442,15 @@ export class TrackCommands implements ITextCommandModule {
       );
     }
 
-    const raw = (rawArgs?.join(' ') ?? '').trim();
+    // The joined arguments, BEFORE the trim, are what the separator is tested
+    // on. `.trim()` eats the space that makes `' | '` matchable, so `| Airbag`
+    // and `Radiohead | ` did not contain the separator at all: the first fell
+    // through to the free-text search (asking Last.fm about a track called
+    // "| Airbag" and reporting it as not found) and the second scrobbled a title
+    // ending in a pipe. Both now reach the WrongInput guard below, which is
+    // where a half-filled pipe belongs.
+    const joined = rawArgs?.join(' ') ?? '';
+    const raw = joined.trim();
     if (!raw) {
       return GenericEmbedService.buildInfoResponse(
         `### ${context.prefix}scrobble\n` +
@@ -420,8 +467,8 @@ export class TrackCommands implements ITextCommandModule {
     let trackName: string;
     let album: string | undefined;
 
-    if (raw.includes(' | ')) {
-      const parts = raw.split(' | ');
+    if (joined.includes(' | ')) {
+      const parts = joined.split(' | ');
       artist = (parts[0] ?? '').trim();
       trackName = (parts[1] ?? '').trim();
       if (parts.length > 2) {
@@ -472,9 +519,15 @@ export class TrackCommands implements ITextCommandModule {
 
     const trimmed = rawQuery.trim();
     if (trimmed) {
-      if (trimmed.includes(' - ')) {
-        const parts = trimmed.split(' - ');
-        artistName = parts[0]?.trim();
+      // Tested on the RAW query for the same reason as `scrobbleAsync` above:
+      // trimming removes the space that makes `' - '` matchable, so `" - Airbag"`
+      // was searched for as a song called "- Airbag" and `"Radiohead - "` as one
+      // called "Radiohead -". An empty artist half is "no artist given", which is
+      // exactly what the bare-title path below passes.
+      if (rawQuery.includes(' - ')) {
+        const parts = rawQuery.split(' - ');
+        const head = parts[0]?.trim() ?? '';
+        artistName = head === '' ? undefined : head;
         trackName = parts.slice(1).join(' - ').trim();
       } else {
         trackName = trimmed;

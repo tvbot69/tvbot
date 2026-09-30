@@ -204,13 +204,26 @@ describe('TrackDetailsBuilders.buildTrackDetailsResponse: which store the button
   });
 
   /**
-   * Recorded, not fixed: an unrecognised store url is labelled "Open on Spotify"
-   * with the Spotify emoji, whatever the url actually is. The three branches
-   * above cover Spotify, Deezer and Apple; anything else falls here and is
-   * mislabelled rather than left off the card.
+   * Spotify, Deezer and Apple are the three stores the resolver knows about, and
+   * all three are matched above. A url that falls through to the last branch is a
+   * store we cannot name, so it gets no button: it used to be labelled "Open on
+   * Spotify" with the Spotify emoji whatever the url actually was, which sends
+   * the user to a control that misnames its own destination.
    */
-  it('labels a url it does not recognise as Spotify', () => {
-    expect(storeLabels({ storeUrl: 'https://example.com/track/1' })).toEqual(['Open on Spotify']);
+  it('adds no store button for a url it cannot attribute to a store', () => {
+    expect(storeLabels({ storeUrl: 'https://example.com/track/1' })).toEqual([]);
+    expect(storeLabels({ storeUrl: 'https://bandcamp.com/track/1' })).toEqual([]);
+  });
+
+  it('keeps the Preview button, so the card still offers the one thing it knows', () => {
+    const labels = card({ resolved: null, spotifyUrl: null, storeUrl: 'https://example.com/track/1' })
+      .buildComponents()
+      .flatMap(row => row.toJSON().components)
+      .map(toButton)
+      .filter(b => b.url);
+    expect(labels).toEqual([]);
+    expect(rowButtons(card({ resolved: null, spotifyUrl: null, storeUrl: 'https://example.com/track/1' }))[0]?.custom_id)
+      .toContain('track-preview:');
   });
 });
 

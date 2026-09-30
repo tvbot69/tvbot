@@ -42,20 +42,35 @@ export interface PlayResult {
   errorReason?: 'no-nodes' | 'voice' | 'search' | 'empty-spotify' | 'queue-full';
 }
 
-export const playErrorMessage = (reason?: PlayResult['errorReason']): string => {
+/** The fallback when nothing can say WHY there are no nodes. */
+const GENERIC_NO_NODES = 'All music nodes are rate-limited right now. Try again in 30–60 seconds.';
+
+/**
+ * The sentence a failed `play()` gets, in words the listener can act on.
+ *
+ * The manager arrives as an ARGUMENT, never through `this`: this is a free
+ * function with call sites in three modules (slash, text, interactions), and
+ * an arrow function has no `this` of its own — a version that read `this` could
+ * never see a manager, which is how the 'disabled' and 'disconnected' answers
+ * and the computed cooldown became unreachable and every no-nodes failure
+ * rendered as a rate limit.
+ *
+ * Omitting the manager still yields the generic sentence, so a caller that
+ * cannot reach a service degrades rather than throwing; every call site that
+ * CAN should pass it. `MusicService.playErrorMessage` is the bound form.
+ */
+export const playErrorMessage = (
+  reason?: PlayResult['errorReason'],
+  moonlinkManager?: MoonlinkManager,
+): string => {
   switch (reason) {
     case 'no-nodes': {
       // Derive the real cause instead of always claiming a rate limit.
-      // `this` is undefined when playErrorMessage is called as a free function
-      // (it is exported for the command layer), so read it defensively.
-      const mm = (this as { moonlinkManager?: MoonlinkManager } | undefined)?.moonlinkManager;
-      const fn = mm?.getUnavailableReason as
-        | (() => { reason: string; retryAfterMs: number })
-        | undefined;
-      if (typeof fn !== 'function') {
-        return 'All music nodes are rate-limited right now. Try again in 30–60 seconds.';
+      const getter = moonlinkManager?.getUnavailableReason;
+      if (typeof getter !== 'function') {
+        return GENERIC_NO_NODES;
       }
-      const info = fn.call(mm);
+      const info = getter.call(moonlinkManager);
       if (info.reason === 'disabled') return 'Music playback is disabled in this environment.';
       if (info.reason === 'disconnected') return 'I cannot reach any music node right now. Try again shortly.';
       const secs = Math.max(1, Math.ceil(info.retryAfterMs / 1000));
@@ -141,6 +156,16 @@ export class MusicService {
   public static readonly isYoutubeThumb = isYoutubeThumb;
   public static readonly preCleanArtwork = preCleanArtwork;
   public static readonly sanitizeOverride = sanitizeOverride;
+
+  /**
+   * The bound form of the module-level `playErrorMessage`, carrying THIS
+   * service's manager. Command layers call this rather than the free function
+   * so a no-nodes failure is answered from the real node state — disabled,
+   * unreachable and rate-limited are three different sentences.
+   */
+  public playErrorMessage(reason?: PlayResult['errorReason']): string {
+    return playErrorMessage(reason, this.moonlinkManager);
+  }
 
   public setUnavailableNotifier(notifier: (guildId: string, message: string) => void): void {
     this.unavailableNotifier = notifier;

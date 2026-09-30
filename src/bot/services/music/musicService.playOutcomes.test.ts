@@ -160,14 +160,20 @@ const YT_URL = 'https://www.youtube.com/watch?v=ytpick00001';
 const SC_URL = 'https://soundcloud.com/artist/track';
 
 /**
- * The ONE sentence `playErrorMessage('no-nodes')` can currently produce.
- * Quoted verbatim, dash and all: `musicService.ts:56` uses an EN DASH (U+2013)
- * in "30–60", so a test matching an ASCII hyphen here would be asserting a
- * string production never emits. The fallbacks for 'disabled' and
- * 'disconnected' are unreachable (see the FINDING below) — this literal is the
- * whole of the no-nodes surface today.
+ * The sentence a "no nodes" failure gets when NOTHING can say why — a caller
+ * that holds no manager. Quoted verbatim, dash and all: `musicService.ts` uses
+ * an EN DASH (U+2013) in "30–60", so a test matching an ASCII hyphen here would
+ * be asserting a string production never emits.
  */
 const GENERIC_NO_NODES = 'All music nodes are rate-limited right now. Try again in 30–60 seconds.';
+
+/** A manager double reporting the reason Lavalink is unusable. */
+const managerSaying = (
+  info: { reason: string; retryAfterMs: number },
+): MoonlinkManager =>
+  ({ getUnavailableReason: () => info }) as unknown as MoonlinkManager;
+
+const RATE_LIMITED = managerSaying({ reason: 'rate-limited', retryAfterMs: 30_000 });
 
 const savedEnv: Record<string, string | undefined> = {};
 beforeEach(() => {
@@ -193,57 +199,66 @@ describe('playErrorMessage — a failure must name its own cause', () => {
     expect(playErrorMessage('not-a-reason' as never)).toMatch(/communicating with the music node/);
   });
 
-  it('every "no nodes" answer is the generic rate-limit sentence, whichever cause actually stopped it', () => {
-    // The user is told to wait 30–60s even when the real reason was that
-    // playback is switched off, that every node is unreachable, or that the
-    // cooldown was ten minutes.
-    expect(playErrorMessage('no-nodes')).toBe(GENERIC_NO_NODES);
-  });
-
   /**
-   * FINDING (pinned as current behaviour, NOT asserted to be correct).
-   *
-   * `musicService.ts:45` declares `playErrorMessage` as an ARROW function that
-   * reads `this` to reach `moonlinkManager.getUnavailableReason()`. An arrow
-   * function has no own `this` binding, so that `this` is the module-scope
-   * binding — `undefined` in both the CommonJS build and the ESM test
-   * pipeline. Calling it as `playErrorMessage.call(someService, 'no-nodes')`
-   * therefore cannot bind it, and the whole `typeof fn === 'function'` block
-   * below (lines 58-63: the 'disabled' sentence, the 'disconnected' sentence,
-   * and the computed `Ns` / `N min` cooldown) is unreachable. All three
-   * production call sites invoke it as a free function, so nothing supplies
-   * the context even in principle.
-   *
-   * The user-visible cost is concrete: `.music` in an environment with
-   * `ENABLE_LAVALINK=false` answers "All music nodes are rate-limited right
-   * now. Try again in 30-60 seconds." — an instruction that is both wrong and
-   * will never start working. The fix is one line: declare it `function` with
-   * a `this: MusicService` parameter (or pass the manager in as an argument)
-   * and call it as a method.
-   *
-   * Pinned so the day that is fixed, this test is the one that should fail.
+   * The 'no-nodes' branch has FOUR causes and they are not interchangeable.
+   * The manager is passed in (`playErrorMessage(reason, manager)`) and the bound
+   * `MusicService.playErrorMessage` supplies it, so each cause gets its own
+   * sentence. This used to be unreachable: the function was an ARROW reading
+   * `this`, which has no own binding, so `.call(service, …)` could not supply
+   * the manager and lines 58-63 — the 'disabled' sentence, the 'disconnected'
+   * sentence and the computed cooldown — were dead. `.music` with
+   * `ENABLE_LAVALINK=false` therefore told users to wait out a rate limit that
+   * waiting can never clear.
    */
-  it('a manager context bound onto `this` is ignored, because the function is an arrow', () => {
-    const ctx = {
-      moonlinkManager: { getUnavailableReason: () => ({ reason: 'disabled', retryAfterMs: 0 }) },
-    };
-    expect(playErrorMessage.call(ctx as unknown as object, 'no-nodes')).toMatch(/rate-limited/);
-    expect(playErrorMessage.call(ctx as unknown as object, 'no-nodes')).not.toMatch(/disabled/);
+  it('says playback is DISABLED when that is why, not "wait for a rate limit"', () => {
+    const mm = managerSaying({ reason: 'disabled', retryAfterMs: 0 });
+    const msg = playErrorMessage('no-nodes', mm);
+    expect(msg).toBe('Music playback is disabled in this environment.');
+    // The instruction it must NOT give: nothing about waiting can help.
+    expect(msg).not.toMatch(/rate-limited|try again/i);
   });
 
-  it('an unreachable-node reason is reported as a rate limit, not as an outage', () => {
-    const ctx = {
-      moonlinkManager: { getUnavailableReason: () => ({ reason: 'disconnected', retryAfterMs: 0 }) },
-    };
-    expect(playErrorMessage.call(ctx as unknown as object, 'no-nodes')).not.toMatch(/cannot reach any music node/);
+  it('says it cannot reach a node when that is why, not "rate limited"', () => {
+    const msg = playErrorMessage('no-nodes', managerSaying({ reason: 'disconnected', retryAfterMs: 0 }));
+    expect(msg).toMatch(/cannot reach any music node/);
+    expect(msg).not.toMatch(/rate-limited/i);
   });
 
-  it('a ten-minute cooldown is still quoted as 30–60 seconds, for the same reason', () => {
-    const ctx = {
-      moonlinkManager: { getUnavailableReason: () => ({ reason: 'rate-limited', retryAfterMs: 600_000 }) },
-    };
-    expect(playErrorMessage.call(ctx as unknown as object, 'no-nodes')).toBe(GENERIC_NO_NODES);
-    expect(playErrorMessage.call(ctx as unknown as object, 'no-nodes')).not.toMatch(/10 min/);
+  it('quotes the REAL cooldown, so a ten-minute wait is not reported as 30-60s', () => {
+    // `getUnavailableReason` returns the longest live cooldown
+    // (moonlinkManager.ts:648-665). Under 60s it reads in seconds, at or above
+    // it in minutes.
+    expect(playErrorMessage('no-nodes', managerSaying({ reason: 'rate-limited', retryAfterMs: 45_000 })))
+      .toBe('All music nodes are rate-limited right now. Try again in 45s.');
+    expect(playErrorMessage('no-nodes', managerSaying({ reason: 'rate-limited', retryAfterMs: 600_000 })))
+      .toBe('All music nodes are rate-limited right now. Try again in 10 min.');
+  });
+
+  it('a genuine rate limit still says rate-limited, and still names its own wait', () => {
+    // The OPPOSITE of the two above, and it must keep passing: deriving the real
+    // cause is not licence to answer every no-nodes failure with a different
+    // sentence. 30s of cooldown is the rate-limit case, unchanged in meaning.
+    const msg = playErrorMessage('no-nodes', RATE_LIMITED);
+    expect(msg).toMatch(/rate-limited/);
+    expect(msg).toBe('All music nodes are rate-limited right now. Try again in 30s.');
+    expect(msg).not.toMatch(/disabled|cannot reach/);
+  });
+
+  it('with no manager to ask, it degrades to the generic sentence instead of throwing', () => {
+    // A partial double that predates the reason work has no method at all.
+    expect(playErrorMessage('no-nodes')).toBe(GENERIC_NO_NODES);
+    expect(playErrorMessage('no-nodes', {} as unknown as MoonlinkManager)).toBe(GENERIC_NO_NODES);
+  });
+
+  it('the service method is the bound form: it supplies its own manager', () => {
+    // The call sites use this one, so it is the shape that has to carry the real
+    // reason — not the free function. `build()`'s manager reports rate-limited
+    // with a 30s cooldown.
+    const h = build();
+    expect(h.svc.playErrorMessage('no-nodes')).toBe(
+      'All music nodes are rate-limited right now. Try again in 30s.',
+    );
+    expect(h.svc.playErrorMessage('queue-full')).toMatch(/queue is full/);
   });
 });
 

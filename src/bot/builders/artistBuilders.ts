@@ -280,7 +280,12 @@ export class ArtistBuilders {
   ): ResponseModel {
     const perPage = 10;
     const totalPages = Math.max(1, Math.ceil(albums.length / perPage));
-    const slice = albums.slice(page * perPage, (page + 1) * perPage);
+    // Clamp before slicing. An out-of-range `page` used to render an empty list
+    // under a page number that does not exist, so "No albums found." read as a
+    // fact about the artist rather than about the button they pressed. Same
+    // clamp as the album tracks card.
+    const currentPage = Math.min(Math.max(0, page), totalPages - 1);
+    const slice = albums.slice(currentPage * perPage, (currentPage + 1) * perPage);
     const response = new ResponseModel(accentColor);
     const container = new ContainerBuilder();
     if (accentColor !== undefined && accentColor !== null) {
@@ -291,21 +296,21 @@ export class ArtistBuilders {
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
     const lines = slice.map((a, idx) => {
-      const rank = page * perPage + idx + 1;
+      const rank = currentPage * perPage + idx + 1;
       return `${rank}. **[${a.name}](${lastfmAlbumUrl(artistName, a.name)})** - *${a.playcount} ${a.playcount === 1 ? 'play' : 'plays'}*`;
     }).join('\n') || 'No albums found.';
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines));
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-    const footer = `-# Page ${page + 1}/${totalPages} — ${distinctCount} different albums\n-# ${displayName} has ${totalArtistPlays} total artist ${totalArtistPlays === 1 ? 'play' : 'plays'}\n-# Some albums outside of top 6000 might not be visible`;
+    const footer = `-# Page ${currentPage + 1}/${totalPages} — ${distinctCount} different albums\n-# ${displayName} has ${totalArtistPlays} total artist ${totalArtistPlays === 1 ? 'play' : 'plays'}\n-# Some albums outside of top 6000 might not be visible`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`aab:first:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageFirst).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-      new ButtonBuilder().setCustomId(`aab:prev:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-      new ButtonBuilder().setCustomId(`aab:next:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-      new ButtonBuilder().setCustomId(`aab:last:${page}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+      new ButtonBuilder().setCustomId(`aab:first:${currentPage}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageFirst).setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
+      new ButtonBuilder().setCustomId(`aab:prev:${currentPage}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(currentPage === 0),
+      new ButtonBuilder().setCustomId(`aab:next:${currentPage}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(currentPage >= totalPages - 1),
+      new ButtonBuilder().setCustomId(`aab:last:${currentPage}:${artistId}:${targetUserId}:${authorUserId}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(currentPage >= totalPages - 1),
       new ButtonBuilder().setCustomId(`artist-overview:${artistId}:${targetUserId}:${authorUserId}`).setEmoji({ name: '📊' }).setStyle(ButtonStyle.Secondary),
     );
     container.addActionRowComponents(row);

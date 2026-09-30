@@ -6,7 +6,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js';
-import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
+import { MusicService } from '@bot/services/music/musicService';
 import { LyricsService } from '@bot/services/music/lyricsService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { ColorService } from '@bot/services/colorService';
@@ -714,9 +714,13 @@ export class MusicInteractions {
       await interaction.message.delete().catch(() => undefined);
 
       if (result.loadType === 'error') {
+        // The BOUND form, which carries this service's node manager. The free
+        // function has no manager to ask, so a pick from a search menu could only
+        // ever be answered with the generic rate-limit sentence — the same lie
+        // `.play` used to tell, for a bot that is switched off rather than busy.
         if (interaction.channel && 'send' in interaction.channel) {
           await (interaction.channel as { send: (opts: { content: string }) => Promise<unknown> }).send({
-            content: `❌ ${playErrorMessage(result.errorReason)}`,
+            content: `❌ ${this.musicService.playErrorMessage(result.errorReason)}`,
           });
         }
         return;

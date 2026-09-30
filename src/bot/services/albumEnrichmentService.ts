@@ -6,6 +6,29 @@ import { CacheService } from './cacheService';
 
 const ENRICH_CONCURRENCY = 6;
 
+/**
+ * "This run never learned whether the album has a release date", cached briefly.
+ *
+ * Distinct from `{}`, which is a DEFINITIVE no-match from a provider that
+ * answered and found nothing. Without this marker a Spotify outage re-queried
+ * the whole album list on every single chart render, and a year-filtered chart
+ * then dropped every album it could not date — a full grid quietly emptying
+ * because a provider was down, with no marker of why. Same three-way shape as
+ * the artwork ladder: `data` (found), `{}` (answered, nothing there), this
+ * (never got an answer, so do not remember it for long).
+ */
+const INCONCLUSIVE = 'inconclusive';
+const INCONCLUSIVE_TTL_SECONDS = 90;
+
+/**
+ * One key, built one way, for the writer and both readers. The throw handler in
+ * `enrichTopAlbums` has to land on exactly the key `enrichSingle` reads, and two
+ * template literals differing by a space would make the marker invisible: the
+ * album would be marked inconclusive and then queried anyway.
+ */
+const albumEnrichKey = (artistName: string, albumName: string): string =>
+  `album-enrich:${artistName.toLowerCase()}|${albumName.toLowerCase()}`;
+
 interface EnrichmentData {
   releaseDate?: Date;
   releaseDatePrecision?: string;
@@ -67,6 +90,17 @@ export class AlbumEnrichmentService {
               album.albumType = data.albumType;
             }
           } catch {
+            // Swallowing is right for the BATCH — one bad album must not blank a
+            // whole chart — but it used to leave no trace at all, so the next
+            // render re-queried the entire album list through a still-broken
+            // provider. The marker is what stops that. The throw itself is a
+            // provider or cache failure and not a fact about the album, so it is
+            // remembered as INCONCLUSIVE rather than as the `{}` no-match.
+            // Cache writes must not be able to break the loop, so a cache that is
+            // down just means no marker this time round.
+            await this.cache
+              .set(albumEnrichKey(album.artistName, album.name), INCONCLUSIVE, INCONCLUSIVE_TTL_SECONDS)
+              .catch(() => undefined);
             continue;
           }
         }
@@ -77,9 +111,15 @@ export class AlbumEnrichmentService {
   }
 
   private async enrichSingle(albumName: string, artistName: string): Promise<EnrichmentData | null> {
-    const key = `album-enrich:${artistName.toLowerCase()}|${albumName.toLowerCase()}`;
-    const cached = await this.cache.get<EnrichmentData>(key);
-    if (cached) {
+    const key = albumEnrichKey(artistName, albumName);
+    const cached = await this.cache.get<EnrichmentData | string>(key);
+    if (cached === INCONCLUSIVE) {
+      // A previous run never got an answer. Serve nothing and, crucially, do not
+      // ask again: the marker is the whole point.
+      return null;
+    }
+    if (cached && typeof cached !== 'string') {
+      // `{}` in here is the definitive no-match marker, not enrichment data.
       return cached.releaseDate || cached.albumType ? cached : null;
     }
 

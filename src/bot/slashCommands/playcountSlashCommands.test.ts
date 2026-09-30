@@ -98,6 +98,29 @@ const subCmd = (sub: string, opts: Record<string, unknown> = {}) => ({
   getUser: (n: string) => (opts[n] ? { id: opts[n] } : null),
 });
 
+/**
+ * The REAL params object, read off the builder rather than re-declared, so a
+ * field added to the receipt card cannot silently go unread here.
+ */
+type ReceiptParams = Parameters<typeof ReceiptBuilders.buildReceiptResponse>[0];
+
+/** What the card was actually told to draw — including the link on the title. */
+const receiptParams = (): ReceiptParams =>
+  vi.mocked(ReceiptBuilders.buildReceiptResponse).mock.calls[0]![0];
+
+/** The four arguments the count was asked for: name, from, session key, to. */
+const countWindow = (playHistoryService: { getScrobbleCountFromDate: unknown }) => {
+  const call = (playHistoryService.getScrobbleCountFromDate as ReturnType<typeof vi.fn>).mock.calls[0]!;
+  return { from: call[1] as number | null, sessionKey: call[2], to: call[3] as number | null };
+};
+
+/**
+ * The zero-padding the window url is built with, written out here on purpose: a
+ * test that imported the production helper would follow it silently, and the
+ * whole point of these expectations is to be an independent reading of the shape.
+ */
+const pad2 = (value: number): string => String(value).padStart(2, '0');
+
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(PlaycountBuilders, 'buildPlaysResponse').mockReturnValue({ content: 'plays' } as never);
@@ -461,6 +484,134 @@ describe('PlaycountSlashCommands.receiptSlashAsync', () => {
     ]);
     await call(service, 'receiptSlashAsync', mkContext(), 'monthly', undefined);
     expect(ReceiptBuilders.buildReceiptResponse).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The count drawn ON the image and the window its own link describes are ONE
+ * claim, and they used to disagree: `totalPlays` was counted from the period
+ * start with no end, so a `/receipt 2023` printed "plays since 2023" beside a
+ * link to 2023. Every test below compares the two, in both directions — the
+ * count must not be wider than the link, and where the link is open-ended the
+ * count must not be narrower.
+ */
+describe('PlaycountSlashCommands.receiptSlashAsync — the count and the link are one window', () => {
+  const topTracks = [
+    { artistName: 'Radiohead', name: 'Airbag', playcount: 30 },
+    { artistName: 'Radiohead', name: 'Karma Police', playcount: 12 },
+  ];
+
+  const withTracks = (over: Record<string, unknown> = {}) =>
+    build({ lastfmRepository: { getTopTracks: vi.fn(async () => topTracks) }, ...over });
+
+  it('bounds the default-month count to the same window the link names, and never past it', async () => {
+    const { service, playHistoryService } = withTracks();
+
+    await call(service, 'receiptSlashAsync', mkContext(), null, undefined);
+
+    const { from, to } = countWindow(playHistoryService);
+    const now = new Date();
+    const urlEndDayEnd = Math.floor(
+      new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime() / 1000,
+    );
+    // A real window, not an open-ended run to now — that is the bug: `to` used
+    // to arrive as `undefined`, so the count ran to today while the link stopped
+    // at the end of the month.
+    expect(to).not.toBeUndefined();
+    expect(to).toBeGreaterThan(from!);
+    // Never wider than the day the image's own link names.
+    expect(to).toBeLessThanOrEqual(urlEndDayEnd);
+    // And never in the future: a `to` past now asks for scrobbles that cannot
+    // exist yet, which is the one vendor behaviour here that cannot be probed
+    // from this machine, so the request stays inside what is answerable.
+    expect(to).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 1);
+  });
+
+  it('zero-pads the default-month window on both ends, so the link is a date', async () => {
+    // `2026-03-01`, not `2026-3-1`. The original unpadded interpolation is
+    // UNMEASURED against the live API — whether Last.fm's library parser accepts
+    // `2026-3-1` was never probed and could not be from here — so this asserts
+    // the format, not that the server accepts it. Padded is right either way.
+    const { service } = withTracks();
+
+    await call(service, 'receiptSlashAsync', mkContext(), null, undefined);
+
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const lastDay = new Date(now.getFullYear(), month, 0).getDate();
+    expect(receiptParams().tracksUrl).toMatch(
+      new RegExp(
+        `^https://last\\.fm/user/DreadRock/library/tracks\\?from=\\d{4}-${pad2(month)}-01&to=\\d{4}-${pad2(month)}-${pad2(lastDay)}$`,
+      ),
+    );
+  });
+
+  it('counts an explicit period to the end of the day its link names', async () => {
+    // `endDateTime` is a DATE and the url prints it as a date, so the count has
+    // to cover that whole day. Stopping at its midnight would silently drop
+    // every play after it while the link still showed the day.
+    const { service, playHistoryService } = withTracks({
+      settingService: {
+        getTimePeriod: vi.fn(() => ({
+          timePeriod: TimePeriod.Weekly,
+          description: 'Weekly',
+          searchValue: 'weekly',
+          startDateTime: new Date(2024, 2, 1),
+          endDateTime: new Date(2024, 2, 8),
+        })),
+      },
+    });
+
+    await call(service, 'receiptSlashAsync', mkContext(), 'weekly', undefined);
+
+    expect(receiptParams().tracksUrl).toBe(
+      'https://last.fm/user/DreadRock/library/tracks?from=2024-03-01&to=2024-03-08',
+    );
+    const { from, to } = countWindow(playHistoryService);
+    expect(from).toBe(Math.floor(new Date(2024, 2, 1).getTime() / 1000));
+    expect(to).toBe(Math.floor(new Date(2024, 2, 8, 23, 59, 59).getTime() / 1000));
+  });
+
+  it('leaves the count unbounded when the link is, rather than inventing an end', async () => {
+    // The other direction of the same fix. An all-time receipt links to an
+    // unbounded page, so bounding the COUNT would be the same disagreement in
+    // reverse: a number for a shorter window than the image's own link.
+    const { service, playHistoryService } = withTracks({
+      settingService: {
+        getTimePeriod: vi.fn(() => ({
+          timePeriod: TimePeriod.AllTime,
+          description: 'Alltime',
+          searchValue: 'alltime',
+        })),
+      },
+    });
+
+    await call(service, 'receiptSlashAsync', mkContext(), 'alltime', undefined);
+
+    expect(receiptParams().tracksUrl).toBe('https://last.fm/user/DreadRock/library/tracks');
+    const { from, sessionKey, to } = countWindow(playHistoryService);
+    expect(from).toBeNull();
+    expect(sessionKey).toBe('SK');
+    expect(to).toBeNull();
+  });
+
+  it('draws the counted window total on the image, not the fallback sum of the track rows', async () => {
+    // The number on the image must be the COUNT for the window, which is what
+    // the link names. The two sources are deliberately given different values
+    // here, so an image that quietly fell back to summing the twelve top rows
+    // would be caught rather than coincidentally matching.
+    const { service, receiptGenerator } = withTracks({
+      playHistoryService: { getScrobbleCountFromDate: vi.fn(async () => 7) },
+    });
+    const payload = () =>
+      (receiptGenerator.generateReceipt as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+        totalPlays: number;
+      };
+
+    await call(service, 'receiptSlashAsync', mkContext(), null, undefined);
+
+    // 7 is the count for the window; 30 + 12 = 42 is the row sum it must not be.
+    expect(payload().totalPlays).toBe(7);
   });
 });
 

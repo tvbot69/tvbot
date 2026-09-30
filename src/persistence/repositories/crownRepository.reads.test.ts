@@ -660,23 +660,43 @@ describe('CrownRepository crown roles', () => {
     });
   });
 
-  it('clears the roles for a null role id', async () => {
+  it('clears the roles ONLY for a null role id, which is the one explicit request to', async () => {
     await r.setCrownRole(GUILD, null);
     expect(callArg<{ data: Args }>(prisma.guild.update).data.crownRoles).toEqual([]);
   });
 
-  it('clears the roles for a NON-NUMERIC role id rather than storing garbage', async () => {
-    // Documented behaviour, and the command layer validates first, so this is
-    // defence in depth. Pinned because the alternative - writing a non-numeric
-    // string into a BigInt[] column - is a failure the admin sees as "the
-    // crown role could not be set", with the real cause in the database log.
-    await r.setCrownRole(GUILD, 'not-a-role');
-    expect(callArg<{ data: Args }>(prisma.guild.update).data.crownRoles).toEqual([]);
+  it('RAISES on a NON-NUMERIC role id instead of silently clearing the config', async () => {
+    // This used to be read as "remove the role", so a typo emptied `crownRoles`
+    // and the admin was told the role had been set. The next crown
+    // notification then went out unpinged with nothing in the logs to say why.
+    // Writing the garbage string into a BigInt[] column is not an option
+    // either — that is a failure the admin sees as "the crown role could not be
+    // set" with the real cause buried in the database log.
+    await expect(r.setCrownRole(GUILD, 'not-a-role')).rejects.toThrow(TypeError);
+    await expect(r.setCrownRole(GUILD, 'not-a-role')).rejects.toThrow(/roleId must be a decimal string, or null to clear/);
+    // The config is untouched, which is the whole point: a bad argument must
+    // not destroy working configuration on its way to the error.
+    expect(prisma.guild.update).not.toHaveBeenCalled();
   });
 
-  it('clears the roles for an EMPTY role id, which is not the number zero', async () => {
-    await r.setCrownRole(GUILD, '');
-    expect(callArg<{ data: Args }>(prisma.guild.update).data.crownRoles).toEqual([]);
+  it('raises on an EMPTY role id too, because "" is not an instruction to clear', async () => {
+    // The command layer sends `null` for `.crownroles none`; an empty string
+    // means the caller passed an argument it never validated, and honouring it
+    // is the same silent wipe with a different spelling.
+    await expect(r.setCrownRole(GUILD, '')).rejects.toThrow(/roleId must be a decimal string, or null to clear/);
+    expect(prisma.guild.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a role id BigInt would refuse but a loose check might accept', async () => {
+    for (const bad of ['12.5', ' 555', '555n', '0x22b', '-1', '55 5']) {
+      await expect(r.setCrownRole(GUILD, bad)).rejects.toThrow(/roleId must be a decimal string/);
+    }
+    expect(prisma.guild.update).not.toHaveBeenCalled();
+  });
+
+  it('CONTROL: a valid role id is still stored, so the guard is not just refusing everything', async () => {
+    await r.setCrownRole(GUILD, '555');
+    expect(callArg<{ data: Args }>(prisma.guild.update).data.crownRoles).toEqual([555n]);
   });
 
   it('getCrownRoles stringifies the stored BigInt array', async () => {
@@ -910,38 +930,94 @@ describe('CrownRepository: writes that are not reads', () => {
 });
 
 /**
- * DOCUMENTED INCONSISTENCY, not fixed here.
+ * EVERY guild id goes through the one guard. This block used to record the
+ * opposite: `safeBigInt` guarded nine methods while `createCrown`,
+ * `replaceCrown`, `killCrown`, `removeUserCrowns` and `setCrownBlock` called
+ * `BigInt(guildId)` directly, so a malformed id raised `SyntaxError: Cannot
+ * convert … to a BigInt` out of the middle of the repository for five of
+ * seventeen methods and produced the honest empty answer for the other twelve.
  *
- * `safeBigInt` guards nine methods. Four others - `createCrown`,
- * `killCrown`, `removeUserCrowns` and `setCrownBlock` - call `BigInt(guildId)`
- * DIRECTLY, so a malformed guild id raises `SyntaxError: Cannot convert ... to a
- * BigInt` out of the middle of the repository instead of producing the empty
- * answer every guarded read gives. `guildUserRepository.setBlockStatus` has the
- * same shape and its own test says so, so this may well be a deliberate
- * convention. It is pinned here so that unifying it is a visible edit rather
- * than an accident, and so the count of un-guarded methods is exact.
+ * There are two honest outcomes for a malformed id, and which one applies is
+ * decided by what the method can actually return:
+ *
+ *   - a method with an empty answer (a list, a count, a boolean, a no-op)
+ *     returns it. There is no such guild, so it has no crowns.
+ *   - a method that MUST produce a row (`createCrown`, `replaceCrown`) has no
+ *     empty value, so it raises — and raises a `TypeError` naming the ARGUMENT,
+ *     because a malformed id is a caller bug and `SyntaxError` from inside the
+ *     driver call points an operator at Prisma instead.
+ *
+ * `replaceCrown` must NOT answer `null` for a malformed id: `null` already means
+ * "a concurrent steal got there first", so laundering a bad argument into it
+ * would send the caller round the re-read loop for a crown never written.
  */
-describe('CrownRepository: the un-guarded guild id inconsistency', () => {
-  it('createCrown throws on a malformed guild id, unlike every guarded read', async () => {
+describe('CrownRepository: every guild id goes through the guard', () => {
+  it('createCrown raises a NAMED error on a malformed guild id, before it writes', async () => {
     await expect(
       r.createCrown({
         guildId: 'not-a-guild', userId: 7, artistName: 'Radiohead',
         startPlaycount: 1, currentPlaycount: 1,
       }),
-    ).rejects.toThrow(/BigInt/);
+    ).rejects.toThrow(TypeError);
+    // Not the driver's coercion failure, which is what this used to be.
+    await expect(
+      r.createCrown({
+        guildId: 'not-a-guild', userId: 7, artistName: 'Radiohead',
+        startPlaycount: 1, currentPlaycount: 1,
+      }),
+    ).rejects.not.toThrow(/Cannot convert/);
     expect(prisma.userCrown.create).not.toHaveBeenCalled();
   });
 
-  it('killCrown throws on a malformed guild id', async () => {
-    await expect(r.killCrown('not-a-guild', 'Radiohead')).rejects.toThrow(/BigInt/);
+  it('replaceCrown raises the same named error rather than answering null', async () => {
+    // `null` here would be a lie: it is the "a concurrent steal got there
+    // first" signal, and the caller re-reads and retries on it forever.
+    //
+    // This Prisma double has no `$transaction` at all, so a guard that ran
+    // INSIDE the transaction would still raise — a TypeError about a missing
+    // method. The assertion is on the message, so it can only pass if the id
+    // was rejected before anything was opened. `crownRepository.test.ts` covers
+    // the transaction body itself.
+    await expect(
+      r.replaceCrown(1, {
+        guildId: 'not-a-guild', userId: 7, artistName: 'Radiohead',
+        startPlaycount: 1, currentPlaycount: 1,
+      }),
+    ).rejects.toThrow(/guildId must be a decimal string/);
   });
 
-  it('removeUserCrowns throws on a malformed guild id', async () => {
-    await expect(r.removeUserCrowns('not-a-guild', 7)).rejects.toThrow(/BigInt/);
+  it('killCrown answers false rather than raising', async () => {
+    // The honest empty for this method is "no such crown", and it is the same
+    // answer a guild with no crowns for that artist produces.
+    await expect(r.killCrown('not-a-guild', 'Radiohead')).resolves.toBe(false);
+    expect(prisma.userCrown.updateMany).not.toHaveBeenCalled();
   });
 
-  it('setCrownBlock throws on a malformed guild id, before it writes anything', async () => {
-    await expect(r.setCrownBlock('not-a-guild', 7, true)).rejects.toThrow(/BigInt/);
+  it('removeUserCrowns answers zero rather than raising', async () => {
+    await expect(r.removeUserCrowns('not-a-guild', 7)).resolves.toBe(0);
+    expect(prisma.userCrown.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('setCrownBlock is a total no-op, so the block and the crown drop stay one intent', async () => {
+    await expect(r.setCrownBlock('not-a-guild', 7, true)).resolves.toBeUndefined();
     expect(prisma.guildUser.upsert).not.toHaveBeenCalled();
+    expect(prisma.userCrown.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('CONTROL: a VALID guild id still writes, so none of this is a method that stopped working', async () => {
+    prisma = makePrisma({
+      crowns: [
+        { crownId: 1, guildId: 8800001n, userId: 7, artistName: 'Radiohead', active: true },
+        { crownId: 2, guildId: 8800001n, userId: 7, artistName: 'Muse', active: true },
+      ],
+    });
+    r = new CrownRepository(prisma as never);
+
+    expect(await r.killCrown(GUILD, 'Radiohead')).toBe(true);
+    expect(await r.removeUserCrowns(GUILD, 7)).toBe(1);
+    await r.setCrownBlock(GUILD, 7, true);
+    expect(callArg<{ where: Args }>(prisma.guildUser.upsert).where).toEqual({
+      guildId_userId: { guildId: 8800001n, userId: 7 },
+    });
   });
 });

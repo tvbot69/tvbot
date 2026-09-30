@@ -53,13 +53,18 @@ export class TrackDetailsBuilders {
         .setLabel('Open on Deezer')
         .setEmoji(EMOJI.serviceDeezer));
     } else if (details.storeUrl) {
-      // Apple or generic
+      // Apple only. Every other recognised store was handled above, so a url that
+      // reaches here is a store we cannot name. Labelling it "Open on Spotify"
+      // with the Spotify emoji sends the user to a button that claims to be
+      // something it is not; omitting it says less but never lies.
       const isApple = source === 'apple' || details.storeUrl.includes('apple.com') || details.storeUrl.includes('itunes');
-      row.addComponents(new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setURL(details.storeUrl)
-        .setLabel(isApple ? 'Open on Apple Music' : 'Open on Spotify')
-        .setEmoji(isApple ? EMOJI.serviceAppleMusic : EMOJI.serviceSpotify));
+      if (isApple) {
+        row.addComponents(new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setURL(details.storeUrl)
+          .setLabel('Open on Apple Music')
+          .setEmoji(EMOJI.serviceAppleMusic));
+      }
     }
 
     response.addButtonRow(0, row);

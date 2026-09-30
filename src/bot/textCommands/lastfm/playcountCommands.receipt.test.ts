@@ -21,7 +21,11 @@ import type { User } from '@domain/interfaces/iuserRepository';
  *
  * The `tracksUrl` matters for the same reason: it is what the image title links
  * to, so a window URL with a fabricated end date sends the user to a Last.fm
- * page that does not show what the receipt claims.
+ * page that does not show what the receipt claims. It is also the reason the
+ * play COUNT is bounded: the number baked into the image and the window its own
+ * link describes are one claim, and they used to disagree — the count ran from
+ * the period start to NOW, so a 2023 receipt printed "plays since 2023" beside a
+ * link to 2023.
  *
  * Finally the total: a null scrobble count falls back to the sum of the tracks'
  * own playcounts. The tempting alternative is `?? 0`, which would print "0
@@ -128,6 +132,13 @@ const generatorPayload = (c: PlaycountCommands): Record<string, unknown> => {
 
 const desc = (r: unknown): string => (r as { embed: { data: { description?: string } } }).embed.data.description ?? '';
 
+/**
+ * The zero-padding the window url is built with, written out here on purpose: a
+ * test that imported the production helper would follow it silently, and the
+ * whole point of these expectations is to be an independent reading of the shape.
+ */
+const pad2 = (value: number): string => String(value).padStart(2, '0');
+
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(ReceiptBuilders, 'buildReceiptResponse').mockReturnValue({ marker: 'receipt' } as never);
@@ -151,7 +162,7 @@ describe('.receipt — no period token means THIS CALENDAR MONTH', () => {
     expect(settingService.getTimePeriod).not.toHaveBeenCalled();
   });
 
-  it('counts plays from the first of that month', async () => {
+  it('counts from the first of that month', async () => {
     const { commands, playHistoryService } = build();
 
     await receipt(commands, '');
@@ -161,10 +172,42 @@ describe('.receipt — no period token means THIS CALENDAR MONTH', () => {
     expect(from).toBe(Math.floor(new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000));
   });
 
+  it('bounds that count to the same window the link names, and never past it', async () => {
+    // The receipt's `totalPlays` is baked into the image, and it used to be
+    // counted from the period start with no end, so a `.receipt 2023` printed
+    // "plays since 2023" while the image's own link showed 2023 alone. The count
+    // and the link are one claim about one window, so they are bounded by the
+    // same day.
+    const { commands, playHistoryService } = build();
+
+    await receipt(commands, '');
+
+    const call = (playHistoryService.getScrobbleCountFromDate as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const from = call[1] as number;
+    const to = call[3] as number;
+    const now = new Date();
+    const urlEndDayEnd = Math.floor(new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).getTime() / 1000);
+    // A real window, not an open-ended run to now.
+    expect(to).toBeGreaterThan(from);
+    // Never wider than the day the image's own link names.
+    expect(to).toBeLessThanOrEqual(urlEndDayEnd);
+    // And never in the future: a `to` past now asks for scrobbles that cannot
+    // exist yet, which is the one vendor behaviour here that cannot be probed
+    // from this machine, so the request is kept inside what is answerable.
+    expect(to).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 1);
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    expect(receiptParams().tracksUrl).toContain(
+      `to=${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(lastDay)}`,
+    );
+  });
+
   it('builds a from/to window for the current month', async () => {
-    // The month and day are interpolated UNPADDED (`2026-3-1`, not
-    // `2026-03-01`). Asserted only to pin that a bounded window is produced at
-    // all — this is not a claim that the format is a valid Last.fm date.
+    // Zero-padded on both ends: `2026-03-01`, not `2026-3-1`. The original
+    // unpadded interpolation is UNMEASURED against the live API — whether
+    // Last.fm's library parser accepts `2026-3-1` was never probed and could not
+    // be from here — so this asserts the format, not that the server accepts it.
+    // Padded is right either way, and it is what every other date field the bot
+    // prints looks like.
     const { commands } = build();
 
     await receipt(commands, '');
@@ -173,7 +216,7 @@ describe('.receipt — no period token means THIS CALENDAR MONTH', () => {
     const month = now.getMonth() + 1;
     const lastDay = new Date(now.getFullYear(), month, 0).getDate();
     expect(receiptParams().tracksUrl).toMatch(
-      new RegExp(`^https://last\\.fm/user/Alpha/library/tracks\\?from=\\d{4}-${month}-01&to=\\d{4}-${month}-${lastDay}$`),
+      new RegExp(`^https://last\\.fm/user/Alpha/library/tracks\\?from=\\d{4}-${pad2(month)}-01&to=\\d{4}-${pad2(month)}-${pad2(lastDay)}$`),
     );
   });
 
@@ -206,12 +249,12 @@ describe('.receipt — an explicit period routes through the settings parser', (
     expect(receiptParams().periodDescription).toBe('Weekly');
   });
 
-  it('links to the window the parser produced', async () => {
+  it('links to the window the parser produced, zero-padded', async () => {
     const { commands } = build({ timeSettings: weekly });
 
     await receipt(commands, 'weekly');
 
-    expect(receiptParams().tracksUrl).toBe('https://last.fm/user/Alpha/library/tracks?from=2024-3-1&to=2024-3-8');
+    expect(receiptParams().tracksUrl).toBe('https://last.fm/user/Alpha/library/tracks?from=2024-03-01&to=2024-03-08');
   });
 
   it('counts from the parsed start, in seconds', async () => {
@@ -223,6 +266,19 @@ describe('.receipt — an explicit period routes through the settings parser', (
     expect(from).toBe(Math.floor(new Date(2024, 2, 1).getTime() / 1000));
   });
 
+  it('counts to the end of the day the link names, not to now and not to its midnight', async () => {
+    // The paired half of the default-month test, on the explicit-period branch.
+    // `endDateTime` is a DATE here, and the url prints it as a date — so the
+    // count has to cover that whole day. Stopping at midnight would silently drop
+    // every play after it while the link still showed the day.
+    const { commands, playHistoryService } = build({ timeSettings: weekly });
+
+    await receipt(commands, 'weekly');
+
+    const to = (playHistoryService.getScrobbleCountFromDate as ReturnType<typeof vi.fn>).mock.calls[0]![3] as number;
+    expect(to).toBe(Math.floor(new Date(2024, 2, 8, 23, 59, 59).getTime() / 1000));
+  });
+
   it('falls back to the plain library page for an open-ended period', async () => {
     // An open-ended period has no end, so a `to=` would be a fabricated
     // boundary and the link would show more than the receipt.
@@ -231,6 +287,21 @@ describe('.receipt — an explicit period routes through the settings parser', (
     await receipt(commands, 'alltime');
 
     expect(receiptParams().tracksUrl).toBe('https://last.fm/user/Alpha/library/tracks');
+  });
+
+  it('leaves the count unbounded when the link is, rather than inventing an end', async () => {
+    // The other direction of the same fix. An all-time receipt links to an
+    // unbounded page, so bounding the COUNT would be the same disagreement in
+    // reverse: a number for a shorter window than the image's own link.
+    const { commands, playHistoryService } = build({ timeSettings: settings({ timePeriod: TimePeriod.AllTime, description: 'Alltime' }) });
+
+    await receipt(commands, 'alltime');
+
+    const [name, from, sessionKey, to] = (playHistoryService.getScrobbleCountFromDate as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(name).toBe('Alpha');
+    expect(from).toBeNull();
+    expect(sessionKey).toBe('SK');
+    expect(to).toBeNull();
   });
 
   it('recognises the short period tokens, not only the long word', async () => {

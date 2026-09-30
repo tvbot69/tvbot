@@ -147,10 +147,14 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
 
     if (targetDiscordUserId && targetDiscordUserId !== context.discordUserId) {
       const foundUser = await this.userService.getUserByDiscordId(targetDiscordUserId);
-      if (foundUser) {
-        targetUser = foundUser;
-        displayName = foundUser.userNameLastFm;
+      if (!foundUser) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `<@${targetDiscordUserId}> hasn't connected their Last.fm account yet.`,
+        );
       }
+      targetUser = foundUser;
+      displayName = foundUser.userNameLastFm;
     }
 
     return { callerUser, targetUser, displayName };

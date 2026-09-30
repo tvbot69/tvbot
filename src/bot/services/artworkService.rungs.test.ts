@@ -646,6 +646,77 @@ describe('artist cascade — the name-based rung', () => {
     });
     await expect(h.service.getArtistImageUrl('Kanye West')).resolves.toBe('https://img/sp.jpg');
   });
+
+  it('answers from the Apple web endpoint when Spotify and Deezer both missed', async () => {
+    // The artist cascade's Apple rung. The album and track cascades accept an
+    // Apple result without any database row; this used to require one, so an
+    // artist who had never been indexed was answered `null` by a provider that
+    // had just handed over a perfect match.
+    const h = harness({
+      amWeb: { searchArtists: async () => [{ name: 'Kanye West', artwork: { url: 'https://am/a.jpg', width: 3000, height: 3000 } }] },
+    });
+    await expect(h.service.getArtistImageUrl('Kanye West')).resolves.toBe('https://am/a.jpg');
+  });
+
+  it('does not remember the un-indexed artist as a definitive miss', async () => {
+    // The half of the bug nobody sees: nothing threw and nothing pushed an
+    // attempt, so the bottom gate wrote the 'none' marker and the bot believed
+    // for ten minutes that this artist has no cover at all.
+    const h = harness({
+      amWeb: { searchArtists: async () => [{ name: 'Nobody At All', artwork: { url: 'https://am/n.jpg', width: 3000, height: 3000 } }] },
+    });
+    await expect(h.service.getArtistImageUrl('Nobody At All')).resolves.toBe('https://am/n.jpg');
+    expect(h.cache.store.get('art:artist:nobody at all')).toBe('https://am/n.jpg');
+  });
+
+  it('creates the artist row to persist the Apple cover when there is none', async () => {
+    // Same shape as the Spotify and Deezer rungs above: `existing ?? getOrCreate`.
+    const written: unknown[][] = [];
+    const created: string[] = [];
+    const h = harness({
+      amWeb: { searchArtists: async () => [{ name: 'Kanye West', artwork: { url: 'https://am/a.jpg', width: 3000, height: 3000 } }] },
+      artists: {
+        getOrCreateArtist: async (name: string) => { created.push(name); return { artistId: 42 }; },
+        setAppleMusicUrl: async (...args: unknown[]) => { written.push(args); },
+      },
+    });
+    await h.service.getArtistImageUrl('Kanye West');
+    expect(created).toEqual(['Kanye West']);
+    expect(written).toEqual([[42, 'https://am/a.jpg']]);
+  });
+
+  it('persists onto the EXISTING row when there is one, without creating a second', async () => {
+    const written: unknown[][] = [];
+    let creates = 0;
+    const h = harness({
+      amWeb: { searchArtists: async () => [{ name: 'Kanye West', artwork: { url: 'https://am/a.jpg', width: 3000, height: 3000 } }] },
+      artists: {
+        getArtistByName: async () => ({ artistId: 3 }),
+        getOrCreateArtist: async () => { creates += 1; return { artistId: 42 }; },
+        setAppleMusicUrl: async (...args: unknown[]) => { written.push(args); },
+      },
+    });
+    await h.service.getArtistImageUrl('Kanye West');
+    expect(creates).toBe(0);
+    expect(written).toEqual([[3, 'https://am/a.jpg']]);
+  });
+
+  it('keeps going when persisting the Apple cover fails, like every other rung', async () => {
+    const h = harness({
+      amWeb: { searchArtists: async () => [{ name: 'Kanye West', artwork: { url: 'https://am/a.jpg', width: 3000, height: 3000 } }] },
+      artists: { setAppleMusicUrl: async () => { throw new Error('db down'); } },
+    });
+    await expect(h.service.getArtistImageUrl('Kanye West')).resolves.toBe('https://am/a.jpg');
+  });
+
+  it('refuses an Apple artist row whose name does not match', async () => {
+    // Same-name artists are the reason this cascade matches at all; an
+    // unmatched provider row must fall through, not be accepted.
+    const h = harness({
+      amWeb: { searchArtists: async () => [{ name: 'Kanye East', artwork: { url: 'https://am/wrong.jpg', width: 3000, height: 3000 } }] },
+    });
+    await expect(h.service.getArtistImageUrl('Kanye West')).resolves.toBeNull();
+  });
 });
 
 describe('track cascade — every rung must match artist AND title', () => {

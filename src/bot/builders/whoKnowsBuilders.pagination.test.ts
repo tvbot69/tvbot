@@ -248,18 +248,39 @@ describe('WhoKnowsBuilders: the context lines', () => {
     expect(footer(await card([listener(1, 5)]))).toContain("-# Spotify not tracking properly? Check '.outofsync'");
   });
 
-  /**
-   * Recorded, not fixed: the genre list is assembled into `footerLines`, which
-   * only the DEFAULT mode's embed footer reads. The pagination footer is built
-   * from `extraFooterLines` (filters + "also playing") and so silently drops the
-   * genres a caller passed in. Same data, two modes, one of them lies by
-   * omission.
-   */
-  it('drops the genre list in pagination mode even though default mode prints it', async () => {
+  it('carries the genre list into pagination mode, exactly as default mode prints it', async () => {
+    // The genres used to be pushed into `footerLines`, which only the DEFAULT
+    // mode's embed footer reads, so the pagination card silently dropped a
+    // caller-supplied genre list. Same data, two modes, one lying by omission.
     const paginated = await card([listener(1, 5)], { genres: ['art rock', 'trip hop'] });
     const embedded = await build([listener(1, 5)], WhoKnowsMode.Default, { genres: ['art rock', 'trip hop'] });
-    expect(footer(paginated)).not.toContain('art rock');
+    expect(footer(paginated)).toContain('-# art rock - trip hop');
     expect(embedFooter(embedded)).toContain('art rock - trip hop');
+  });
+
+  it('lists at most five genres in pagination mode, matching the default-mode cap', async () => {
+    const response = await card([listener(1, 5)], { genres: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] });
+    expect(footer(response)).toContain('-# a - b - c - d - e');
+    expect(footer(response)).not.toContain('f - g');
+  });
+
+  it('adds no genre line when the caller supplied no genres', async () => {
+    // The new footer line must not turn into a bare "-# " on its own.
+    const response = await card([listener(1, 5)]);
+    expect(footer(response)).toContain('-# Artist - 1 listener - 5 plays');
+    expect(footer(response)).not.toMatch(/^-# \n/m);
+  });
+
+  it('still carries the filters and the "also playing" line alongside the genres', async () => {
+    const response = await card([listener(1, 5)], {
+      genres: ['art rock'],
+      filterStats: { startCount: 10, endCount: 5, blockedFiltered: 3, activityThresholdFiltered: 2 },
+      guildAlsoPlaying: '3 people are playing this right now',
+    });
+    expect(footer(response)).toContain('-# art rock');
+    expect(footer(response)).toContain('-# Filtered: 3 blocked, 2 inactive');
+    expect(footer(response)).toContain('-# 3 people are playing this right now');
+    expect(footer(response)).toContain("-# Spotify not tracking properly? Check '.outofsync'");
   });
 });
 
@@ -331,6 +352,31 @@ describe('WhoKnowsBuilders pagination mode: the paginator', () => {
     const session = sessionOf(await card(many(25), { footerExtra: 'Crown claimed by someone!' }));
     expect(renderedText(session.renderPage(0))).toContain('Crown claimed by someone!');
     expect(renderedText(session.renderPage(1))).not.toContain('Crown claimed by someone!');
+  });
+
+  it('keeps the genre line on every page, not only the first', async () => {
+    const session = sessionOf(await card(many(25), { genres: ['art rock', 'trip hop'] }));
+    expect(renderedText(session.renderPage(0))).toContain('-# art rock - trip hop');
+    expect(renderedText(session.renderPage(1))).toContain('-# art rock - trip hop');
+    expect(renderedText(session.renderPage(2))).toContain('-# art rock - trip hop');
+  });
+
+  it('says the page is gone rather than throwing when asked for a page that does not exist', async () => {
+    // `renderPage` is a dynamic entry point: the paginator service calls it with
+    // whatever index a jump button produced. The `pages[pageIdx]!` it used to
+    // assert would throw a TypeError on `page.lines` and take the message down.
+    const session = sessionOf(await card(many(25)));
+    expect(() => session.renderPage(99)).not.toThrow();
+    const rendered = renderedText(session.renderPage(99));
+    expect(rendered).toContain('### Radiohead');
+    expect(rendered).toContain('no longer available');
+    expect(rendered).not.toContain('listener-1');
+  });
+
+  it('still renders a real page normally, so the guard did not swallow the happy path', async () => {
+    const session = sessionOf(await card(many(25)));
+    expect(renderedText(session.renderPage(1))).toContain('listener-11');
+    expect(renderedText(session.renderPage(1))).not.toContain('no longer available');
   });
 
   it('reports success, so the dispatcher does not treat a leaderboard as a failure', async () => {

@@ -4,7 +4,7 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
+import { MusicService } from '@bot/services/music/musicService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { ColorService } from '@bot/services/colorService';
 
@@ -283,9 +283,13 @@ export class MusicCommands implements ITextCommandModule {
     }
 
     if (result.loadType === 'error') {
+      // The BOUND form, which carries this service's node manager. The free
+      // function has no manager to ask, so it can only ever render the generic
+      // rate-limit sentence — which told a listener with playback switched off to
+      // wait 30-60 seconds for a bot that was never going to answer.
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.Error,
-        playErrorMessage(result.errorReason),
+        this.musicService.playErrorMessage(result.errorReason),
       );
     }
 

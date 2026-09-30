@@ -86,15 +86,20 @@ export class TrackBuilders {
     }
 
     const headerText = `## ${trackLink}\n${subLine}`;
-    const section = new SectionBuilder().addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(headerText),
-    );
-
+    // A Section's accessory is NOT optional in discord.js: `SectionBuilder.toJSON()`
+    // validates the accessory through a required union, so a section built without
+    // one throws at serialisation and the card can never be sent. With a cover the
+    // header goes in a section; without one it goes in as a plain text block, the
+    // same shape `buildAudioFeaturesResponse` and the artist cards already use.
     if (track.coverUrl) {
-      section.setThumbnailAccessory(new ThumbnailBuilder().setURL(track.coverUrl));
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText))
+          .setThumbnailAccessory(new ThumbnailBuilder().setURL(track.coverUrl)),
+      );
+    } else {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText));
     }
-
-    container.addSectionComponents(section);
 
     // Duration line
     const durationStr =

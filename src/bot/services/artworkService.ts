@@ -671,10 +671,24 @@ export class ArtworkService {
         if (!match) {
           Logger.debug(`Artist art: apple-web no match for ${artistName}`);
         } else {
+          // This used to require an existing `artists` row to accept the URL at
+          // all, so an artist who had never been indexed got `null` from a
+          // provider that had just handed over a perfect match — and, because
+          // nothing threw and nothing pushed an attempt, the bottom gate cached
+          // the run as a DEFINITIVE miss: "this artist has no cover" for ten
+          // minutes, with no error anywhere. The album and track rungs both
+          // accept an Apple result without a row, and Spotify and Deezer above
+          // both create the row they need, so persisting was the only thing that
+          // ever required one.
           const url = match.artwork?.url;
-          if (url && existing) {
+          if (url) {
             result = url;
-            await this.artistRepository.setAppleMusicUrl(existing.artistId, url);
+            try {
+              const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
+              await this.artistRepository.setAppleMusicUrl(target.artistId, url);
+            } catch {
+              // ignore persistence failure
+            }
           }
         }
       } catch (err) {

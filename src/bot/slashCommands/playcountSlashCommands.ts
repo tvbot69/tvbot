@@ -21,6 +21,16 @@ import { TimePeriod } from '@domain/enums/timePeriod';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 
+/**
+ * `3` -> `03`. The receipt window url is a date, and it was built by
+ * interpolating `getMonth() + 1` and `getDate()` directly, so March read
+ * `2026-3-1`. Whether Last.fm's library parser accepts that is UNVERIFIED — it
+ * was never probed, and it could not be from the machine this was fixed on — but
+ * a zero-padded date is the documented shape and is accepted or rejected the
+ * same either way, so the padding is correct without needing the answer.
+ */
+const pad2 = (value: number): string => String(value).padStart(2, '0');
+
 @injectable()
 export class PlaycountSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -695,13 +705,27 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
     let timePeriod: TimePeriod;
     let periodDesc: string;
     let fromTimestamp: number | null = null;
+    // The other end of the window, kept next to `fromTimestamp` because the two
+    // are one claim: `tracksUrl` is printed on the image and `totalPlays` is
+    // drawn on it, so a count that runs to NOW beside a link bounded to the
+    // period describes two different months. Stays null when the period is
+    // open-ended, because a fabricated end is the same disagreement in reverse.
+    let toTimestamp: number | null = null;
     let tracksUrl: string;
 
     if (!hasExplicitPeriod) {
       timePeriod = TimePeriod.Monthly;
       periodDesc = currentMonthName;
       fromTimestamp = Math.floor(new Date(currentYear, currentMonthNum - 1, 1).getTime() / 1000);
-      tracksUrl = `https://last.fm/user/${encodeURIComponent(target.targetUser.userNameLastFm)}/library/tracks?from=${currentYear}-${currentMonthNum}-01&to=${currentYear}-${currentMonthNum}-${lastDay}`;
+      // Last instant of the last day, because the url names that DAY and a count
+      // stopping at its midnight would drop every play after it. Clamped at now:
+      // for a month that is still running that boundary is in the future, and a
+      // `to` past now asks Last.fm for a window that cannot contain anything.
+      toTimestamp = Math.min(
+        Math.floor(new Date(currentYear, currentMonthNum, 0, 23, 59, 59).getTime() / 1000),
+        Math.floor(Date.now() / 1000),
+      );
+      tracksUrl = `https://last.fm/user/${encodeURIComponent(target.targetUser.userNameLastFm)}/library/tracks?from=${currentYear}-${pad2(currentMonthNum)}-01&to=${currentYear}-${pad2(currentMonthNum)}-${pad2(lastDay)}`;
     } else {
       const timeSettings = this.settingService.getTimePeriod(rawSearch);
       timePeriod = timeSettings.timePeriod;
@@ -716,7 +740,14 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
         const eY = timeSettings.endDateTime.getFullYear();
         const eM = timeSettings.endDateTime.getMonth() + 1;
         const eD = timeSettings.endDateTime.getDate();
-        tracksUrl = `https://last.fm/user/${encodeURIComponent(target.targetUser.userNameLastFm)}/library/tracks?from=${sY}-${sM}-${sD}&to=${eY}-${eM}-${eD}`;
+        // Same rule as the default-month branch above, and the same reason it
+        // differs from `playsSlashAsync`: that one has no date-granular url to
+        // agree with, this one does.
+        toTimestamp = Math.min(
+          Math.floor(new Date(eY, eM - 1, eD, 23, 59, 59).getTime() / 1000),
+          Math.floor(Date.now() / 1000),
+        );
+        tracksUrl = `https://last.fm/user/${encodeURIComponent(target.targetUser.userNameLastFm)}/library/tracks?from=${sY}-${pad2(sM)}-${pad2(sD)}&to=${eY}-${pad2(eM)}-${pad2(eD)}`;
       } else {
         tracksUrl = `https://last.fm/user/${encodeURIComponent(target.targetUser.userNameLastFm)}/library/tracks`;
       }
@@ -739,6 +770,7 @@ export class PlaycountSlashCommands implements ISlashCommandModule {
       target.targetUser.userNameLastFm,
       fromTimestamp,
       target.targetUser.sessionKey ?? null,
+      toTimestamp,
     );
 
     const receiptTracks = topTracksResult.map((t) => ({

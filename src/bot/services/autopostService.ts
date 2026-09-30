@@ -61,6 +61,16 @@ const orDatabaseUnavailable = async <T>(
   }
 };
 
+/**
+ * The Discord JSON error code, when the failure carries one. discord.js puts a
+ * numeric `code` on a `DiscordAPIError`; a network failure, a rate limit and a
+ * plain `throw new Error(...)` do not.
+ */
+const discordErrorCode = (err: unknown): number | null => {
+  const code = (err as { code?: unknown } | null | undefined)?.code;
+  return typeof code === 'number' ? code : null;
+};
+
 @singleton()
 export class AutopostService {
   private readonly inMemoryAutoposts = new Map<string, AutopostConfig>();
@@ -221,14 +231,52 @@ export class AutopostService {
    * sweep instead of being silently skipped until the following cycle.
    */
   public async postAutopost(autopost: AutopostConfig, client: Client): Promise<boolean> {
-    const channel = await client.channels.fetch(autopost.channelId).catch(() => null);
-    if (!channel || !channel.isTextBased()) {
-      // CORRECT AS IS: not silent. The caller counts this as `failed`, rolls the
-      // due-claim back and retries next sweep, and this WARN is the only record
-      // of it. The message does conflate a failed fetch with a channel that is
-      // genuinely gone, but both are the same outcome here and both are
-      // reported, so there is no hidden failure to find.
-      Logger.warn(`[Autopost] Channel ${autopost.channelId} not found or not text-based for guild ${autopost.guildId}`);
+    // The RETRY POLICY IS UNCHANGED and deliberate: every failure below returns
+    // false, the caller counts it as `failed`, rolls the due-claim back and tries
+    // again next sweep. What changes is that the operator is told WHICH failure
+    // it was, because these need different fixes and one shared WARN line said
+    // none of them:
+    //
+    //   50001 Unknown Channel      the configured channel is gone. Re-point or
+    //                              remove the autopost.
+    //   50013 Missing Access       the channel EXISTS and the bot cannot post in
+    //                              it. Re-invite the bot or grant View Channel +
+    //                              Send Messages. This one never resolves on its
+    //                              own, so it is the case that used to look like
+    //                              a network blip in the log.
+    //   anything else, or `null`  a transient fetch failure. Do nothing; the next
+    //                              sweep retries.
+    let channel: Awaited<ReturnType<Client['channels']['fetch']>> = null;
+    try {
+      channel = await client.channels.fetch(autopost.channelId);
+    } catch (err) {
+      const code = discordErrorCode(err);
+      const context = { err: errorMessage(err), code, channelId: autopost.channelId, guildId: autopost.guildId };
+      if (code === 50013) {
+        Logger.warn(context, '[Autopost] The bot cannot access the configured channel (Missing Access). It exists, so this will fail every sweep: re-invite the bot to the server or grant View Channel + Send Messages, then re-run the autopost.');
+      } else if (code === 50001) {
+        Logger.warn(context, '[Autopost] The configured channel no longer exists (Unknown Channel). This will fail every sweep: point the autopost at another channel or remove it.');
+      } else {
+        Logger.warn(context, '[Autopost] Channel fetch failed before the channel could be read; treating it as transient and retrying next sweep.');
+      }
+      return false;
+    }
+
+    if (!channel) {
+      Logger.warn(
+        { channelId: autopost.channelId, guildId: autopost.guildId },
+        '[Autopost] The configured channel could not be found. This will fail every sweep: point the autopost at another channel or remove it.',
+      );
+      return false;
+    }
+
+    if (!channel.isTextBased()) {
+      // A channel that exists and is the wrong KIND: the admin pointed the
+      // autopost at a voice channel or a category. Different fix again.
+      Logger.warn(
+        { channelId: autopost.channelId, guildId: autopost.guildId },
+        '[Autopost] The configured channel exists but is not a text channel, so nothing can be sent to it. Point the autopost at a text channel.',
+      );
       return false;
     }
 

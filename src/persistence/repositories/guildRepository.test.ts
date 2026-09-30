@@ -17,9 +17,10 @@ import { GuildRepository } from './guildRepository';
  *
  * THE BIGINT TRAP, which is the whole first block. `guildId` is
  * `BigInt @id` and every entry point receives a string. `BigInt('abc')` THROWS
- * a `SyntaxError`. Only `getGuild` guards with `/^\d+$/`; every other method
- * coerces raw. That is pinned below in both directions so the asymmetry is a
- * documented decision rather than a memory of one.
+ * a `SyntaxError`. Only `getGuild` used to guard with `/^\d+$/`; the upsert and
+ * all eight writers coerced raw, so the same malformed input produced a `null`
+ * from one method and a `SyntaxError` out of the repository from the other nine.
+ * One `toGuildId` guard now serves all of them, pinned below in both directions.
  */
 
 type Args = Record<string, unknown>;
@@ -128,11 +129,16 @@ describe('GuildRepository.addOrUpdateGuild', () => {
     await expect(repo.addOrUpdateGuild(GUILD, 'Renamed')).rejects.toThrow('unique violation');
   });
 
-  it('DOCUMENTS THE ASYMMETRY: addOrUpdateGuild has no BigInt guard', async () => {
-    // getGuild answers null for a malformed id; this one throws. Both reach
-    // production from the same callers, so the difference is a latent crash
-    // rather than a deliberate distinction. Pinned, not fixed.
-    await expect(repo.addOrUpdateGuild('not-a-guild', 'X')).rejects.toThrow(/BigInt/);
+  it('raises a NAMED error on a malformed id, because a guild row has no empty answer', async () => {
+    // The method returns a `Guild`, so there is no empty value to hand back and
+    // reporting one would be a fabricated row. What it must NOT do is throw the
+    // driver's `SyntaxError: Cannot convert … to a BigInt`, which reads as a
+    // database fault. The raise now names the argument, which is where the bug
+    // actually is.
+    await expect(repo.addOrUpdateGuild('not-a-guild', 'X')).rejects.toThrow(TypeError);
+    await expect(repo.addOrUpdateGuild('not-a-guild', 'X')).rejects.toThrow(/guildId must be a decimal string/);
+    // Explicitly NOT the coercion failure.
+    await expect(repo.addOrUpdateGuild('not-a-guild', 'X')).rejects.not.toThrow(/Cannot convert/);
     expect(d.guild.upsert).not.toHaveBeenCalled();
   });
 });
@@ -198,7 +204,11 @@ describe('GuildRepository writers', () => {
     await expect(repo.setPrefix(GUILD, '?')).rejects.toThrow('write failed');
   });
 
-  it('DOCUMENTS THE ASYMMETRY: none of the writers guard the BigInt coercion', async () => {
+  it('EVERY writer guards the BigInt coercion and no-ops on a malformed id', async () => {
+    // The point of the guard is that all nine methods now behave the SAME way:
+    // a guild id that is not a decimal string is a caller bug, and none of them
+    // reaches Prisma with it. Before, one answered null and eight threw a
+    // `SyntaxError` out of the repository.
     for (const call of [
       () => repo.setPrefix('nope', '?'),
       () => repo.setCommandsDisabled('nope', true),
@@ -208,8 +218,27 @@ describe('GuildRepository writers', () => {
       () => repo.setCrownsActivityThreshold('nope', 5),
       () => repo.setCrownsDisabled('nope', true),
     ] as Array<() => Promise<void>>) {
-      await expect(call()).rejects.toThrow(/BigInt/);
+      // Resolves — an unresolved promise here would be the old `SyntaxError`.
+      await expect(call()).resolves.toBeUndefined();
     }
+    expect(d.guild.update).not.toHaveBeenCalled();
+  });
+
+  it('the guard rejects the shapes BigInt would refuse, and only those', async () => {
+    // A guard that is too loose is as bad as none: it would either swallow a
+    // real id or pass garbage through. Each of these must be a no-op.
+    for (const bad of ['', 'nope', '12.5', '0x10', ' 8800001', '8800001n', '-1', '+1']) {
+      await expect(repo.setPrefix(bad, '?')).resolves.toBeUndefined();
+    }
+    // A zero id IS a decimal string and reaches Prisma: it is not a number the
+    // guard gets to veto, and `8800001` must keep working.
+    await repo.setPrefix('8800001', '?');
+    expect(callArg(d.guild.update)).toEqual({ where: { guildId: 8800001n }, data: { prefix: '?' } });
+  });
+
+  it('no-ops on an empty id as well, so a DM channel cannot become a guild row', async () => {
+    await expect(repo.getGuild('')).resolves.toBeNull();
+    await expect(repo.setCommandsDisabled('', true)).resolves.toBeUndefined();
     expect(d.guild.update).not.toHaveBeenCalled();
   });
 });

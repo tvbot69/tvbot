@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SpotifySearchApi } from './spotifySearchApi';
+import { SpotifySearchApi, SpotifyUnavailableError } from './spotifySearchApi';
 import type { SpotifyTokenManager } from './spotifyTokenManager';
 import { Logger } from '@domain/logger';
 
@@ -341,13 +341,15 @@ describe('searchAndGetFullAlbum — the two rungs are genuinely independent', ()
  * NOT in that log, and this method sends it `Math.min(limit, 50)` with no clamp —
  * and `albumService` calls it with 50.
  *
- * So the 400-is-a-lie shape that the `/v1/artists/{id}/albums` fix removed is
- * still reachable here: a 4xx is treated as an ANSWER, so a rejected request
- * comes back as "this album has no tracks" with nothing logged. That is exactly
- * the claim `getAlbumTrackNames` was rewritten to stop making for 5xx. Whether
- * the server actually rejects 50 here is UNVERIFIED — I have no network access
- * and did not probe it. What is verified is that the code sends 50 and that a
- * rejection would be silent.
+ * So the 400-is-a-lie shape that the `/v1/artists/{id}/albums` fix removed used
+ * to be reachable here too — a 4xx treated as an ANSWER — and worse, the branch
+ * that did it (`if (res.status < 500) return []`) was satisfied by a 200 as
+ * well, so the method reported "this album has no tracks" for every album and
+ * the code below it was dead. It is now `=== 404`: a 404 is the one genuine
+ * absence, and every other non-200 raises. Whether the server actually rejects
+ * 50 here is still UNVERIFIED — I have no network access and did not probe it.
+ * What is verified is that the code sends 50, and that a rejection is now loud
+ * rather than an empty tracklist.
  */
 describe('getAlbumTrackNames — the tracklist limit is the one UNMEASURED ceiling', () => {
   const tracklistRouter = (tracksStatus: number, tracksBody: unknown = {}) => {
@@ -388,39 +390,32 @@ describe('getAlbumTrackNames — the tracklist limit is the one UNMEASURED ceili
     expect(tracklistUrl(fetchMock)).toContain('limit=50');
   });
 
-  it('SILENT ANSWER — a 400 from the tracklist endpoint returns an empty tracklist with no log', async () => {
-    // The dangerous shape, pinned as observed. Every other inconclusive failure
-    // in this method raises; a 4xx does not. So if the server rejects this
-    // request the caller is told the album has no tracks, `albumService` builds a
-    // Last.fm-sourced card, and nothing above DEBUG records that a request this
-    // module built was invalid.
+  it('RAISES on a 400 from the tracklist endpoint, because a rejected request is not "this album has no tracks"', async () => {
+    // The dangerous shape, pinned in its fixed form. Every other inconclusive
+    // failure in this method raises, and a 4xx is one: it means a request THIS
+    // module built was invalid. Answering `[]` told `albumService` the album has
+    // no tracks, and it built a Last.fm-sourced card over the gap with nothing
+    // logged. Same shape as `getTrack`: raise, and do NOT arm the transport
+    // breaker, because a bug of ours does not get better by asking again.
     const { api } = build();
     const fetchMock = tracklistRouter(400, { error: { status: 400, message: 'Invalid limit' } });
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
       api.getAlbumTrackNames('Geogaddi', 'Boards of Canada', 50),
-    ).resolves.toEqual([]);
+    ).rejects.toThrow(SpotifyUnavailableError);
 
-    expect(Logger.warn).not.toHaveBeenCalled();
-    expect(Logger.debug).not.toHaveBeenCalled();
+    expect(SpotifySearchApi.isRateLimited()).toBe(false);
   });
 
-  it('BUG — a 200 with a real tracklist is ALSO discarded, so this method never returns a tracklist', async () => {
-    // `spotifySearchApi.ts:718` is `if (res.status < 500) return []`, which a 200
-    // satisfies. The status checks above it throw for 401, 429 and >=500, so the
-    // only statuses that can reach the body parse are... none. Lines 719-721
-    // (`noteTransportSuccess` and the `items` mapping) are dead code.
-    //
-    // This is the same defect as the 400 case above, and worse: it is not
-    // confined to a request the server might reject, it is EVERY successful
-    // answer. So the 4xx silent answer was the visible half — the real one is
-    // that `getAlbumTrackNames` reports "this album has no tracks" for every
-    // album, and `albumService` builds the card from Last.fm's tracklist every
-    // time, with nothing logged.
-    //
-    // Pinned as observed, not as desired. The fix is one character class
-    // (`=== 404` instead of `< 500`) in production, which this file must not do.
+  it('returns the track names from a 200, which is the only reason this method exists', async () => {
+    // `spotifySearchApi.ts` had `if (res.status < 500) return []`, which a 200
+    // satisfies. The status checks above it threw for 401, 429 and >=500, so the
+    // only statuses that could reach the body parse were... none: `noteTransportSuccess`
+    // and the `items` mapping were dead code, and the method answered `[]` for
+    // EVERY successful response. `albumService` therefore fell back to the
+    // Last.fm tracklist for every album it ever built, with nothing logged —
+    // the A2 failure, a feature presenting itself as working.
     const { api } = build();
     const fetchMock = tracklistRouter(200, {
       items: [{ name: 'Xtal' }, { name: 'Music Is Math' }],
@@ -429,21 +424,45 @@ describe('getAlbumTrackNames — the tracklist limit is the one UNMEASURED ceili
 
     await expect(
       api.getAlbumTrackNames('Geogaddi', 'Boards of Canada', 5),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual(['Xtal', 'Music Is Math']);
 
-    // The request really was made and really was a 200 — this is not a routing
-    // or a double problem, the body is simply never read.
     expect(tracklistUrl(fetchMock)).toContain('/v1/albums/alb1/tracks');
   });
 
-  it('BUG — a 404 is the one status the empty answer was written for, and it is indistinguishable from the 200', async () => {
-    // The comment on line 716 says a 404 "IS an answer". It is, and so is a 200,
-    // and the code cannot tell them apart.
+  it('answers empty on a 404, which is Spotify saying the album has no tracklist', async () => {
+    // The counterpart to the 200 above, and the reason the branch is `=== 404`
+    // rather than `< 500`: a 404 is a real answer and an empty list is the right
+    // way to report it. It must not become the answer for statuses that are not
+    // answers.
     const { api } = build();
     vi.stubGlobal('fetch', tracklistRouter(404));
 
     await expect(
       api.getAlbumTrackNames('Geogaddi', 'Boards of Canada', 5),
     ).resolves.toEqual([]);
+    expect(SpotifySearchApi.isRateLimited()).toBe(false);
+  });
+
+  it('RAISES on a 5xx from the tracklist endpoint, naming the status', async () => {
+    // The third direction, and the one the two above exist to be distinguished
+    // from. A raised `SourceUnavailableError` reaches `albumService`'s existing
+    // WARN, which names the real reason; `[]` would have hidden it.
+    const { api } = build();
+    vi.stubGlobal('fetch', tracklistRouter(503));
+
+    await expect(
+      api.getAlbumTrackNames('Geogaddi', 'Boards of Canada', 5),
+    ).rejects.toThrow(/HTTP 503/);
+  });
+
+  it('answers empty when the album has tracks but the payload names none', async () => {
+    // The genuine empty, after the shape was read. Two items with no `name` must
+    // not reach the caller as `[undefined, undefined]`.
+    const { api } = build();
+    vi.stubGlobal('fetch', tracklistRouter(200, { items: [{ id: 'a' }, { name: 'Xtal' }, {}] }));
+
+    await expect(
+      api.getAlbumTrackNames('Geogaddi', 'Boards of Canada', 5),
+    ).resolves.toEqual(['Xtal']);
   });
 });
