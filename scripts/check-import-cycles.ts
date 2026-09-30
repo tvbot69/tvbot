@@ -20,14 +20,29 @@
  */
 import madge from 'madge';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 /** RUNTIME cycles, type-only edges excluded. Must be 0. */
 const MAX_RUNTIME_CYCLES = 0;
-/** Cycles including `import type`. Real coupling, but not load-order risk. */
-const MAX_TOTAL_CYCLES = 4;
+/**
+ * Cycles including `import type`. Real coupling, but not load-order risk.
+ *
+ * THREE REAL ONES, listed in the comment below. This was `4`, and the fourth
+ * was a `__cycleprobe/a.ts` entry: a throwaway fixture a subagent's mutation
+ * run wrote into this file, which the script then re-wrote on its next run and
+ * which got committed. It granted a phantom allowance, so the check had room
+ * for one more real cycle than it should. **Every number here must be backed by
+ * a real pair, and `deps:cycles` prints the pairs it counted precisely so a
+ * human can see whether the budget matches reality.**
+ *
+ * The three real cycles, all `import type` on one side and all deliberate:
+ *   userService        -> commandDispatcher
+ *   autopostService    -> autopostRepository
+ *   ytResolver         -> descriptionChapters
+ */
+const MAX_TOTAL_CYCLES = 3;
 
-const BUDGET_FILE = path.join(process.cwd(), 'scripts', 'cycle-budget.json');
 const REPORT_ONLY = process.argv.includes('--report');
 
 /**
@@ -64,8 +79,21 @@ const main = async (): Promise<void> => {
   console.log(`all cycles (including type imports):    ${total.length}  (allowed ${MAX_TOTAL_CYCLES})`);
   for (const c of total) console.log(`    ${c}`);
 
+  // SNAPSHOT ONLY, and it must never sit in the working tree.
+  //
+  // This file used to be written to `scripts/cycle-budget.json` on every run.
+  // That is a trap twice over: the ratchet read NOTHING from it (the budgets
+  // are the constants above), so it was an output masquerading as a config, and
+  // because it lived in the repo a throwaway fixture a subagent's run created
+  // was committed into it. Anyone reading it reasonably concluded the budgets
+  // lived there.
+  //
+  // It is now written to the OS temp directory and is not tracked. If you want
+  // the last snapshot, read it there; if you want to change a budget, change
+  // the constant in this file, which is what the test above and CI both read.
+  const snapshot = path.join(os.tmpdir(), 'tvbot-cycle-snapshot.json');
   fs.writeFileSync(
-    BUDGET_FILE,
+    snapshot,
     `${JSON.stringify(
       { maxRuntime: MAX_RUNTIME_CYCLES, maxTotal: MAX_TOTAL_CYCLES, runtime, total },
       null,
@@ -73,6 +101,7 @@ const main = async (): Promise<void> => {
     )}\n`,
     'utf8',
   );
+  console.log(`\nsnapshot (untracked): ${snapshot}`);
 
   if (REPORT_ONLY) return;
 
@@ -82,6 +111,14 @@ const main = async (): Promise<void> => {
   }
   if (total.length > MAX_TOTAL_CYCLES) {
     failures.push(`total cycles: ${total.length} > ${MAX_TOTAL_CYCLES}`);
+  }
+  // A budget with slack and no explanation is how a phantom entry survives: 4
+  // allowed, 3 real, nobody asks which is the fourth. Say so out loud.
+  if (!REPORT_ONLY && total.length < MAX_TOTAL_CYCLES) {
+    console.log(
+      `\nNOTE: ${MAX_TOTAL_CYCLES - total.length} cycle slot(s) unused. If a cycle was deleted,\n` +
+        `      lower MAX_TOTAL_CYCLES in this file so the budget tracks reality.`,
+    );
   }
   if (failures.length) {
     console.error('\nIMPORT CYCLE RATCHET FAILED');
