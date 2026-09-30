@@ -7,6 +7,26 @@ interface EssentiaInstance {
   deleteVector?(vector: unknown): void;
 }
 
+/**
+ * The sample rate Essentia's `RhythmExtractor2013` and `KeyExtractor` are
+ * defined for.
+ *
+ * These algorithms work in SECONDS, so a signal at 48kHz handed to a 44.1kHz
+ * beat tracker reports a tempo ~8.8% off (and a key derived from a chromagram
+ * built on the wrong window length). Nothing in this module used to notice:
+ * `analyze` took only the samples, so the rate was structurally invisible and a
+ * CDN serving 48kHz previews would quietly have produced wrong numbers with no
+ * error anywhere.
+ *
+ * Declared here rather than imported because this module must stay a leaf —
+ * `audioSignalService` pulls in ffmpeg-static, fluent-ffmpeg and child_process,
+ * and essentiaService is required by tests that want nothing but a WASM
+ * analyser. The two constants are coupled at runtime by the check in `analyze`
+ * (a mismatch returns null + WARN, it cannot pass silently) and asserted equal
+ * by `audioBinaryResolution.test.ts`.
+ */
+export const ESSENTIA_SAMPLE_RATE = 44100;
+
 let essentiaInstance: EssentiaInstance | null = null;
 let initFailed = false;
 
@@ -43,9 +63,17 @@ export class EssentiaService {
     return getEssentia() !== null;
   }
 
-  public analyze(signal: Float32Array): { bpm: number; key: string } | null {
+  public analyze(signal: Float32Array, sampleRate: number = ESSENTIA_SAMPLE_RATE): { bpm: number; key: string } | null {
     const es = getEssentia();
     if (!es || !signal || signal.length < 4410) return null;
+    // A signal at the wrong rate is not "degraded analysis", it is a different
+    // (wrong) answer, and the caller cannot tell it apart from a real one.
+    // Refusing is the only honest option, and it is above DEBUG because the
+    // whole BPM/key feature is silently gone while the track card still renders.
+    if (sampleRate !== ESSENTIA_SAMPLE_RATE) {
+      Logger.warn({ sampleRate, expected: ESSENTIA_SAMPLE_RATE }, '[Essentia] refusing a signal at the wrong sample rate — BPM/key unavailable');
+      return null;
+    }
     try {
       const vector = es.arrayToVector(signal);
       const rhythm = es.RhythmExtractor2013(vector);

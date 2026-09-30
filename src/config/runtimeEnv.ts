@@ -69,8 +69,15 @@ const MAX_TCP_PORT = 65535;
 
 /** The environment an accessor reads when the caller does not supply one.
  *  A function call, not a constant, so a test that mutates `process.env` after
- *  import still sees its own value. */
-const currentEnv = (): NodeJS.ProcessEnv => process.env;
+ *  import still sees its own value.
+ *
+ *  Exported because a consumer sometimes needs the env for a key this module
+ *  does not model - a PATH scan, for instance. That is the ONLY correct way to
+ *  do it: a bare `process.env` default parameter reads the same value but
+ *  bypasses the indirection, and the `process-env-outside-config` debt ratchet
+ *  (budget 0) exists precisely to catch that. It fired the first time this was
+ *  written, which is the ratchet doing its job. */
+export const currentEnv = (): NodeJS.ProcessEnv => process.env;
 
 /** Trimmed, or undefined for absent/empty/whitespace-only.
  *

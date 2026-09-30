@@ -53,8 +53,8 @@ export class TrackDetailsService {
 
     if (resolved.previewUrl && this.essentia.isAvailable()) {
       try {
-        const { signal } = await getAudioSignalAndSr(uniqueId, resolved.previewUrl);
-        const feats = this.essentia.analyze(signal);
+        const { signal, sampleRate } = await getAudioSignalAndSr(uniqueId, resolved.previewUrl);
+        const feats = this.essentia.analyze(signal, sampleRate);
         if (feats) {
           bpm = feats.bpm;
           key = feats.key !== 'N/A' ? formatKey(feats.key) : null;
