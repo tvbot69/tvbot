@@ -27,18 +27,18 @@ export default defineConfig({
     // Coverage is a RATCHET, not a report: CI fails if any of these drop, and
     // they only ever go up.
     //
-    // Measured on 135 files / 1097 tests, with `all: true` so that files nobody
-    // has tested still count against the denominator - without it, an untested
-    // file silently stops counting and coverage rises by shrinking the
-    // denominator rather than by adding tests.
+    // Measured with `all: true` so that files nobody has tested still count
+    // against the denominator - without it, an untested file silently stops
+    // counting and coverage rises by shrinking the denominator rather than by
+    // adding tests.
     //
-    //   lines 48.21%  branches 68.47%  functions 49.08%  statements 48.21%
-    // (unit suite only; the 3 render files are measured by test:render)
+    //   lines 84.29%  branches 83.89%  functions 81.76%  statements 84.29%
+    // (58,155 statements in src/, 7,286 unit tests, 2026-09-30. Coverage run
+    // includes the 3 render files; the plain unit run excludes them.)
     //
     // Thresholds sit just below each, so a 0.1% regression fails the build.
-    // The gap between 46% here and the "well tested" impression the repo gave
-    // is the point of the number: the previous self-review counted test FILES,
-    // not covered lines, and there are 135 of those over 440 source files.
+    // They used to sit far BELOW reality (66.5 while the code was at 74.08), which
+    // made the ratchet a floor nobody could trip. Measure, then set.
     coverage: {
       provider: 'v8',
       all: true,
@@ -78,10 +78,10 @@ export default defineConfig({
         'scripts/**',
       ],
       thresholds: {
-        statements: 66.5,
-        branches: 77.2,
-        functions: 63.8,
-        lines: 66.5,
+        statements: 84.2,
+        branches: 83.8,
+        functions: 81.7,
+        lines: 84.2,
       },
     },
   },

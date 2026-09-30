@@ -40,13 +40,17 @@ describe('Lavalink Configuration', () => {
   });
 
   it('prefers the home node first when configured', () => {
-    process.env.HOME_LAVALINK_URL = 'https://mymachine.tail4b77d0.ts.net';
+    // A placeholder host, deliberately. This repo is public, so a real tailnet
+    // hostname must not be committed even inside a fixture; the parser only
+    // needs a host that is not the configured custom node, and `.invalid` is
+    // reserved by RFC 2606 precisely so it can never resolve.
+    process.env.HOME_LAVALINK_URL = 'https://machine.example.invalid';
     process.env.HOME_LAVALINK_PASSWORD = 'home-secret';
     process.env.HOME_LAVALINK_SECURE = 'true';
 
     const nodes = getLavalinkNodes();
     expect(nodes[0]?.identifier).toBe('Home');
-    expect(nodes[0]?.host).toBe('mymachine.tail4b77d0.ts.net');
+    expect(nodes[0]?.host).toBe('machine.example.invalid');
     expect(nodes[0]?.port).toBe(443);
     expect(nodes[0]?.secure).toBe(true);
 
@@ -56,7 +60,7 @@ describe('Lavalink Configuration', () => {
   });
 
   it('ignores the home node on kill switch or missing password', () => {
-    process.env.HOME_LAVALINK_URL = 'https://mymachine.tail4b77d0.ts.net';
+    process.env.HOME_LAVALINK_URL = 'https://machine.example.invalid';
     process.env.HOME_LAVALINK_PASSWORD = 'home-secret';
     process.env.HOME_NODE_ENABLED = 'false';
 

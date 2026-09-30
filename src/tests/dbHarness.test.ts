@@ -26,9 +26,13 @@ describe('dbHarness skipReason', () => {
     await expect(loadSkipReason(undefined)).resolves.toMatch(/not set/);
   });
 
+  // The host here is a placeholder. The guard matches on the DATABASE NAME, not
+  // on the host, so a placeholder is as strong a test as the real thing — and
+  // this repo is public, so a real managed-database hostname must never be
+  // committed even inside a fixture that is expected to be refused.
   it.each([
     ['postgresql://tvbot:tvbot@localhost:5432/tvbot?schema=public'],
-    ['postgresql://u:p@altaria.proxy.rlwy.net:37922/railway'],
+    ['postgresql://u:p@managed-db.example.invalid:5432/railway'],
     ['postgresql://u:p@host/production'],
     ['postgresql://u:p@host/main'],
   ])('REFUSES the non-scratch database in %s', async (url) => {

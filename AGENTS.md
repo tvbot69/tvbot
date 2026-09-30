@@ -45,7 +45,7 @@ plausible falsehood. Concretely, three properties:
   - **Cache**: `ioredis` with automatic in-memory LRU fallback (`src/bot/services/cacheService.ts`)
   - **Music**: `moonlink.js` v5 (Lavalink v4, auto-failover) + `fluent-ffmpeg` + `essentia.js` WASM (BPM/key)
   - **Graphics**: `puppeteer` 25.9 (ephemeral in dev, persistent in prod) for chart collages
-- **Scale**: 399 production TypeScript files, ~82k lines, 286 test files. Commands are dual-mode: 77 slash commands and ~658 text triggers over shared builders.
+- **Scale**: 400 production TypeScript files, ~82k lines, 384 test files. Commands are dual-mode: 77 slash commands and ~658 text triggers over shared builders.
 
 ---
 
@@ -57,14 +57,19 @@ plausible falsehood. Concretely, three properties:
 5. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 6. Push **only** when asked.
 
-Current baseline, measured on `main` at `e893c86` (2026-09-30): **283 test files, 4536 unit passing
-+ 516 db skipped = 5052**. `npm run lint` reports **0 errors / 358 warnings**. `npm run debt` reads
+Current baseline, measured on `main` at `8252572` (2026-09-30): **364 test files, 7286 unit passing
++ 516 db skipped = 7802**. Coverage is **84.29% lines / 83.89% branches / 81.76% functions** over
+58,155 statements, and the ratchet in `vitest.config.ts` now sits at 84.2 / 83.8 / 81.7 — it used to
+sit *below* reality (66.5 against an actual 74.08), which made it a floor nobody could trip. Measure,
+then set the ratchet. `npm run lint` reports **0 errors / 358 warnings**. `npm run debt` reads
 `explicit-any 0`, `as-unknown-as 75/101`, `silent-failure-default 438/604`, and every other kind at
 budget. If the numbers in this file drift from reality, **the file is wrong** — check the gate output
 and fix the number here.
 
-The db suite skips locally (no Docker, no local Postgres, and `DATABASE_URL` is production Railway,
-which must never be truncated). It runs in CI against a disposable `postgres:16`.
+The db suite reads `TEST_DATABASE_URL`, not `DATABASE_URL`, and `dbHarness` **refuses** to run
+against any database whose name is not a scratch one. It skips locally (no Docker, no local
+Postgres) and runs in CI against a disposable `postgres:16`. Never point either variable at
+production, and never truncate a connection string — see `src/persistence/AGENTS.md`.
 
 `npm test` does not typecheck. Always run `npm run build` too — otherwise a bad constructor arity passes vitest and breaks the build. It is not a hypothetical: writing the log monitor, the suite reported 1212/1212 green while `tsc` rejected three lines, and five separate batches since have produced the same shape. CI (`.github/workflows/ci.yml`) runs the build first and blocking for exactly this reason.
 
@@ -150,20 +155,22 @@ musicTypes.ts          leaf interfaces + ports (PendingEntry, PlayerProvider,
 There is deliberately **no `setInterval` tick**. An earlier version of this file claimed a "5s tick"; that was wrong and the tvbot skill had it right. A poll would republish the same card every five seconds forever — Discord rate limits, needless API calls — and the fingerprint made it pointless anyway.
 
 ### 4.1 Invariants that broke in production — do not regress these
-- **`shuffle` and `remove` mutate the pending array in place.** The pending store must hand back the **live** array, never a copy. A copying port silently turns both into no-ops while every assertion still passes. `pendingStoreIdentity.test.ts` locks this.
-- **A position that moves BACKWARDS is stale data, not a rewind.** There is a guard for implausible forward jumps (drifting node clock); a backward read with no recorded seek intent must be refused, or the card snaps back to chapter 0. A real backward seek carries `lastUserSeekAt`/`lastUserSeekPos`, recorded by `seek()` *before* it awaits the node.
-- **Deliberate seeks must not pay the settle window.** The implausible-jump guard exists for clock drift, not for listeners.
+Read `src/bot/handlers/music/AGENTS.md` before touching playback. It carries each of these with a
+`file:line` reference, the "why", and the test that locks it. Summary only:
+- **`shuffle` and `remove` mutate the pending array in place**, so the pending store must hand back the **live** array, never a copy.
+- **A position that moves BACKWARDS is stale data, not a rewind.** A real backward seek carries `lastUserSeekAt`/`lastUserSeekPos`, recorded by `seek()` *before* it awaits the node.
+- **Deliberate seeks must not pay the settle window** — the implausible-jump guard exists for clock drift, not for listeners.
 - **`trackStart` must derive the chapter from the real position**, never a hardcoded `0`.
-- **A chapter whose art genuinely cannot be found holds the previous cover.** That is intentional (it beats flashing the wrong image), but it is why a catalogue miss reads as "art is broken". Fix the matching, not the hold.
-- **Timeout→node-cooldown is load-bearing.** A search timeout must keep cooling the node; that behaviour came from a real uplink-stall incident. Only the collateral migration damage was softened.
-- **The Redis FIFO warning is expected.** Write-then-trim ordering is consistent and failure replay is intentional. Do not "fix" it.
+- **A chapter whose art genuinely cannot be found holds the previous cover.** Fix the matching, not the hold.
+- **Timeout→node-cooldown is load-bearing.** A search timeout must keep cooling the node.
+- **The Redis write-then-trim protocol is expected.** The trim is the acknowledgement, so failure replay is intentional. Do not "fix" it. (`cacheService` emits no FIFO warning; that claim in an earlier revision of this file was wrong.)
 
 ---
 
 ## 5. Testing Contracts (violating these breaks the suite)
 
 - **Never add constructor parameters to `MusicHandler`.** Tests build it positionally with 3 args: `new MusicHandler(client, {getManager}, {getQueueInfo, is247})`. Extract collaborators by constructing them *inside* the existing constructor body, or as free functions taking deps as arguments.
-- **Never add constructor parameters to `MusicService`** either — 20 test call sites build it positionally with 3–5 args. Keep the signature and add collaborators internally.
+- **Never add constructor parameters to `MusicService`** either — over 20 test call sites build it positionally with 3–5 args. Keep the signature and add collaborators internally.
 - **Tests reach privates via `as unknown as {...}` casts and replace methods/spies on the instance.** Therefore:
   - Any extracted member must still be reachable on the original object (delegate, not removal).
   - Every cross-cluster call must go **through the host instance** (`this.publishProgress(...)`), never a sibling collaborator, or `vi.spyOn` / own-property shadowing stops working.
@@ -177,7 +184,7 @@ There is deliberately **no `setInterval` tick**. An earlier version of this file
 
 ## 6. Refactoring This Codebase
 
-**The facade pattern is the tool that works here.** Extract behaviour, keep the public surface as one-line delegates on the original class, and the registered token plus every existing call site keep compiling. This is how `musicService` went 2317 → ~1240 lines with **zero changes to any pre-existing test**.
+**The facade pattern is the tool that works here.** Extract behaviour, keep the public surface as one-line delegates on the original class, and the registered token plus every existing call site keep compiling. This is how `musicService` went 2317 → ~1400 lines with **zero changes to any pre-existing test**.
 
 - Prefer **pure function modules** (no state, no timers) — those are free to move.
 - Prefer **collaborators constructed inside an existing constructor** over new DI wiring.
