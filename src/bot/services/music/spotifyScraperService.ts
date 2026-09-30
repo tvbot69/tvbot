@@ -1,5 +1,6 @@
 import { Logger } from '@domain/logger';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { errorMessage } from '@domain/discordErrors';
 
 interface SpotifyEntity {
   audioPreview?: { url?: string };
@@ -58,12 +59,29 @@ export interface ScrapedPlaylist {
 }
 
 export class SpotifyScraperService {
+  /**
+   * How long the scraper stops asking for a web-player token after every
+   * endpoint has refused one.
+   *
+   * The three endpoints below have been measured returning 403/403/400 on every
+   * attempt, and the walk costs ~2 seconds because each of the six
+   * endpoint/header combinations is a real round trip. Nothing was cached, so
+   * every playlist page and every preview lookup paid those 2 seconds again.
+   * Ten minutes is long enough that a burst of lookups pays it once, and short
+   * enough that a token that starts working is picked up within a single user
+   * session rather than the next deploy.
+   */
+  private static readonly TOKEN_RETRY_BACKOFF_MS = 600_000;
+  private tokenUnavailableUntil = 0;
   private cachedToken: { token: string; expiresAt: number } | null = null;
   private readonly userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 
   private async getWebPlayerToken(): Promise<string | null> {
     if (this.cachedToken && Date.now() < this.cachedToken.expiresAt - 60000) {
       return this.cachedToken.token;
+    }
+    if (Date.now() < this.tokenUnavailableUntil) {
+      return null;
     }
     const endpoints = [
       'https://open.spotify.com/get_access_token?reason=transport&productType=web_player',
@@ -85,6 +103,12 @@ export class SpotifyScraperService {
         'Referer': 'https://open.spotify.com/playlist/6GyZGBc11LnyAYclEPPkYh',
       },
     ];
+    // Why the statuses are collected rather than swallowed. This is a LOST
+    // capability, not a rung finding nothing: golden rule 10 puts a lost
+    // capability at WARN, and a WARN that says only "no token" cannot be
+    // distinguished from a network blip when someone reads the deploy log to
+    // work out why playlists stopped resolving.
+    const refusals: string[] = [];
     for (const endpoint of endpoints) {
       for (const headers of headersList) {
         try {
@@ -109,22 +133,35 @@ export class SpotifyScraperService {
                 })
               : undefined,
           });
-          if (!res.ok) continue;
+          if (!res.ok) {
+            refusals.push(`${res.status} from ${new URL(endpoint).hostname}`);
+            continue;
+          }
           const data = (await res.json()) as {
             accessToken?: string;
             accessTokenExpirationTimestampMs?: number;
             grantedToken?: { token?: string; expiresAfterSeconds?: number };
           };
           const token = data.accessToken ?? data.grantedToken?.token;
-          if (!token) continue;
+          if (!token) {
+            refusals.push(`200 with no token from ${new URL(endpoint).hostname}`);
+            continue;
+          }
           const expiresAt = data.accessTokenExpirationTimestampMs ?? Date.now() + (data.grantedToken?.expiresAfterSeconds ?? 3600) * 1000;
           this.cachedToken = { token, expiresAt };
+          this.tokenUnavailableUntil = 0;
           return token;
-        } catch {
+        } catch (err) {
+          refusals.push(`throw from ${new URL(endpoint).hostname}: ${errorMessage(err, 80)}`);
           continue;
         }
       }
     }
+    this.tokenUnavailableUntil = Date.now() + SpotifyScraperService.TOKEN_RETRY_BACKOFF_MS;
+    Logger.warn(
+      { refusals, backoffMs: SpotifyScraperService.TOKEN_RETRY_BACKOFF_MS },
+      '[SpotifyScraper] web-player token unobtainable — the spclient playlist rung is unavailable; HTML and browser rungs still run',
+    );
     return null;
   }
 

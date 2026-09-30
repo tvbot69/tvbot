@@ -2,6 +2,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  type ButtonInteraction,
   type ChatInputCommandInteraction,
   type MessageActionRowComponentBuilder,
 } from 'discord.js';
@@ -30,17 +31,64 @@ export class PaginationService {
     const sessionId = randomUUID();
     const state: PaginationState = { page: 0 };
 
-    const send = async (): Promise<void> => {
-      const response = buildPage(state.page);
+    /**
+     * The one message payload, for the first send and for every edit alike.
+     *
+     * Deliberately un-annotated. `reply`, `update` and `editReply` take three
+     * different option interfaces whose `content` fields disagree
+     * (`string | undefined` vs `string | null`), so naming any one of them here
+     * would make the other two call sites a type error. The inferred shape
+     * carries no `content` key at all, which is the only form all three accept.
+     */
+    const payloadFor = (page: number) => {
+      const response = buildPage(page);
       const components = [
         ...response.buildComponents(),
-        this.buildButtonRow(sessionId, state.page, totalPages),
+        this.buildButtonRow(sessionId, page, totalPages),
       ];
-      const payload = { embeds: response.buildEmbed(), components: components };
+      return { embeds: response.buildEmbed(), components };
+    };
+
+    /**
+     * The FIRST page answers the slash interaction. There is nothing to edit
+     * yet, so this is the one and only place `reply` is legal — and a slash
+     * interaction can only ever be answered once, which is why every later page
+     * goes through the button interaction instead.
+     */
+    const send = async (): Promise<void> => {
+      const payload = payloadFor(state.page);
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply(payload);
       } else {
         await interaction.reply(payload);
+      }
+    };
+
+    /**
+     * Every later page EDITS THE ONE MESSAGE, through the interaction that
+     * actually has a message to edit.
+     *
+     * This used to acknowledge the click with `i.update({})` — which strips the
+     * button row off the original message — and then post the new page with
+     * `interaction.reply`. Paging a 20-page chart therefore produced 20 messages
+     * and 20 blanked originals, and it only worked by accident: the slash
+     * interaction had already been answered by `send`, so the second `reply`
+     * was a second answer to one interaction, which Discord rejects on some
+     * paths and silently drops on others.
+     *
+     * `i.update(payload)` is the single call that both ACKS the click (it is an
+     * interaction response, so the button stops spinning) and edits the message
+     * in place, which is what every other paginator in a Discord client looks
+     * like. An interaction that was already deferred or replied cannot be
+     * `update`d — that is the documented error — so it gets `editReply`
+     * instead. Both branches ack exactly once.
+     */
+    const show = async (i: ButtonInteraction): Promise<void> => {
+      const payload = payloadFor(state.page);
+      if (i.deferred || i.replied) {
+        await i.editReply(payload);
+      } else {
+        await i.update(payload);
       }
     };
 
@@ -52,8 +100,7 @@ export class PaginationService {
         }
         if (state.page > 0) {
           state.page--;
-          await i.update({});
-          await send();
+          await show(i);
         } else {
           await i.deferUpdate();
         }
@@ -69,8 +116,7 @@ export class PaginationService {
         }
         if (state.page < totalPages - 1) {
           state.page++;
-          await i.update({});
-          await send();
+          await show(i);
         } else {
           await i.deferUpdate();
         }

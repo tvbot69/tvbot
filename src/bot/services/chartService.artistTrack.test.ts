@@ -102,7 +102,7 @@ describe('ChartService.generateArtistChart', () => {
     ).rejects.toBeInstanceOf(TooManyImagesError);
   });
 
-  it('reports an upstream shortfall as afterFilters false, because nothing was filtered', async () => {
+  it('reports an upstream shortfall as `upstream`, because nothing was filtered', async () => {
     const { service, lastfmRepository } = build();
     (lastfmRepository.getTopArtists as ReturnType<typeof vi.fn>).mockResolvedValue([artist('Only')]);
 
@@ -111,7 +111,7 @@ describe('ChartService.generateArtistChart', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(false);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('upstream');
     expect((err as NotEnoughAlbumsError).available).toBe(1);
   });
 
@@ -175,7 +175,10 @@ describe('ChartService.generateArtistChart', () => {
     expect(result.artistsUsed?.map((a) => a.name)).toEqual(['A', 'C']);
   });
 
-  it('reports afterFilters true when too few artists have any cover', async () => {
+  it('names `covers` - never `filters` - when too few artists have any cover', async () => {
+    // No filter exists on the artist cascade at all, so `afterFilters: true` here
+    // was a name that described a filter that could not have run. The card read
+    // "remained after filters" off it.
     const { service, artworkService } = build();
     (artworkService.getArtistImageUrl as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
@@ -184,7 +187,7 @@ describe('ChartService.generateArtistChart', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('covers');
     expect((err as NotEnoughAlbumsError).available).toBe(0);
   });
 
@@ -302,14 +305,14 @@ describe('ChartService.generateTrackChart', () => {
     ).rejects.toBeInstanceOf(TooManyImagesError);
   });
 
-  it('reports an upstream shortfall as afterFilters false', async () => {
+  it('reports an upstream shortfall as `upstream`', async () => {
     const { service, lastfmRepository } = build();
     (lastfmRepository.getTopTracks as ReturnType<typeof vi.fn>).mockResolvedValue([track('Only')]);
     const err = await service
       .generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 4 }))
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(false);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('upstream');
   });
 
   it('keeps only tracks by the filtered artist, case-insensitively', async () => {
@@ -333,11 +336,11 @@ describe('ChartService.generateTrackChart', () => {
     expect(asked).toBe(1000);
   });
 
-  it('reports an artist-filter shortfall as afterFilters, because a filter demonstrably ran', async () => {
+  it('names `filters` for an artist-filter shortfall, because a filter demonstrably ran', async () => {
     // The artist filter runs before the cover pass and shares the first
-    // `NotEnoughAlbumsError`, so this used to report `afterFilters: false` and
-    // the user was told to make the chart smaller or change period — advice that
-    // cannot possibly help when the cause is that they have two Radiohead albums.
+    // `NotEnoughAlbumsError`, so this must NOT be `upstream` — that told the user
+    // to make the chart smaller or change period, which cannot help when the
+    // cause is that they have two Radiohead tracks.
     const { service, lastfmRepository } = build();
     (lastfmRepository.getTopTracks as ReturnType<typeof vi.fn>).mockResolvedValue([
       track('A', { artistName: 'Radiohead' }),
@@ -346,18 +349,18 @@ describe('ChartService.generateTrackChart', () => {
     const err = await service
       .generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 3, filteredArtistName: 'Radiohead' }))
       .catch((e: unknown) => e);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('filters');
     expect((err as NotEnoughAlbumsError).available).toBe(2);
   });
 
-  it('CONTROL: an upstream shortfall with no filter is still afterFilters false', async () => {
-    // So the pair above cannot both pass by the flag always being true.
+  it('CONTROL: an upstream shortfall with no filter is still `upstream`', async () => {
+    // So the pair above cannot both pass by the cause always being `filters`.
     const { service, lastfmRepository } = build();
     (lastfmRepository.getTopTracks as ReturnType<typeof vi.fn>).mockResolvedValue([track('Only')]);
     const err = await service
       .generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 4 }))
       .catch((e: unknown) => e);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(false);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('upstream');
   });
 
   it('resolves each track cover through the artwork cascade', async () => {
@@ -430,11 +433,11 @@ describe('ChartService.generateTrackChart', () => {
     expect(result.tracksUsed?.map((t) => t.name)).toEqual(['X']);
   });
 
-  it('throws afterFilters true when some covers resolve but still not enough', async () => {
+  it('names `covers` when some covers resolve but still not enough', async () => {
     // The distinct branch from "no track has a cover at all": Last.fm supplied
-    // plenty, the COVER pass is what fell short, and `afterFilters` is the flag
-    // that tells the two apart. Without it a user is told their library is
-    // short rather than that the artwork lookup failed.
+    // plenty, the COVER pass is what fell short. Without a cause that says so, a
+    // user is told their library is short rather than that the artwork lookup
+    // failed.
     const { service, artworkService } = build();
     (artworkService.getTrackCoverUrl as ReturnType<typeof vi.fn>).mockImplementation(
       async (...args: unknown[]) => (args[0] === 'X' ? 'https://img/x.png' : null),
@@ -444,18 +447,18 @@ describe('ChartService.generateTrackChart', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('covers');
     expect((err as NotEnoughAlbumsError).available).toBe(1);
   });
 
-  it('reports afterFilters true when no track has a cover at all', async () => {
+  it('names `covers` when no track has a cover at all', async () => {
     const { service, artworkService } = build();
     (artworkService.getTrackCoverUrl as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const err = await service
       .generateTrackChart('u1', 'DreadRock', settings({ imagesNeeded: 1, skipWithoutImage: true }))
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('covers');
   });
 
   it('names the file for a track chart', async () => {

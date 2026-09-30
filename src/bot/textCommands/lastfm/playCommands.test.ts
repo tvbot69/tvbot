@@ -27,9 +27,11 @@ import type { RecentTrack, RecentTrackList } from '@domain/models/recentTrack';
  * class alone:
  *
  *  1. `cooldownMap` is a MODULE-level Map that persists for the whole process
- *     and is never pruned. It is also written BEFORE the help branch, so the
- *     tests below use a distinct `channelId:discordUserId` key per test — the
- *     only reliable way to isolate them, since nothing exports the map.
+ *     and is never pruned. A Last.fm read charges it and nothing else does, so
+ *     the tests below use a distinct `channelId:discordUserId` key per test —
+ *     the only reliable way to isolate them, since nothing exports the map.
+ *     Two suites depend on that distinction being real and they are opposites:
+ *     a real `.fm` spends a token, `.fm help` spends none.
  *  2. `fmAsync` reaches for ArtworkService, PrefixService, FmSettingService,
  *     GuildRepository, ChannelRepository, ColorService and ExposedService
  *     through `container.resolve`, and it calls `container.isRegistered` for
@@ -289,7 +291,7 @@ describe('PlayCommands — registration', () => {
 
 describe('PlayCommands — the per-channel cooldown', () => {
   it('refuses a second .fm in the same channel inside the window', async () => {
-    const { commands, tokens } = build();
+    const { commands, tokens, lastfmRepository } = build();
     withTokens(tokens);
     const context = ctx({ channelId: nextChannel(), message: { channelId: 'Cx' } });
 
@@ -298,6 +300,10 @@ describe('PlayCommands — the per-channel cooldown', () => {
 
     expect(second.commandResponse).toBe(CommandResponse.Cooldown);
     expect(desc(second as never)).toContain('cooldown');
+    // The half that makes this a real quota guard rather than a displayed
+    // error: the refusal short-circuits, so the second call spends nothing on
+    // Last.fm either. One token, one read.
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledTimes(1);
   });
 
   it('does not refuse a different channel for the same user', async () => {
@@ -340,6 +346,22 @@ describe('PlayCommands — the per-channel cooldown', () => {
     expect(other).toEqual({ marker: 'fm' });
   });
 
+  it('still charges a request whose only argument is a layout token', async () => {
+    // The other half of the "what is a Last.fm call" question. `tiny` is a
+    // PRESENTATION argument, but `.fm tiny` still reads the caller's now
+    // playing from Last.fm, so it is a real call and it is charged like one.
+    // Pinned because "the token is local, so this is not a Last.fm call" is
+    // exactly the reasoning that would have exempted it.
+    const { commands, tokens } = build();
+    withTokens(tokens);
+    const context = ctx({ channelId: nextChannel() });
+
+    await runFm(commands, context, 'tiny');
+    const second = await runFm(commands, context);
+
+    expect(second.commandResponse).toBe(CommandResponse.Cooldown);
+  });
+
   it('does not cool down outside a guild', async () => {
     const { commands, tokens } = build();
     withTokens(tokens);
@@ -373,22 +395,39 @@ describe('PlayCommands — .fm help', () => {
     expect(desc(result as never)).toContain('!fm');
   });
 
-  it('is swallowed by the cooldown, because the cooldown is taken first', async () => {
-    // DOCUMENTED DEFECT, not an endorsement. `fmAsync` sets `cooldownMap` at
-    // line 90 and only then checks for `help` at line 93, so a second `.fm help`
-    // inside the 3s window returns "You're on cooldown" instead of the usage
-    // text. A help request is a read of static text, not a Last.fm call, and it
-    // costs the user nothing — being told to wait is the wrong answer.
-    // See the bug report: playCommands.ts lines 84-96.
+  it('is never refused, whatever token a real .fm has already spent', async () => {
+    // `.fm help` reads static text: it is the one branch in `fmAsync` that asks
+    // Last.fm nothing. So it is not charged AND not checked — the cooldown
+    // guards the Last.fm quota, and "you're on cooldown" is simply the wrong
+    // answer to "how do I use this command". The bug this pins: the check ran
+    // before the help branch, so a help request issued right after a real `.fm`
+    // was refused even though it cost nothing.
     const { commands, tokens } = build();
     withTokens(tokens);
     const context = ctx({ channelId: nextChannel() });
 
-    const first = await runFm(commands, context, 'help');
-    const second = await runFm(commands, context, 'help');
+    await runFm(commands, context);
+    const help = await runFm(commands, context, 'help');
 
-    expect(first.commandResponse).toBe(CommandResponse.NotFound);
-    expect(second.commandResponse).toBe(CommandResponse.Cooldown);
+    expect(help.commandResponse).toBe(CommandResponse.NotFound);
+    expect(desc(help as never)).toContain('fm');
+  });
+
+  it('spends no token of its own', async () => {
+    // The other direction, and the one that regresses silently: while help was
+    // charged, a user who read the usage could not read their own now playing
+    // for three seconds afterwards, having called Last.fm once — through the
+    // help command. The counterpart of the cooldown suite's "refuses a second
+    // .fm", and both have to hold or the cooldown is charging nothing at all.
+    const { commands, tokens, lastfmRepository } = build();
+    withTokens(tokens);
+    const context = ctx({ channelId: nextChannel() });
+
+    await runFm(commands, context, 'help');
+    const card = await runFm(commands, context);
+
+    expect(card).toEqual({ marker: 'fm' });
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -475,23 +514,70 @@ describe('PlayCommands — .fm inline embed type', () => {
     expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('Alpha', 2, 1, undefined, 'SK');
   });
 
-  it('reports the BUG: a layout token after a mention is silently dropped', async () => {
-    // `parseFmEmbedType(options)` is called on the WHOLE argument string at line
-    // 100, and it only matches a bare token. `.fm <@123> mini` therefore parses
-    // as `null`, the `if` at line 102 is skipped, and the token is never stripped
-    // nor applied: the user asked for a mini embed and silently received the
-    // default one. Same for `lfm:name tiny`, which then falls into the
-    // `startsWith('lfm:')` branch with the layout word still attached.
-    // The slash twin is unaffected — it reads a typed Discord option.
-    const { commands, tokens } = build({
+  it('applies a layout token that FOLLOWS a mention, and strips it from the target', async () => {
+    // The bug this replaces asserted the opposite: `parseFmEmbedType` was
+    // called on the WHOLE argument string and it only matches a bare token, so
+    // `.fm <@123> mini` parsed to null, the branch was skipped, and the request
+    // was silently dropped — the user asked for a mini embed and got the
+    // default. The layout token is the TAIL of the argument list, the same
+    // shape `lfm:` is read with two lines below.
+    const { commands, tokens, lastfmRepository } = build({
       byDiscordId: { '999': caller({ userId: 7, discordUserId: '999', userNameLastFm: 'Beta' }) },
     });
     withTokens(tokens);
 
     await runFm(commands, ctx({ channelId: nextChannel() }), '<@999> mini');
 
-    // The observed behaviour: no inline type, i.e. the request is ignored.
+    expect(fmOpts(0)).toMatchObject({ inlineEmbedType: FmEmbedType.EmbedMini, differentUser: true });
+    // Stripped, not merely applied: the mention still resolves to the mentioned
+    // account, and the layout word reaches neither the lookup nor the name.
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('Beta', 2);
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledTimes(1);
+  });
+
+  it('changes NOTHING when the argument after the mention is not a layout token', async () => {
+    // The opposite, and it is what stops the fix from becoming a shredder: a
+    // strip that matched loosely would eat the first word of a real name.
+    const { commands, tokens, lastfmRepository } = build({
+      byDiscordId: { '999': caller({ userId: 7, discordUserId: '999', userNameLastFm: 'Beta' }) },
+    });
+    withTokens(tokens);
+
+    await runFm(commands, ctx({ channelId: nextChannel() }), '<@999> Radiohead');
+
     expect(fmOpts(0)).toMatchObject({ inlineEmbedType: null, differentUser: true });
+    // The full name of the mentioned account, not a prefix of it and not the
+    // trailing word.
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('Beta', 2);
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a layout token after an lfm: name, leaving the name whole', async () => {
+    const { commands, tokens, lastfmRepository } = build();
+    withTokens(tokens);
+
+    await runFm(commands, ctx({ channelId: nextChannel() }), 'lfm:Radiohead tiny');
+
+    expect(fmOpts(0)).toMatchObject({ inlineEmbedType: FmEmbedType.EmbedTiny, differentUser: true });
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('Radiohead', 5);
+  });
+
+  it('never strips a token out of a username that merely CONTAINS a layout word', async () => {
+    // `mini`, `full` and `text` are all real Last.fm usernames, and a name can
+    // start with one. Under a loose `options.replace(/mini/i, '')` these become
+    // `lfm:` and `lfm:disco`, the target parses as empty, and the command
+    // quietly falls through to the CALLER's own account — a wrong track for a
+    // valid request, with no error anywhere.
+    const { commands, tokens, lastfmRepository } = build();
+    withTokens(tokens);
+
+    await runFm(commands, ctx({ channelId: nextChannel() }), 'lfm:mini');
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('mini', 5);
+    expect(fmOpts(0)).toMatchObject({ inlineEmbedType: null });
+
+    await runFm(commands, ctx({ channelId: nextChannel() }), 'lfm:minidisco');
+    expect(lastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('minidisco', 5);
+    expect(fmOpts(1)).toMatchObject({ inlineEmbedType: null });
   });
 });
 

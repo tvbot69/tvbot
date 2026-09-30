@@ -72,7 +72,22 @@ export class FriendsRepository implements IFriendsRepository {
       orderBy: { created: 'desc' },
     });
 
-    return entities.map((e) => this.map(e));
+    // The relationship runs BACKWARDS here. This read is filtered on
+    // `friendUserId`, so on every row `friendUserId` is the caller (the ADDED)
+    // and `user` is the person who added them (the ADDER). The counterpart on
+    // the DTO is therefore `user`, not `friendUser` — which on these rows is
+    // the caller themself, and `lastFmUserName` is the name the adder typed FOR
+    // the caller. `map` reads `friendUser` because that is right on the other
+    // two reads, so the adder is mapped into the counterpart field here; that
+    // is what `friendsCommands.friendedAsync` renders
+    // (`f.friendUser?.userNameLastFm ?? f.lastFmUserName`) and what its `??`
+    // fallback needs to not be taken.
+    //
+    // The alternative — `include: { friendUser: true }`, which looks like the
+    // one-line fix because it satisfies `map` — makes the command print the
+    // CALLER's own name once per row. See
+    // `friendsRepository.includeMismatch.test.ts`.
+    return entities.map((e) => this.map({ ...e, friendUser: e.user }));
   }
 
   public async getFriend(friendId: number): Promise<Friend | null> {

@@ -279,7 +279,14 @@ describe('ChartBuilders chart cards', () => {
   });
 });
 
-describe('ChartBuilders.buildNotEnoughAlbumsError', () => {
+/**
+ * These assert the STRING, not the flag on the error. A test that asserts
+ * `error.afterFilters` was a test that passed on every mislabelling in this
+ * file and would have kept passing after the rename; a test that asserts what
+ * the user reads dies when the text starts lying, and it dies for the reason
+ * that matters.
+ */
+describe('ChartBuilders.buildNotEnoughAlbumsError says which stage fell short', () => {
   const desc = (error: NotEnoughAlbumsError, chartType?: 'album' | 'artist' | 'track' | boolean) =>
     ChartBuilders.buildNotEnoughAlbumsError(error, chartType).embed.data.description ?? '';
 
@@ -292,17 +299,63 @@ describe('ChartBuilders.buildNotEnoughAlbumsError', () => {
     expect(desc(error, 'track')).toContain('**4** tracks in this time period');
   });
 
+  it('names the item type on the two causes that are not about listening totals', () => {
+    // The lead sentence is rebuilt per cause, so a rebuild can quietly lose the
+    // plural and the card ends up talking about "4 matched the filters" with no
+    // subject at all.
+    expect(desc(new NotEnoughAlbumsError(4, 9, 'filters'), 'artist')).toContain('of your artists matched the filters');
+    expect(desc(new NotEnoughAlbumsError(4, 9, 'covers'), 'track')).toContain('of the tracks Last.fm returned');
+  });
+
   it('treats the legacy boolean argument as "artists", which is what it always meant', () => {
     expect(desc(new NotEnoughAlbumsError(2, 9), true)).toContain('**2** artists');
   });
 
-  it('says the images went missing to the filters only when they did', () => {
-    const filtered = desc(new NotEnoughAlbumsError(4, 9, true));
-    const notFiltered = desc(new NotEnoughAlbumsError(4, 9, false));
-    expect(filtered).toContain('Not enough albums remained after filters or missing covers.');
-    expect(filtered).toContain('Try disabling `skip`/`ns`');
-    expect(notFiltered).toContain('Try a smaller chart size, or use a different time period like `weekly`');
-    expect(notFiltered).not.toContain('after filters or missing covers');
+  it('blames the cover pass, and only the cover pass, when the covers ran out', () => {
+    // Nothing was filtered on this path. The old card said "remained after
+    // filters or missing covers", which told a user who never set a filter to go
+    // and widen one.
+    const covers = desc(new NotEnoughAlbumsError(4, 9, 'covers'));
+    expect(covers).toContain('had a usable cover');
+    expect(covers).toContain('This is a cover problem, not a filter one.');
+    expect(covers).not.toContain('matched the filters');
+    expect(covers).not.toContain('widen or clear the artist, release year/decade or singles filter');
+  });
+
+  it('blames the filter, and only the filter, when a release filter dropped rows', () => {
+    const filtered = desc(new NotEnoughAlbumsError(4, 9, 'filters'));
+    expect(filtered).toContain('matched the filters on this chart');
+    expect(filtered).toContain('Widen or clear the artist, release year/decade or singles filter');
+    expect(filtered).not.toContain('usable cover');
+    expect(filtered).not.toContain('This is a cover problem');
+  });
+
+  it('blames the cover pass in its advice too, not only in its headline', () => {
+    // The headline and the advice are two separate strings, so a fix that only
+    // rewrote one of them leaves the user with the other half of the lie.
+    const covers = desc(new NotEnoughAlbumsError(4, 9, 'covers'));
+    expect(covers).toContain('Turn off `skip`/`ns`');
+    expect(covers).not.toContain('Widen or clear the artist');
+    expect(covers).not.toContain('your filters removed the rest');
+  });
+
+  it('never claims a filter or a cover problem on an upstream shortfall', () => {
+    const upstream = desc(new NotEnoughAlbumsError(4, 9, 'upstream'));
+    expect(upstream).toContain('Try a smaller chart size, or use a different time period like `weekly`');
+    expect(upstream).not.toContain('matched the filters');
+    expect(upstream).not.toContain('usable cover');
+    expect(upstream).not.toContain('Widen or clear the artist');
+    expect(upstream).not.toContain('Your filters removed the rest');
+    expect(upstream).not.toContain('This is a cover problem');
+  });
+
+  it('does not print a listening total on the two causes where `available` is not one', () => {
+    // `available` under `covers` is how many had artwork, and under `filters` how
+    // many survived. "You have listened to 4 albums" on either card is a
+    // fabricated claim about somebody's listening history, and the numbers are
+    // plausible enough to be believed.
+    expect(desc(new NotEnoughAlbumsError(4, 9, 'covers'))).not.toContain('You have listened to');
+    expect(desc(new NotEnoughAlbumsError(4, 9, 'filters'))).not.toContain('You have listened to');
   });
 
   it('marks itself as wrong input rather than as a failure, so the caller can re-prompt', () => {

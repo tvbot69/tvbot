@@ -4,34 +4,36 @@ import type { PrismaClient } from '@prisma/client';
 import { FriendsRepository } from './friendsRepository';
 
 /**
- * The `include` / `map` mismatch on `getFriended`, pinned as a CROSS-METHOD
- * invariant rather than as a single method's behaviour.
+ * The counterpart relation, pinned as a CROSS-METHOD invariant rather than as a
+ * single method's behaviour.
  *
- * `friendsRepository.test.ts` already documents this bug inside
- * `describe('FriendsRepository.getFriended')`: the query asks for
- * `include: { user: true }` while the shared `map` reads `entity.friendUser`,
- * so the relation is fetched and then discarded. This file is not a second
- * copy of that. It is the part the other file cannot state, because it needs
- * all three reads at once:
+ * `friendsRepository.test.ts` covers `getFriended` on its own. This file is the
+ * part that needs all three reads at once, because the three do not name the
+ * same relation and the mapper is shared:
  *
- *   - `getFriendsByUserId` and `getFriend` name `friendUser` in their `include`
- *     and therefore DO populate `friendUser` on the DTO.
- *   - `getFriended` names `user` and therefore never does.
+ *   - `getFriendsByUserId` filters on `userId` and includes `friendUser`, so the
+ *     ADDER is the caller and the counterpart is the person they added.
+ *   - `getFriend` includes `friendUser` for the same reason.
+ *   - `getFriended` filters on `friendUserId` and includes `user`. On those
+ *     rows the ADDED is the caller, so the counterpart is the person who added
+ *     them — the relation Prisma calls `user`, and the one the old code
+ *     fetched and then dropped.
  *
- * So the mapper is not at fault and neither are the other two queries. There is
- * exactly one wrong relation name, on one method, and the only symptom is that
- * the one caller which reads `friendUser` silently takes its fallback branch.
- * Stated that way, "fix" has exactly one place to change - and this file is the
- * assertion that has to change with it.
+ * So the old bug was not a mistyped `include` key. Reading the shared `map`,
+ * finding `friendUser` undefined on `getFriended` rows, and "fixing" the query
+ * to `include: { friendUser: true }` would have populated the counterpart with
+ * the CALLER — `.friended` would then print your own name once per row, which
+ * is a louder and more confidently wrong answer than the stale one it replaced.
+ * The invariant is therefore not "every read includes `friendUser`"; it is
+ * "every read populates the counterpart from ITS OWN side of the relationship",
+ * and this file is the assertion of that.
  *
  * The live consequence, for the record (not asserted here, that is the command
  * layer's job): `friendsCommands.friendedAsync` renders
  *   `f.friendUser?.userNameLastFm ?? f.lastFmUserName`
- * so `.friended` always prints the name TYPED ON THE FRIEND ROW rather than the
- * name the adder has since registered under.
- *
- * NOT FIXED HERE. This is a reporting task, and per the A-tier bar the shape
- * must be pinned before anything is changed so the change is visible.
+ * and `lastFmUserName` is the name the ADDER typed for the ADDED — which on this
+ * path is the caller's own name. The fallback is therefore not a safe answer
+ * either, and the counterpart has to be populated for `.friended` to be right.
  */
 
 type Args = Record<string, unknown>;
@@ -119,44 +121,47 @@ describe('FriendsRepository: which reads populate friendUser', () => {
     expect(got?.friendUser?.userNameLastFm).toBe('renamed');
   });
 
-  it('getFriended names `user` in its include, and therefore populates NOTHING', async () => {
+  it('getFriended names `user` in its include, and maps THAT into the counterpart', async () => {
     d.friend.findMany.mockResolvedValue([
-      friendRow({ user: userEntity({ userNameLastFm: 'renamed' }) }),
+      friendRow({ user: userEntity({ userId: 99, userNameLastFm: 'renamed' }) }),
     ] as never);
 
     const [f] = await repo.getFriended(2);
 
-    // The relation that was asked for, and the relation the mapper reads, are
-    // two different columns of the same table. `friends.user` is the ADDER;
-    // `friends.friend_user` is the ADDED. The query fetches the adder and the
-    // mapper reads the added.
+    // `userId: 99` is the adder on this row, because the row is filtered on
+    // `friendUserId: 2` — the added, the caller. The relation fetched is the
+    // adder, and the adder is what the counterpart field now carries.
     expect(callArg<{ include: Args }>(d.friend.findMany).include).toEqual({ user: true });
-    expect(f?.friendUser).toBeUndefined();
+    expect(f?.friendUser?.userNameLastFm).toBe('renamed');
+    expect(f?.friendUser?.userId).toBe(99);
   });
 
-  it('the mismatch is the ONLY difference between the three reads', async () => {
-    // Same model, same mapper, same DTO type. Which is why this cannot be
-    // caught by a type checker, a linter, or a test that only exercises one
-    // method: the wrong key is a runtime `undefined`.
+  it('all three reads populate the counterpart, from their own side of the row', async () => {
+    // Same model, same mapper, same DTO type. Which is why the wrong relation
+    // could not be caught by a type checker, a linter, or a test that only
+    // exercises one method: the difference is a runtime `undefined`, and it was
+    // the wrong value rather than a missing one that made it user-visible.
     d.friend.findMany.mockResolvedValue([
-      friendRow({ friendUser: userEntity({ userNameLastFm: 'via-friend-user' }) }),
+      friendRow({ friendUser: userEntity({ userId: 2, userNameLastFm: 'via-friend-user' }) }),
     ] as never);
     const viaFriendUser = (await repo.getFriendsByUserId(99))[0]?.friendUser?.userNameLastFm;
 
     d.friend.findMany.mockResolvedValue([
-      friendRow({ user: userEntity({ userNameLastFm: 'via-user' }) }),
+      friendRow({ user: userEntity({ userId: 99, userNameLastFm: 'via-user' }) }),
     ] as never);
     const viaUser = (await repo.getFriended(2))[0]?.friendUser?.userNameLastFm;
 
+    // Different relations, different names — and both the counterpart, which is
+    // the whole point. Neither read populates the other side's relation.
     expect(viaFriendUser).toBe('via-friend-user');
-    expect(viaUser).toBeUndefined();
+    expect(viaUser).toBe('via-user');
   });
 });
 
 describe('FriendsRepository.getFriended: what the caller actually gets to render', () => {
-  it('renders the NAME TYPED ON THE FRIEND ROW, not the adder registered name', async () => {
+  it('renders the ADDER registered name, not the name typed on the friend row', async () => {
     d.friend.findMany.mockResolvedValue([
-      friendRow({ user: userEntity({ userNameLastFm: 'registeredname' }) }),
+      friendRow({ user: userEntity({ userId: 99, userNameLastFm: 'registeredname' }) }),
     ] as never);
 
     const [f] = await repo.getFriended(2);
@@ -164,23 +169,29 @@ describe('FriendsRepository.getFriended: what the caller actually gets to render
     // The exact expression `friendsCommands.friendedAsync` evaluates.
     const rendered = f?.friendUser?.userNameLastFm ?? f?.lastFmUserName;
 
-    // The relation that holds the adder's real, current name was fetched and
-    // dropped, so the output is the stale typed name.
-    expect(rendered).toBe('oldname');
+    // `registeredname` is the name the adder has since registered under;
+    // `oldname` is the name the adder TYPED into the row, which is a name for
+    // the ADDED — the caller — not for the adder. They differ, so this can only
+    // be satisfied by the counterpart being populated.
+    expect(rendered).toBe('registeredname');
+    expect(rendered).not.toBe('oldname');
   });
 
-  it('still carries friendUserId, so the id needed to render correctly IS present', async () => {
-    // What makes this a subtle bug rather than an obvious one: the FK is
-    // mapped, so the row looks complete. Nothing is missing from the result;
-    // the JOIN to the user row simply is not in it.
+  it('carries the counterparty as a full User, so the id and name are both there', async () => {
+    // What made this subtle rather than obvious: `friendUserId` was mapped, so
+    // the row looked complete. Nothing was missing from the result; the JOIN to
+    // the other party's user row simply was not in it.
     d.friend.findMany.mockResolvedValue([
-      friendRow({ user: userEntity({ userNameLastFm: 'registeredname' }) }),
+      friendRow({ user: userEntity({ userId: 99, userNameLastFm: 'registeredname', discordUserId: 99n }) }),
     ] as never);
 
     const [f] = await repo.getFriended(2);
 
     expect(f?.friendUserId).toBe(2);
-    expect(f?.friendUser).toBeUndefined();
+    expect(f?.friendUser?.userId).toBe(99);
+    // A BigInt that reached `JSON.stringify` would break the whole embed, so
+    // the string conversion is part of this assertion rather than a detail.
+    expect(f?.friendUser?.discordUserId).toBe('99');
   });
 
   it('carries the flat fields the caller reads, including created for the age stamp', async () => {
@@ -195,10 +206,12 @@ describe('FriendsRepository.getFriended: what the caller actually gets to render
     expect(f?.friendType).toBe(1);
   });
 
-  it('leaves friendUser undefined for an unresolved friend, which is CORRECT here', async () => {
-    // `friend_user_id` is nullable and set to NULL when the target user is
-    // deleted. On this path the DTO is right for the wrong reason, and it must
-    // stay `undefined` rather than becoming an empty object.
+  it('leaves the counterpart undefined when the join produced no row', async () => {
+    // `Friend.user` is non-nullable with `onDelete: Cascade`, so the database
+    // cannot produce this row shape — the guard is here because the other
+    // failure is a rendered `undefined` in the middle of an embed, and because
+    // `undefined` is what tells the caller its `?? f.lastFmUserName` fallback
+    // is a real fallback rather than an empty object dressed up as a user.
     d.friend.findMany.mockResolvedValue([
       friendRow({ friendUserId: null, user: null }),
     ] as never);

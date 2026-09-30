@@ -14,9 +14,10 @@ import { UserType, DataSource } from '@persistence/domain/models/user';
  *    `discordUserId`. A BigInt that reaches `JSON.stringify` throws "Do not know
  *    how to serialize a BigInt", which in this bot means the whole embed fails
  *    to send, so the conversion is not cosmetic.
- *  - `getFriended` is documented below. Its `include` names `user`, but `map`
- *    reads `friendUser`, so the DTO it returns never carries `friendUser` and
- *    `.friended` silently falls back to the raw Last.fm name.
+ *  - `getFriended` is documented below. It runs the relationship in the
+ *    opposite direction to the other two reads, so the counterpart on the DTO
+ *    is the ADDER rather than the ADDED, and the query is the only one that
+ *    fetches it as `user`.
  */
 
 const callArg = <T>(fn: unknown, callIndex = 0, argIndex = 0): T | undefined => {
@@ -151,17 +152,26 @@ describe('FriendsRepository.getFriendsByUserId', () => {
 
 describe('FriendsRepository.getFriended', () => {
   /**
-   * BUG (reported, not fixed): `getFriended` selects `include: { user: true }`,
-   * but `map` only reads `entity.friendUser`. The `user` relation is fetched
-   * and then discarded, so `friendUser` is always `undefined` on this path.
-   * The one live caller - `friendsCommands.friendedAsync` - renders
-   * `f.friendUser?.userNameLastFm ?? f.lastFmUserName`, so it always takes the
-   * fallback branch: `.friended` lists the name typed on the friend row instead
-   * of the registered user's own name.
+   * The relationship runs BACKWARDS here. `friendsRepository.ts` filters on
+   * `friendUserId`, so on every row `friendUserId` is the caller and `userId`
+   * is the person who added them:
    *
-   * These tests pin the CURRENT behaviour so the bug cannot change shape
-   * unnoticed. When it is fixed, the `include` assertion here is the one that
-   * has to change.
+   *   - `user`       - the ADDER (`Friend.user`, `onDelete: Cascade`, so it is
+   *                    never null on a row that exists)
+   *   - `friendUser` - the ADDED, i.e. the caller themselves
+   *   - `lastFmUserName` - the name the ADDER typed for the ADDED
+   *
+   * `getFriendsByUserId` and `getFriend` filter on `userId`, so there the
+   * ADDER is the caller and the counterpart is `friendUser`. The DTO has ONE
+   * counterpart field and both the repository's other reads and
+   * `friendsCommands.friendedAsync` reach for it, so the counterpart is what
+   * gets mapped — from `friendUser` on those two reads and from `user` here.
+   *
+   * That is the whole fix. Reading the shared `map` and finding `friendUser`
+   * undefined was not a stray `include` key: `friendUser` on these rows is the
+   * person running the command, so populating it from `include: { friendUser:
+   * true }` would have made `.friended` print the CALLER's own name once per
+   * row — a confident wrong answer in place of a stale one.
    */
   it('queries by friendUserId descending by created', async () => {
     d.friend.findMany.mockResolvedValue([] as never);
@@ -175,18 +185,47 @@ describe('FriendsRepository.getFriended', () => {
     });
   });
 
-  it('LEAVES friendUser undefined even though `user` was included (the bug)', async () => {
+  it('maps the ADDER — the `user` relation — into the counterpart field', async () => {
+    // Two names, deliberately different. `lastFmUserName` is what the adder
+    // typed; `user.userNameLastFm` is what the adder goes by now. A fixture
+    // where they were equal could not fail whichever branch ran, which is
+    // exactly why the original report went unnoticed.
     d.friend.findMany.mockResolvedValue([
       friendEntity({
-        user: userEntity({ userNameLastFm: 'registeredname' }),
-        friendUser: undefined,
+        userId: 42,
+        friendUserId: 5,
+        lastFmUserName: 'oldname',
+        user: userEntity({ userId: 42, userNameLastFm: 'registeredname' }),
       }),
     ] as never);
 
     const got = await repo.getFriended(5);
 
-    expect(got[0]?.friendUser).toBeUndefined();
-    expect(got[0]?.lastFmUserName).toBe('theadder');
+    expect(got[0]?.friendUser?.userNameLastFm).toBe('registeredname');
+    // Proof the fixture discriminates: the two names are NOT interchangeable,
+    // so this assertion cannot be satisfied by the row's own typed name.
+    expect(got[0]?.friendUser?.userNameLastFm).not.toBe(got[0]?.lastFmUserName);
+    expect(got[0]?.lastFmUserName).toBe('oldname');
+  });
+
+  it('never maps the caller themself as the counterpart', async () => {
+    // The failure mode the fix has to avoid. `friendUserId` IS the caller, so a
+    // row carrying a `friendUser` relation here means a query fetched the wrong
+    // side, and the name rendered for "who added you" would be your own.
+    d.friend.findMany.mockResolvedValue([
+      friendEntity({
+        userId: 42,
+        friendUserId: 5,
+        lastFmUserName: 'addertyped',
+        user: userEntity({ userId: 42, userNameLastFm: 'adderregistered' }),
+        friendUser: userEntity({ userId: 5, userNameLastFm: 'thecaller' }),
+      }),
+    ] as never);
+
+    const got = await repo.getFriended(5);
+
+    expect(got[0]?.friendUser?.userNameLastFm).toBe('adderregistered');
+    expect(got[0]?.friendUser?.userNameLastFm).not.toBe('thecaller');
   });
 
   it('still returns the flat Friend fields the caller reads', async () => {

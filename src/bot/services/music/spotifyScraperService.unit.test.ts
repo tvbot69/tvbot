@@ -1,6 +1,7 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { SpotifyScraperService } from './spotifyScraperService';
+import { Logger } from '@domain/logger';
 
 /**
  * spotifyScraperService was 32% with 297 uncovered lines.
@@ -145,6 +146,161 @@ describe('SpotifyScraperService web player token', () => {
     await expect(token(svc())).resolves.toBeNull();
   });
 });
+
+/**
+ * The token is unobtainable. Measured 2026-09-30: every endpoint answers 403,
+ * 403 and then 400, on every header set, forever. Before this block the walk
+ * cost ~2 seconds on EVERY call and said nothing at all — golden rule 10 puts a
+ * lost capability at WARN, and a rung that keeps paying for a no costs a
+ * playlist load its whole budget.
+ *
+ * The rung is KEPT, deliberately. `fetchViaSpclient` is one of three rungs
+ * behind `fetchPlaylistPage`, and the other two (the embed/HTML read and the
+ * browser read) still deliver playlists, so this is a dead ACCELERATOR inside a
+ * live capability rather than a dead feature. Deleting it would remove a path
+ * that now costs one short-circuit and would work again the moment Spotify's
+ * transport endpoint opens. The negative cache is what makes keeping it honest.
+ */
+describe('SpotifyScraperService web player token — a refused token is negative-cached and reported', () => {
+  const token = async (s: SpotifyScraperService) =>
+    (s as unknown as { getWebPlayerToken(): Promise<string | null> }).getWebPlayerToken();
+
+  /** A clock the test drives. Only installed per-test, so the rest of the file keeps real time. */
+  const freezeClock = (start: number) => {
+    const state = { now: start };
+    vi.spyOn(Date, 'now').mockImplementation(() => state.now);
+    return state;
+  };
+
+  it('warns ONCE, then does not re-attempt inside the backoff window', async () => {
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValue(res({}, 403));
+    const s = svc();
+
+    await expect(token(s)).resolves.toBeNull();
+    // Three endpoints x two header sets. Every one of them is a real round trip,
+    // which is where the ~2 seconds went.
+    const attempts = fetchMock.mock.calls.length;
+    expect(attempts).toBe(6);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    await expect(token(s)).resolves.toBeNull();
+    await expect(token(s)).resolves.toBeNull();
+
+    // The whole point: the same 2 seconds, three times over, is now paid once.
+    expect(fetchMock.mock.calls.length).toBe(attempts);
+    // Still one warn — a backoff that re-warns is a log-flood in disguise.
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-attempts on the first call after the window, and warns again', async () => {
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    const clock = freezeClock(1_700_000_000_000);
+    fetchMock.mockResolvedValue(res({}, 403));
+    const s = svc();
+
+    await token(s);
+    const attempts = fetchMock.mock.calls.length;
+
+    // Comfortably inside the window: nothing moves.
+    clock.now += 9 * 60_000;
+    await token(s);
+    expect(fetchMock.mock.calls.length).toBe(attempts);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // The first call past it walks the endpoints again, and the capability
+    // being unavailable is reported again rather than staying quiet.
+    clock.now += 2 * 60_000;
+    await token(s);
+    expect(fetchMock.mock.calls.length).toBe(attempts * 2);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('a token that starts working clears the negative cache', async () => {
+    // The other direction, and the one that matters if Spotify ever reopens the
+    // transport endpoint: the backoff must not outlive the first success, or the
+    // spclient rung stays dark for the rest of the process's life.
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    const clock = freezeClock(1_700_000_000_000);
+    fetchMock.mockResolvedValue(res({}, 403));
+    const s = svc();
+    await token(s);
+
+    // A while later Spotify answers.
+    clock.now += 11 * 60_000;
+    fetchMock.mockResolvedValue(
+      res({ accessToken: 'T1', accessTokenExpirationTimestampMs: clock.now + 3600_000 }),
+    );
+    await expect(token(s)).resolves.toBe('T1');
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // Backoff gone, so a later failure is reported immediately rather than
+    // sitting silent until the old window would have expired.
+    clock.now += 7200_000;
+    fetchMock.mockResolvedValue(res({}, 403));
+    await expect(token(s)).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('the warn names WHAT was refused, so a deploy log tells a 403 from a blip', async () => {
+    // A warn that only says "no token" is the A1 violation in log form: nobody
+    // reading the deploy log can tell a vendor refusal from a network drop.
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValue(res({}, 403));
+
+    await token(svc());
+
+    const payload = warn.mock.calls[0]?.[0] as { refusals?: string[]; backoffMs?: number };
+    expect(payload.refusals).toHaveLength(6);
+    expect(payload.refusals?.[0]).toBe('403 from open.spotify.com');
+    expect(payload.backoffMs).toBe(600_000);
+    expect(String(warn.mock.calls[0]?.[1])).toContain('web-player token unobtainable');
+  });
+
+  it('a throwing fetch is reported as a throw, not as a status code', async () => {
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockRejectedValue(new Error('network down'));
+
+    await token(svc());
+
+    const payload = warn.mock.calls[0]?.[0] as { refusals?: string[] };
+    expect(payload.refusals?.[0]).toBe('throw from open.spotify.com: network down');
+  });
+
+  it('a 200 carrying no token is reported as a 200, not as a refusal status', async () => {
+    // The two failure modes are genuinely different to whoever reads the log:
+    // one is the vendor withholding, the other is a schema change on their
+    // side. Collapsing both into "no token" is what made this invisible.
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValue(res({ unrelated: true }));
+
+    await token(svc());
+
+    const payload = warn.mock.calls[0]?.[0] as { refusals?: string[] };
+    expect(payload.refusals?.[0]).toBe('200 with no token from open.spotify.com');
+  });
+
+  it('a public entry point pays the walk once, not once per lookup', async () => {
+    // The saving asserted on the PRIVATE method is worth nothing if the real
+    // callers still walk every time. `getTrackPreview` ends in a token request,
+    // and it is called once per now-playing card, per chapter and per voice
+    // message, so this is where the 2 seconds actually went.
+    vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    fetchMock.mockResolvedValue(res({}, 403));
+    const s = svc();
+
+    await expect(s.getTrackPreview('Radiohead', 'Creep')).resolves.toBeNull();
+    const first = fetchMock.mock.calls.length;
+    // Two search pages, then the six-way token walk.
+    expect(first).toBe(8);
+
+    await expect(s.getTrackPreview('Radiohead', 'Creep')).resolves.toBeNull();
+
+    // Only the two search pages. The token walk is inside the backoff.
+    expect(fetchMock.mock.calls.length).toBe(first + 2);
+  });
+});
+
 
 describe('SpotifyScraperService.fetchPlaylistPage rung order', () => {
   const stub = (s: SpotifyScraperService, over: Record<string, unknown>) => {

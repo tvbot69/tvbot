@@ -304,4 +304,57 @@ describe('PlaylistChunkManager queueEnd drain & integrity', () => {
     expect(notices[0]!.message).toContain('cap');
     expect(chunk.getState('g-drain')).toBeUndefined();
   });
+
+  it('tells the channel when a mid-playlist fetch comes back empty', async () => {
+    // The silent truncation. The scraper returning nothing partway through a
+    // 200-track playlist deletes the chunk and the queue simply stops growing,
+    // so the user's remaining tracks vanish with no notice at all — the two
+    // sibling stops (queue cap, both sites) both talk to the channel and this
+    // one did not. The message is asserted VERBATIM rather than by substring:
+    // it is the third of a set of three that are supposed to read as one
+    // behaviour, and only an exact string can notice if it drifts.
+    const notices: Array<{ guildId: string; message: string }> = [];
+    const { chunk, player, added, handlers } = makeDrainChunk({
+      fetchPage: async () => ({ tracks: [], nextOffset: 300, total: 200 }),
+    });
+    chunk.setUnavailableNotifier((guildId, message) => notices.push({ guildId, message }));
+
+    await handlers.get('trackStart')!(player as never);
+
+    expect(added).toHaveLength(0);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.guildId).toBe('g-drain');
+    expect(notices[0]!.message).toBe('⚠️ Spotify returned no more tracks — stopped loading **Playlist P**.');
+    expect(chunk.getState('g-drain')).toBeUndefined();
+  });
+
+  it('a null page is noticed too, not just an empty track list', async () => {
+    // `!page || page.tracks.length === 0` is one branch, and the null case is
+    // the one that actually happens when a fetch throws inside the scraper and
+    // is swallowed. Covering only the empty-list half would leave the reachable
+    // shape unreported.
+    const notices: Array<{ guildId: string; message: string }> = [];
+    const { chunk, player, added, handlers } = makeDrainChunk({ fetchPage: async () => null });
+    chunk.setUnavailableNotifier((guildId, message) => notices.push({ guildId, message }));
+
+    await handlers.get('trackStart')!(player as never);
+
+    expect(added).toHaveLength(0);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.message).toContain('Spotify returned no more tracks');
+    expect(chunk.getState('g-drain')).toBeUndefined();
+  });
+
+  it('a completed playlist is NOT told about, so the notice stays meaningful', async () => {
+    // The other direction. The stop that has genuinely finished must not fire
+    // the same notice, or "stopped loading" stops meaning "you lost tracks".
+    const notices: Array<{ guildId: string; message: string }> = [];
+    const { chunk, player, added, handlers } = makeDrainChunk();
+    chunk.setUnavailableNotifier((guildId, message) => notices.push({ guildId, message }));
+
+    await handlers.get('trackStart')!(player as never);
+
+    expect(added).toHaveLength(1);
+    expect(notices).toHaveLength(0);
+  });
 });

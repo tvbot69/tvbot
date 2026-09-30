@@ -9,10 +9,14 @@ import type { ChartSettings } from '@bot/models/chartModels';
  *
  * The generate path is a pipeline of FILTERS, and the order matters more than
  * any individual step: a chart can fail with "not enough albums" for three
- * different reasons - too few fetched, too few after release filtering, or
- * too few that actually have a cover. `afterFilters` on the error is the only
- * thing that tells those apart, so the tests assert it rather than just
- * "it threw".
+ * different reasons - too few fetched, too few after filtering, or too few that
+ * actually have a cover. `shortfallCause` is what tells those apart, so these
+ * tests assert it rather than just "it threw" - and they assert the OPPOSITE
+ * cause for the neighbouring scenario in each case, because a single boolean
+ * kept all three passing at once.
+ *
+ * `chartBuilders.honesty.test.ts` is the other half: these pin which stage the
+ * service names, that file pins what the user is told about it.
  */
 
 const settings = (over: Partial<ChartSettings> = {}): ChartSettings =>
@@ -142,13 +146,13 @@ describe('ChartService.generateAlbumChart validation', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    // afterFilters false: the shortfall is upstream, nothing was filtered.
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(false);
+    // `upstream`: the shortfall is the fetch itself, nothing was filtered.
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('upstream');
     expect((err as NotEnoughAlbumsError).available).toBe(1);
     expect((err as NotEnoughAlbumsError).required).toBe(5);
   });
 
-  it('sets afterFilters when the shortfall happens after release filtering', async () => {
+  it('names `filters` when the shortfall happens after release filtering', async () => {
     const { service, enrichmentService } = build();
     (enrichmentService.enrichTopAlbums as ReturnType<typeof vi.fn>).mockImplementation(async () => undefined);
 
@@ -157,14 +161,15 @@ describe('ChartService.generateAlbumChart validation', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('filters');
   });
 
-  it('sets afterFilters for an ARTIST-filter shortfall, because that filter ran too', async () => {
+  it('names `filters` for an ARTIST-filter shortfall, because that filter ran too', async () => {
     // The artist filter is applied before the release filters and shares this
-    // error. It used to report `afterFilters: false`, so a user with two Radiohead
-    // albums who asked for nine was told to make the chart smaller or change
-    // period — advice that cannot help, and which hides the actual cause.
+    // error. It used to be indistinguishable from a release-filter shortfall,
+    // which is fine for advice but wrong for the copy: the user who asked for
+    // `artist Radiohead` and has two Radiohead albums must not be told their
+    // release filter removed the rest.
     const { service, lastfmRepository } = build();
     (lastfmRepository.getTopAlbums as ReturnType<typeof vi.fn>).mockResolvedValue([
       album('OK Computer'), album('Kid A'),
@@ -175,13 +180,13 @@ describe('ChartService.generateAlbumChart validation', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('filters');
     expect((err as NotEnoughAlbumsError).available).toBe(2);
   });
 
   it('CONTROL: an empty artist filter is not a filter that ran', async () => {
     // `filteredArtistName: ''` is falsy, so the filter is skipped entirely and
-    // the shortfall really is upstream. Keying the flag off `!== undefined`
+    // the shortfall really is upstream. Keying the cause off `!== undefined`
     // instead would claim a filter ran when it did not.
     const { service, lastfmRepository } = build();
     (lastfmRepository.getTopAlbums as ReturnType<typeof vi.fn>).mockResolvedValue([album('Only')]);
@@ -190,7 +195,8 @@ describe('ChartService.generateAlbumChart validation', () => {
       .generateAlbumChart('u1', 'DreadRock', settings({ imagesNeeded: 3, filteredArtistName: '' }))
       .catch((e: unknown) => e);
 
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(false);
+    expect(err).toBeInstanceOf(NotEnoughAlbumsError);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('upstream');
     expect((err as NotEnoughAlbumsError).available).toBe(1);
   });
 });
@@ -313,7 +319,11 @@ describe('ChartService.generateAlbumChart filters', () => {
     expect(asked).toBeGreaterThan(13);
   });
 
-  it('throws after filtering when too few albums have a usable cover', async () => {
+  it('names `covers` - never `filters` - when too few albums have a usable cover', async () => {
+    // THE DIRECTION THAT WAS LYING. No release, decade, singles or artist filter
+    // is set on this path, so nothing was filtered; reporting anything but
+    // `covers` here is what made the card tell a user to widen a filter they
+    // never used. `chartBuilders.honesty.test.ts` pins the sentence that follows.
     const { service, artworkService } = build();
     (artworkService.getAlbumCoverUrl as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
@@ -322,7 +332,26 @@ describe('ChartService.generateAlbumChart filters', () => {
       .catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(NotEnoughAlbumsError);
-    expect((err as NotEnoughAlbumsError).afterFilters).toBe(true);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('covers');
+    // `available` is the number WITH a cover here, which is why the card must not
+    // read it as a listening total.
+    expect((err as NotEnoughAlbumsError).available).toBe(0);
+  });
+
+  it('names `filters` - never `covers` - when the release filter drops rows, with covers that would have resolved', async () => {
+    // The control for the test above. Same service, same shortage of covers in
+    // the `covers` case only; here every album resolves and the release filter is
+    // the whole cause, so the two cannot both be satisfied by one constant.
+    const { service, enrichmentService, artworkService } = build();
+    (enrichmentService.enrichTopAlbums as ReturnType<typeof vi.fn>).mockImplementation(async () => undefined);
+    (artworkService.getAlbumCoverUrl as ReturnType<typeof vi.fn>).mockResolvedValue('https://img/cover.png');
+
+    const err = await service
+      .generateAlbumChart('u1', 'DreadRock', settings({ imagesNeeded: 3, releaseYearFilter: 1990, skipWithoutImage: true }))
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(NotEnoughAlbumsError);
+    expect((err as NotEnoughAlbumsError).shortfallCause).toBe('filters');
   });
 });
 

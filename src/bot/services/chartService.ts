@@ -30,31 +30,41 @@ const dimensionsRegex = /^([1-9]|[1-4][0-9]|50)x([1-9]|[1-4][0-9]|50)$/i;
 const artistFilterKey = (filteredArtistName: string | undefined): string =>
   filteredArtistName === undefined ? 'all' : filteredArtistName.toLowerCase();
 
+/**
+ * The stage that left a chart too short, and the only three there are:
+ *
+ * - `upstream` — Last.fm did not return enough rows, so nothing reduced them.
+ * - `filters`  — a user filter (artist, release year/decade, singles) dropped
+ *   the rest. Only reported when such a filter demonstrably ran.
+ * - `covers`   — the rows survived the filters and too few resolved to a usable
+ *   cover. Only reachable under `skipWithoutImage`.
+ *
+ * A boolean could not carry this: `afterFilters` was `true` for both `filters`
+ * and `covers`, so the name promised "a filter ran" for a chart whose only
+ * problem was missing artwork, and the card told the user to widen a filter that
+ * had never been set. Naming the stage is the fix, not a cosmetic rename — the
+ * three stages want three different sentences and three different pieces of
+ * advice.
+ */
+export type ChartShortfallCause = 'upstream' | 'filters' | 'covers';
+
 export class NotEnoughAlbumsError extends Error {
   public readonly available: number;
   public readonly required: number;
 
   /**
-   * True when something downstream of the Last.fm fetch — a user-configured
-   * filter, or the cover pass under `skipWithoutImage` — is what left too few
-   * items, rather than the library itself. `chartBuilders` reads it to choose
-   * between "widen the filter" and "use a smaller chart / a different period",
-   * and that split is only useful advice when the flag is true whenever a filter
-   * actually ran.
-   *
-   * The name is narrower than the meaning (a missing cover is not a filter) and
-   * the builder's own copy says "after filters or missing covers", which is the
-   * honest description of it. Renaming would touch the builder and every reader;
-   * the defect was the two call sites that reported a filter shortfall as a
-   * false, and those are fixed rather than renamed.
+   * `available` is the count AS OF `shortfallCause`, not a count of what was
+   * listened to: under `covers` it is how many had a usable cover. A reader
+   * that words it from a fixed "you listened to N" sentence is fabricating a
+   * listening-history fact on the two non-upstream causes.
    */
-  public readonly afterFilters: boolean;
+  public readonly shortfallCause: ChartShortfallCause;
 
-  constructor(available: number, required: number, afterFilters = false) {
+  constructor(available: number, required: number, shortfallCause: ChartShortfallCause = 'upstream') {
     super(`Not enough albums for chart: ${available}/${required}`);
     this.available = available;
     this.required = required;
-    this.afterFilters = afterFilters;
+    this.shortfallCause = shortfallCause;
   }
 }
 
@@ -183,17 +193,14 @@ export class ChartService {
     }
 
     if (albums.length < chartSettings.imagesNeeded) {
-      // The artist filter has demonstrably run by this point — it is the `if`
-      // above — so a shortfall here is `afterFilters`. Reporting it as an upstream
-      // shortfall told a user who asked for `artist Radiohead` and has two
-      // Radiohead albums to make the chart smaller, which is the wrong advice and
-      // hides the real cause. Keyed off the SAME truthiness the filter test uses,
-      // because a flag that claims a filter ran when it did not is the same bug
-      // wearing the other hat.
+      // The artist filter either ran or it did not, and that is exactly what
+      // decides the cause. Keyed off the SAME truthiness the filter test uses,
+      // because `''` skips the filter entirely and claiming it ran would be the
+      // same lie in the other direction.
       throw new NotEnoughAlbumsError(
         albums.length,
         chartSettings.imagesNeeded,
-        Boolean(chartSettings.filteredArtistName),
+        chartSettings.filteredArtistName ? 'filters' : 'upstream',
       );
     }
 
@@ -226,7 +233,10 @@ export class ChartService {
     }
 
     if (albums.length < chartSettings.imagesNeeded) {
-      throw new NotEnoughAlbumsError(albums.length, chartSettings.imagesNeeded, true);
+      // Reached with a shortfall only when the release-year/decade or singles
+      // filter above actually removed rows: with no filter set, the count already
+      // cleared `imagesNeeded` at the earlier gate and this test cannot fire.
+      throw new NotEnoughAlbumsError(albums.length, chartSettings.imagesNeeded, 'filters');
     }
 
     let selected: TopAlbum[];
@@ -235,7 +245,7 @@ export class ChartService {
       const resolved = await this.resolveAlbumCovers(albums, chartSettings);
       const usable = resolved.filter((a) => a.imageUrl);
       if (usable.length < chartSettings.imagesNeeded) {
-        throw new NotEnoughAlbumsError(usable.length, chartSettings.imagesNeeded, true);
+        throw new NotEnoughAlbumsError(usable.length, chartSettings.imagesNeeded, 'covers');
       }
       selected = usable.slice(0, chartSettings.imagesNeeded);
     } else {
@@ -307,7 +317,9 @@ export class ChartService {
     );
 
     if (artists.length < chartSettings.imagesNeeded) {
-      throw new NotEnoughAlbumsError(artists.length, chartSettings.imagesNeeded);
+      // No artist or release filter exists on this cascade, so a shortfall here is
+      // always the fetch itself.
+      throw new NotEnoughAlbumsError(artists.length, chartSettings.imagesNeeded, 'upstream');
     }
 
     let selected: Array<TopArtist & { imageUrl?: string }>;
@@ -325,7 +337,7 @@ export class ChartService {
 
       const usable = resolved.filter((a) => a.imageUrl);
       if (usable.length < chartSettings.imagesNeeded) {
-        throw new NotEnoughAlbumsError(usable.length, chartSettings.imagesNeeded, true);
+        throw new NotEnoughAlbumsError(usable.length, chartSettings.imagesNeeded, 'covers');
       }
       selected = usable.slice(0, chartSettings.imagesNeeded);
     } else {
@@ -414,13 +426,12 @@ export class ChartService {
     }
 
     if (tracks.length < chartSettings.imagesNeeded) {
-      // Same as the album cascade: the artist filter ran, so this is a filtered
-      // shortfall rather than an upstream one, and keyed off the same truthiness
-      // the filter test uses.
+      // Same truthiness the artist filter test above uses, so an empty filter is
+      // an upstream shortfall and a real one is a filtered shortfall.
       throw new NotEnoughAlbumsError(
         tracks.length,
         chartSettings.imagesNeeded,
-        Boolean(chartSettings.filteredArtistName),
+        chartSettings.filteredArtistName ? 'filters' : 'upstream',
       );
     }
 
@@ -431,7 +442,7 @@ export class ChartService {
       const resolved = await this.resolveTrackCovers(pool, chartSettings);
       const usable = resolved.filter((t) => t.imageUrl);
       if (usable.length < chartSettings.imagesNeeded) {
-        throw new NotEnoughAlbumsError(usable.length, chartSettings.imagesNeeded, true);
+        throw new NotEnoughAlbumsError(usable.length, chartSettings.imagesNeeded, 'covers');
       }
       selected = usable.slice(0, chartSettings.imagesNeeded);
     } else {

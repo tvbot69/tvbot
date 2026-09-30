@@ -78,18 +78,36 @@ export class PlayCommands implements ITextCommandModule {
     ];
   }
 
+  /**
+   * The `.fm` cooldown is a guard on the Last.fm quota, so it is claimed at the
+   * last moment before a Last.fm read and NOWHERE else. A request that asks
+   * Last.fm nothing — `.fm help`, an account-less caller, an unregistered
+   * mention — must neither spend a token nor be refused by one; being told to
+   * wait costs the user three seconds and protects nothing.
+   *
+   * Called from the two read sites, so each one spends at most one token.
+   */
+  private claimCooldownSlot(context: ContextModel, channelId: string | undefined): ResponseModel | null {
+    if (!context.guildId || !channelId) return null;
+    const key = `${channelId}:${context.discordUserId}`;
+    const waited = Date.now() - (cooldownMap.get(key) ?? 0);
+    if (waited < COOLDOWN_MS) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Cooldown,
+        `You're on cooldown. Try again in ${Math.ceil((COOLDOWN_MS - waited) / 1000)}s.`,
+      );
+    }
+    cooldownMap.set(key, Date.now());
+    return null;
+  }
+
   private async fmAsync(context: ContextModel, options: string): Promise<ResponseModel> {
     const channelId = context.interaction?.channelId ?? context.message?.channelId ?? undefined;
-    // cooldown per channel
-    if (context.guildId && channelId) {
-      const key = `${channelId}:${context.discordUserId}`;
-      const last = cooldownMap.get(key) ?? 0;
-      if (Date.now() - last < COOLDOWN_MS) {
-        return GenericEmbedService.buildCommandErrorResponse(CommandResponse.Cooldown, `You're on cooldown. Try again in ${Math.ceil((COOLDOWN_MS - (Date.now() - last))/1000)}s.`);
-      }
-      cooldownMap.set(key, Date.now());
-    }
 
+    // Ahead of the cooldown, deliberately. The cooldown guards the Last.fm
+    // quota and this branch asks Last.fm nothing — it is a read of static text
+    // plus a cached prefix. A user asking how the command works must never be
+    // charged for it, and must never be told to wait for the answer.
     if (options?.trim().toLowerCase() === 'help') {
       const prefix = context.guildId ? await container.resolve(PrefixService).getPrefix(context.guildId) : '!';
       return GenericEmbedService.buildNotFoundResponse(`**${prefix}fm** — shows your current track.\nUsage: \`${prefix}fm [@user|lfm:username] [tiny|full|mini|textfull|oneline]\``);
@@ -97,13 +115,25 @@ export class PlayCommands implements ITextCommandModule {
 
     // parse target + inline embed type
     let targetUserName: string | null = null;
-    const inlineEmbedType = parseFmEmbedType(options);
-    let cleanOptions = options;
-    if (inlineEmbedType !== null) {
-      // strip token
-      const token = options.toLowerCase().split(/\s+/).find(s => parseFmEmbedType(s) !== null) ?? '';
-      cleanOptions = options.replace(new RegExp(token, 'i'), '').trim();
-    }
+    // The layout token is the TAIL of the argument list — the same shape `lfm:`
+    // is read with below. `parseFmEmbedType` matches BARE tokens only, so it
+    // used to be handed the WHOLE argument string and could never see a token
+    // that followed a mention or a name: `.fm <@123> mini` parsed to `null` and
+    // the request was silently neither applied nor stripped, so the caller got
+    // the default embed after asking for another one. The slash twin reads a
+    // typed Discord option and never had this shape.
+    const trimmedOptions = options.trim();
+    const tailToken = trimmedOptions.split(/\s+/).pop() ?? '';
+    const inlineEmbedType = parseFmEmbedType(tailToken);
+    // Sliced by LENGTH, not replaced. The token is the tail, so its length is
+    // exactly how many characters to drop whatever their case, and a
+    // `replace(/mini/i, '')` — the shape this replaced — would eat a real
+    // argument: `mini` and `minidisco` are both valid Last.fm usernames, and
+    // stripping either leaves an empty target that quietly searches the
+    // caller's own account instead.
+    const cleanOptions = inlineEmbedType === null
+      ? trimmedOptions
+      : trimmedOptions.slice(0, trimmedOptions.length - tailToken.length).trim();
     // mention <@123> or <@!123>
     const mentionMatch = cleanOptions.match(/<@!?(\d+)>/);
     const targetUser = await this.userService.getUserByDiscordId(context.discordUserId);
@@ -121,6 +151,8 @@ export class PlayCommands implements ITextCommandModule {
     } else if (cleanOptions.toLowerCase().startsWith('lfm:')) {
       targetUserName = cleanOptions.slice(4).trim().split(/\s+/)[0] ?? null;
       if (targetUserName) {
+        const refused = this.claimCooldownSlot(context, channelId);
+        if (refused) return refused;
         // fetch as external lfm user (no DB)
         const [tracks, info] = await Promise.all([
           this.lastfmRepository.getUserRecentTracks(targetUserName, 5),
@@ -137,6 +169,12 @@ export class PlayCommands implements ITextCommandModule {
         return PlayBuilders.buildFmResponse(context, fakeUser, tracks, info, { guildFmType: null, channelFmType: null, inlineEmbedType, differentUser: true, accentColor });
       }
     }
+
+    // Every path that reaches here makes a Last.fm read below, so this is the
+    // one place the common case is charged — after the two refusals above,
+    // neither of which asked Last.fm anything.
+    const refused = this.claimCooldownSlot(context, channelId);
+    if (refused) return refused;
 
     // fetch fm setting for display user
     let fmSetting: { embedType: number; footerOptions: bigint; smallTextType: number | null; buttons: bigint } | null = null;

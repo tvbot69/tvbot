@@ -446,20 +446,45 @@ describe('ChartSlashCommands error mapping: only two failures get a card', () =>
     expect(text).toContain('listened to **1** tracks');
   });
 
-  it('adds the after-filters advice only when the shortfall happened after filtering', async () => {
-    const plain = build({
+  it('names the cover pass on the card when the covers ran out, and the filter when the filter did', async () => {
+    // INVERTED. This used to assert that a shortfall "after filters" printed the
+    // string "remained after filters", which the old flag emitted for BOTH causes
+    // — so the assertion held for a chart whose only problem was missing
+    // artwork, and the card told a user who never set a filter to widen one. The
+    // assertion is now the two sentences the user actually reads, and each must
+    // be absent from the other card.
+    const covers = build({
       albumImpl: async (..._args: unknown[]) => {
-        throw new NotEnoughAlbumsError(4, 9, false);
+        throw new NotEnoughAlbumsError(4, 9, 'covers');
       },
     });
     const filtered = build({
       albumImpl: async (..._args: unknown[]) => {
-        throw new NotEnoughAlbumsError(4, 9, true);
+        throw new NotEnoughAlbumsError(4, 9, 'filters');
       },
     });
 
-    expect(cardText(await run(plain.cmd, makeCtx({ sub: 'albums' })))).not.toContain('remained after filters');
-    expect(cardText(await run(filtered.cmd, makeCtx({ sub: 'albums' })))).toContain('remained after filters');
+    const coverText = cardText(await run(covers.cmd, makeCtx({ sub: 'albums' })));
+    const filterText = cardText(await run(filtered.cmd, makeCtx({ sub: 'albums' })));
+
+    expect(coverText).toContain('had a usable cover');
+    expect(coverText).not.toContain('matched the filters');
+    expect(filterText).toContain('matched the filters on this chart');
+    expect(filterText).not.toContain('had a usable cover');
+  });
+
+  it('does not claim a listening total on a cover shortfall, which never had one', async () => {
+    const { cmd } = build({
+      albumImpl: async (..._args: unknown[]) => {
+        throw new NotEnoughAlbumsError(4, 9, 'covers');
+      },
+    });
+
+    // `available` is 4 items WITH a cover here. "listened to **4** albums" is a
+    // specific and completely invented claim about somebody's listening history,
+    // and it is the sentence the card used to open with for every cause.
+    const text = cardText(await run(cmd, makeCtx({ sub: 'albums' })));
+    expect(text).not.toContain('listened to');
   });
 
   it('renders the 100-image cap for TooManyImagesError', async () => {

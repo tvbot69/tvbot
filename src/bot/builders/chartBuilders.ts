@@ -214,6 +214,16 @@ export class ChartBuilders {
     response.setComponentsV2Container(container);
   }
 
+  /**
+   * The shortfall is reported as one of three different facts, and the lead
+   * sentence has to be one of the three too.
+   *
+   * `available` is a count of what was left AT the stage named by
+   * `shortfallCause` — for `covers` that is the number with artwork, not the
+   * number listened to. The old fixed "You have listened to N X in this time
+   * period" was therefore a fabricated claim on two of the three causes: a user
+   * with thirty albums and three covers was told they had listened to three.
+   */
   public static buildNotEnoughAlbumsError(
     error: NotEnoughAlbumsError,
     chartType: 'album' | 'artist' | 'track' | boolean = 'album',
@@ -224,16 +234,42 @@ export class ChartBuilders {
         : chartType === 'artist' || chartType === true
         ? 'artists'
         : 'albums';
-    let description = `You have listened to **${error.available}** ${itemType} in this time period, but a chart of **${error.required}** images was requested.`;
+    const available = `**${error.available}**`;
+    const required = `**${error.required}**`;
 
-    if (error.afterFilters) {
-      description +=
-        `\n\nNot enough ${itemType} remained after filters or missing covers. Try disabling \`skip\`/\`ns\`, widening the release filter, or choosing a smaller size.`;
-    } else {
-      description +=
-        '\n\nTry a smaller chart size, or use a different time period like `weekly`, `monthly`, `overall`.';
+    let description: string;
+    let advice: string;
+
+    switch (error.shortfallCause) {
+      case 'filters':
+        description =
+          `Only ${available} of your ${itemType} matched the filters on this chart, ` +
+          `but a chart of ${required} images was requested.`;
+        advice =
+          'Nothing was missing — your filters removed the rest. Widen or clear the artist, ' +
+          'release year/decade or singles filter, or use a smaller size.';
+        break;
+      case 'covers':
+        description =
+          `Only ${available} of the ${itemType} Last.fm returned had a usable cover, ` +
+          `but a chart of ${required} images was requested.`;
+        advice =
+          'This is a cover problem, not a filter one. Turn off `skip`/`ns`, which requires a ' +
+          'cover for every tile and leaves gaps when there are none, or use a smaller size.';
+        break;
+      case 'upstream':
+      default:
+        description =
+          `You have listened to ${available} ${itemType} in this time period, ` +
+          `but a chart of ${required} images was requested.`;
+        advice =
+          'Try a smaller chart size, or use a different time period like `weekly`, `monthly`, `overall`.';
+        break;
     }
 
-    return GenericEmbedService.buildCommandErrorResponse(CommandResponse.WrongInput, description);
+    return GenericEmbedService.buildCommandErrorResponse(
+      CommandResponse.WrongInput,
+      `${description}\n\n${advice}`,
+    );
   }
 }

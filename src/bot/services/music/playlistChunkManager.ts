@@ -258,6 +258,17 @@ export class PlaylistChunkManager {
       if (!page || page.tracks.length === 0) {
         Logger.warn({ guildId, playlistId: state.playlistId }, 'Scraper returned no more tracks');
         this.chunks.delete(guildId);
+        // The third stop, and the only one that was silent. The two siblings at
+        // `:239` and `:285` both tell the channel; this one deleted the chunk and
+        // said nothing, so a playlist truncated mid-stream lost the rest of its
+        // tracks with no explanation at all — the queue just stopped growing and
+        // the user had no way to tell a 300-track cut-off from a 100-track
+        // playlist. Same shape and same wording shape as its siblings, so the
+        // three read as one behaviour.
+        this.notifyUnavailable(
+          guildId,
+          `⚠️ Spotify returned no more tracks — stopped loading **${state.playlistName}**.`,
+        );
         return;
       }
 

@@ -2,6 +2,7 @@ import { AppleMusicSearchApi } from '@applemusic/apis/appleMusicSearchApi';
 import { DeezerApi } from '@deezer/apis/deezerApi';
 import { SpotifyScraperService } from '../music/spotifyScraperService';
 import { CacheService } from '../cacheService';
+import { matchesTrackTitle } from '../artworkService';
 import { Logger } from '@domain/logger';
 import type { ITunesSearchResult } from '@applemusic/models/itunesModels';
 import type { DeezerTrack } from '@deezer/models/deezerModels';
@@ -65,6 +66,38 @@ export class PreviewResolverService {
     return false;
   }
 
+  /**
+   * The track-name half of the chosen-row guard, and the reason a resolver in
+   * this repo may not return a song the user did not ask for.
+   *
+   * The scorer already ranks candidates, and its track scoring runs at `+1000`
+   * for a containment and `-1000` for a mismatch. `-1000` cannot push a row
+   * below zero: a right-artist row that scores `+2000` for the artist and `-1000`
+   * for the title lands at `+1000` and WINS. So `resolve('Radiohead','Creep')`
+   * returned `{ trackName: 'Karma Police' }` with a working preview button — a
+   * confidently wrong song, playable, presented as the right one.
+   *
+   * It reuses `artworkService`'s `matchesTrackTitle` rather than a second local
+   * predicate, because that predicate is already the repo's calibrated answer to
+   * "is this row the recording that was asked for": strict (never substring, so
+   * "Song" cannot match "Song 2"), edition-tag-aware, and tolerant of the leading
+   * date prefix DJ-pool rips carry. A second, looser copy is how two modules end
+   * up disagreeing about the same catalogue row.
+   *
+   * A row carrying NO title is treated the way `validateArtist` treats an absent
+   * artist: not evidence of a mismatch, and the mapping substitutes the requested
+   * name. Pinned as characterisation in `previewResolverService.scoring.test.ts`.
+   */
+  private validateTrack(expected: string, actual: string | undefined, source: string): boolean {
+    if (!actual) return true;
+    if (matchesTrackTitle(actual, expected)) return true;
+    Logger.debug(
+      { expected, actual, source },
+      '[PreviewResolver] refusing a candidate whose title is not the recording asked for',
+    );
+    return false;
+  }
+
   public async resolve(artist: string, track: string, albumHint?: string): Promise<ResolvedPreview | null> {
     const key = this.cacheKey(artist, track);
     const cached = await this.cache.get<ResolvedPreview>(key);
@@ -84,6 +117,12 @@ export class PreviewResolverService {
             // lookup leaves `sp` as it was, and the outer block either
             // publishes it or falls through to Apple/Deezer below.
           } catch { /* ignore */ }
+        }
+        if (sp?.previewUrl && !this.validateTrack(track, sp.trackName, 'spotify')) {
+          // A preview the scraper attributed to the right artist but the wrong
+          // recording. Falling through to Apple/Deezer is strictly better than
+          // handing the user a button that plays a different song.
+          sp = null;
         }
         if (sp?.previewUrl) {
           const result: ResolvedPreview = {
@@ -196,6 +235,7 @@ export class PreviewResolverService {
       if (!chosen) return null;
       // Extra guard: reject if artist validation fails
       if (!this.validateArtist(artist, chosen.artistName ?? '')) return null;
+      if (!this.validateTrack(track, chosen.trackName, 'apple')) return null;
       return {
         trackName: chosen.trackName ?? track,
         artistName: chosen.artistName ?? artist,
@@ -258,6 +298,7 @@ export class PreviewResolverService {
       const chosen = valid[0]!.item;
       if (!chosen) return null;
       if (!this.validateArtist(artist, chosen.artist?.name ?? '')) return null;
+      if (!this.validateTrack(track, chosen.title, 'deezer')) return null;
       return {
         trackName: chosen.title ?? track,
         artistName: chosen.artist?.name ?? artist,

@@ -35,6 +35,12 @@ import type { DeezerTrack } from '@deezer/models/deezerModels';
  *      re-pick the runner-up. So a good candidate sitting at index 1 is thrown
  *      away with the bad one at index 0.
  *
+ * There is a THIRD guard now, added 2026-09-30: `validateTrack`, on the chosen
+ * row, reusing `artworkService`'s `matchesTrackTitle`. Without it a right-artist
+ * / wrong-track row was returned with a working preview button. Section 3b
+ * covers it, and the BUG REPORT at the bottom records what it did and did not
+ * close.
+ *
  * See BUG REPORT at the bottom of this file for the two mis-attribution bugs
  * these tests pin down rather than paper over.
  */
@@ -389,10 +395,18 @@ describe('scoring — a wrong-artist candidate is refused, however good its titl
     await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
   });
 
-  it('DEEZER: the same pair in the other order resolves — the guard is doing the refusing', async () => {
-    // Proof that the null above comes from the artist guard on the top-scoring
-    // row rather than from a scoring accident: swap the order so the
-    // right-artist row wins the sort, and a result comes back.
+  it('DEEZER: the same pair in the other order refuses TOO, on the track guard', async () => {
+    // INVERTED 2026-09-30. This test used to assert
+    // `artistName === 'Radiohead'` here — i.e. it PINNED the worst live defect
+    // in the bot. Swap the rows so the right-artist row wins the sort and the
+    // resolver answered with "Karma Police" for a request for "Creep": a wrong
+    // song, with a working preview button, presented as the right one. Its
+    // purpose — proving the null above comes from a GUARD rather than a scoring
+    // accident — survives the fix and is now sharper, because the two orders
+    // refuse for two DIFFERENT reasons:
+    //   order as written  -> `validateArtist` refuses the top-scoring row
+    //   order reversed    -> `validateTrack` refuses the right-artist row
+    // A resolver that only had one of the two guards would pass one of them.
     const { svc } = build({
       apple: null,
       deezer: [
@@ -401,13 +415,18 @@ describe('scoring — a wrong-artist candidate is refused, however good its titl
       ],
     });
 
-    expect((await svc.resolve('Radiohead', 'Creep'))?.artistName).toBe('Radiohead');
+    await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
   });
 
-  it('APPLE: the equivalent two-row shape resolves to the right artist, not to a mis-pick', async () => {
+  it('APPLE: the equivalent two-row shape refuses rather than mis-picking', async () => {
+    // INVERTED 2026-09-30, and the Apple mirror of the case above.
     // `searchApple` additionally takes -2000 for a mismatched artist, so the
-    // right-artist row wins the sort here outright. Pinned so the asymmetry
-    // with the Deezer case above is deliberate and stays visible.
+    // right-artist row won the sort outright — and it was "Karma Police". The
+    // old assertion (`previewUrl === 'https://a/radiohead.m4a'`) named that
+    // mis-pick as the EXPECTED answer, so the asymmetry with the Deezer case was
+    // pinned as intended rather than as a bug. Neither row here is the
+    // requested recording — one has the wrong artist, the other the wrong title
+    // — so null is the only honest answer.
     const { svc } = build({
       apple: [
         appleRow({ artistName: 'Oasis', previewUrl: 'https://a/oasis.m4a' }),
@@ -415,7 +434,7 @@ describe('scoring — a wrong-artist candidate is refused, however good its titl
       ],
     });
 
-    expect((await svc.resolve('Radiohead', 'Creep'))?.previewUrl).toBe('https://a/radiohead.m4a');
+    await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
   });
 
   it('a near-miss artist is still refused — "Radiohead Tribute Band" is not Radiohead', async () => {
@@ -496,6 +515,213 @@ describe('scoring — a wrong-artist candidate is refused, however good its titl
 
     expect(result).toBeNull();
     expect(result?.previewUrl).toBeUndefined();
+  });
+});
+
+// ── 3b. THE WRONG-TRACK GUARD (added 2026-09-30) ────────────────────────────
+//
+// `validateArtist` used to be the only guard on the chosen row, and the scorer's
+// -1000 wrong-title penalty cannot push a row below zero, so a right-artist
+// / WRONG-track candidate won and was returned. The full mechanism is in BUG 1
+// at the bottom of this file; what matters here is that the guard is pinned in
+// BOTH directions, because a guard that refuses everything is not a fix.
+
+describe('scoring — a right-artist candidate is only returned if it is the right TRACK', () => {
+  it('APPLE: a right-artist / wrong-track candidate is refused, not returned with a live preview', async () => {
+    // THE defect, in the exact shape it shipped in. One row, right artist, wrong
+    // song, real preview URL. Before the fix this resolved to
+    // `{ trackName: 'Karma Police', previewUrl: 'https://a/karma.m4a' }` and the
+    // card rendered a button that played the wrong recording.
+    const { svc } = build({
+      apple: [appleRow({ trackName: 'Karma Police', collectionName: 'OK Computer', previewUrl: 'https://a/karma.m4a' })],
+    });
+
+    const result = await svc.resolve('Radiohead', 'Creep');
+
+    expect(result).toBeNull();
+    expect(result?.previewUrl).toBeUndefined();
+  });
+
+  it('DEEZER: the same shape is refused there too', async () => {
+    const { svc } = build({
+      apple: null,
+      deezer: [deezerRow({ id: 1, title: 'Karma Police', album: { id: 2, title: 'OK Computer' }, preview: 'https://dz/karma.mp3' })],
+    });
+
+    await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
+  });
+
+  it('APPLE: a refused wrong-track row is not cached as an answer', async () => {
+    // A1. A wrong answer cached for an hour is an hour of wrong buttons; the
+    // resolver must write nothing when it refuses.
+    const { svc, set } = build({
+      apple: [appleRow({ trackName: 'Karma Police', collectionName: 'OK Computer', previewUrl: 'https://a/karma.m4a' })],
+    });
+
+    await svc.resolve('Radiohead', 'Creep');
+
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it('BOTH DIRECTIONS: adding the right-track row restores the resolution', async () => {
+    // The counterpart to the two above. Without it a guard that returned null
+    // unconditionally would be green on everything so far. Ordering is the
+    // hostile one: the wrong-track row is listed FIRST, so a scorer that simply
+    // took `valid[0]` would still return Karma Police here.
+    const apple = build({
+      apple: [
+        appleRow({ trackName: 'Karma Police', collectionName: 'OK Computer', previewUrl: 'https://a/karma.m4a' }),
+        appleRow({ collectionName: 'Pablo Honey', previewUrl: 'https://a/creep.m4a' }),
+      ],
+    });
+    const deezer = build({
+      apple: null,
+      deezer: [
+        deezerRow({ id: 1, title: 'Karma Police', album: { id: 2, title: 'OK Computer' }, preview: 'https://dz/karma.mp3' }),
+        deezerRow({ id: 2, album: { id: 7, title: 'Pablo Honey' }, preview: 'https://dz/creep.mp3' }),
+      ],
+    });
+
+    const a = await apple.svc.resolve('Radiohead', 'Creep');
+    const d = await deezer.svc.resolve('Radiohead', 'Creep');
+
+    expect(a?.trackName).toBe('Creep');
+    expect(a?.previewUrl).toBe('https://a/creep.m4a');
+    expect(d?.trackName).toBe('Creep');
+    expect(d?.previewUrl).toBe('https://dz/creep.mp3');
+  });
+
+  it('a strict title match, not a substring: "Song" does not answer for "Song 2"', async () => {
+    // The single most important property of the reused predicate. A loose guard
+    // would accept "Song 2" for a request for "Song", which is the SAME
+    // mis-attribution with a smaller distance between the two songs.
+    const { svc } = build({
+      apple: [appleRow({ trackName: 'Song 2', collectionName: 'Whatever', previewUrl: 'https://a/song2.m4a' })],
+    });
+
+    await expect(svc.resolve('Blur', 'Song')).resolves.toBeNull();
+  });
+
+  it('an album-hint +3500 cannot lift a wrong-track row over the guard', async () => {
+    // The album bonus is large enough to outrank a correct row, so the guard has
+    // to sit AFTER the sort, not inside the scoring. This is the shape that
+    // made the Apple two-row test above resolve to Karma Police.
+    const { svc } = build({
+      apple: [appleRow({ trackName: 'Karma Police', collectionName: 'Pablo Honey', previewUrl: 'https://a/karma.m4a' })],
+    });
+
+    await expect(svc.resolve('Radiohead', 'Creep', 'Pablo Honey')).resolves.toBeNull();
+  });
+
+  it('a different RECORDING of the same title is refused — "Creep (Remix)" is not "Creep"', async () => {
+    // The one place a containment is genuinely desirable, and the guard is not
+    // it. A remix carries different audio, so serving it for the plain title
+    // plays something the user did not ask to hear. Free behaviour of the reused
+    // predicate; pinned here so nobody loosens it later.
+    const { svc } = build({
+      apple: [appleRow({ trackName: 'Creep (Remix)', collectionName: 'Pablo Honey', previewUrl: 'https://a/remix.m4a' })],
+    });
+
+    await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
+  });
+
+  it('a REMASTER of the requested title is still accepted — same recording', async () => {
+    // The mirror of the test above, and the reason the reused predicate carries
+    // an edition-tag rule at all. Providers legitimately return only the
+    // remastered row for a plain title; refusing it would lose the preview on
+    // every remastered single in the catalogue.
+    const { svc } = build({
+      apple: [appleRow({ trackName: 'Creep (Remastered)', collectionName: 'Pablo Honey', previewUrl: 'https://a/remaster.m4a' })],
+    });
+
+    const result = await svc.resolve('Radiohead', 'Creep');
+
+    expect(result?.trackName).toBe('Creep (Remastered)');
+    expect(result?.previewUrl).toBe('https://a/remaster.m4a');
+  });
+
+  it('a date-prefixed compilation rip of the right song is accepted', async () => {
+    // Why the guard reuses `artworkService`'s predicate instead of growing a
+    // local one: that predicate tolerates the leading release date that DJ-pool
+    // and compilation rips carry, because for many singles the prefixed row is
+    // the ONLY row a provider returns. A locally-written strict comparison would
+    // have thrown this away and the preview would be gone.
+    const { svc } = build({
+      apple: [appleRow({ artistName: 'Mac DeMarco', trackName: '20191009 I Like Her', collectionName: 'Cottage Core', previewUrl: 'https://a/date.m4a' })],
+    });
+
+    const result = await svc.resolve('Mac DeMarco', 'I Like Her');
+
+    expect(result?.trackName).toBe('20191009 I Like Her');
+    expect(result?.previewUrl).toBe('https://a/date.m4a');
+  });
+
+  it('a date-prefixed DIFFERENT song is still refused', async () => {
+    // The prefix strip is not a wildcard. Without this, "20191009 Some Other
+    // Song" would be read as matching anything on the same artist.
+    const { svc } = build({
+      apple: [appleRow({ artistName: 'Mac DeMarco', trackName: '20191009 Some Other Song', collectionName: 'Cottage Core', previewUrl: 'https://a/other.m4a' })],
+    });
+
+    await expect(svc.resolve('Mac DeMarco', 'I Like Her')).resolves.toBeNull();
+  });
+
+  it('a SPOTIFY rung preview for the wrong track is refused, and Apple still answers', async () => {
+    // The Spotify rung is the FIRST thing `resolve` tries and it publishes
+    // straight to the card, so a guard on the Apple/Deezer path alone would leave
+    // the defect wide open. Its own internal guard is
+    // `spotifyScraperService.isCloseMatch`, whose last line returns true for ANY
+    // title once the artist matches, so the hole is real.
+    const scraper = {
+      getTrackPreview: vi.fn(async (..._a: unknown[]) => ({
+        trackName: 'Karma Police', artistName: 'Radiohead', previewUrl: 'https://p.scdn.co/mp3-preview/karma',
+      })),
+      getPreviewById: vi.fn(async (..._a: unknown[]) => null),
+    };
+    const { svc } = build({ apple: [appleRow({ previewUrl: 'https://a/creep.m4a' })], deezer: [], scraper });
+
+    const result = await svc.resolve('Radiohead', 'Creep');
+
+    expect(result?.source).toBe('apple');
+    expect(result?.trackName).toBe('Creep');
+    expect(result?.previewUrl).toBe('https://a/creep.m4a');
+  });
+
+  it('a SPOTIFY rung preview for the right track is still used', async () => {
+    // The other direction on the same rung, so the test above cannot be passed
+    // by refusing everything Spotify returns.
+    const scraper = {
+      getTrackPreview: vi.fn(async (..._a: unknown[]) => ({
+        trackName: 'Creep', artistName: 'Radiohead', previewUrl: 'https://p.scdn.co/mp3-preview/creep',
+      })),
+      getPreviewById: vi.fn(async (..._a: unknown[]) => null),
+    };
+    const { svc } = build({ apple: [], deezer: [], scraper });
+
+    const result = await svc.resolve('Radiohead', 'Creep');
+
+    expect(result?.source).toBe('spotify');
+    expect(result?.previewUrl).toBe('https://p.scdn.co/mp3-preview/creep');
+  });
+
+  it('CHARACTERISATION: a row carrying NO title at all is still accepted', async () => {
+    // A decision, not an endorsement, and it is the deliberate mirror of
+    // `validateArtist` (which also accepts an absent artist, because the empty
+    // string is a substring of everything — see BUG 2). The provider told us
+    // nothing about the title, so there is no evidence of a mismatch; the
+    // mapping substitutes the requested name. The stricter alternative (refuse
+    // it) was considered and rejected because it would delete two long-standing
+    // mapping fallbacks and buy nothing: a title-less row is rare, and where it
+    // happens the artist still had to pass its own guard. Flipping this test to
+    // a refusal is a product decision, not a bug fix.
+    const { svc } = build({
+      apple: [appleRow({ trackName: undefined, previewUrl: 'https://a/untitled.m4a' })],
+    });
+
+    const result = await svc.resolve('Radiohead', 'Creep');
+
+    expect(result?.trackName).toBe('Creep');
+    expect(result?.previewUrl).toBe('https://a/untitled.m4a');
   });
 });
 
@@ -1157,27 +1383,39 @@ describe('mapping — the chosen row is mapped onto ResolvedPreview', () => {
 });
 
 /**
- * BUG REPORT — found while writing these tests. NOT FIXED (test-only task).
- * Both are in `previewResolverService.ts`; line numbers are from the version
- * read at the time of writing.
+ * BUG REPORT — found while writing these tests.
+ * BUG 1 is FIXED (2026-09-30); BUG 2-6 are NOT (out of scope, still true).
+ * Line numbers are from the version read at the time of writing.
  *
- * ── BUG 1 (the serious one): a right-artist / WRONG-TRACK candidate is
- * accepted and returned as the requested song.
- *   Lines 173-180 (searchApple) and 241-244 (searchDeezer).
+ * ── BUG 1 (the serious one): FIXED — a right-artist / WRONG-TRACK candidate
+ * used to be accepted and returned as the requested song.
+ *   Lines 173-180 (searchApple) and 241-244 (searchDeezer) as they read here.
  *   When the track does not match at all, the candidate is penalised by
  *   -1000 (if the artist is right) rather than discarded, and -1000 is not
  *   enough to push it below zero on its own: +2000 for an exact artist and
  *   +1000 for the artist appearing in the row leaves it at +2000 net. So when
  *   a provider returns the right artist and the wrong track as its ONLY
- *   candidate, `resolve('Radiohead', 'Creep')` returns
+ *   candidate, `resolve('Radiohead', 'Creep')` returned
  *   `{ trackName: 'Karma Police', ... }` — a confidently wrong song with a
  *   working preview button.
- *   The scoring rejects on score < 0 and the final guard checks only the
- *   ARTIST (`validateArtist`, lines 198 and 260). There is no equivalent
- *   `validateTrack` on the chosen row, so nothing catches it. Verified by
- *   running the real service: it returns the Karma Police row.
- *   A sibling test in this file ("DEEZER: when the wrong artist OUTSCORES
- *   the right one") documents the inverse case, which is refused.
+ *   The scoring rejects on score < 0 and the final guard checked only the
+ *   ARTIST (`validateArtist`, lines 198 and 260). There was no equivalent
+ *   `validateTrack` on the chosen row, so nothing caught it. Verified by
+ *   running the real service: it returned the Karma Police row.
+ *   Two tests in this file PINNED that behaviour, which is what made the fix
+ *   auditable: the Deezer "same pair in the other order" test asserted
+ *   `artistName === 'Radiohead'` on a Karma Police row, and the Apple two-row
+ *   test asserted the Karma Police preview URL as the expected answer. Both are
+ *   inverted above, and section 3b pins the guard in both directions.
+ *   TWO SHAPES REMAIN, and neither is closed by this fix:
+ *     (a) `spotifyScraperService.isCloseMatch` ends in `return cExpA === cActA`,
+ *         so ITS guard accepts any title once the artist matches — and its unit
+ *         test pins that leniency ("accepts when the artist matches and the
+ *         title differs slightly"). The Spotify rung inside `resolve` is
+ *         therefore guarded by `validateTrack` as well, but the scraper itself
+ *         is still loose.
+ *     (b) A row with no title at all is accepted, mirroring `validateArtist`'s
+ *         treatment of an absent artist. Pinned as characterisation in 3b.
  *
  * ── BUG 2: an empty `artistName` passes the artist guard.
  *   Line 60-66 (`validateArtist`) and line 201 (`artistName: chosen.artistName ?? artist`).
