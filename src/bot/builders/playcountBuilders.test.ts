@@ -180,7 +180,6 @@ describe('PlaycountBuilders and SettingService', () => {
     it('ensures ap is exclusive to artistplays and not autoplay', async () => {
       const { PlaycountCommands } = await import('@bot/textCommands/lastfm/playcountCommands');
       const { MusicCommands } = await import('@bot/textCommands/music/musicCommands');
-      const { FootballCommands } = await import('@bot/textCommands/football/footballCommands');
 
       // Check playcount commands define ap and m
       const pc = new PlaycountCommands(
@@ -207,10 +206,6 @@ describe('PlaycountBuilders and SettingService', () => {
       expect(autoDef?.aliases).not.toContain('ap');
       expect(autoDef?.aliases).toContain('auto');
 
-      // Check football commands no longer hijack m
-      const fc = new FootballCommands({} as any);
-      const matchDef = fc.commands.find((c) => c.name === 'matches');
-      expect(matchDef?.aliases).not.toContain('m');
       // The three `import()` calls above pull in whole command modules (services,
       // repositories, Prisma). That cold-load is fast alone and over the default
       // 5s budget once the full suite saturates its workers, which made this

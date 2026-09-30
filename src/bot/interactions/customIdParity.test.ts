@@ -57,7 +57,6 @@ const BUILDERS = path.join(REPO, 'src/bot/builders');
 const INTERACTIONS = path.join(REPO, 'src/bot/interactions');
 const ROUTER = path.join(REPO, 'src/bot/handlers/interactionHandler.ts');
 const PAGINATOR = path.join(REPO, 'src/bot/services/componentPaginatorService.ts');
-const FOOTBALL_BUILDERS = path.join(REPO, 'src/bot/builders/footballBuilders.ts');
 
 const listSources = (dir: string): string[] =>
   fs
@@ -68,13 +67,7 @@ const listSources = (dir: string): string[] =>
 const read = (file: string): string => fs.readFileSync(file, 'utf8');
 
 /** Every production source whose text participates in the match. */
-const allSources = (): string[] => [
-  ...listSources(BUILDERS),
-  ...listSources(INTERACTIONS),
-  ROUTER,
-  PAGINATOR,
-  FOOTBALL_BUILDERS,
-];
+const allSources = (): string[] => [...listSources(BUILDERS), ...listSources(INTERACTIONS), ROUTER, PAGINATOR];
 
 /**
  * The STATIC HEAD of every customId a builder can mint - the part before the
@@ -133,7 +126,7 @@ const matchedPrefixes = (): Set<string> => {
   // The router delegates several families to an exported array rather than a
   // literal (`ALBUM_BUTTON_PREFIXES.some(...)`). Those literals live in the
   // modules, so read them from there.
-  const constFiles = [...listSources(INTERACTIONS), FOOTBALL_BUILDERS, PAGINATOR];
+  const constFiles = [...listSources(INTERACTIONS), PAGINATOR];
   const templateBases = new Set<string>();
   for (const file of constFiles) {
     for (const m of read(file).matchAll(
@@ -143,8 +136,8 @@ const matchedPrefixes = (): Set<string> => {
       for (const lit of m[1]!.matchAll(/`\$\{(\w+)\}[^`]*`/g)) templateBases.add(lit[1]!);
     }
   }
-  // A prefix array built as [`${FOOTBALL_INTERACTION_PREFIX}date:`, ...]: the
-  // base is a separate scalar constant, resolved here rather than skipped.
+  // A prefix array built as [`${SOME_INTERACTION_PREFIX}date:`, ...]: the base is
+  // a separate scalar constant, resolved here rather than skipped.
   for (const file of constFiles) {
     for (const m of read(file).matchAll(
       /(?:export\s+)?const\s+(\w+)\s*(?::[^=]+)?=\s*'([^']+)'/g,

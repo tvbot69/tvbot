@@ -18,7 +18,6 @@ import { UpdateCommands } from './lastfm/updateCommands';
 import { ArtistCommands } from './lastfm/artistCommands';
 import { TasteCommands } from './lastfm/tasteCommands';
 import { CrownCommands } from './guild/crownCommands';
-import { FootballCommands } from './football/footballCommands';
 import { PlaycountCommands } from './lastfm/playcountCommands';
 import { ProfileCommands } from './lastfm/profileCommands';
 import { StreakCommands } from './lastfm/streakCommands';
@@ -73,7 +72,6 @@ const buildCommands = (): Map<string, TextCommandDefinition> => {
     container.resolve(TasteCommands),
     container.resolve(CrownCommands),
     container.resolve(AutopostCommands),
-    container.resolve(FootballCommands),
   ];
   const map = new Map<string, TextCommandDefinition>();
   const owner = new Map<string, string>();

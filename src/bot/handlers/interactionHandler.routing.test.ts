@@ -95,7 +95,6 @@ const CONSTRUCTOR_ORDER = [
   'tasteInteractions',
   'recentInteractions',
   'crownInteractions',
-  'footballInteractions',
   'playcountInteractions',
   'profileInteractions',
   'librarySearchInteractions',
@@ -129,7 +128,6 @@ const ROUTABLE_DEPS = [
   'tasteInteractions',
   'recentInteractions',
   'crownInteractions',
-  'footballInteractions',
   'playcountInteractions',
   'profileInteractions',
   'librarySearchInteractions',
@@ -195,10 +193,6 @@ const makeDeps = () => ({
   tasteInteractions: { handleButton: vi.fn(async () => undefined) },
   recentInteractions: { handleButton: vi.fn(async () => undefined) },
   crownInteractions: {
-    handleSelectMenu: vi.fn(async () => undefined),
-    handleButton: vi.fn(async () => undefined),
-  },
-  footballInteractions: {
     handleSelectMenu: vi.fn(async () => undefined),
     handleButton: vi.fn(async () => undefined),
   },
@@ -384,11 +378,11 @@ afterEach(() => {
 });
 
 describe('InteractionHandler constructor wiring', () => {
-  it('takes 37 parameters', () => {
+  it('takes 36 parameters', () => {
     // A guard, not a tautology: it makes adding a parameter a visible decision
     // rather than an accident, and this file must be updated alongside it.
-    expect(InteractionHandler.length).toBe(37);
-    expect(CONSTRUCTOR_ORDER).toHaveLength(37);
+    expect(InteractionHandler.length).toBe(36);
+    expect(CONSTRUCTOR_ORDER).toHaveLength(36);
   });
 
   it('lands every positional parameter on the field it names', () => {
@@ -460,7 +454,6 @@ describe('InteractionHandler component routing', () => {
     [`${MUSIC_INTERACTION_PREFIXES[1] as string}skip`, 'musicInteractions.handleButton'],
     [`${MUSIC_INTERACTION_PREFIXES[2] as string}clear`, 'musicInteractions.handleButton'],
     [`${MUSIC_INTERACTION_PREFIXES[3] as string}q`, 'musicInteractions.handleButton'],
-    ['fb:match', 'footballInteractions.handleButton'],
     ['affinity-page:1', 'intelligenceInteractions.handleButton'],
     ['discoveries-page:1', 'intelligenceInteractions.handleButton'],
     ['gaps-page:1', 'intelligenceInteractions.handleButton'],
@@ -498,7 +491,6 @@ describe('InteractionHandler component routing', () => {
     ['music:queue:0', 'musicInteractions.handleSelectMenu'],
     ['user-crownpicker', 'crownInteractions.handleSelectMenu'],
     ['guild-members', 'crownInteractions.handleSelectMenu'],
-    ['fb:pick', 'footballInteractions.handleSelectMenu'],
     ['country:theme:dark', 'countryInteractions.handleStringSelect'],
     ['help:topics', 'helpInteractions.handleSelectMenu'],
   ];

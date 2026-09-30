@@ -38,7 +38,6 @@ import { ArtistInteractions } from '@bot/interactions/artistInteractions';
 import { TasteInteractions } from '@bot/interactions/tasteInteractions';
 import { RecentInteractions } from '@bot/interactions/recentInteractions';
 import { CrownInteractions } from '@bot/interactions/crownInteractions';
-import { FootballInteractions } from '@bot/interactions/footballInteractions';
 import { PlaycountInteractions } from '@bot/interactions/playcountInteractions';
 import { ProfileInteractions } from '@bot/interactions/profileInteractions';
 import { LibrarySearchInteractions } from '@bot/interactions/librarySearchInteractions';
@@ -112,8 +111,6 @@ export class InteractionHandler {
     private readonly recentInteractions: RecentInteractions,
     @inject(CrownInteractions)
     private readonly crownInteractions: CrownInteractions,
-    @inject(FootballInteractions)
-    private readonly footballInteractions: FootballInteractions,
     @inject(PlaycountInteractions)
     private readonly playcountInteractions: PlaycountInteractions,
     @inject(ProfileInteractions)
@@ -190,10 +187,6 @@ export class InteractionHandler {
         }
         if (interaction.customId === 'user-crownpicker' || interaction.customId === 'guild-members') {
           await this.crownInteractions.handleSelectMenu(interaction);
-          return;
-        }
-        if (interaction.customId.startsWith('fb:')) {
-          await this.footballInteractions.handleSelectMenu(interaction);
           return;
         }
         if (interaction.customId.startsWith('country:theme:')) {
@@ -291,10 +284,6 @@ export class InteractionHandler {
         }
         if (MUSIC_INTERACTION_PREFIXES.some((p) => interaction.customId.startsWith(p))) {
           await this.musicInteractions.handleButton(interaction);
-          return;
-        }
-        if (interaction.customId.startsWith('fb:')) {
-          await this.footballInteractions.handleButton(interaction);
           return;
         }
         if (

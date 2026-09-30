@@ -232,18 +232,6 @@ export function healthPort(fallback: number, env: NodeJS.ProcessEnv = currentEnv
 }
 
 /**
- * API_FOOTBALL_KEY - the API-Football key, or '' when unconfigured.
- *
- * '' rather than undefined because the call site's contract is
- * `isConfigured()`, and '' is what `|| ''` produced. An unconfigured provider
- * returns an empty fixture list rather than throwing, which is what keeps the
- * football commands alive for everyone who has not bought a subscription.
- */
-export function apiFootballKey(env: NodeJS.ProcessEnv = currentEnv()): string {
-  return trimmed(env, 'API_FOOTBALL_KEY') ?? '';
-}
-
-/**
  * ENVIRONMENT, untrimmed, defaulting to 'local'.
  *
  * `?? 'local'` not `|| 'local'`: an explicitly empty ENVIRONMENT is what the

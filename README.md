@@ -15,7 +15,7 @@
 
 ## What it is
 
-tvbot mirrors fmbot's Last.fm statistics and social features at ~95% core parity, then goes past it: a complete self-hosted music playback stack, audio analysis, and live football — all in one process, deployed on Railway, backed by PostgreSQL.
+tvbot mirrors fmbot's Last.fm statistics and social features at ~95% core parity, then goes past it: a complete self-hosted music playback stack and audio analysis — all in one process, deployed on Railway, backed by PostgreSQL.
 
 Every command ships twice (slash + `.` prefix) through a single response pipeline, with per-guild settings, privacy controls, and paginated interactive embeds throughout.
 

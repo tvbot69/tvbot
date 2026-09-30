@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
-  apiFootballKey,
   errorWebhookUrl,
   ffmpegPath,
   ffprobePath,
@@ -41,7 +40,6 @@ const OWNED_KEYS = [
   'SKIP_SLASH_REGISTER',
   'HEALTH_PORT',
   'PORT',
-  'API_FOOTBALL_KEY',
 ] as const;
 
 type OwnedKey = (typeof OWNED_KEYS)[number];
@@ -76,7 +74,6 @@ describe('runtimeEnv: presence and blankness', () => {
     expect(errorWebhookUrl(envOf({ ERROR_WEBHOOK_URL: 'https://discord.com/api/webhooks/1/x' }))).toBe('https://discord.com/api/webhooks/1/x');
     expect(ffmpegPath(envOf({ FFMPEG_PATH: '/usr/bin/ffmpeg' }))).toBe('/usr/bin/ffmpeg');
     expect(ffprobePath(envOf({ FFPROBE_PATH: '/usr/bin/ffprobe' }))).toBe('/usr/bin/ffprobe');
-    expect(apiFootballKey(envOf({ API_FOOTBALL_KEY: 'abc123' }))).toBe('abc123');
   });
 
   it('treats absent, empty and whitespace-only alike', () => {
@@ -90,11 +87,6 @@ describe('runtimeEnv: presence and blankness', () => {
       expect(ffmpegPath(envOf({ FFMPEG_PATH: blank as string | undefined }))).toBeUndefined();
       expect(ffprobePath(envOf({ FFPROBE_PATH: blank as string | undefined }))).toBeUndefined();
     }
-    // The one accessor whose absent answer is '' rather than undefined, because
-    // its call site's contract is `isConfigured()`.
-    for (const blank of [undefined, '', '   ']) {
-      expect(apiFootballKey(envOf({ API_FOOTBALL_KEY: blank as string | undefined }))).toBe('');
-    }
   });
 
   it('trims surrounding whitespace off a string value', () => {
@@ -102,7 +94,6 @@ describe('runtimeEnv: presence and blankness', () => {
     // a path with a trailing space now resolves instead of failing existsSync.
     expect(redisUrl(envOf({ REDIS_URL: '  redis://host:6379  ' }))).toBe('redis://host:6379');
     expect(ffmpegPath(envOf({ FFMPEG_PATH: ' /usr/bin/ffmpeg ' }))).toBe('/usr/bin/ffmpeg');
-    expect(apiFootballKey(envOf({ API_FOOTBALL_KEY: '  key  ' }))).toBe('key');
   });
 });
 
@@ -315,16 +306,6 @@ describe('runtimeEnv: reads the LIVE environment, not a cached snapshot', () => 
     delete process.env.PORT;
     expect(healthPort(3000)).toBe(3000);
   });
-
-  it('apiFootballKey', () => {
-    expect(apiFootballKey()).toBe('');
-    process.env.API_FOOTBALL_KEY = 'k1';
-    expect(apiFootballKey()).toBe('k1');
-    process.env.API_FOOTBALL_KEY = 'k2';
-    expect(apiFootballKey()).toBe('k2');
-    delete process.env.API_FOOTBALL_KEY;
-    expect(apiFootballKey()).toBe('');
-  });
 });
 
 describe('runtimeEnv: totality', () => {
@@ -345,7 +326,6 @@ describe('runtimeEnv: totality', () => {
         SKIP_SLASH_REGISTER: value,
         HEALTH_PORT: value,
         PORT: value,
-        API_FOOTBALL_KEY: value,
       });
       expect(() => ffmpegPath(env)).not.toThrow();
       expect(() => ffprobePath(env)).not.toThrow();
@@ -355,7 +335,6 @@ describe('runtimeEnv: totality', () => {
       expect(() => shardCount(env)).not.toThrow();
       expect(() => skipSlashRegister(env)).not.toThrow();
       expect(() => healthPort(3000, env)).not.toThrow();
-      expect(() => apiFootballKey(env)).not.toThrow();
     }
   });
 
@@ -373,7 +352,6 @@ describe('runtimeEnv: totality', () => {
       SKIP_SLASH_REGISTER: 'true',
       HEALTH_PORT: '1234',
       PORT: '5678',
-      API_FOOTBALL_KEY: 'e',
     });
     expect(ffmpegPath(env)).toBe('/a');
     expect(ffprobePath(env)).toBe('/b');
@@ -383,7 +361,6 @@ describe('runtimeEnv: totality', () => {
     expect(shardCount(env)).toBe(4);
     expect(skipSlashRegister(env)).toBe(true);
     expect(healthPort(3000, env)).toBe(1234);
-    expect(apiFootballKey(env)).toBe('e');
   });
 
   it('ignores an environment argument of undefined by falling back to the process', () => {

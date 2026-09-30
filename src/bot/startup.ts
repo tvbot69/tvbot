@@ -151,14 +151,7 @@ import { TasteInteractions } from './interactions/tasteInteractions';
 import { RecentInteractions } from './interactions/recentInteractions';
 import { TasteCommands } from './textCommands/lastfm/tasteCommands';
 import { TasteSlashCommands } from './slashCommands/tasteSlashCommands';
-import { EspnFootballProvider } from './services/football/espnFootballProvider';
-import { EgyptianFootballProvider } from './services/football/egyptianFootballProvider';
-import { ApiFootballProvider } from './services/football/apiFootballProvider';
-import { FootballBadgeService } from './services/football/footballBadgeService';
-import { FootballService } from './services/football/footballService';
-import { FootballInteractions } from './interactions/footballInteractions';
-import { FootballCommands } from './textCommands/football/footballCommands';
-import { FootballSlashCommands } from './slashCommands/footballSlashCommands';
+
 import { PlayHistoryService } from './services/playHistoryService';
 import { PlaycountCommands } from './textCommands/lastfm/playcountCommands';
 import { PlaycountSlashCommands } from './slashCommands/playcountSlashCommands';
@@ -750,29 +743,6 @@ export const configureContainer = (): void => {
   container.registerInstance(CrownInteractions, crownInteractions);
   container.registerInstance(CrownCommands, crownCommands);
   container.registerInstance(CrownSlashCommands, crownSlashCommands);
-
-  const espnFootballProvider = new EspnFootballProvider();
-  const egyptianFootballProvider = new EgyptianFootballProvider();
-  const apiFootballProvider = new ApiFootballProvider();
-  const footballBadgeService = new FootballBadgeService();
-  const footballService = new FootballService(
-    espnFootballProvider,
-    egyptianFootballProvider,
-    apiFootballProvider,
-    footballBadgeService,
-  );
-  const footballInteractions = new FootballInteractions(footballService, colorService);
-  const footballCommands = new FootballCommands(footballService);
-  const footballSlashCommands = new FootballSlashCommands(footballService);
-
-  container.registerInstance(EspnFootballProvider, espnFootballProvider);
-  container.registerInstance(EgyptianFootballProvider, egyptianFootballProvider);
-  container.registerInstance(ApiFootballProvider, apiFootballProvider);
-  container.registerInstance(FootballBadgeService, footballBadgeService);
-  container.registerInstance(FootballService, footballService);
-  container.registerInstance(FootballInteractions, footballInteractions);
-  container.registerInstance(FootballCommands, footballCommands);
-  container.registerInstance(FootballSlashCommands, footballSlashCommands);
 
   const playHistoryService = new PlayHistoryService(playRepository, lastFmRepository, prisma, genreService, countryService);
   const receiptGenerator = new ReceiptGenerator(puppeteerService);

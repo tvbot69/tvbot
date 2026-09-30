@@ -18,7 +18,6 @@ import { UpdateSlashCommands } from './updateSlashCommands';
 import { ArtistSlashCommands } from './artistSlashCommands';
 import { TasteSlashCommands } from './tasteSlashCommands';
 import { CrownSlashCommands } from './crownSlashCommands';
-import { FootballSlashCommands } from './footballSlashCommands';
 import { PlaycountSlashCommands } from './playcountSlashCommands';
 import { ProfileSlashCommands } from './profileSlashCommands';
 import { StreakSlashCommands } from './streakSlashCommands';
@@ -71,7 +70,6 @@ const buildCommands = (): Map<string, SlashCommandDefinition> => {
     container.resolve(ArtistSlashCommands),
     container.resolve(TasteSlashCommands),
     container.resolve(CrownSlashCommands),
-    container.resolve(FootballSlashCommands),
   ];
   const map = new Map<string, SlashCommandDefinition>();
   for (const module of modules) {
