@@ -14,6 +14,22 @@ export class HealthServer {
   private static readonly PORT_PROBE_RANGE = 16;
   /** Serve a cached snapshot for this long instead of re-probing the DB. */
   private static readonly HEALTH_CACHE_MS = 5_000;
+  /**
+   * How long after boot the Discord gateway is reported but NOT required.
+   *
+   * A cold start legitimately has no gateway for a while: the container is
+   * booting, `prisma migrate deploy` has not returned, and the client is not
+   * even registered yet. Requiring it immediately would answer 503 to the
+   * platform for the whole of that window and a slow boot would be reported as
+   * a failed deploy.
+   *
+   * After this window it becomes load-bearing, and a gateway that is resolvable
+   * but not ready is a dead bot rather than a starting one. That is the
+   * distinction that matters: "I have not asked yet" and "I asked and it is
+   * down" are not the same state, and only the second should fail a deploy.
+   */
+  private static readonly GATEWAY_GRACE_MS = 180_000;
+  private startedAt = 0;
   private draining = false;
 
   /** Called on SIGTERM: readiness fails closed while in-flight work drains. */
@@ -25,6 +41,7 @@ export class HealthServer {
     if (this.server) return;
     this.basePort = healthPort(port);
     this.port = this.basePort;
+    this.startedAt = Date.now();
 
     this.server = http.createServer(async (req, res) => {
       const url = req.url?.split('?')[0] || '/';
@@ -61,10 +78,13 @@ export class HealthServer {
             discordPing = client.ws.ping;
             discordStatus = client.isReady() ? 'ready' : 'connecting';
           } catch (err) {
-            // CORRECT AS IS. `discord` is a reported field, not part of the
-            // verdict: `isHealthy` is computed from the database and the drain
-            // flag alone, so a resolve failure cannot turn a 503 into a 200. The
-            // one thing it must not do is report 'ready', and it does not.
+            // NOT "CORRECT AS IS" any more. This block used to be excused
+            // because `discord` was a reported field and never part of the
+            // verdict — which meant a bot with no gateway answered 200 healthy
+            // forever and Railway restarted nothing. The status is now judged
+            // below (after a boot grace window), so an unresolvable client is a
+            // real failure rather than an unreported one. What this catch still
+            // must not do is claim 'ready', and `not_initialized` does not.
             Logger.debug({ err }, '[Health] Discord client not resolvable yet');
           }
 
@@ -80,8 +100,27 @@ export class HealthServer {
           }
 
           const mem = process.memoryUsage();
-          const isHealthy = dbHealth.healthy && !this.draining;
+          // The gateway is load-bearing AFTER the boot grace window. Before it,
+          // a cold start has no client yet and requiring one would 503 every
+          // healthcheck for the length of the boot.
+          //
+          // The only thing that must never happen is reporting `ready` when it
+          // is not — so an unresolvable client inside the grace window reports
+          // 'not_initialized' and is not judged, and outside it the same
+          // failure IS judged. Railway probes this path, so a bot that has lost
+          // its gateway indefinitely now returns 503 instead of sitting at 200
+          // healthy while serving nobody.
+          const withinGrace = Date.now() - this.startedAt < HealthServer.GATEWAY_GRACE_MS;
+          const gatewayOk = withinGrace || discordStatus === 'ready';
+          const isHealthy = dbHealth.healthy && gatewayOk && !this.draining;
           const statusCode = isHealthy ? 200 : 503;
+
+          if (!gatewayOk) {
+            Logger.error(
+              { discordStatus, withinGrace },
+              '[Health] Discord gateway is not ready — reporting unhealthy so the platform can restart this bot',
+            );
+          }
 
           const response = {
             status: this.draining ? 'draining' : isHealthy ? 'healthy' : 'unhealthy',
