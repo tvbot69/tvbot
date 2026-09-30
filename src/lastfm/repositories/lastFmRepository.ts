@@ -57,9 +57,67 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * Last.fm error codes that mean "this thing genuinely does not exist".
  *
  * Everything else - a 5xx, a timeout, a rate limit - is Last.fm being
- * UNAVAILABLE, which is a completely different thing to tell a user. Code 6
- * is "user not found", 7 is "album not found", 8 is "artist not found". The
+ * UNAVAILABLE, which is a completely different thing to tell a user. The
  * synthetic -1 is this repo's own "network error or timeout" from lastfmApi.
+ *
+ * WHAT WAS ACTUALLY OBSERVED (probing a live key, 2026-09-30)
+ * -----------------------------------------------------------
+ * The earlier version of this comment stated "6 is user not found, 7 is album
+ * not found, 8 is artist not found". That is not what the API does, and the
+ * distinction matters, because `isNotFound` below decides whether a caller gets
+ * a legitimate empty answer or a raise.
+ *
+ *   - A genuinely unknown user does answer 6. (`user.getinfo` for a name that
+ *     does not exist.)
+ *   - 7 AND 8 NEVER APPEARED. Not once, for a missing album, a missing artist,
+ *     or anything else. They are kept only because removing them is a
+ *     behaviour change for real traffic, not because anything here observed
+ *     them.
+ *   - **6 IS OVERLOADED.** Last.fm also answers HTTP 400 with code 6 for a
+ *     MISSING OR OUT-OF-BOUNDS REQUIRED PARAMETER:
+ *         user.gettopartists&limit=0  -> 400 {"error":6,"message":"limit param out of bounds (1-1000)"}
+ *         user.gettopartists&page=0   -> 400 {"error":6,"message":"page param out of bounds"}
+ *
+ *     So a caller-side parameter bug is answered with an empty list and NOT one
+ *     ERROR log, and a user is told a real account does not exist.
+ *
+ * THE BOUNDS ARE THE CALLER'S JOB — read this before adding a call site
+ * ---------------------------------------------------------------------
+ * Last.fm will not tell you which parameter was wrong, and `isNotFound` cannot
+ * tell either: by the time it runs, the only thing left is the number 6. Any
+ * new caller of a method that forwards `limit` or `page` MUST pass integers
+ * inside 1-1000 (page: >= 1) itself. Clamp with `Math.max(1, n)`; do not rely on
+ * this set to catch it.
+ *
+ * SCOPE, because the exposure is not uniform. The methods that reach
+ * `isNotFound` are `getUserInfo`, `getArtistInfo`, `getAlbumInfo`,
+ * `getTrackInfo`, `searchArtists`/`searchAlbums`/`searchTracks`,
+ * `getUserFriends` and the three `getTop*`. Of those, only `getUserFriends` and
+ * the three `getTop*` send a `limit`/`page` at all. `getUserRecentTracks`,
+ * `getUserRecentTracksWithMetadata` and `getLovedTracks` also forward them, but
+ * they log at WARN and return an empty list on any failure, so a bad bound is
+ * loud there and never reaches this set. The four `get*Info`/`search*` methods
+ * send no limit/page, so for them a code 6 really is a missing entity.
+ *
+ * REACHABILITY, re-verified by grepping every call site on 2026-09-30: no
+ * production path can currently send a bad value. Every caller of
+ * `getTopArtists` / `getTopAlbums` / `getTopTracks` passes a literal count
+ * (5, 10, 12, 25, 100, 150, 250, 1000) or a `Math.min(..., 1000)` clamp, and
+ * `page` is the literal 1 or omitted; `chartService` derives its limit from
+ * `chartModels`' `imagesNeeded` (= width x height, default 9) so it is always
+ * positive; `updateService` clamps to `Math.max(50, ...)`, `indexService` uses a
+ * constant page size with `page` starting at 1, `playCommands` clamps `>= 1`
+ * and `recentInteractions` uses `Math.max(1, ...)`. `getUserFriends` forwards
+ * `limit`/`page` and has NO production caller at all. This is a trap for the
+ * next caller, not a live bug — which is why the fix is this comment and not a
+ * change to the set.
+ *
+ * If the bounds ARE ever violated in production, removing 6 from this set is
+ * NOT the fix: every genuine "no such user" would then raise, and a deleted
+ * account would render as a Last.fm outage. The split has to happen before the
+ * code is known - by validating the parameters at the method boundary, so a
+ * caller bug becomes an exception here and still reads as a real not-found from
+ * Last.fm.
  */
 const NOT_FOUND_CODES = new Set([6, 7, 8]);
 

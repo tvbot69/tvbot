@@ -1,4 +1,5 @@
 import { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
+import { clampSpotifySearchLimit } from '@spotify/api/spotifyApiLimits';
 import { Logger } from '@domain/logger';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import type { MirrorProvider, MirrorTrack } from '@domain/models/music/musicTrack';
@@ -130,7 +131,14 @@ export class SpotifyResolver {
     if (!token) return [];
 
     try {
-      const endpoint = `https://api.spotify.com/v1/search?q=${encodeURIComponent(cleanQuery)}&type=track&limit=${Math.min(limit, 50)}`;
+      // Clamped, not trusted. The server's real `/v1/search` ceiling was measured
+      // live on 2026-09-30 at 10 — limit=11, 15 and 50 each return 400 "Invalid
+      // limit" — which contradicts Spotify's published 50. The old
+      // `Math.min(limit, 50)` therefore clamped to a value the server rejects.
+      // It never fired only because every caller passes <= 10, two of which
+      // (`artworkService`) sit exactly on the boundary with no clamp of their
+      // own. See `@spotify/api/spotifyApiLimits` for the probe.
+      const endpoint = `https://api.spotify.com/v1/search?q=${encodeURIComponent(cleanQuery)}&type=track&limit=${clampSpotifySearchLimit(limit)}`;
       const data = await this.fetchSpotify<{
         tracks?: {
           items?: Array<{

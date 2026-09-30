@@ -238,15 +238,58 @@ describe('SpotifyResolver search', () => {
     expect(url.length).toBeLessThan(400);
   });
 
-  it('caps the multi-track limit at the Spotify maximum of 50', async () => {
-    // Spotify rejects limit>50 with a 400, so an uncapped value would turn a
-    // caller asking for 200 into a hard failure rather than a clamped search.
+  it('caps the multi-track limit at the measured Spotify maximum of 10, not the documented 50', async () => {
+    // MEASURED LIVE 2026-09-30 against api.spotify.com with client-credentials,
+    // not read from the docs. The published Web API reference says 50; the
+    // server disagrees: on `/v1/search?q=radiohead&type=track`, limit=10 -> 200
+    // with 10 items, and limit=11, 15 and 50 each -> 400
+    // `{"error":{"status":400,"message":"Invalid limit"}}`. This test used to
+    // assert 50 and to explain it as "Spotify rejects limit>50 with a 400",
+    // which pinned a fact about the vendor that was false in the only direction
+    // that mattered — it made the clamp a no-op, because a clamped value the
+    // server rejects is exactly the bug. A test that asserts a vendor's limits
+    // is a claim about that vendor, so it carries its evidence.
     const { resolver } = build();
     fetchMock.mockResolvedValue(jsonResponse({ tracks: { items: [trackItem] } }));
 
     await resolver.searchTracks('airbag', 200);
 
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('limit=50');
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('limit=10');
+  });
+
+  it('leaves an in-range limit alone, so the clamp is not what makes the search work', async () => {
+    // The companion to the clamp test above, and the reason both exist: a clamp
+    // that also mangled valid input would pass the test above while quietly
+    // narrowing every real search. `artworkService` calls this with exactly 10
+    // (lines 339, 344, 358, 780), so 10 must survive untouched.
+    const { resolver } = build();
+    fetchMock.mockResolvedValue(jsonResponse({ tracks: { items: [trackItem] } }));
+
+    await resolver.searchTracks('airbag', 10);
+
+    const url = String(fetchMock.mock.calls[0]?.[0]);
+    expect(url).toContain('limit=10');
+    expect(url).not.toContain('limit=0');
+  });
+
+  it('clamps a non-integer or non-finite limit rather than sending it', async () => {
+    // Same measurement, different shape: limit=0, -1, 1.5 and abc were all
+    // measured returning 400 "Invalid limit", so a limit that is not a plain
+    // positive integer is a rejection waiting to happen. NaN and Infinity are
+    // included because a caller computing a limit from data can produce them.
+    const { resolver } = build();
+    fetchMock.mockResolvedValue(jsonResponse({ tracks: { items: [trackItem] } }));
+
+    for (const [label, bad] of [['0', 0], ['negative', -3], ['fractional', 1.5], ['NaN', Number.NaN], ['Infinity', Number.POSITIVE_INFINITY]] as Array<[string, number]>) {
+      fetchMock.mockClear();
+      await resolver.searchTracks('airbag', bad);
+      const url = String(fetchMock.mock.calls[0]?.[0]);
+      expect(url, `limit ${label} must be clamped into the accepted range`).toContain(
+        'limit=',
+      );
+      const sent = Number(new URL(url).searchParams.get('limit'));
+      expect(Number.isInteger(sent) && sent >= 1 && sent <= 10, `sent limit=${String(sent)}`).toBe(true);
+    }
   });
 
   it('returns an empty list, not null, from the plural search', async () => {

@@ -20,7 +20,11 @@ describe('LastfmApi', () => {
       return {
         ok: true,
         status: 200,
+        // `lastfmApi` reads the body with `response.text()`, not
+        // `response.json()`, so that the body is available even when the status
+        // is not ok. A double offering only `json` cannot express that.
         json: async () => mockData,
+        text: async () => JSON.stringify(mockData),
       } as any;
     });
 
@@ -43,12 +47,14 @@ describe('LastfmApi', () => {
           ok: false,
           status: 503,
           json: async () => ({}),
+          text: async () => '{}',
         } as any;
       }
       return {
         ok: true,
         status: 200,
         json: async () => mockData,
+        text: async () => JSON.stringify(mockData),
       } as any;
     });
 

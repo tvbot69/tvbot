@@ -156,17 +156,49 @@ export class LastfmApi {
 
     const response = await this.fetchWithRetry(url.toString(), { method: 'GET' }, method);
 
-    if (!response.ok) {
-      throw new LastfmApiError(response.status, `Last.fm returned HTTP ${response.status}`);
+    // The body is read BEFORE the status is judged, and this ordering is the
+    // whole fix. Verified against live Last.fm on 2026-09-30:
+    //
+    //   user.getinfo, no such user  -> HTTP 404, body {"message":"User not found","error":6}
+    //   artist.getinfo, no such one -> HTTP 200, body {"error":6,...}
+    //
+    // So the same "does not exist" answer arrives as 404 on the user.* family
+    // and 200 on the entity families. Judging the status first meant a 404 threw
+    // `LastfmApiError(404)`, and `NOT_FOUND_CODES` in `lastFmRepository` is
+    // {6,7,8} - the real code was never seen. Every unlinked or mistyped
+    // username therefore raised `LastFmUnavailableError`, and the user was told
+    // Last.fm was unreachable when Last.fm had answered correctly.
+    //
+    // Last.fm's own contract is that the JSON body carries the code; the HTTP
+    // status is a coarse transport-level summary of it. A JSON body is
+    // therefore authoritative, and a status is only used when there is no body
+    // to read (a proxy error page, an empty 502).
+    const raw = await response.text();
+    let json: Record<string, unknown> | null = null;
+    try {
+      json = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+    } catch {
+      // Not JSON: an HTML error page from a proxy, or an empty body. The status
+      // is the only signal available, so fall through to it.
+      json = null;
     }
 
-    const json = (await response.json()) as Record<string, unknown>;
-    if ('error' in json && typeof json.error === 'number') {
+    if (json && 'error' in json && typeof json.error === 'number') {
       const message =
         typeof json.message === 'string' ? json.message : 'Unknown Last.fm error';
       const lfmError = new LastfmApiError(json.error, message);
       this.errorTracker.trackError(lfmError);
       throw lfmError;
+    }
+
+    if (!response.ok) {
+      throw new LastfmApiError(response.status, `Last.fm returned HTTP ${response.status}`);
+    }
+
+    if (!json) {
+      // 2xx with an unparseable body. That is a broken response, not an empty
+      // answer, and returning `null` here would be the A1 lie in a new place.
+      throw new LastfmApiError(response.status, 'Last.fm returned an unparseable body');
     }
 
     this.errorTracker.trackSuccess();
@@ -201,17 +233,31 @@ export class LastfmApi {
 
     const response = await this.fetchWithRetry(requestUrl, requestInit, method);
 
-    if (!response.ok) {
-      throw new LastfmApiError(response.status, `Last.fm returned HTTP ${response.status}`);
+    // Same ordering as `call`, and for the same verified reason: a JSON body is
+    // authoritative over the HTTP status, because Last.fm returns "no such
+    // thing" as 404 on some methods and 200 on others. See the comment there.
+    const raw = await response.text();
+    let json: Record<string, unknown> | null = null;
+    try {
+      json = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+    } catch {
+      json = null;
     }
 
-    const json = (await response.json()) as Record<string, unknown>;
-    if ('error' in json && typeof json.error === 'number') {
+    if (json && 'error' in json && typeof json.error === 'number') {
       const message =
         typeof json.message === 'string' ? json.message : 'Unknown Last.fm error';
       const lfmError = new LastfmApiError(json.error, message);
       this.errorTracker.trackError(lfmError);
       throw lfmError;
+    }
+
+    if (!response.ok) {
+      throw new LastfmApiError(response.status, `Last.fm returned HTTP ${response.status}`);
+    }
+
+    if (!json) {
+      throw new LastfmApiError(response.status, 'Last.fm returned an unparseable body');
     }
 
     this.errorTracker.trackSuccess();

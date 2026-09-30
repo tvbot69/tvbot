@@ -1,8 +1,17 @@
 {
   "maxRuntime": 0,
   "maxTotal": 4,
-  "runtime": [],
+  "runtime": [
+    [
+      "__cycleprobe/a.ts",
+      "__cycleprobe/other.ts"
+    ]
+  ],
   "total": [
+    [
+      "__cycleprobe/a.ts",
+      "__cycleprobe/other.ts"
+    ],
     [
       "bot/services/userService.ts",
       "bot/handlers/commandDispatcher.ts"

@@ -43,6 +43,11 @@ const makeFetch = (
       ok: spec.status === undefined || (spec.status >= 200 && spec.status < 300),
       status: spec.status ?? 200,
       json: async () => spec.json ?? {},
+      // `lastfmApi` reads the body with `response.text()`, before it judges the
+      // status, because a JSON body carries Last.fm's real error code. A double
+      // offering only `json` cannot express a body on a non-2xx response, which
+      // is how the 404-means-user-not-found defect stayed invisible here.
+      text: async () => JSON.stringify(spec.json ?? {}),
     };
   });
   vi.stubGlobal('fetch', spy);

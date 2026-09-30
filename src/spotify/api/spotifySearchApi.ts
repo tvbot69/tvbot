@@ -3,6 +3,7 @@ import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import { SpotifyTokenManager } from './spotifyTokenManager';
 import { TelemetryService } from '@bot/services/telemetryService';
 import { Logger } from '@domain/logger';
+import { SPOTIFY_SEARCH_QUERY_MAX, clampSpotifyArtistAlbumsLimit, clampSpotifySearchLimit } from './spotifyApiLimits';
 import type {
   SpotifyArtistAlbumsResponse,
   SpotifySearchAlbum,
@@ -268,16 +269,24 @@ export class SpotifySearchApi {
 
   public async getSpotifyTrackUrl(artistName: string, trackName: string): Promise<string | null> {
     try {
-      // Use limit 5 — limit 15 triggers HTTP 400 for some Arabic queries (e.g. Lege-Cy)
-      let results: SpotifySearchTrack[] = [];
-      try {
-        results = await this.searchTracks(`${artistName} ${trackName}`, 5);
-      } catch (err) {
-        if (String(err).includes('400')) {
-          // Retry with quoted query on 400
-          results = await this.searchTracks(`artist:"${artistName}" track:"${trackName}"`, 5);
-        } else throw err;
-      }
+      // limit 5 is deliberate and well under the measured ceiling of 10 — see
+      // `spotifyApiLimits`. This line used to claim that "limit 15 triggers HTTP
+      // 400 for some Arabic queries (e.g. Lege-Cy)" and to retry with a quoted
+      // query on any 400. Both were false, and the retry was a no-op:
+      //   - The 400 is the LIMIT, never the query. Measured 2026-09-30: at
+      //     limit=15 every one of `test`, `Lege-Cy`, `Radiohead` and an Arabic
+      //     query returned 400 "Invalid limit". There is no charset bug.
+      //   - The one 400 that a limit-5 request CAN produce is `q` over 250 raw
+      //     characters ("Query exceeds maximum length"), because unlike
+      //     `SpotifyResolver.searchTracks` this method never truncated. The
+      //     quoted retry made the query LONGER (`artist:"x" track:"y"` is
+      //     longer than `x y`), so it was guaranteed to be rejected by the very
+      //     check it was written to survive: a 280-char query was retried as a
+      //     297-char query, both 400. One wasted request, then a null.
+      // So: clamp the length instead, using the same 250 the sibling resolver
+      // already uses, and let a genuine failure reach the catch below.
+      const query = `${artistName} ${trackName}`.trim().slice(0, SPOTIFY_SEARCH_QUERY_MAX);
+      const results = await this.searchTracks(query, 5);
       if (results.length === 0) return null;
       const cleanArtist = SpotifySearchApi.clean(artistName);
       const cleanTrack = SpotifySearchApi.clean(trackName);
@@ -436,7 +445,12 @@ export class SpotifySearchApi {
     const url = new URL(SEARCH_ENDPOINT);
     url.searchParams.set('q', query);
     url.searchParams.set('type', type);
-    url.searchParams.set('limit', String(limit));
+    // Clamped, because every public entry point above forwards a caller-supplied
+    // `limit` straight through and the server's real ceiling is 10, not the 50
+    // the docs claim. Measured; see `spotifyApiLimits`. Without this a caller
+    // asking for more gets a 400, which `search()` raises as inconclusive — the
+    // same "never got an answer" signal as a rate limit, for a bug of ours.
+    url.searchParams.set('limit', String(clampSpotifySearchLimit(limit)));
 
     const startTime = Date.now();
     let response: Response;
@@ -553,7 +567,15 @@ export class SpotifySearchApi {
       if (!artistId) return [];
 
       // 3. Query official albums, singles, and features (appears_on)
-      const url = `https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single,appears_on&limit=${Math.min(limit, 50)}`;
+      // The limit is CLAMPED, not trusted: 10 is what the server accepts and both
+      // collage builders ask for 15. Sending 15 got a 400 "Invalid limit", which
+      // the `!res.ok` branch below turned into `[]` — indistinguishable from
+      // "this artist has no covers" — so every mosaic the bot has ever rendered
+      // was missing its Spotify rung with nothing logged above DEBUG.
+      // `include_groups=album,single,appears_on` was probed separately and is
+      // valid; the 400 was the limit alone. See `spotifyApiLimits` for the probe.
+      const albumLimit = clampSpotifyArtistAlbumsLimit(limit);
+      const url = `https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single,appears_on&limit=${albumLimit}`;
       const res = await fetchWithTimeout(url, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -565,7 +587,39 @@ export class SpotifySearchApi {
         SpotifySearchApi.handleRateLimit(res);
         return [];
       }
-      if (!res.ok) return [];
+      if (!res.ok) {
+        // This is the branch that hid B1 for the lifetime of the feature, and it
+        // conflated three different things under one silent `[]`. Split them:
+        //
+        //  - 4xx (401/429 already handled above, so this is 400/403/404): a
+        //    REJECTED REQUEST. Spotify refused to parse a URL this module built.
+        //    It is a client-side bug, and the caller must not be told "this
+        //    artist has no covers" — but neither is it an outage, so it must NOT
+        //    arm the transport breaker below: that breaker exists to stop us
+        //    re-running a doomed leg, and a bug of ours does not get better by
+        //    asking again. WARN is the floor because the operator reads Railway
+        //    logs and this is the only line that would ever name the offending
+        //    request. The URL carries no token (the Bearer is in the header), so
+        //    logging it is safe.
+        //
+        //  - 5xx: a genuine outage. Arm the breaker, so the next collage does
+        //    not spend another request on a leg we already know is down. Also
+        //    WARN, because an outage must never be reported as "no covers"
+        //    either — silence is what made both look the same.
+        if (res.status >= 500) {
+          SpotifySearchApi.noteTransportFailure();
+          Logger.warn(
+            { status: res.status, artistId, albumLimit },
+            '[Spotify] Artist discography albums endpoint returned 5xx — Spotify cover rung is down, not empty',
+          );
+        } else {
+          Logger.warn(
+            { status: res.status, artistId, albumLimit, url },
+            '[Spotify] Artist discography albums request was REJECTED (not an outage, not "no covers") — a request this module built was invalid',
+          );
+        }
+        return [];
+      }
       const data = (await res.json()) as SpotifyArtistAlbumsResponse;
       const items = data.items ?? [];
 
