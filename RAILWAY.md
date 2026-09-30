@@ -14,7 +14,12 @@ The codebase is now pre-configured for Railway:
   - Chromium runs with `--single-process`, `--no-zygote`, and `--js-flags="--max-old-space-size=128"`.
   - In-memory cache is capped at 3,000 LRU entries (~10–15MB).
   - Skips localhost Redis socket attempts if `REDIS_URL` is omitted.
-- **Healthcheck Probe**: Railway automatically checks `http://localhost:$PORT/health`.
+- **Healthcheck Probe**: Railway checks `http://localhost:$PORT/health`. That endpoint
+  returns 503 when the database is down, when the process is draining, **and — after a
+  3-minute boot grace window — when the Discord gateway is not `ready`.** The grace
+  window matters: a cold start has no gateway for a while (migrations run before the
+  process even starts), and failing every check during boot would report a slow start
+  as a failed deploy.
 
 ---
 
@@ -27,7 +32,7 @@ Ensure your latest changes are pushed to your GitHub repository.
 1. Log into [Railway.app](https://railway.app).
 2. Click **"New Project"** $\rightarrow$ **"Deploy from GitHub repo"**.
 3. Select your `tvbot` repository.
-4. Railway will automatically detect the [`railway.json`](file:///home/moha/Desktop/tvbot/railway.json) and [`Dockerfile`](file:///home/moha/Desktop/tvbot/Dockerfile).
+4. Railway will automatically detect the [`railway.json`](railway.json) and [`Dockerfile`](Dockerfile).
 
 ### Step C: Add Environment Variables in Railway Dashboard
 Before the first deployment boots up, navigate to the **Variables** tab in your Railway service and add the following:

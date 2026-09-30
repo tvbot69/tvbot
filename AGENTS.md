@@ -5,6 +5,33 @@
 
 Paths below are **repo-relative**. Do not write absolute `file://` URLs — they break on any machine that isn't the author's.
 
+**This repository is public.** Never commit an infrastructure detail: no hostnames, tunnel or
+Funnel URLs, machine paths, tokens, ports or credentials — not in code, not in comments, not in
+docs, not in a stray log file. Read them from the environment. The one place a host is allowed is
+a placeholder (`https://<machine>.<tailnet>.ts.net` in `src/config/lavalink.ts:53`).
+
+---
+
+## 0. Vision
+
+**tvbot is a private, unlimited, fmbot-class Discord bot**: Last.fm listening intelligence plus
+self-hosted Lavalink playback. It matches fmbot on core features and then goes beyond them —
+audio analysis, collage charts, social intelligence, crowns, live football.
+
+The bot is for a private friend group, so there are no rate limits and no public API to be gentle
+with. The bar is therefore not "does it scale" but **"would I hand this to a stranger without
+hesitating"**: no confident wrong answer, no half-built feature that presents itself as working, no
+deployment that depends on someone remembering a step.
+
+**The standing goal is A-tier quality**, which in this repo means the bot never tells a user a
+plausible falsehood. Concretely, three properties:
+
+- **A1 — no query is silent.** Code that reads the database or Last.fm and cannot read it says so.
+  A `.catch(() => [])` on a data path turns an outage into a plausible wrong number, and the user
+  cannot tell which they were given.
+- **A2 — no dead feature presents itself as working.** A feature either works or is gone.
+- **A3 — every query that can run has been run.** An unexecuted query is an untested query.
+
 ---
 
 ## 1. Project Overview & Technology Stack
@@ -18,23 +45,59 @@ Paths below are **repo-relative**. Do not write absolute `file://` URLs — they
   - **Cache**: `ioredis` with automatic in-memory LRU fallback (`src/bot/services/cacheService.ts`)
   - **Music**: `moonlink.js` v5 (Lavalink v4, auto-failover) + `fluent-ffmpeg` + `essentia.js` WASM (BPM/key)
   - **Graphics**: `puppeteer` 25.9 (ephemeral in dev, persistent in prod) for chart collages
-- **Scale**: ~470 TypeScript files, ~82k lines. Commands are dual-mode: ~146 slash entries and ~570 text triggers over shared builders.
+- **Scale**: 399 production TypeScript files, ~82k lines, 286 test files. Commands are dual-mode: 77 slash commands and ~658 text triggers over shared builders.
 
 ---
 
 ## 2. Verification Gates (non-negotiable, in this order)
 1. `npm run build` — must be clean. A failed build means the task is **not** done.
 2. `npm test` — all suites green. Never weaken or delete a test to make something pass unless the user approves it.
-3. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
-4. Push **only** when asked.
+3. `npm run lint` — **0 errors**. Warnings do not fail a build, but the count must not be treated as free.
+4. `npm run debt` — every ratchet at or under budget. A ratchet that moves up is a regression, not a note.
+5. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
+6. Push **only** when asked.
 
-Current baseline: **236 test files / 4013 unit passing + 516 db skipped = 4529** (the db suite skips
-locally: no Docker, no local Postgres, and `DATABASE_URL` is production Railway). If the numbers in
-this file drift from reality, the file is wrong — check `npm test` output and fix the number here.
+Current baseline, measured on `main` at `e893c86` (2026-09-30): **283 test files, 4536 unit passing
++ 516 db skipped = 5052**. `npm run lint` reports **0 errors / 358 warnings**. `npm run debt` reads
+`explicit-any 0`, `as-unknown-as 75/101`, `silent-failure-default 438/604`, and every other kind at
+budget. If the numbers in this file drift from reality, **the file is wrong** — check the gate output
+and fix the number here.
 
-`npm test` does not typecheck. Always run `npm run build` too — otherwise a bad constructor arity passes vitest and breaks the build. It is not a hypothetical: writing the log monitor, the suite reported 1212/1212 green while `tsc` rejected three lines. CI (`.github/workflows/ci.yml`) runs the build first and blocking for exactly this reason, and the lint job is now blocking too — `npm run lint` must stay at **0 errors** (731 warnings is the accepted baseline; warnings do not fail a build).
+The db suite skips locally (no Docker, no local Postgres, and `DATABASE_URL` is production Railway,
+which must never be truncated). It runs in CI against a disposable `postgres:16`.
+
+`npm test` does not typecheck. Always run `npm run build` too — otherwise a bad constructor arity passes vitest and breaks the build. It is not a hypothetical: writing the log monitor, the suite reported 1212/1212 green while `tsc` rejected three lines, and five separate batches since have produced the same shape. CI (`.github/workflows/ci.yml`) runs the build first and blocking for exactly this reason.
+
+**A test double is a claim about a vendor, and nothing checks the claim.** 4,900+ green mocked tests once missed eleven live bugs — Last.fm judging HTTP status before reading the body, a Spotify collage limit that is 10 and not 50, ffmpeg resolving to a Linux binary on Windows, a BPM that was wrong rather than absent. When a bug looks like "the provider is wrong", it usually is: **probe the real API** (`npx tsx scripts/liveVerify.ts`) instead of reasoning from memory, and never print a key while doing it.
 
 **Run it**: `npm install` → `npm run db:generate` → `npm run dev` (tsx watch, ephemeral Puppeteer, Lavalink off). Production is `npm run build` then `npm start`.
+
+---
+
+## 2.1 The A-tier quality bar
+
+These are the rules that decide whether a change is finished. They are not aspirations; each one
+exists because breaking it shipped a real bug.
+
+- **Nothing is done until `npm run build`, `npm test` and `npm run lint` all pass.** A green suite
+  without a green build is not a green suite. If a gate was not run, say so — do not imply it.
+- **Every command ships twice**, as a slash command and as a `.`-prefixed text command, both through
+  the shared response pipeline in `src/bot/builders/`. One family alone is a half-feature.
+- **Playback failures degrade to a fast skip, never a stall.** Respect the per-node and per-song
+  breakers. A dead source costs one skip; it must never leave a guild sitting in silence waiting
+  on a track that will not resolve.
+- **Artwork always resolves through `ArtworkService`.** Never a raw Last.fm `imageUrl` — the
+  placeholder is common and the cascade is what filters it (§3.2).
+- **New behaviour gets tests, and the tests are mutation-checked.** A test that cannot fail proves
+  nothing, and a mutation appended after a `throw` is unreachable and proves nothing either. Where
+  a fix and a bug are opposites, test **both directions** — a failure raises *and* a genuine empty
+  result still returns empty.
+- **Small focused diffs. No drive-by refactors.** Touch what the task needs. A refactor bundled
+  into a bug fix is a refactor nobody reviews.
+- **Prefer the existing DI pattern**: `@injectable()` on the class, composition root in
+  `src/bot/startup.ts`. Do not introduce a second way of resolving a service.
+- **Never commit secrets** — and in this public repo, never an infrastructure detail either (see
+  the header). `.env` is never read, printed or copied into a test fixture.
 
 ---
 
@@ -53,9 +116,10 @@ this file drift from reality, the file is wrong — check `npm test` output and 
 6. **Chapter/artwork state is only decoration.** Chapter logic must never break playback, and must never trip the audio resolver's pause/alert machinery.
 
 7. **Environment**: in dev (`ENVIRONMENT=local`) `ENABLE_LAVALINK=false` by default, to avoid burning public node rate limits on reload.
-8. **Delete scrapped approaches completely.** No flags, no legacy rungs, no commented-out remnants of a removed feature — unless the user explicitly asks to keep a path behind a flag. Piped chapters and fake-Spotify presence were both fully deleted.
+8. **Delete scrapped approaches completely.** No flags, no legacy rungs, no commented-out remnants of a removed feature — unless the user explicitly asks to keep a path behind a flag. Piped chapters and fake-Spotify presence were both fully deleted, as were the AI judge (`.judge`/`.roast`/`.compliment` — three hardcoded templates with `Math.random()` for the score, never AI), number formatting, `/recap` and `/librarysearch`. **Do not restore them.**
 9. **Type-only imports across music modules** (`import type { X } from './ytResolver'`) — this is what keeps the playback DAG acyclic. A value import there closes a cycle.
 10. **`Logger.debug` for internal degradation paths.** The user reads Railway logs, and INFO-level noise hides the lines that matter. An expected-but-notable outcome is DEBUG; a lost capability is WARN.
+11. **There IS dynamic dispatch in this bot.** Modal handlers dispatch by string prefix (`registerModalHandler`), `ComponentInteractionTracker` is keyed by exact `customId`, `interactionHandler` routes on a literal table, and `container.resolve` builds a graph at runtime. **A method reached by any of those has no static caller.** Never call code dead on a grep alone — check startup registration, `container.resolve`, string-keyed lookups, event-listener and cron registration, and then say which mechanism reaches it, or say you found none.
 
 ---
 
@@ -81,7 +145,9 @@ musicTypes.ts          leaf interfaces + ports (PendingEntry, PlayerProvider,
 
 **Chapters** (`>20 min` videos only): description timestamps via one Data API call (`descriptionChapters.ts`), parsed and cached. `chapterCardFor` derives the displayed card; `resolveChapterArt` races an 8s cascade with a 30s retry; `swapChapterOnSeek` handles explicit seeks.
 
-**Card publishing**: `musicHandler.publishProgress` on a 5s tick with a fingerprint dirty-check, plus `scheduleImmediateProgress` (300ms debounce) for event-driven edits.
+**Card publishing**: `musicHandler.publishProgress` is **event-driven, with no polling timer**. `musicEventListeners` calls it on every relevant Moonlink event (track start, pause, seek, volume, filter change) and `scheduleImmediateProgress` (300ms debounce) coalesces the bursts. Each publish is guarded by a fingerprint dirty-check, so an event that changes nothing renders nothing.
+
+There is deliberately **no `setInterval` tick**. An earlier version of this file claimed a "5s tick"; that was wrong and the tvbot skill had it right. A poll would republish the same card every five seconds forever — Discord rate limits, needless API calls — and the fingerprint made it pointless anyway.
 
 ### 4.1 Invariants that broke in production — do not regress these
 - **`shuffle` and `remove` mutate the pending array in place.** The pending store must hand back the **live** array, never a copy. A copying port silently turns both into no-ops while every assertion still passes. `pendingStoreIdentity.test.ts` locks this.
@@ -180,7 +246,7 @@ perhaps one turn in ten. Same knowledge, fetched on demand.
 | `YOUTUBE_API_KEY` | Chapter timestamps via one `videos.list?part=snippet` call. |
 | `HOME_RESOLVER_URL` / `HOME_RESOLVER_TOKEN` | The user PC's yt-dlp resolver. The first rung of the search ladder. |
 | `HOME_LADDER_MODE` | Which rungs the ladder is allowed to use. |
-| `AUDD_API_TOKEN`, `DISCOGS_KEY` / `DISCOGS_SECRET` | Song recognition and last-resort search. |
+| `AUDD_API_TOKEN`, `DISCOGS_KEY` / `DISCOGS_SECRET` | **Removed as dead config.** Song recognition and Discogs were never built, and these were validated at boot while read nowhere — the purest "you configured something that does not exist" bug. Do not re-add them to `.env.example`. |
 | `ENABLE_LAVALINK` | `false` in dev, `true` in prod. |
 | `FFMPEG_PATH` | System ffmpeg/ffprobe, used for previews, voice messages and BPM/key analysis. |
 | `STAGING_CHANNEL_ID` | Scratch channel for temporary chart uploads. |
