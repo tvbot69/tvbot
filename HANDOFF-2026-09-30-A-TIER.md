@@ -4,7 +4,8 @@ Supersedes `HANDOFF-2026-09-30-A-TIER.md` (session 2), which described a red tre
 and a plan. **Both the plan and the red tree are gone.** This file records what is
 now true, and only what is still open.
 
-Repo `C:\Users\moha\Desktop\tvbot1`, branch `main`, HEAD `a0f5144`,
+Repo is the local checkout (see the root `AGENTS.md` header — this is a public repo,
+so no path is written here), branch `main`, HEAD `a0f5144`,
 **10 commits ahead of `origin/main`, NOT pushed.** Read the root `AGENTS.md` first —
 it holds the gates, the golden rules and the testing contracts, and it was updated
 with the numbers below.
