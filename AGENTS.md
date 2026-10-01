@@ -57,10 +57,11 @@ plausible falsehood. Concretely, three properties:
 5. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 6. Push **only** when asked.
 
-Current baseline, measured on `main` (2026-10-01, post tree-cleanup 941ed51): **428 test files (411
-passed + 17 skipped files), 9,148 unit passing + 517 db skipped = 9,665**. The real-Postgres suite is
-**519/519** and the render suite is **3 files, 9/9**. Coverage is **91.61% lines / 87.17% branches /
-87.71% functions** over 57,294 statements, and the ratchet in `vitest.config.ts` sits at 91.5 / 86.9 /
+Current baseline, measured on `main` (2026-10-01, post Apple-link consolidation and render
+pixel assertions): **430 test files (413 passed + 17 skipped files), 9,201 unit passing + 517 db
+skipped = 9,718**. The real-Postgres suite is **519/519** and the render suite is **3 files, 9/9**.
+Coverage is **91.61% lines / 87.18% branches /
+87.75% functions** over 57,318 statements, and the ratchet in `vitest.config.ts` sits at 91.5 / 86.9 /
 87.5 — deliberately just *below* reality so a 0.1% regression trips the build. Measure, then set the
 ratchet. `npm run lint` reports **0 errors / 370 warnings**. `npm run debt` reads `explicit-any 0`,
 `as-unknown-as 75/101`, `silent-failure-default 443/604`, `container-resolve-outside-root 154/155`,

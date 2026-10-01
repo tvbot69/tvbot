@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { AppleMusicSearchApi, upscaleArtwork } from '../appleMusicSearchApi';
+import { AppleMusicSearchApi, ITunesUnavailableError, upscaleArtwork } from '../appleMusicSearchApi';
 import type { ITunesSearchResult } from '@applemusic/models/itunesModels';
 
 /**
@@ -78,6 +78,37 @@ describe('AppleMusicSearchApi: the request it builds', () => {
   it('asks for a song search', async () => {
     await call(() => new AppleMusicSearchApi().searchSongs('Creep'));
     expect(new URL(String(fetchMock.mock.calls[0]![0])).searchParams.get('entity')).toBe('song');
+  });
+
+  it('asks for a musicArtist search, the third entity the link commands need', async () => {
+    // This rung existed only inside `AppleMusicService`, which hand-rolled its
+    // own `fetch` for it and answered `null` on a 503. Moving it here is what
+    // makes the bot's ONE iTunes Search client cover all three entities.
+    await call(() => new AppleMusicSearchApi().searchArtists('Radiohead'));
+
+    const url = new URL(String(fetchMock.mock.calls[0]![0]));
+    expect(url.origin + url.pathname).toBe('https://itunes.apple.com/search');
+    expect(url.searchParams.get('entity')).toBe('musicArtist');
+    expect(url.searchParams.get('term')).toBe('Radiohead');
+  });
+
+  it('honours a caller limit on the artist search', async () => {
+    await call(() => new AppleMusicSearchApi().searchArtists('Radiohead', 1));
+    expect(new URL(String(fetchMock.mock.calls[0]![0])).searchParams.get('limit')).toBe('1');
+  });
+
+  it('raises on a non-OK artist search rather than returning an empty list', async () => {
+    // The artist rung is the one that was silently swallowed, so it gets its own
+    // direction rather than relying on the album and song cases above.
+    fetchMock.mockResolvedValue(errorResponse(503));
+
+    await expect(new AppleMusicSearchApi().searchArtists('Radiohead')).rejects.toThrow('iTunes HTTP 503');
+  });
+
+  it('returns an empty list for a genuine 200 artist search with nothing', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ results: [] }));
+
+    await expect(new AppleMusicSearchApi().searchArtists('Nobody At All')).resolves.toEqual([]);
   });
 
   it('appends the artist to the term, because a bare album name is ambiguous', async () => {
@@ -171,6 +202,39 @@ describe('AppleMusicSearchApi: what a failed read must not become', () => {
     fetchMock.mockResolvedValue(jsonResponse({ results: [] }));
 
     await expect(new AppleMusicSearchApi().searchSongs('Nobody At All')).resolves.toEqual([]);
+  });
+
+  it('raises with a NAMED error carrying the status, so a caller can branch on it', async () => {
+    // A bare `Error` only gives a caller a string to regex. `SpotifyUnavailableError`
+    // and `LastfmApiError` already set the precedent, and `AppleMusicService` now
+    // depends on this: it has to re-render a raise as a user-facing Error without
+    // losing the status that says whether it was a 404 or a 503.
+    fetchMock.mockResolvedValue(errorResponse(503));
+
+    const err = await new AppleMusicSearchApi().searchAlbums('OK Computer').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ITunesUnavailableError);
+    expect((err as ITunesUnavailableError).status).toBe(503);
+    expect((err as Error).message).toBe('iTunes HTTP 503');
+  });
+
+  it('judges the status BEFORE reading the body', async () => {
+    // Inverted, an HTML error page becomes a JSON parse error and the status —
+    // the only evidence of what went wrong — is destroyed. The counter makes
+    // this non-vacuous: a version that read the body first would report 1.
+    const state = { jsonCalls: 0 };
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => {
+        state.jsonCalls++;
+        throw new Error('body must not be read for HTTP 503');
+      },
+    });
+
+    await expect(new AppleMusicSearchApi().searchAlbums('OK Computer')).rejects.toThrow('iTunes HTTP 503');
+
+    expect(state.jsonCalls).toBe(0);
   });
 
   it('returns an empty list when the body has no results key at all', async () => {

@@ -3,6 +3,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { ChartService } from '../chartService';
 import { PuppeteerService } from '../puppeteerService';
 import { ChartTheme, ChartType } from '@images/models/chartModels';
+import { assertRenderedInk } from '../../../testSupport/renderPixelAssert';
 
 const puppeteer = new PuppeteerService();
 const service = new ChartService(puppeteer);
@@ -35,6 +36,15 @@ describe('ChartService.generateChart', () => {
     expect(png.length).toBeGreaterThan(1000);
     expect(png[0]).toBe(0x89);
     expect(png.toString('ascii', 1, 4)).toBe('PNG');
+
+    // Size and magic bytes prove Chromium launched and encoded something. They
+    // do not prove anything was DRAWN: a chart whose cells render to empty
+    // strings is a >1000-byte solid black PNG, and these three lines stayed
+    // green through exactly that. Measured here: opaque=1.0 distinct=346
+    // ink=0.277 entropy=3.32 sharpness=3.25.
+    const report = await assertRenderedInk(png, 'chart 3x3 dark');
+    expect(report.width).toBeGreaterThan(100);
+    expect(report.height).toBeGreaterThan(100);
   }, 60000);
 
   it('renders cells with images without throwing', async () => {
@@ -55,5 +65,8 @@ describe('ChartService.generateChart', () => {
     });
 
     expect(png.length).toBeGreaterThan(500);
+
+    // Measured: opaque=1.0 distinct=144 ink=0.228 entropy=2.96 sharpness=6.30.
+    await assertRenderedInk(png, 'chart 1x2 light');
   }, 60000);
 });

@@ -540,6 +540,89 @@ describe('StreamingSlashCommands.appleMusicSlashAsync', () => {
     expect(result.commandResponse).toBe(CommandResponse.NotFound);
   });
 
+  // The slash half of the Apple failure contract. `AppleMusicService` used to
+  // `return null` on a 503, so a transient iTunes outage rendered here as
+  // "No Apple Music release found" — a catalogue claim nobody had checked. The
+  // service raises now, and these wrappers turn that into `Error` carrying the
+  // provider's status. Mirrors the text half in
+  // `textCommands/thirdParty/__tests__/streamingCommands.links.test.ts`, because
+  // a half-fixed command family is a half-feature.
+
+  it('renders a failed song search as Error, not as a release that is not on Apple', async () => {
+    const { service, appleMusicService } = build();
+    (appleMusicService.searchSong as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('iTunes HTTP 503'));
+    const ctx = mkContext({ interaction: { options: { getString: () => 'airbag' } } });
+
+    const result = await call(service, 'appleMusicSlashAsync', ctx);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(result.embed.data.description).toContain('Apple Music search failed');
+    expect(result.embed.data.description).toContain('iTunes HTTP 503');
+    expect(result.embed.data.description).not.toContain('No Apple Music release found');
+  });
+
+  it('does not fall back to the album search after a failed song search', async () => {
+    // A second provider call cannot rescue a failed first one, and running it
+    // would let a 503 on the song rung still produce a confident album link.
+    const { service, appleMusicService } = build();
+    (appleMusicService.searchSong as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('iTunes HTTP 503'));
+    const ctx = mkContext({ interaction: { options: { getString: () => 'airbag' } } });
+
+    await call(service, 'appleMusicSlashAsync', ctx);
+
+    expect(appleMusicService.searchAlbum).not.toHaveBeenCalled();
+  });
+
+  it('renders a failed album search as Error in the album subcommand', async () => {
+    const { service, appleMusicService } = build();
+    (appleMusicService.searchAlbum as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('iTunes HTTP 500'));
+    const ctx = mkContext({
+      interaction: { options: { getString: (n: string) => (n === 'query' ? 'ok computer' : n === 'type' ? 'album' : null) } },
+    });
+
+    const result = await call(service, 'appleMusicSlashAsync', ctx);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(result.embed.data.description).toContain('Apple Music album search failed');
+    expect(result.embed.data.description).not.toContain('No Apple Music album found');
+  });
+
+  it('renders a failed artist search as Error in the artist subcommand', async () => {
+    const { service, appleMusicService } = build();
+    (appleMusicService.searchArtist as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('iTunes HTTP 503'));
+    const ctx = mkContext({
+      interaction: { options: { getString: (n: string) => (n === 'query' ? 'radiohead' : n === 'type' ? 'artist' : null) } },
+    });
+
+    const result = await call(service, 'appleMusicSlashAsync', ctx);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(result.embed.data.description).toContain('Apple Music artist search failed');
+    expect(result.embed.data.description).not.toContain('No Apple Music artist found');
+  });
+
+  it('renders a GENUINE miss as NotFound while a failure renders as Error', async () => {
+    // Both directions. Asserting only the Error half would pass on a version
+    // that returned Error for everything — the mirror-image defect.
+    const { service: missService } = build();
+    const miss = await call(
+      missService,
+      'appleMusicSlashAsync',
+      mkContext({ interaction: { options: { getString: () => 'zzzznotatrack' } } }),
+    );
+
+    const { service: faultService, appleMusicService } = build();
+    (appleMusicService.searchSong as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('iTunes HTTP 503'));
+    const fault = await call(
+      faultService,
+      'appleMusicSlashAsync',
+      mkContext({ interaction: { options: { getString: () => 'zzzznotatrack' } } }),
+    );
+
+    expect(miss.commandResponse).toBe(CommandResponse.NotFound);
+    expect(fault.commandResponse).toBe(CommandResponse.Error);
+  });
+
   it('resolves song query from nowPlaying recent track', async () => {
     const { service, lastFmRepository, appleMusicService } = build();
     (lastFmRepository.getUserRecentTracks as ReturnType<typeof vi.fn>).mockResolvedValue([

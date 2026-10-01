@@ -16,6 +16,7 @@ import { AppleMusicWebApi } from '@applemusic/apis/appleMusicWebApi';
 import { AppleMusicSearchApi } from '@applemusic/apis/appleMusicSearchApi';
 import { PuppeteerService } from '@images/generators/puppeteerService';
 import { ChartService as ImageChartService } from '@images/generators/chartService';
+import { assertRenderedInk } from '../../../testSupport/renderPixelAssert';
 
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 const cache = new CacheService();
@@ -142,5 +143,9 @@ describe('ChartService.generateAlbumChart (integration)', () => {
     expect(buffer!.length).toBeGreaterThan(1000);
     expect(buffer![0]).toBe(0x89);
     expect(buffer!.toString('ascii', 1, 4)).toBe('PNG');
+
+    // This is the end-to-end path: Last.fm rows in, PNG out. The byte checks
+    // above pass for a blank chart, so the pixels get read too.
+    await assertRenderedInk(buffer!, 'album chart 2x2 end-to-end');
   }, 180000);
 });

@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, afterAll } from 'vitest';
 import { WhoKnowsGenerator } from '../whoKnowsGenerator';
 import { PuppeteerService } from '../puppeteerService';
+import { assertRenderedInk } from '../../../testSupport/renderPixelAssert';
 
 const puppeteer = new PuppeteerService();
 const generator = new WhoKnowsGenerator(puppeteer);
@@ -38,6 +39,9 @@ describe('WhoKnowsGenerator', () => {
     expect(png.length).toBeGreaterThan(1000);
     expect(png[0]).toBe(0x89);
     expect(png.toString('ascii', 1, 4)).toBe('PNG');
+
+    // Measured: opaque=1.0 distinct=469 ink=0.315 entropy=3.72 sharpness=2.96.
+    await assertRenderedInk(png, 'whoknows leaderboard card');
   }, 60000);
 
   it('renders caller outside top 10 properly', async () => {
@@ -59,6 +63,9 @@ describe('WhoKnowsGenerator', () => {
     expect(png.length).toBeGreaterThan(1000);
     expect(png[0]).toBe(0x89);
     expect(png.toString('ascii', 1, 4)).toBe('PNG');
+
+    // Measured: opaque=1.0 distinct=323 ink=0.874 entropy=6.68 sharpness=2.74.
+    await assertRenderedInk(png, 'whoknows caller outside top 10');
   }, 60000);
 
   it('renders with custom backgroundCovers mosaic correctly', async () => {
@@ -80,6 +87,12 @@ describe('WhoKnowsGenerator', () => {
     expect(png.length).toBeGreaterThan(1000);
     expect(png[0]).toBe(0x89);
     expect(png.toString('ascii', 1, 4)).toBe('PNG');
+
+    // The mosaic variant measures ink=0.060, the lowest of the six renders,
+    // because most of the canvas is cover art and the body gradient only
+    // borders it. That is still 3x the default 0.02 floor. Measured: distinct=244
+    // entropy=2.48 sharpness=1.70.
+    await assertRenderedInk(png, 'whoknows mosaic background');
   }, 60000);
 
   it('renders with top 3 tracks list correctly', async () => {
@@ -102,5 +115,8 @@ describe('WhoKnowsGenerator', () => {
     expect(png.length).toBeGreaterThan(1000);
     expect(png[0]).toBe(0x89);
     expect(png.toString('ascii', 1, 4)).toBe('PNG');
+
+    // Measured: opaque=1.0 distinct=189 ink=0.870 entropy=6.56 sharpness=1.55.
+    await assertRenderedInk(png, 'whoknows top 3 tracks');
   }, 60000);
 });

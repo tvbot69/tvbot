@@ -12,6 +12,8 @@ export interface ITunesSearchResult {
   artistId?: number;
   artistName?: string;
   artistViewUrl?: string;
+  /** Present on `musicArtist` entity results only. */
+  artistLinkUrl?: string;
   trackName?: string;
   /** Present on album results, absent on some song results. */
   collectionName?: string;

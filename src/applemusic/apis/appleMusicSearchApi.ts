@@ -4,6 +4,23 @@ import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 const SEARCH_ENDPOINT = 'https://itunes.apple.com/search';
 const ITUNES_TIMEOUT_MS = 8000;
 
+/**
+ * A read of the iTunes Search API that could not be completed.
+ *
+ * A class rather than a bare `Error` because the CALLER has to be able to tell
+ * "Apple could not be asked" from "Apple has nothing" - the same distinction
+ * `SpotifyUnavailableError` carries for the Spotify rung and `LastfmApiError`
+ * for Last.fm. A 503 that arrives as `null` is the failure mode this bot cares
+ * about most: the user is told a song is not on the service when the truth is
+ * that nobody checked.
+ */
+export class ITunesUnavailableError extends Error {
+  constructor(readonly status: number) {
+    super(`iTunes HTTP ${status}`);
+    this.name = 'ITunesUnavailableError';
+  }
+}
+
 export class AppleMusicSearchApi {
   public async searchAlbums(
     albumQuery: string,
@@ -23,6 +40,20 @@ export class AppleMusicSearchApi {
     return this.search(term, 'song', limit);
   }
 
+  /**
+   * `musicArtist`, the third entity the link commands ask for.
+   *
+   * Lives here rather than in a second hand-rolled client so there is ONE
+   * iTunes Search request in the bot and one place that knows how to tell a
+   * failed read from an empty one.
+   */
+  public async searchArtists(
+    artistQuery: string,
+    limit: number = 5,
+  ): Promise<ITunesSearchResult[]> {
+    return this.search(artistQuery, 'musicArtist', limit);
+  }
+
   private async search(
     term: string,
     entity: string,
@@ -39,7 +70,10 @@ export class AppleMusicSearchApi {
       ITUNES_TIMEOUT_MS,
     );
     if (!response.ok) {
-      throw new Error(`iTunes HTTP ${response.status}`);
+      // Status BEFORE body, always: an HTML error page read as JSON turns an
+      // outage into "unparseable response" and destroys the status code that
+      // was the only evidence of what went wrong.
+      throw new ITunesUnavailableError(response.status);
     }
     const json = (await response.json()) as { results?: ITunesSearchResult[] };
     return json.results ?? [];

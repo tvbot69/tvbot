@@ -59,6 +59,7 @@ const TESTS_FOLDER = '__tests__';
 const KNOWN_HARNESS_MODULES = [
   'dbHarness.ts',
   'dbRawQueryObserver.ts',
+  'renderPixelAssert.ts',
   'repoRoot.ts',
   'setupEnv.ts',
   'uncooperativePlayer.ts',

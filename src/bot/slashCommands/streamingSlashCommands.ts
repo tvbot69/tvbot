@@ -12,6 +12,11 @@ import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { errorMessage } from '@domain/discordErrors';
+import {
+  appleSearchAlbum,
+  appleSearchArtist,
+  appleSearchTrack,
+} from '@bot/builders/appleLookupBuilders';
 
 @injectable()
 export class StreamingSlashCommands implements ISlashCommandModule {
@@ -352,11 +357,12 @@ export class StreamingSlashCommands implements ISlashCommandModule {
     if (type === 'album') {
       const resolved = await this.resolveAlbumQuery(ctx, '/applemusic query:<album name>');
       if ('errorResponse' in resolved) return resolved.errorResponse;
-      const albumUrl = await this.appleMusicService.searchAlbum(resolved.query);
-      if (albumUrl) {
+      const album = await appleSearchAlbum(this.appleMusicService, resolved.query);
+      if (album.kind === 'failed') return album.errorResponse;
+      if (album.kind === 'found') {
         const res = new ResponseModel();
         res.commandResponse = CommandResponse.Ok;
-        res.setContent(albumUrl);
+        res.setContent(album.url);
         return res;
       }
       return GenericEmbedService.buildCommandErrorResponse(
@@ -368,11 +374,12 @@ export class StreamingSlashCommands implements ISlashCommandModule {
     if (type === 'artist') {
       const resolved = await this.resolveArtistQuery(ctx, '/applemusic query:<artist name>');
       if ('errorResponse' in resolved) return resolved.errorResponse;
-      const artistUrl = await this.appleMusicService.searchArtist(resolved.query);
-      if (artistUrl) {
+      const artist = await appleSearchArtist(this.appleMusicService, resolved.query);
+      if (artist.kind === 'failed') return artist.errorResponse;
+      if (artist.kind === 'found') {
         const res = new ResponseModel();
         res.commandResponse = CommandResponse.Ok;
-        res.setContent(artistUrl);
+        res.setContent(artist.url);
         return res;
       }
       return GenericEmbedService.buildCommandErrorResponse(
@@ -387,8 +394,9 @@ export class StreamingSlashCommands implements ISlashCommandModule {
     }
     const query = resolved.query;
 
-    const item = await this.appleMusicService.searchSong(query);
-    if (item?.url) {
+    const item = await appleSearchTrack(this.appleMusicService, query);
+    if (item.kind === 'failed') return item.errorResponse;
+    if (item.kind === 'found') {
       const res = new ResponseModel();
       res.commandResponse = CommandResponse.Ok;
       res.setContent(item.url);
@@ -396,11 +404,12 @@ export class StreamingSlashCommands implements ISlashCommandModule {
     }
 
     // Fallback: search album if song not found
-    const albumUrl = await this.appleMusicService.searchAlbum(query);
-    if (albumUrl) {
+    const album = await appleSearchAlbum(this.appleMusicService, query);
+    if (album.kind === 'failed') return album.errorResponse;
+    if (album.kind === 'found') {
       const res = new ResponseModel();
       res.commandResponse = CommandResponse.Ok;
-      res.setContent(albumUrl);
+      res.setContent(album.url);
       return res;
     }
 

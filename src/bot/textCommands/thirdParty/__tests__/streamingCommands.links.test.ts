@@ -1,6 +1,7 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, type MockInstance } from 'vitest';
 import { StreamingCommands } from '../streamingCommands';
+import { AppleMusicService } from '@bot/services/appleMusicService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
@@ -27,6 +28,16 @@ import type { RecentTrack } from '@domain/models/recentTrack';
  *  - `.spotify album …` and `.spotify artist …` are a TEXT-ONLY dispatch: the
  *    slash twin has typed subcommands and no such prefix routing, so the two
  *    families genuinely differ here and the test names that.
+ *
+ * THE APPLE HALF IS A REAL SERVICE, NOT A DOUBLE, ON PURPOSE
+ * ---------------------------------------------------------
+ * Every other block here builds an `appleMusicService` double. The failure
+ * tests below wire the REAL `AppleMusicService` over a mocked `fetch` instead,
+ * because the bug this file now guards lived in the real one and a double
+ * cannot reproduce it: `AppleMusicService` used to `return null` on a 503, and
+ * a double that throws on demand would have passed against that code forever.
+ * Mocking the boundary rather than the collaborator is the only version of
+ * these tests that can fail.
  */
 
 const user = (over: Partial<User> = {}): User =>
@@ -274,7 +285,7 @@ describe('.spotify — the text-only `album` / `artist` prefix dispatch', () => 
   });
 });
 
-describe('.applemusic — the same shape, without the try/catch', () => {
+describe('.applemusic — now the same shape as .spotify, failure included', () => {
   it('posts the song URL when there is one', async () => {
     const { commands, appleMusicService } = build({ song: { url: 'https://music.apple.com/song/1' } });
 
@@ -311,15 +322,83 @@ describe('.applemusic — the same shape, without the try/catch', () => {
     expect(result.commandResponse).toBe(CommandResponse.NotFound);
   });
 
-  it('CURRENT BEHAVIOUR: a failed Apple Music search propagates instead of rendering here', async () => {
-    // NOT endorsed, and the sharpest asymmetry in the file. The three Spotify
-    // commands wrap their search and answer `Error` with the provider's message;
-    // the three Apple Music commands do not, so a throw reaches the command
-    // boundary and the user gets its generic failure. Still better than a
-    // "no link found" lie, and pinned so fixing it is a visible diff.
-    const { commands } = build({ throws: { song: new Error('Apple Music 500') } });
+  it('reports a failed song search as an error, not as a release that is not on Apple', async () => {
+    // This is the whole point of the consolidation. `AppleMusicService` used to
+    // `return null` on a 503, so a transient outage rendered as
+    // "No Apple Music release found" - a catalogue claim nobody had checked.
+    // The service now raises `ITunesUnavailableError`, and these wrappers turn
+    // that into `Error` carrying the provider's status.
+    const { commands } = build({ throws: { song: new Error('iTunes HTTP 503') } });
 
-    await expect(appleSong(commands, ['airbag'])).rejects.toThrow(/Apple Music 500/);
+    const result = await appleSong(commands, ['airbag']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(messageOf(result)).toContain('Apple Music search failed');
+    expect(messageOf(result)).toContain('iTunes HTTP 503');
+  });
+
+  it('does not claim a release miss alongside a failed song search', async () => {
+    // The opposite of the Spotify assertion at `:181`, and the one that would
+    // catch a regression to the old behaviour. Reading this as a miss is the bug.
+    const { commands } = build({ throws: { song: new Error('iTunes HTTP 503') } });
+
+    const result = await appleSong(commands, ['airbag']);
+
+    expect(messageOf(result)).not.toContain('No Apple Music release found');
+  });
+
+  it('does not fall back to the album search after a failed song search', async () => {
+    // A second provider call cannot rescue a failed first one, and letting it
+    // run would mean a 503 on the song rung could still produce a confident
+    // album link - the wrong-but-plausible answer this file exists to prevent.
+    const { commands, appleMusicService } = build({ throws: { song: new Error('iTunes HTTP 503') } });
+
+    await appleSong(commands, ['airbag']);
+
+    expect(appleMusicService.searchAlbum).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed ALBUM fallback as an error, distinct from a song miss', async () => {
+    // The fallback rung has its own failure, and it must not be reported as
+    // "no release found" either.
+    const { commands } = build({ song: null, throws: { albumUrl: new Error('iTunes HTTP 500') } });
+
+    const result = await appleSong(commands, ['airbag']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(messageOf(result)).toContain('Apple Music album search failed');
+    expect(messageOf(result)).toContain('iTunes HTTP 500');
+  });
+
+  it('reports a failed album search as an error in the album command', async () => {
+    const { commands } = build({ throws: { albumUrl: new Error('iTunes HTTP 503') } });
+
+    const result = await appleAlbum(commands, ['ok computer']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(messageOf(result)).toContain('Apple Music album search failed');
+    expect(messageOf(result)).not.toContain('No Apple Music album link');
+  });
+
+  it('reports a failed artist search as an error in the artist command', async () => {
+    const { commands } = build({ throws: { artistUrl: new Error('iTunes HTTP 503') } });
+
+    const result = await appleArtist(commands, ['radiohead']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(messageOf(result)).toContain('Apple Music artist search failed');
+    expect(messageOf(result)).not.toContain('No Apple Music artist link');
+  });
+
+  it('renders a GENUINE miss as NotFound while a failure renders as Error', async () => {
+    // Both directions of the fix, at the layer the user actually sees. A test
+    // that only asserted the Error half would pass on a version that returned
+    // Error for everything, which is the mirror-image defect.
+    const miss = await appleSong(build({ song: null, albumUrl: null }).commands, ['zzzz']);
+    const fault = await appleSong(build({ throws: { song: new Error('iTunes HTTP 503') } }).commands, ['zzzz']);
+
+    expect(miss.commandResponse).toBe(CommandResponse.NotFound);
+    expect(fault.commandResponse).toBe(CommandResponse.Error);
   });
 
   it('posts an album URL for the album command', async () => {
@@ -356,6 +435,98 @@ describe('.applemusic — the same shape, without the try/catch', () => {
     expect(appleMusicService.searchAlbum).toHaveBeenCalledWith('ok computer');
     expect(appleMusicService.searchArtist).toHaveBeenCalledWith('radiohead');
     expect(appleMusicService.searchSong).not.toHaveBeenCalled();
+  });
+});
+
+describe('.applemusic over the REAL AppleMusicService, so a swallowed 503 cannot hide', () => {
+  // Everything above this block feeds the command a double. A double that
+  // throws proves the command handles a throw; it cannot prove the real service
+  // ever throws. The bug was real code swallowing a 503 and returning null, so
+  // these tests hold the real service and mock only `fetch`.
+
+  let fetchMock: MockInstance<typeof fetch>;
+
+  beforeEach(() => {
+    fetchMock = vi.spyOn(globalThis, 'fetch');
+  });
+
+  /** The same command object, with the real service substituted in. */
+  const withRealApple = (): StreamingCommands => {
+    const base = build();
+    return new StreamingCommands(
+      base.userService as never,
+      base.spotifySearchApi as never,
+      new AppleMusicService() as never,
+      { getPrefix: vi.fn(async () => '.') } as never,
+      base.lastFmRepository as never,
+      { getColorFromImageUrl: vi.fn(async () => 0x445566) } as never,
+    );
+  };
+
+  it('renders an iTunes 503 as an Error, not as "no Apple Music release found"', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) } as never);
+
+    const result = await appleSong(withRealApple(), ['airbag']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(messageOf(result)).toContain('Apple Music search failed');
+    expect(messageOf(result)).toContain('iTunes HTTP 503');
+    expect(messageOf(result)).not.toContain('No Apple Music release found');
+  });
+
+  it('still renders a GENUINE miss as NotFound through the real service', async () => {
+    // The other direction, and the one a lazy fix breaks. `return null` for
+    // everything passes the 503 test above and lies here.
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) } as never);
+
+    const result = await appleSong(withRealApple(), ['zzzznotatrack']);
+
+    expect(result.commandResponse).toBe(CommandResponse.NotFound);
+  });
+
+  it('renders a 500 from the real service as an Error in the album command', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as never);
+
+    const result = await appleAlbum(withRealApple(), ['ok computer']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(messageOf(result)).toContain('iTunes HTTP 500');
+  });
+
+  it('renders a 503 from the real service as an Error in the artist command', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) } as never);
+
+    const result = await appleArtist(withRealApple(), ['radiohead']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Error);
+    expect(messageOf(result)).toContain('Apple Music artist search failed');
+    expect(messageOf(result)).not.toContain('No Apple Music artist link');
+  });
+
+  it('posts the real URL when the real service finds something', async () => {
+    // Proves the consolidation did not break the success path: the real service
+    // now reads one row through `AppleMusicSearchApi` rather than its own fetch.
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [{ trackName: 'Airbag', artistName: 'Radiohead', trackViewUrl: 'https://music.apple.com/song/9' }],
+      }),
+    } as never);
+
+    const result = await appleSong(withRealApple(), ['airbag']);
+
+    expect(result.commandResponse).toBe(CommandResponse.Ok);
+    expect(result.content).toBe('https://music.apple.com/song/9');
+  });
+
+  it('makes exactly two requests for a miss, not one per provider in the bot', async () => {
+    // Song rung plus the album fallback, both through the one iTunes client.
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ results: [] }) } as never);
+
+    await appleSong(withRealApple(), ['zzzz']);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
