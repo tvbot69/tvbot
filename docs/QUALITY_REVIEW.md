@@ -6,6 +6,13 @@
 > and a few findings have been closed. For the current figures see
 > [`PLAN_PROGRESS.md`](PLAN_PROGRESS.md) and the baseline in `AGENTS.md` §2.
 >
+> **The tree moved after this review.** Commit `941ed51` reorganised `src/` (461 files): every
+> test now lives in a `__tests__/` folder next to its source, the shared harness moved to
+> `src/testSupport/`, and `src/bot/services/` gained `system/` and `lastfm/` subfolders. A path
+> cited below as `src/tests/...` is now `src/__tests__/...` or `src/testSupport/...` — the only
+> such reference left is fixed inline. The current figures and the tree conventions are in the
+> **tvbot** skill (§1, §2) and `AGENTS.md` §2, §7.
+>
 > Measured **2026-09-30** on `main` at `66ad8d6`, for comparison:
 > **285 test files, 4548 unit passing + 516 db skipped = 5064**; lint **0 errors / 358 warnings**;
 > line coverage **70.49%**, branch **78.11%**; `explicit-any` **0**; `silent-failure-default` **438**
@@ -101,7 +108,7 @@ than the defect.
 ### 2. ~~The command layer is untested~~ ADDRESSED
 Was 35 text files with 0 tests and 34 slash files with 1.
 
-`src/tests/commandRegistryInvariants.test.ts` now reads the definitions from source via the
+`src/__tests__/commandRegistryInvariants.test.ts` now reads the definitions from source via the
 TypeScript AST � no container, no network � and asserts: no two text commands share a name,
 no name or alias contains a dot or space, the top-level slash names are unique, and the
 historically-stolen names are owned by the right modules.

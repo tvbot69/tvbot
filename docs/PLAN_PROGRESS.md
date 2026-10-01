@@ -8,24 +8,38 @@
 > snapshot from the round that last edited this file, which is exactly why it says
 > *"re-measure, don't trust this table"*. Read that instruction as written.
 >
-> **The current figures, measured 2026-09-30 on `main` at `66ad8d6`:**
+> **The tree moved after this log's last round.** Commit `941ed51` reorganised `src/` (461
+> files): every test now lives in a `__tests__/` folder next to its source, `src/tests/` is gone,
+> the shared harness is in `src/testSupport/`, and `src/bot/services/` gained `system/` and
+> `lastfm/` subfolders. A path written below as `src/tests/dbHarness.ts` is now
+> `src/testSupport/dbHarness.ts`; `src/bot/services/timerService.ts` is now
+> `src/bot/services/lastfm/timerService.ts`; `updateService.ts` and `startupService.ts` moved to
+> `services/lastfm/` and `services/system/` respectively. **The current figures and the tree
+> conventions are in the `tvbot` skill §1 and §2 and in `AGENTS.md` §2, §7.**
 >
-> | Metric | Measured 2026-09-30 | Gate / budget |
+> **The current figures, re-measured 2026-10-01 on `main` at `941ed51`:**
+>
+> | Metric | Measured 2026-10-01 | Gate / budget |
 > |---|---|---|
-> | Test files | **285** collected (268 passed, 17 skipped) | — |
-> | Tests | **4548** passing + **516** db skipped = **5064** | all green |
-> | Line coverage | **70.49%** (40987/58141) | ratchet 66.5 |
-> | Branch coverage | **78.11%** (10006/12810) | ratchet 77.2 |
-> | Function coverage | **68.72%** (1868/2718) | ratchet 63.8 |
-> | Lint | **0 errors / 358 warnings** | 0 errors |
+> | Test files | **428** (411 passed, 17 skipped) | — |
+> | Tests | **9,148** unit passing + **517** db skipped = **9,665** | all green |
+> | Real-Postgres suite | **519/519** | skipped without `TEST_DATABASE_URL` |
+> | Render suite | **3 files, 9/9** | needs a real Chromium |
+> | Line coverage | **91.61%** | ratchet 91.5 |
+> | Branch coverage | **87.17%** | ratchet 86.9 |
+> | Function coverage | **87.71%** (57,294 statements) | ratchet 87.5 |
+> | Lint | **0 errors / 370 warnings** | 0 errors |
 > | `explicit-any` | **0** | 0 |
 > | `as-unknown-as` | **75** | budget 101 |
-> | `silent-failure-default` | **438** | budget 604 |
+> | `silent-failure-default` | **443** | budget 604 |
 > | `container-resolve-outside-root` | **154** | budget 155 |
 > | `prisma-client-import-in-bot` | **15** | budget 17 |
 > | `raw-query-without-db-test` | **0** | 0 |
-> | Production `.ts` | **400** files / **82,197** lines | — |
+> | Production `.ts` | **388** files | — |
 > | Slash commands | **77** | — |
+>
+> (The 2026-09-30 figures this table replaced were 285 files / 4548 tests / 70.49% lines /
+> 78.11% branches / 68.72% functions / 358 lint warnings / 400 production files / `silent-failure-default` 438.)
 >
 > Coverage is read from `coverage/coverage-summary.json`, which `npm run test:coverage`
 > regenerates; `npm test` alone does not refresh it, so re-run the coverage script before
@@ -284,7 +298,8 @@ before starting work. **Update this file at the end of every task**, before the 
   - ⚠️ **`tsc --incremental` reports a different file list on consecutive runs.** One agent
     diagnosed it correctly: stale Prisma client types, cleared by `db:generate`. Use
     `--incremental false` when counting.
-  - 🐛 **Found: `src/bot/services/timerService.ts` had been left modified by my own earlier
+  - 🐛 **Found: `src/bot/services/lastfm/timerService.ts` (it was `services/timerService.ts` at
+    the time) had been left modified by my own earlier
     aborted experiment** — a `?? ''` on a non-nullable column, dead since I reverted the
     `discordUserId`-optional type change. No agent claimed touching production code, and
     `git status` is what caught it. **Always diff production files before staging; the
@@ -436,8 +451,8 @@ before starting work. **Update this file at the end of every task**, before the 
     Skips cleanly with a clear message when there is no database, so `npm test` stays
     runnable with no services. Serial (`fileParallelism: false`) because the tests share one
     schema.
-  - ✅ `src/tests/dbHarness.ts` — one place that resolves the URL, skips, connects and
-    truncates.
+  - ✅ `src/testSupport/dbHarness.ts` — one place that resolves the URL, skips, connects and
+     truncates.
   - ✅ **The harness REFUSES any database that does not look like a scratch database.**
     `resetTables` deletes every row, and a developer .env holds the real `DATABASE_URL`, so
     "pasted the wrong variable" is a realistic accident. The refusal is hard, not a warning,
@@ -469,7 +484,10 @@ before starting work. **Update this file at the end of every task**, before the 
 
 ### Phase 3 — architecture
 - **3.1** ✅ **DONE — and the plan's premise was wrong.** `npm run deps:cycles` + a blocking
-  `deps` CI job, both budgets mutation-checked. `scripts/cycle-budget.json` is written each run.
+  `deps` CI job, both budgets mutation-checked. **Correction, later round:** the run no longer
+  writes `scripts/cycle-budget.json` — that file is gone and the budgets live in
+  `scripts/check-import-cycles.ts`. It was a trap twice over, since the ratchet read nothing from
+  it.
   - **Runtime cycles: 0.** Budget 0. **All-cycles: 4.** Budget 4.
   - The plan said "4 circular dependencies to break". Measured: **all 4 have an `import type`
     on one side**, which TypeScript erases. They are type-level coupling, not load-order risk.

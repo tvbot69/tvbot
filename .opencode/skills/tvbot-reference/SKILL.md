@@ -1,10 +1,12 @@
 ---
-description: Incident reference for tvbot - the symptom-to-log-line runbook (AGENTS.md 9), the known failure modes and scar tissue (10), and the test-gap problem (11). Load when debugging, when a number looks wrong, when a migration or Prisma query is involved, or when a test passes and you suspect it proves nothing. Moved out of AGENTS.md to cut per-turn context from ~7,700 to ~4,400 tokens.
+description: Incident reference for tvbot - the symptom-to-log-line runbook, the known failure modes and scar tissue, and the test-gap problem. Load when debugging, when a number looks wrong, when a migration or Prisma query is involved, or when a test passes and you suspect it proves nothing. Moved out of AGENTS.md 9-11 so they cost context on demand rather than every turn.
 ---
 
 # tvbot incident reference
 
-Verbatim extract of AGENTS.md 9-11. Nothing rewritten. If it disagrees with the code, the code is right and this file is wrong.
+Extract of AGENTS.md §9-11, which no longer live in `AGENTS.md` — they were moved here so they cost nothing until loaded. Nothing rewritten since. **Paths below were re-verified against `main` at `941ed51`** (the tree cleanup, which moved every test into a `__tests__/` folder and the harness into `src/testSupport/`). If this file disagrees with the code, the code is right and this file is wrong.
+
+Tree conventions that matter for reading the paths here: tests live in `__tests__/` next to their source, shared harness lives in `src/testSupport/`, and `src/tests/` no longer exists. See the **tvbot** skill §2.
 
 ## 9. Symptom → log line → cause
 
@@ -124,13 +126,13 @@ This session found four multi-hour bugs. The suite was green for all four. The r
 Three fixes, in priority order:
 1. **Fixtures captured from real provider responses**, replayed in tests. A recorded Spotify/Last.fm/YouTube payload kills this whole class. — **done**
 2. **Invariant tests over event sequences**, not examples. "For any sequence of seeks, stalls and track changes, the displayed chapter never moves backwards without a recorded seek" covers the rewind, the stall path, and whatever is next. Examples cannot express this; properties can. — **done, but see the trap below**
-3. **Doubles that are deliberately uncooperative** — a double whose `current.position` *disagrees* with the recorded seek intent. Cooperation between double and code is what hid the bug. — **done**: `src/tests/musicBot/uncooperativePlayer.ts`
+3. **Doubles that are deliberately uncooperative** — a double whose `current.position` *disagrees* with the recorded seek intent. Cooperation between double and code is what hid the bug. — **done**: `src/testSupport/uncooperativePlayer.ts`
 
 ### The trap that fix 2 fell into, and the rule that replaced it
 
 The first attempt at fix 2 re-implemented the chapter indexing **locally in the test** and asserted against that model. It passed 6/6 — and it also passed **6/6 with `calculatePosition`'s seek-awareness deleted from production code**. A test that cannot fail when the feature is removed is not a test; it is a comment that runs.
 
-The replacement, `src/tests/musicBot/chapterInvariant.uncooperative.test.ts`, drives the **real** `QueueService.calculatePosition` and the **real** `ChapterTimeline.chapterCardFor`, over a hand-moved node clock that is wrong on purpose. The model-based file was deleted rather than kept as a second, weaker claim on the same invariant.
+The replacement, `src/bot/services/music/__tests__/chapterInvariant.uncooperative.test.ts`, drives the **real** `QueueService.calculatePosition` and the **real** `ChapterTimeline.chapterCardFor`, over a hand-moved node clock that is wrong on purpose. The model-based file was deleted rather than kept as a second, weaker claim on the same invariant.
 
 > **Rule: a test that re-implements the logic it is testing is decoration. Import the production function.** If you cannot import it, that is a design finding — extract the logic, do not copy it.
 

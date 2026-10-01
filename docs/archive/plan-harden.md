@@ -1,5 +1,11 @@
 # tvbot — World-Class Hardening Plan (no new commands)
 
+> **Archived, superseded — kept as the record of that round, not followed.** Two paths named
+> below moved in `941ed51` (461 files): `src/bot/services/startupService.ts` →
+> `src/bot/services/system/startupService.ts`, and `src/bot/services/updateService.ts` →
+> `src/bot/services/lastfm/updateService.ts`. Line numbers in this file are from the round that
+> wrote it. Current layout and conventions: the `tvbot` skill §2.
+
 > **Goal:** make tvbot strictly more correct, more reliable, and more scalable than
 > `fmbot` — zero new commands, zero new features. Every phase below is
 > independently shippable, each ends with `npm run build && npm test` green.

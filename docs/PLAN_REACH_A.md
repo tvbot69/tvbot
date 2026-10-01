@@ -7,6 +7,12 @@
 > been closed. The current, re-measured numbers live in the header of
 > [`PLAN_PROGRESS.md`](PLAN_PROGRESS.md) and in `AGENTS.md` §2. **If this file and a gate
 > disagree, the gate is right.**
+>
+> **The tree moved after this plan was finished.** Commit `941ed51` reorganised `src/` (461
+> files): tests now live in `__tests__/` folders next to their source, `src/tests/` is gone and
+> its harness is in `src/testSupport/`, and `src/bot/services/` gained `system/` and `lastfm/`
+> subfolders. Any path below that reads `src/tests/...` is now `src/__tests__/...` or
+> `src/testSupport/...`. Conventions and current figures: the **`tvbot` skill §1 and §2**.
 
 Replaces `PLAN_B_PLUS_TO_A.md`. That plan is kept for history, not followed.
 

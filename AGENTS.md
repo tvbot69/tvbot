@@ -42,10 +42,10 @@ plausible falsehood. Concretely, three properties:
   - **Discord**: `discord.js` v14.18 (Gateway Intents, Interactions, Voice Message Flags `8192`)
   - **Persistence**: Prisma 6.5 + PostgreSQL (Railway)
   - **DI**: `tsyringe`, **manual singleton registration** in `src/bot/startup.ts`
-  - **Cache**: `ioredis` with automatic in-memory LRU fallback (`src/bot/services/cacheService.ts`)
+  - **Cache**: `ioredis` with automatic in-memory LRU fallback (`src/bot/services/system/cacheService.ts`)
   - **Music**: `moonlink.js` v5 (Lavalink v4, auto-failover) + `fluent-ffmpeg` + `essentia.js` WASM (BPM/key)
   - **Graphics**: `puppeteer` 25.9 (ephemeral in dev, persistent in prod) for chart collages
-- **Scale**: 389 production TypeScript files, ~82k lines, 420 test files. Commands are dual-mode: 77 slash commands and ~658 text triggers over shared builders.
+- **Scale**: 388 production TypeScript files, ~82k lines, 431 test files. Commands are dual-mode: 77 slash commands and ~658 text triggers over shared builders.
 
 ---
 
@@ -57,14 +57,15 @@ plausible falsehood. Concretely, three properties:
 5. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 6. Push **only** when asked.
 
-Current baseline, measured on `main` (2026-10-01): **400 test files, 9013 unit passing
-+ 517 db skipped = 9530**. Coverage is **91.55% lines / 86.92% branches / 87.56% functions** over
-57,280 statements, and the ratchet in `vitest.config.ts` now sits at 91.5 / 86.9 / 87.5 — it used to
-sit *below* reality (66.5 against an actual 74.08), which made it a floor nobody could trip. Measure,
-then set the ratchet. `npm run lint` reports **0 errors / 369 warnings**. `npm run debt` reads
-`explicit-any 0`, `as-unknown-as 75/101`, `silent-failure-default 441/604`, and every other kind at
-budget. If the numbers in this file drift from reality, **the file is wrong** — check the gate output
-and fix the number here.
+Current baseline, measured on `main` (2026-10-01, post tree-cleanup 941ed51): **428 test files (411
+passed + 17 skipped files), 9,148 unit passing + 517 db skipped = 9,665**. The real-Postgres suite is
+**519/519** and the render suite is **3 files, 9/9**. Coverage is **91.61% lines / 87.17% branches /
+87.71% functions** over 57,294 statements, and the ratchet in `vitest.config.ts` sits at 91.5 / 86.9 /
+87.5 — deliberately just *below* reality so a 0.1% regression trips the build. Measure, then set the
+ratchet. `npm run lint` reports **0 errors / 370 warnings**. `npm run debt` reads `explicit-any 0`,
+`as-unknown-as 75/101`, `silent-failure-default 443/604`, `container-resolve-outside-root 154/155`,
+`prisma-client-import-in-bot 15/17`, and every other kind at budget. If the numbers in this file drift
+from reality, **the file is wrong** — check the gate output and fix the number here.
 
 The db suite reads `TEST_DATABASE_URL`, not `DATABASE_URL`, and `dbHarness` **refuses** to run
 against any database whose name is not a scratch one. It skips locally (no Docker, no local
@@ -112,7 +113,7 @@ exists because breaking it shipped a real bug.
 
 2. **Never trust Last.fm's `imageUrl`.** It frequently returns the placeholder `2a96cbd8b46e442fc41c2b86b821562f`. All artwork goes through `ArtworkService` (Spotify → Deezer → Apple → Last.fm). The placeholder check lives in exactly one predicate, `isPlaceholderImageUrl`, in `src/domain/lastfmPlaceholder.ts` (re-exported from `artworkService` for the ~20 existing call sites) — call it, never re-inline the hash. It lives in `domain`, not `bot/services`, so lower layers can ask the question without importing the artwork cascade.
 
-3. **Artwork title matching must survive real catalogue shapes.** Matching is deliberately strict (never substring — `"Song"` must not match `"Song 2"`), and it must tolerate a **leading date prefix**, because DJ-pool and compilation rips are often the *only* thing a provider returns: Mac DeMarco's "I Like Her" comes back as `20191009 I Like Her` on "Cottage Core"-style albums. Without the prefix strip, correct-artist/right-recording rows get rejected and the card holds the previous cover forever. See `matchesTrackTitle` in `artworkService.ts` and `artworkService.datePrefix.test.ts`.
+3. **Artwork title matching must survive real catalogue shapes.** Matching is deliberately strict (never substring — `"Song"` must not match `"Song 2"`), and it must tolerate a **leading date prefix**, because DJ-pool and compilation rips are often the *only* thing a provider returns: Mac DeMarco's "I Like Her" comes back as `20191009 I Like Her` on "Cottage Core"-style albums. Without the prefix strip, correct-artist/right-recording rows get rejected and the card holds the previous cover forever. See `matchesTrackTitle` in `artworkService.ts` and `artworkService.datePrefix.test.ts` in `src/bot/services/__tests__/`.
 
 4. **Dual-mode commands.** Every command exists as a slash command (`src/bot/slashCommands/`) *and* a text command (`src/bot/textCommands/`, prefix `.`). Both delegate to a shared `src/bot/builders/*Builders.ts` returning a `ResponseModel`. **Command names must be globally unique across both families** — the registry logs a collision and silently lets the later registration win, making the other unreachable. This has already bitten `.remove` (account unlink vs queue remove) and `.lyrics`.
 
@@ -125,6 +126,8 @@ exists because breaking it shipped a real bug.
 9. **Type-only imports across music modules** (`import type { X } from './ytResolver'`) — this is what keeps the playback DAG acyclic. A value import there closes a cycle.
 10. **`Logger.debug` for internal degradation paths.** The user reads Railway logs, and INFO-level noise hides the lines that matter. An expected-but-notable outcome is DEBUG; a lost capability is WARN.
 11. **There IS dynamic dispatch in this bot.** Modal handlers dispatch by string prefix (`registerModalHandler`), `ComponentInteractionTracker` is keyed by exact `customId`, `interactionHandler` routes on a literal table, and `container.resolve` builds a graph at runtime. **A method reached by any of those has no static caller.** Never call code dead on a grep alone — check startup registration, `container.resolve`, string-keyed lookups, event-listener and cron registration, and then say which mechanism reaches it, or say you found none.
+
+12. **One test convention: `__tests__/`, never colocated.** Every test file sits in a `__tests__/` folder inside the area it covers (`src/bot/builders/__tests__/albumBuilders.pagination.test.ts`). Zero test files sit beside their source, and the old `src/tests/` tree is gone — do not recreate it. Shared harness code (`dbHarness.ts`, `setupEnv.ts`, `dbRawQueryObserver.ts`, `uncooperativePlayer.ts`, `repoRoot.ts`) lives in `src/testSupport/`; repo-wide invariant tests live in `src/__tests__/`. New subsystem folder names come from the existing vocabulary in the tree map (§7) — do not invent a synonym for a folder that already exists. **Moving a production file means moving its tests with it**, and if the file is named in `scripts/raw-query-baseline.json` you must retarget that key: an orphan key naming no file on disk is a **hard error** in `scripts/count-debt.ts`, not a warning.
 
 ---
 
@@ -195,16 +198,42 @@ Read `src/bot/handlers/music/AGENTS.md` before touching playback. It carries eac
 
 ---
 
-## 7. Key Directory Map
-- `src/bot/startup.ts` — the dependency graph. Read it first when tracing wiring.
-- `src/bot/handlers/` — event dispatchers (`interactionHandler.ts`, `commandHandler.ts`, `musicHandler.ts`).
-- `src/bot/services/music/` — playback (see §4).
-- `src/bot/services/artworkService.ts` — the artwork cascade and title/artist matching rules.
-- `src/bot/services/whoKnows/`, `crown/`, `audio/` — leaderboards, crowns, audio analysis.
-- `src/bot/builders/` — embed/action-row factories returning `ResponseModel`.
-- `src/bot/interactions/` — buttons, select menus, modals.
-- `src/persistence/` — Prisma schema and repositories.
-- `src/domain/` — pure interfaces, enums, logger.
+## 7. Source tree map
+
+Every folder below is real. `__tests__/` is omitted from the drawing — see rule 12 (§3.12).
+
+```
+src/
+├── __tests__/            repo-wide invariant tests (13 files)
+├── testSupport/          dbHarness, setupEnv, dbRawQueryObserver,
+│                         uncooperativePlayer, repoRoot
+├── bot/
+│   ├── startup.ts        the dependency graph — read first when tracing wiring
+│   ├── handlers/         event dispatch: interactionHandler, commandHandler,
+│   │   └── music/        musicHandler, AGENTS.md
+│   ├── services/
+│   │   ├── music/        playback DAG (§4)
+│   │   ├── lastfm/       index, update, timer, reconcile, *Queue services
+│   │   ├── system/       cache, color, setting, rateLimit, pagination, healthServer,
+│   │   │                 shutdown, startup, telemetry, ttlStore, abuseFilter, …
+│   │   ├── whoKnows/     leaderboards
+│   │   ├── crown/        crowns
+│   │   ├── audio/        previewResolver, audioSignal, essentia, voiceMessage
+│   │   ├── guild/        guild-scoped services
+│   │   └── *.ts          32 loose domain services (artworkService, autopostService, …)
+│   ├── builders/         embed/action-row factories returning ResponseModel
+│   ├── slashCommands/    33 files (+ AGENTS.md)
+│   ├── textCommands/     guild, lastfm, meta, music, thirdParty, user
+│   ├── interactions/     buttons, select menus, modals
+│   ├── models/           ContextModel, ResponseModel, command/chart/whoKnows models
+│   ├── configurations/   envValidator, configData
+│   ├── autoCompleteHandlers/  diagnostics/  resources/
+├── persistence/          prisma/ (schema + client), repositories/ (19), domain/
+├── lastfm/               api, converters, models, repositories
+├── spotify/  applemusic/  deezer/   images/ (generators, pages, models)
+├── domain/               enums, extensions, interfaces, models, types
+└── config/  types/       lavalink, runtimeEnv, musicEnv; ambient.d.ts
+```
 
 ---
 
@@ -212,12 +241,15 @@ Read `src/bot/handlers/music/AGENTS.md` before touching playback. It carries eac
 
 **Adding a command (1:1 from fmbot)**
 1. Check the `fmbot-dev` reference implementation.
-2. Service method in `src/bot/services/`.
+2. Service method in `src/bot/services/` — pick the subsystem folder that owns the domain, or a loose
+   file beside them. Do not invent a new folder name (§3.12).
 3. Response in `src/bot/builders/*Builders.ts`.
-4. Slash **and** text command (check the name is unique across both — §3.4).
+4. Slash **and** text command (check the name is unique across both — §3.4). Text commands live in
+   `src/bot/textCommands/<area>/`, including `meta/` for help and static triggers.
 5. If interactive: handler in `src/bot/interactions/` + route in `handlers/interactionHandler.ts`.
 6. Register in `src/bot/startup.ts`.
-7. `npm run build && npm test`.
+7. Tests in the area's `__tests__/` folder — never beside the source.
+8. `npm run build && npm test`.
 
 **Database migrations**
 1. Edit `src/persistence/prisma/schema.prisma`.
@@ -267,8 +299,8 @@ Where each pillar of the bot actually lives. Read the file before editing it.
 - **DI container** — `src/bot/startup.ts:configureContainer()`. The entire graph is constructed by hand and registered with `container.registerInstance`. No reflection.
 - **Command framework** — `ContextModel` (`src/bot/models/contextModel.ts`) normalises a `Message`, a `ChatInputCommandInteraction` and a `ButtonInteraction` behind one API. Builders return a `ResponseModel` (embeds, buttons, or Components V2 containers).
 - **Persistence** — `src/persistence/prisma/schema.prisma`. `UserPlay` is the indexed scrobble history; `Artist`/`Album`/`Track` are cached metadata; `UserArtist`/`UserAlbum`/`UserTrack` are per-user denormalised rollups all keyed `(userId, <id>)`; `UserCrown` tracks guild crown holders; `GuildAutopost` holds scheduled-post config.
-- **Last.fm sync** — `updateService.ts` (delta sync, 3h overlap, 14-day fallback, backoff `500/2500/5000/10000/25000ms`), `indexService.ts` (full history, up to 1000 pages, batch commits every 10), `timerService.ts` (cron).
-- **Artwork engine** — `artworkService.ts`. Memory + Redis cache (1h positive / 10min definitive-none / 90s inconclusive), then a DB row if fresher than 90 days, then the cascade Spotify → Deezer → Apple → Last.fm, then persist. See §3.2 and §3.3.
+- **Last.fm sync** — `src/bot/services/lastfm/updateService.ts` (delta sync, 3h overlap, 14-day fallback, backoff `500/2500/5000/10000/25000ms`), `indexService.ts` (full history, up to 1000 pages, batch commits every 10), `timerService.ts` (cron).
+- **Artwork engine** — `src/bot/services/artworkService.ts`. Memory + Redis cache (1h positive / 10min definitive-none / 90s inconclusive), then a DB row if fresher than 90 days, then the cascade Spotify → Deezer → Apple → Last.fm, then persist. See §3.2 and §3.3.
 - **Social intelligence** — `src/bot/services/whoKnows/`. Ranks top listeners per artist/album/track from indexed plays plus a live Last.fm count, respecting `privacy_level`, guild bans and `self_block_from_who_knows`.
 - **Crowns** — `src/bot/services/crown/crownService.ts`. Claim/steal with a play threshold, dynamic re-evaluation against live scrobbles, bulk seeding, moderation.
 - **Autoposts** — `src/bot/services/autopostService.ts`. Scheduled leaderboard/crown posts on a 15-minute cron sweep.

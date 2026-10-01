@@ -103,7 +103,7 @@ aliases, which only fill names nobody claimed (`:105-114`).
 Two real incidents, both silent, both on the text side: `.remove` became queue-remove
 instead of account-unlink, and `.lyrics` became music lyrics instead of the Last.fm
 one. Account unlink and Last.fm lyrics were renamed `.unlink` and `.lyric` to resolve
-it — `src/tests/commandRegistryInvariants.test.ts:13-16` and the regression lock at
+it — `src/__tests__/commandRegistryInvariants.test.ts:13-16` and the regression lock at
 `:218-228`.
 
 Collision handling is also a **two-sided** decision, and both halves are pinned exactly:
@@ -116,7 +116,7 @@ Collision handling is also a **two-sided** decision, and both halves are pinned 
   activates silently if the owner is ever renamed: `history`, `nowplaying`, `prefix`
   (`:211-215`).
 
-`src/tests/commandRegistryInvariants.test.ts` is the gate for all of it. It reads names
+`src/__tests__/commandRegistryInvariants.test.ts` is the gate for all of it. It reads names
 out of the **source AST**, not from instantiated commands, so that the check does not
 need the DI container. Its loud-failure rule matters: a computed (non-literal) command
 name, or a literal with no `name`, **throws** rather than being skipped (`:92-106`).

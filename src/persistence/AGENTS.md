@@ -20,11 +20,11 @@ repeated here.
   `guildDisabledCommand`). They type every BigInt id as a **string**
   (`domain/models/guild.ts:2`, `channel.ts:2-3`, `user.ts:19`), which is §6 in one
   line.
-- The shared db test harness is `src/tests/dbHarness.ts`, not a sibling of the
+- The shared db test harness is `src/testSupport/dbHarness.ts`, not a sibling of the
   repositories, and that placement is load-bearing for the gates: the raw-query ratchet
   skips any path containing `/dbHarness` (its `$executeRawUnsafe` seeds and TRUNCATE are
   test infrastructure, not production queries) and `silent-failure-default` skips
-  `/src/tests/` entirely. Move it and both ratchets move under you.
+  `/src/testSupport/` entirely. Move it and both ratchets move under you.
 
 ## 1. One statement per `CONCURRENTLY` migration file
 
@@ -60,7 +60,7 @@ Two more constraints in that index file, both load-bearing:
 query string or shortens the URL takes the bot's data with it.
 
 **The db suite does not read `DATABASE_URL` at all.** It reads `TEST_DATABASE_URL`
-(`src/tests/dbHarness.ts:17-18`), precisely so pointing the real-query suite at
+(`src/testSupport/dbHarness.ts:17-18`), precisely so pointing the real-query suite at
 production is not one env var away (`:11-13`). Locally the suite therefore **skips**,
 with a stated reason, when `TEST_DATABASE_URL` is absent (`:31-35`) — no Docker, no
 local Postgres. CI sets it to a scratch database in a disposable `postgres:16` service.
@@ -77,7 +77,7 @@ refusals, not warnings:
   outright (`:47-48`).
 - The guard is tested with no database at all, including a refusal case per non-scratch
   name — a guard that only looks right in the source is not a guard
-  (`src/tests/dbHarness.test.ts:24-53`).
+  (`src/testSupport/__tests__/dbHarness.test.ts:24-53`).
 
 **If you seed a table in a db test, add it to `resetTables`** (`:140-141`). A per-file
 `deleteMany` is a workaround only the file that remembered it gets; a missing entry

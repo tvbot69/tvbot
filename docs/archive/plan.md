@@ -1,5 +1,12 @@
 # tvbot — Full Parity Plan (fmbot-dev → tvbot 1:1)
 
+> **Archived, superseded — kept as the record of that round, not followed.** The tree was
+> reorganised in `941ed51` (461 files). Two paths named below no longer exist under those names:
+> `src/bot/services/loveService.ts` was never built, and `.love`/`.unlove`/`.scrobble` now live
+> in `src/bot/textCommands/lastfm/trackCommands.ts`. Everything in this file is at the level of
+> `src/bot/services/<subsystem>/` — see the `tvbot` skill §2 for the current layout and §6 for
+> the command workflow.
+
 > **Goal:** Lift core Last.fm parity `42%` → `68%` (+15 long-tail commands) without touching premium/admin (`globalWk`, `import`, `jumble`, `discogs`, `autopost`). Keep `unlimited` policy (no pruning, no supporter gates). Track progress via `README.md` parity table.
 
 **Current:** `~52%` core (`fm/wk/chart/top/overview/at/taste/crowns/music` 100% loop), `37%` raw. **Done this cycle:** `fm @mention`, `artworkService` star filter + `Spotify→Deezer→Apple` primary, `chart` 1/40 `ArtworkService` forced, `wk` `discord displayName` fetch + footer `Artist - X listeners - Y plays - Z avg` (hidden `1` avg) + `wkt` `getTrackCoverUrl` strict, `top` `200→1000` limit + `weekly→overall` + `1d-6d/2024/march` via `SettingService` + `jump 1-31` modal, `overview` → DB `prisma.userPlay` (fix `403`), `at` split from `o` into `artistTrackService` `Your top tracks for 'zaf'` `10`/page, `puppeteer` ephemeral `4s` cap, `trackdetails` Essentia `140.0 bpm` + `p.scdn.co` via `spotifyScraper` + `Open on Spotify sp:14962971`.

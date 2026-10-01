@@ -6,10 +6,17 @@
 > [`PLAN_PROGRESS.md`](PLAN_PROGRESS.md), which is the live progress log. Every number here was
 > measured by the round that wrote it — coverage percentages, test counts, line counts and
 > ratchet values are all **out of date** and are left as the record of that round. Two specific
-> things to know if you read it: the coverage ratchets it names (66.5 / 77.2 / 63.8) are still the
-> live thresholds in `vitest.config.ts`, but the *measured* values it quotes are not current
-> (70.49% lines / 78.11% branches / 68.72% functions as of 2026-09-30); and the "Definition of
+> things to know if you read it: the coverage ratchets it names (66.5 / 77.2 / 63.8) are **no
+> longer the live thresholds** — `vitest.config.ts` now sets 91.5 / 86.9 / 87.5, just below the
+> measured reality; and the *measured* values it quotes are not current either
+> (70.49% lines / 78.11% branches / 68.72% functions as of 2026-09-30). The "Definition of
 > done" checklist was written as of 2026-09-28.
+>
+> **The tree also moved after this plan was written** — commit `941ed51` (461 files): tests now
+> live in `__tests__/` folders next to their source, `src/tests/` is gone and its harness is in
+> `src/testSupport/`, and `src/bot/services/` gained `system/` and `lastfm/` subfolders. Paths
+> below reading `src/tests/...` are now `src/__tests__/...` or `src/testSupport/...`. Current
+> figures and conventions: the **`tvbot` skill §1 and §2**.
 
 Source: an external review of the repo at commit `af2e95f`, which graded it **B+**.
 The repo's own `docs/QUALITY_REVIEW.md` said A−; that review missed the items below.

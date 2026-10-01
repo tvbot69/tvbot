@@ -67,7 +67,7 @@ claimed (`:105-114`). Every remaining collision is logged as
 Three facts the gate pins, each of which is a live behaviour rather than an accident:
 
 - `.np` and `.rm` answer as the Last.fm `fm` command, not as now-playing and
-  queue-remove (`src/tests/commandRegistryInvariants.test.ts:170-181`).
+  queue-remove (`src/__tests__/commandRegistryInvariants.test.ts:170-181`).
 - `history`, `nowplaying` and `prefix` are aliases shadowed by another command's
   canonical name. They are inert **and latent**: rename the owner and one activates
   silently with different behaviour (`:211-215`).
@@ -90,7 +90,7 @@ reshuffled, and a stale line number is worse than a nameable expression.
 ## Dead code in this subtree
 
 A command whose name is computed rather than a string literal is skipped by
-`src/tests/commandRegistryInvariants.test.ts` — the extractor **throws** on a
+`src/__tests__/commandRegistryInvariants.test.ts` — the extractor **throws** on a
 non-literal `name` or `aliases` value (`:98-123`) rather than skipping it, so a
 computed name breaks the suite loudly. Keep names as literals.
 
