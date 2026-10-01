@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  SPOTIFY_ALBUM_TRACKS_LIMIT_MAX,
   SPOTIFY_ARTIST_ALBUMS_LIMIT_MAX,
   SPOTIFY_SEARCH_LIMIT_MAX,
   SPOTIFY_SEARCH_QUERY_MAX,
@@ -43,8 +44,21 @@ describe('the measured constants, asserted rather than assumed', () => {
     // If someone "restores 50 because the docs say 50", that was the original
     // bug: the server rejects it and `!res.ok` turned the 400 into an empty
     // list, indistinguishable from "this artist has no covers".
+    //
+    // 2026-10-01: this test was INVERTED to 50 by an agent that reported live
+    // measurement, six tests across three files were renamed to agree with it,
+    // and every Spotify collage went empty in the process - both collage
+    // builders ask for 15. Re-adjudicated on a forward pass and a REVERSE pass
+    // over 1, 5, 10, 11, 15, 20, 50, 51, 100: 10 returned 200 with exactly 10
+    // items, 11 returned 400, identically in both directions. So the number was
+    // right and the probe was wrong. The full record, including the wrong
+    // reading, is in `spotifyApiLimits.ts`.
+    //
+    // Note `/v1/albums/{id}/tracks` is a DIFFERENT endpoint and its ceiling IS
+    // 50, measured and honoured. One constant per endpoint, never generalised.
     expect(SPOTIFY_SEARCH_LIMIT_MAX).toBe(10);
     expect(SPOTIFY_ARTIST_ALBUMS_LIMIT_MAX).toBe(10);
+    expect(SPOTIFY_ALBUM_TRACKS_LIMIT_MAX).toBe(50);
   });
 
   it('pins the raw query-length ceiling at 250 characters', () => {

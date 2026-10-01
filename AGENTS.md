@@ -45,7 +45,7 @@ plausible falsehood. Concretely, three properties:
   - **Cache**: `ioredis` with automatic in-memory LRU fallback (`src/bot/services/cacheService.ts`)
   - **Music**: `moonlink.js` v5 (Lavalink v4, auto-failover) + `fluent-ffmpeg` + `essentia.js` WASM (BPM/key)
   - **Graphics**: `puppeteer` 25.9 (ephemeral in dev, persistent in prod) for chart collages
-- **Scale**: 389 production TypeScript files, ~82k lines, 382 test files. Commands are dual-mode: 77 slash commands and ~658 text triggers over shared builders.
+- **Scale**: 389 production TypeScript files, ~82k lines, 420 test files. Commands are dual-mode: 77 slash commands and ~658 text triggers over shared builders.
 
 ---
 
@@ -57,11 +57,11 @@ plausible falsehood. Concretely, three properties:
 5. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 6. Push **only** when asked.
 
-Current baseline, measured on `main` at `2e3410a` (2026-09-30): **362 test files, 7397 unit passing
-+ 517 db skipped = 7914**. Coverage is **84.40% lines / 84.10% branches / 81.83% functions** over
-58,398 statements, and the ratchet in `vitest.config.ts` now sits at 84.3 / 84.0 / 81.8 — it used to
+Current baseline, measured on `main` (2026-10-01): **400 test files, 9013 unit passing
++ 517 db skipped = 9530**. Coverage is **91.55% lines / 86.92% branches / 87.56% functions** over
+57,280 statements, and the ratchet in `vitest.config.ts` now sits at 91.5 / 86.9 / 87.5 — it used to
 sit *below* reality (66.5 against an actual 74.08), which made it a floor nobody could trip. Measure,
-then set the ratchet. `npm run lint` reports **0 errors / 357 warnings**. `npm run debt` reads
+then set the ratchet. `npm run lint` reports **0 errors / 369 warnings**. `npm run debt` reads
 `explicit-any 0`, `as-unknown-as 75/101`, `silent-failure-default 441/604`, and every other kind at
 budget. If the numbers in this file drift from reality, **the file is wrong** — check the gate output
 and fix the number here.

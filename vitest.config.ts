@@ -32,8 +32,8 @@ export default defineConfig({
     // counting and coverage rises by shrinking the denominator rather than by
     // adding tests.
     //
-    //   lines 84.40%  branches 84.10%  functions 81.83%  statements 84.40%
-    // (58,398 statements in src/, 7,413 unit tests, 2026-09-30. Coverage run
+    //   lines 91.55%  branches 86.92%  functions 87.56%  statements 91.55%
+    // (57,280 statements in src/, 9,013 unit tests, 2026-10-01. Coverage run
     // includes the 3 render files; the plain unit run excludes them.)
     //
     // Thresholds sit just below each, so a 0.1% regression fails the build.
@@ -78,10 +78,10 @@ export default defineConfig({
         'scripts/**',
       ],
       thresholds: {
-        statements: 84.3,
-        branches: 84.0,
-        functions: 81.8,
-        lines: 84.3,
+        statements: 91.5,
+        branches: 86.9,
+        functions: 87.5,
+        lines: 91.5,
       },
     },
   },

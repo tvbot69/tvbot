@@ -511,16 +511,58 @@ export class SpotifyScraperService {
     return { previewUrl: chosen.preview, trackName: chosen.title, artistName: chosen.subtitle.split(',')[0]!.trim(), durationMs: chosen.duration, artworkUrl: chosen.artwork, spotifyUrl };
   }
 
+  /**
+   * STRICT: both the artist AND the title must corroborate the row.
+   *
+   * This used to end in `return cExpA === cActA`, which accepts ANY title once
+   * the artist matches. Both callers want the opposite of that — `getTrackPreview`
+   * and `extractPreviewFromNextData` both ask "is this the recording the user
+   * asked for", and a right-artist / wrong-track preview is a confidently wrong
+   * song with a working play button. Spotify's search returns the NEAREST match,
+   * not the exact one, so "Radiohead Creep" routinely comes back as "Karma
+   * Police"; that answer was accepted here. `previewResolverService` grew a
+   * `validateTrack` guard around this file afterwards, which closed the Spotify
+   * rung inside `resolve` but left this predicate itself loose, and its unit test
+   * pinned the leniency by name.
+   *
+   * The middle rule — same artist, and one title CONTAINS the other — stays, and
+   * it is deliberate rather than incidental: it is what accepts "Airbag" for
+   * "Airbag (Remastered)", which is the same recording and which providers
+   * legitimately return. Note that the test which used to be cited as evidence
+   * for the loose tail ("Airbag Redux") was passing through THIS rule, not
+   * through the tail, so the tail was never what let it through.
+   *
+   * Known and accepted residual leniency: the containment test is not
+   * substring-guarded, so a very short expected title can match a longer one
+   * ("Air" for "Airbag"). Tightening that means dropping remaster tolerance too,
+   * which is a different decision from the one this fix makes; the caller-side
+   * `validateTrack` in `previewResolverService` is the calibrated guard.
+   *
+   * One consequence worth recording, because it looks like a bug and is not: the
+   * `extractPreviewFromNextData(data, '', '')` call in `getPreviewById` passes
+   * empty expectations, and empty strings clean to '', so no rule can match and
+   * that rung answers `null`. It did so before this change too, for the same
+   * reason — the old final line compared '' to a non-empty artist.
+   *
+   * The empty-operand guard below is not decoration: `'radiohead'.includes('')`
+   * is `true` in JavaScript, so a row with NO artist satisfied rule 3 on the
+   * title alone and was accepted. That was true of the old code too — the third
+   * rule is unchanged — it just had nothing catching it downstream.
+   */
   private isCloseMatch(expArtist: string, expTrack: string, actualArtist: string, actualTrack: string): boolean {
     const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
     const cExpA = clean(expArtist);
     const cExpT = clean(expTrack);
     const cActA = clean(actualArtist);
     const cActT = clean(actualTrack);
+    // Before any comparison, so the `includes` rules below cannot be satisfied
+    // by an empty operand — `'radiohead'.includes('')` is `true`, which is how a
+    // row with no artist at all used to pass on the title alone.
+    if (!cExpA || !cExpT || !cActA || !cActT) return false;
     if (cExpA === cActA && cExpT === cActT) return true;
     if (cExpA === cActA && (cActT.includes(cExpT) || cExpT.includes(cActT))) return true;
     if (cExpT === cActT && (cActA.includes(cExpA) || cExpA.includes(cActA))) return true;
-    return cExpA === cActA;
+    return false;
   }
 
   private async fetchViaPuppeteer(playlistId: string, offset: number = 0, limit: number = 100): Promise<ScrapedPlaylist | null> {

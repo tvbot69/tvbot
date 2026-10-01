@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 /**
- * `SpotifyTokenManager` — caching, refresh, credential rotation and the
- * credential-less fallback.
+ * `SpotifyTokenManager` — caching, refresh, credential rotation, and what
+ * happens when the client-credentials path cannot answer.
  *
  * The module is loaded dynamically on purpose. `ConfigData.Data` is a LAZY,
  * MEMOISED getter, so the credential pool is fixed the first time anything reads
@@ -16,19 +16,36 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
  *     `grant_type=client_credentials` and HTTP Basic auth returns
  *     `{ access_token, expires_in }`, where `expires_in` is SECONDS. The manager
  *     multiplies it by 1000, so a vendor that returned milliseconds would make
- *     every token effectively immortal. Not verified here.
- *   VENDOR ASSUMPTION — the client-credentials token is REJECTED (401) once it
- *     expires, which is what makes `invalidate()` the right response to a 401
- *     and a wasted round trip for any other status.
- *   VENDOR ASSUMPTION (fallback path) — the account-free web-player token is
- *     minted by scraping a `secret` array out of the `mobile-web-player` bundle
- *     and calling `open.spotify.com/api/token?reason=init` with a TOTP. This is
- *     a reverse-engineered flow (LavaSrc's), so it is the single most likely
- *     thing here to break silently: the only symptom would be "Spotify quietly
- *     stopped answering" and one DEBUG line.
+ *     every token effectively immortal. VERIFIED 2026-09-30 by
+ *     `scripts/liveVerify.ts` (D7): `expires_in=3600`, and the production cache
+ *     entry reads 3540s of remaining life, i.e. exactly expires_in minus the 60s
+ *     margin.
+ *   VENDOR ASSUMPTION — a REFUSED credential is **400**, not 401. VERIFIED
+ *     2026-09-30 (D8) with a deliberately wrong secret:
+ *     `{"error":"invalid_client","error_description":"Invalid client secret"}`.
+ *     A 401 is a real and different thing, and it lives one layer up: an expired
+ *     BEARER rejected by `api.spotify.com` (C5 verified: a missing header and a
+ *     garbage bearer are both 401). That is what `invalidate()` answers to, and
+ *     it is observed by `spotifySearchApi` on the resource response — never here,
+ *     because this class only ever talks to the token endpoint. The two
+ *     statuses used to be conflated in a comment in this file, which made a 400
+ *     look like a transient blip; the conflation is now a classified branch with
+ *     a test on each side of it.
+ *   NOT A VENDOR ASSUMPTION ANY MORE — the account-free web-player token. This
+ *     suite used to carry thirteen tests describing it: a `"secret":[<digits>]`
+ *     scrape out of the `mobile-web-player` bundle, an XOR transform, a TOTP,
+ *     and `open.spotify.com/api/token?reason=init`. It has been dead, silently,
+ *     since at least the probe of 2026-09-30 (the bundle is served, carries 7
+ *     literal occurrences of `secret`, and has zero matches for a digit array),
+ *     and the tests passed anyway. They asserted the SHAPE of a flow, which is a
+ *     statement about the code and not about Spotify, so they would have kept
+ *     passing if the vendor had deleted the entire web player. The flow is
+ *     deleted; see the class docstring in `spotifyTokenManager.ts` for why a
+ *     silent rot is worse than no fallback.
  */
 
 type TokenManagerModule = typeof import('./spotifyTokenManager');
+type LoggerModule = typeof import('@domain/logger');
 
 const CREDS = {
   one: { ids: 'fake-id-1', secrets: 'fake-secret-1' },
@@ -42,8 +59,12 @@ const CREDS = {
  * The logger spies have to be re-created here rather than in a `beforeEach`,
  * because `vi.resetModules()` produces a fresh `@domain/logger` instance and a
  * spy on the previous one would never be called.
+ *
+ * The module is spread into the result alongside `Logger`, so a test that needs
+ * to assert that a failure was REPORTED can reach the same spies this function
+ * installed, while every other test keeps destructuring just the class.
  */
-const load = async (pool: { ids: string; secrets: string }) => {
+const load = async (pool: { ids: string; secrets: string }): Promise<TokenManagerModule & LoggerModule> => {
   vi.resetModules();
   for (let i = 2; i <= 5; i += 1) {
     vi.stubEnv(`SPOTIFY_CLIENT_ID_${String(i)}`, '');
@@ -53,12 +74,17 @@ const load = async (pool: { ids: string; secrets: string }) => {
   vi.stubEnv('SPOTIFY_CLIENT_SECRET', pool.secrets);
 
   const mod: TokenManagerModule = await import('./spotifyTokenManager');
-  const { Logger } = await import('@domain/logger');
+  // The whole logger namespace is spread, not just its `Logger` const: the
+  // declared return type is the intersection with the module's own type, and
+  // `LoggerModule` is every export of that file. Spreading only `Logger` left
+  // the intersection unsatisfied.
+  const loggerModule: LoggerModule = await import('@domain/logger');
+  const { Logger } = loggerModule;
   vi.spyOn(Logger, 'info').mockImplementation(() => undefined);
   vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
   vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
   vi.spyOn(Logger, 'debug').mockImplementation(() => undefined);
-  return mod;
+  return { ...mod, ...loggerModule };
 };
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -83,15 +109,11 @@ const basicCredential = (fetchMock: FetchMock, index: number): string => {
 const countCalls = (fetchMock: FetchMock, needle: string): number =>
   fetchMock.mock.calls.filter((c) => String(c[0]).includes(needle)).length;
 
-/** The scraper and the token endpoint are both on `open.spotify.com`, so the
- *  landing page has to be matched exactly rather than by substring. */
-const countExact = (fetchMock: FetchMock, url: string): number =>
-  fetchMock.mock.calls.filter((c) => String(c[0]) === url).length;
-
 const tokenEndpoint = 'accounts.spotify.com';
-const anonTokenEndpoint = 'api/token?reason=init';
-const playerBundle = 'mobile-web-player';
-const landingPageUrl = 'https://open.spotify.com/';
+
+/** Every line the logger was handed, flattened to text, for content assertions. */
+const loggedText = (spy: FetchMock, argsIndex = 0): string =>
+  spy.mock.calls.map((c) => String(c[argsIndex])).join('\n');
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -216,89 +238,281 @@ describe('the client-credentials path', () => {
   });
 });
 
-describe('a failed token request degrades without burning the credential', () => {
-  /**
-   * The anon fallback needs four endpoints answered. One router keeps the shape
-   * visible: the web-player page, the bundle inside it, the anon token mint, and
-   * the client-credentials token.
-   */
-  const withAnonFallback = (tokenStatus: number | 'reject') => {
-    const fetchMock = vi.fn(async (...args: unknown[]): Promise<Response> => {
-      const url = String(args[0]);
-      if (url.includes(tokenEndpoint)) {
-        if (tokenStatus === 'reject') throw new TypeError('fetch failed');
-        return jsonResponse({ error: 'invalid_client' }, tokenStatus);
-      }
-      if (url.includes(anonTokenEndpoint)) {
-        return jsonResponse({
-          accessToken: 'ANON-TOKEN',
-          accessTokenExpirationTimestampMs: Date.now() + 3_600_000,
-        });
-      }
-      if (url.includes(playerBundle)) {
-        return new Response('var a={"secret":[12,34,56,78]};', {
-          status: 200,
-          headers: { 'content-type': 'application/javascript' },
-        });
-      }
-      return new Response('<html><head><script src="/mobile-web-player.abc123.js"></script></head></html>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
+/**
+ * The deleted rung leaves one path, so this is where the interesting behaviour
+ * now lives: what a caller gets when that one path cannot answer, and whether
+ * the failure was said out loud.
+ */
+describe('a failed token request', () => {
+  /** A token endpoint that always answers the same way. */
+  const failingTokenEndpoint = (reply: (call: number) => Response | Error) => {
+    let calls = 0;
+    const fetchMock = vi.fn(async (..._args: unknown[]): Promise<Response> => {
+      calls += 1;
+      const out = reply(calls);
+      if (out instanceof Error) throw out;
+      return out;
     });
     return fetchMock;
   };
 
-  it('falls back to the anon token on a token-endpoint 500, and keeps the credential', async () => {
-    // 500, not 401: a Spotify outage is not a credential problem. If the failure
-    // rotated or discarded credential #1, one blip would permanently halve the
-    // pool and every later request would use a credential that had never been
-    // tried.
+  it('answers null and NEVER throws, so the caller can raise "we do not know"', async () => {
+    // A throw here surfaces as a command crash, and a throw that is not a
+    // `SpotifyUnavailableError` is caught upstream and becomes the `null` the
+    // artwork cascade caches as `'none'` — a refusal turned into a fact about
+    // the catalogue. The null is turned into
+    // `SpotifyUnavailableError('Spotify credentials not configured')` by the
+    // search API instead, which is a raised "we do not know".
     const { SpotifyTokenManager } = await load(CREDS.one);
-    const fetchMock = withAnonFallback(500);
-    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('fetch', failingTokenEndpoint(() => jsonResponse({}, 500)));
     const manager = new SpotifyTokenManager();
 
-    expect(await manager.getToken()).toBe('ANON-TOKEN');
-    // Second call: the credential is retried (nothing was cached for it), and
-    // the anon token is served from cache without re-scraping.
-    expect(await manager.getToken()).toBe('ANON-TOKEN');
-
-    expect(countCalls(fetchMock, tokenEndpoint)).toBe(2);
-    expect(manager.credentialCount).toBe(1);
-    expect(manager.rotateCredential()).toBe(false);
+    await expect(manager.getToken()).resolves.toBeNull();
   });
 
-  it('falls back on a transport failure too, because a DNS blip is not a bad credential', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.one);
-    const fetchMock = withAnonFallback('reject');
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    expect(await manager.getToken()).toBe('ANON-TOKEN');
-    expect(countCalls(fetchMock, tokenEndpoint)).toBe(1);
-    expect(manager.credentialCount).toBe(1);
-  });
-
-  it('answers null — never throws — when both paths are dead', async () => {
-    // A throw here used to surface as a command crash. The null is turned into
-    // `SpotifyUnavailableError('credentials not configured')` by the search API,
-    // which is a raised "we do not know" rather than a claim about the
-    // catalogue.
-    const { SpotifyTokenManager } = await load(CREDS.one);
+  it('reports a refused credential at ERROR, naming the vendor error code', async () => {
+    // MEASURED, not assumed: a bad secret is 400 `invalid_client`, not 401.
+    // The log line is the whole diagnosis a reader gets, so it has to carry the
+    // status and the vendor's own code rather than a bare "request failed".
+    const { SpotifyTokenManager, Logger } = await load(CREDS.one);
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (...args: unknown[]) => {
-        const url = String(args[0]);
-        if (url.includes(tokenEndpoint)) return jsonResponse({}, 500);
-        if (url.includes(anonTokenEndpoint)) return jsonResponse({}, 503);
-        if (url.includes(playerBundle)) return new Response('var a={};', { status: 404 });
-        return new Response('<html></html>', { status: 200 });
-      }),
+      failingTokenEndpoint(() =>
+        jsonResponse({ error: 'invalid_client', error_description: 'Invalid client secret' }, 400),
+      ),
     );
     const manager = new SpotifyTokenManager();
 
     await expect(manager.getToken()).resolves.toBeNull();
+
+    const err = vi.mocked(Logger.error);
+    expect(err).toHaveBeenCalledTimes(1);
+    const line = loggedText(err);
+    expect(line).toContain('400');
+    expect(line).toContain('invalid_client');
+    expect(line).toContain('credential #1');
+  });
+
+  it('redacts the credential if the vendor ever echoes it back in the description', async () => {
+    // The repo is public. Today `error_description` is a fixed string, but the
+    // moment a vendor echoes the submitted secret, an unredacted log line puts
+    // it in a file on disk that is then committed. Checked, not trusted.
+    const { SpotifyTokenManager, Logger } = await load(CREDS.one);
+    vi.stubGlobal(
+      'fetch',
+      failingTokenEndpoint(() =>
+        jsonResponse(
+          { error: 'invalid_client', error_description: 'bad secret: fake-secret-1' },
+          400,
+        ),
+      ),
+    );
+    const manager = new SpotifyTokenManager();
+
+    await expect(manager.getToken()).resolves.toBeNull();
+
+    const line = loggedText(vi.mocked(Logger.error));
+    expect(line).not.toContain('fake-secret-1');
+    expect(line).toContain('redacted');
+  });
+
+  it('reports a request that never reached Spotify at WARN, without blaming the credential', async () => {
+    // A DNS failure, a refused connection or a timeout has no status and says
+    // nothing about the credential. It used to produce NO log line at all: the
+    // `.catch()` on the request chain went on to try the anon rung and discarded
+    // the error. That is the A1 shape — an outage that reads as an empty result.
+    const { SpotifyTokenManager, Logger } = await load(CREDS.one);
+    vi.stubGlobal('fetch', failingTokenEndpoint(() => new TypeError('fetch failed')));
+    const manager = new SpotifyTokenManager();
+
+    await expect(manager.getToken()).resolves.toBeNull();
+
+    const warn = vi.mocked(Logger.warn);
+    expect(warn).toHaveBeenCalled();
+    expect(loggedText(warn, 1)).toContain('never reached');
+  });
+
+  it('never logs a 5xx or a transport failure as a credential fault', async () => {
+    // The classification is load-bearing in both directions: a Spotify outage
+    // is not a config error, and calling it one sends the operator to edit an
+    // env file that is already correct.
+    const { SpotifyTokenManager, Logger } = await load(CREDS.one);
+    vi.stubGlobal('fetch', failingTokenEndpoint(() => jsonResponse({}, 503)));
+    const manager = new SpotifyTokenManager();
+
+    await expect(manager.getToken()).resolves.toBeNull();
+
+    const line = loggedText(vi.mocked(Logger.error));
+    expect(line).toContain('transient');
+    expect(line).not.toContain('not retried as a blip');
+  });
+
+  it('a refused credential is NOT treated as a transient blip, and is not retried for 15 minutes', async () => {
+    // The 400/401 correction as executable behaviour. A wrong secret does not
+    // become a right one by waiting, so a 30s blip backoff would put every
+    // artwork lookup back on the auth endpoint twice a minute for a quarter of
+    // an hour. The pool is also NOT touched: `credentialCount` and
+    // `rotateCredential()` are asserted, because dropping or rotating on a
+    // config fault would halve the pool permanently.
+    const { SpotifyTokenManager } = await load(CREDS.one);
+    const fetchMock = failingTokenEndpoint(() => jsonResponse({ error: 'invalid_client' }, 400));
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new SpotifyTokenManager();
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.now();
+
+    expect(await manager.getToken()).toBeNull();
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(1);
+
+    // Well past the 30s a transient fault would have waited: still nothing.
+    vi.setSystemTime(start + 14 * 60_000);
+    expect(await manager.getToken()).toBeNull();
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(1);
+
+    // Past the credential backoff: it does try again, because this is a rate
+    // limit on a dead credential and not a decision to stop trying forever.
+    vi.setSystemTime(start + 16 * 60_000);
+    expect(await manager.getToken()).toBeNull();
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(2);
+
+    expect(manager.credentialCount).toBe(1);
+    expect(manager.rotateCredential()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('a 5xx IS treated as a transient blip, and recovers on its own', async () => {
+    // The other direction of the same classification. Asserting only the 400
+    // case would let a "credential-rejected" regression hide behind a comment.
+    const { SpotifyTokenManager } = await load(CREDS.one);
+    const fetchMock = failingTokenEndpoint((call) =>
+      call === 1 ? jsonResponse({}, 500) : jsonResponse({ access_token: 'RECOVERED', expires_in: 3600 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new SpotifyTokenManager();
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.now();
+
+    expect(await manager.getToken()).toBeNull();
+    expect(manager.credentialCount).toBe(1);
+    expect(manager.rotateCredential()).toBe(false);
+
+    // Past the 30s transient backoff, and inside the 15m credential one: the
+    // distinction between the two branches, measured.
+    vi.setSystemTime(start + 31_000);
+    expect(await manager.getToken()).toBe('RECOVERED');
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it('holds the backoff across many concurrent callers during an outage', async () => {
+    // With the anon cache gone, this is the only thing standing between a
+    // Spotify outage and one auth request per artwork lookup.
+    const { SpotifyTokenManager } = await load(CREDS.one);
+    const fetchMock = failingTokenEndpoint(() => jsonResponse({}, 500));
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new SpotifyTokenManager();
+
+    await Promise.all(Array.from({ length: 10 }, () => manager.getToken()));
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(1);
+
+    await manager.getToken();
+    await manager.getToken();
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(1);
+  });
+
+  it('invalidate() clears the failure backoff, so a 401-driven retry actually retries', async () => {
+    // The bug this pins: `invalidate()` exists because `spotifySearchApi` saw a
+    // 401 on the resource and wants a fresh bearer. If the backoff survived it,
+    // that retry would be answered `null` for up to 15 minutes and a recoverable
+    // "this bearer expired" would become an outage. The backoff and the cached
+    // token are cleared together or the lever does nothing.
+    const { SpotifyTokenManager } = await load(CREDS.one);
+    const fetchMock = failingTokenEndpoint((call) =>
+      call === 1 ? jsonResponse({}, 500) : jsonResponse({ access_token: 'FRESH', expires_in: 3600 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new SpotifyTokenManager();
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.now();
+
+    expect(await manager.getToken()).toBeNull();
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(1);
+
+    // Still inside the 30s transient backoff, so nothing would happen without
+    // the invalidate.
+    vi.setSystemTime(start + 1_000);
+    manager.invalidate();
+    expect(await manager.getToken()).toBe('FRESH');
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(2);
+    vi.useRealTimers();
+  });
+
+  it('recovers the credential once the endpoint comes back, unasked', async () => {
+    // The backoff must not be a latch. `expires_in` is reset so the token is
+    // unambiguously a new one rather than a coincidence of the cache.
+    const { SpotifyTokenManager } = await load(CREDS.one);
+    const fetchMock = failingTokenEndpoint((call) =>
+      call === 1 ? jsonResponse({ error: 'invalid_client' }, 400) : jsonResponse({ access_token: 'BACK', expires_in: 3600 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new SpotifyTokenManager();
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.now();
+
+    expect(await manager.getToken()).toBeNull();
+    vi.setSystemTime(start + 20 * 60_000);
+    expect(await manager.getToken()).toBe('BACK');
+    expect(manager.credentialCount).toBe(1);
+    vi.useRealTimers();
+  });
+});
+
+describe('no credentials configured', () => {
+  it('answers null and contacts NO endpoint at all', async () => {
+    // Previously this branch scraped a web-player bundle and minted a token.
+    // Now it makes no network request whatsoever, which is the honest shape of a
+    // pool with nothing in it — and it is a claim that can fail, because the
+    // deleted code would have made two calls here.
+    const { SpotifyTokenManager } = await load(CREDS.none);
+    const fetchMock = vi.fn(async (..._args: unknown[]) => jsonResponse({}, 200));
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new SpotifyTokenManager();
+
+    expect(manager.credentialCount).toBe(0);
+    expect(await manager.getToken()).toBeNull();
+    expect(await manager.getToken()).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reports the missing credentials EXACTLY ONCE, and not from getToken()', async () => {
+    // This test started life asserting `Logger.warn` was never called here, and
+    // failed: `ConfigData` calls `assertValidEnvironment()` at import, which
+    // pushes "Spotify credentials missing … will be disabled" through
+    // `Logger.warn`. Which is the point — the capability loss IS reported, once,
+    // at the one place that owns the configuration.
+    //
+    // So the claim worth pinning is not "silent" but "reported exactly once, by
+    // the boot validator, naming the keys". Two `getToken()` calls must not add a
+    // second line: `getToken()` runs once per Spotify lookup, so warning there
+    // would turn one boot warning into dozens an hour.
+    const { SpotifyTokenManager, Logger } = await load(CREDS.none);
+    vi.stubGlobal('fetch', vi.fn(async (..._args: unknown[]) => jsonResponse({}, 200)));
+    const manager = new SpotifyTokenManager();
+
+    await manager.getToken();
+    await manager.getToken();
+    await manager.getToken();
+
+    const warn = vi.mocked(Logger.warn);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = loggedText(warn);
+    expect(line).toContain('SPOTIFY_CLIENT_ID');
+    expect(line).toContain('SPOTIFY_CLIENT_SECRET');
+    expect(line).toContain('Spotify credentials missing');
   });
 });
 
@@ -382,6 +596,37 @@ describe('credential rotation', () => {
     expect(countCalls(fetchMock, tokenEndpoint)).toBe(2);
   });
 
+  it('backoff is per-credential, so one dead member does not disable the other', async () => {
+    // The pool is the reason a second credential exists. A shared backoff would
+    // mean credential #1's bad secret suppresses credential #2, which is
+    // working — the exact failure this whole rotation mechanism is there to
+    // survive.
+    const { SpotifyTokenManager } = await load(CREDS.two);
+    // Answered by WHICH credential is authenticating, read off the request that
+    // is already on record, so #1 is permanently refused and #2 permanently
+    // healthy. A test double that keys on the request is the only way to give a
+    // pool two different fates.
+    const fetchMock = vi.fn(async (..._args: unknown[]): Promise<Response> =>
+      basicCredential(fetchMock, countCalls(fetchMock, tokenEndpoint) - 1) === 'fake-id-1:fake-secret-1'
+        ? jsonResponse({ error: 'invalid_client' }, 400)
+        : jsonResponse({ access_token: 'HEALTHY', expires_in: 3600 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const manager = new SpotifyTokenManager();
+
+    expect(await manager.getToken()).toBeNull();
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(1);
+
+    manager.rotateCredential();
+    expect(await manager.getToken()).toBe('HEALTHY');
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(2);
+
+    // #1 is still latched: rotating back does not re-hit the auth endpoint.
+    manager.rotateCredential();
+    expect(await manager.getToken()).toBeNull();
+    expect(countCalls(fetchMock, tokenEndpoint)).toBe(2);
+  });
+
   it('invalidate() clears only the ACTIVE credential, so a 401 on one does not cost the other', async () => {
     // The bug this pins: a one-entry cache keyed by "the current credential"
     // would re-authenticate the whole pool every time either member 401s, which
@@ -409,251 +654,5 @@ describe('credential rotation', () => {
     manager.rotateCredential();
     await manager.getToken();
     expect(countCalls(fetchMock, tokenEndpoint)).toBe(3);
-  });
-});
-
-describe('the account-free web-player fallback', () => {
-  const anonScraper = (opts: { pageStatus?: number; pageHtml?: string; bundleStatus?: number } = {}) => {
-    const fetchMock = vi.fn(async (...args: unknown[]): Promise<Response> => {
-      const url = String(args[0]);
-      if (url.includes(anonTokenEndpoint)) {
-        return jsonResponse({
-          accessToken: 'ANON',
-          accessTokenExpirationTimestampMs: Date.now() + 3_600_000,
-        });
-      }
-      if (url.includes(playerBundle)) {
-        return new Response('var a={"secret":[12,34,56,78]};', {
-          status: opts.bundleStatus ?? 200,
-          headers: { 'content-type': 'application/javascript' },
-        });
-      }
-      return new Response(
-        opts.pageHtml ?? '<html><head><script src="/mobile-web-player.abc.js"></script></head></html>',
-        { status: opts.pageStatus ?? 200, headers: { 'content-type': 'text/html' } },
-      );
-    });
-    return fetchMock;
-  };
-
-  it('never contacts the client-credentials endpoint when nothing is configured', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = anonScraper();
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    expect(await manager.getToken()).toBe('ANON');
-    expect(countCalls(fetchMock, tokenEndpoint)).toBe(0);
-    expect(countCalls(fetchMock, anonTokenEndpoint)).toBe(1);
-  });
-
-  it('mints the token with a 6-digit TOTP and the documented query shape', async () => {
-    // This is a reverse-engineered endpoint. The exact shape is a claim about
-    // Spotify that nothing here verifies, and the first symptom of it drifting
-    // is that every anon token request starts failing with one DEBUG line.
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = anonScraper();
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    await manager.getToken();
-
-    const url = String(fetchMock.mock.calls.find((c) => String(c[0]).includes(anonTokenEndpoint))?.[0]);
-    const parsed = new URL(url);
-    expect(parsed.origin + parsed.pathname).toBe('https://open.spotify.com/api/token');
-    expect(parsed.searchParams.get('reason')).toBe('init');
-    expect(parsed.searchParams.get('productType')).toBe('web-player');
-    expect(parsed.searchParams.get('totp')).toMatch(/^\d{6}$/);
-    expect(parsed.searchParams.get('totpVer')).toBe('7');
-    expect(Number(parsed.searchParams.get('ts'))).toBeGreaterThan(0);
-  });
-
-  it('caches the anon token, so a second lookup makes no second mint request', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = anonScraper();
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    await manager.getToken();
-    await manager.getToken();
-
-    expect(countCalls(fetchMock, anonTokenEndpoint)).toBe(1);
-  });
-
-  it('scrapes the TOTP secret from the web-player bundle exactly once', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = anonScraper();
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    await manager.getToken();
-    manager.invalidate();
-    await manager.getToken();
-
-    // invalidate() drops the token, not the secret, so the page is not re-fetched.
-    expect(countExact(fetchMock, landingPageUrl)).toBe(1);
-    expect(countCalls(fetchMock, anonTokenEndpoint)).toBe(2);
-  });
-
-  it('re-scrapes the secret after the 24h cache expires', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = anonScraper();
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    // Only Date is faked, so the module's own 10s/15s AbortSignal timeouts stay
-    // real and the test cannot deadlock on a fake timer.
-    vi.useFakeTimers({ toFake: ['Date'] });
-    const start = Date.now();
-    await manager.getToken();
-    expect(countExact(fetchMock, landingPageUrl)).toBe(1);
-
-    vi.setSystemTime(start + 25 * 3_600_000);
-    await manager.getToken();
-    expect(countExact(fetchMock, landingPageUrl)).toBe(2);
-    vi.useRealTimers();
-  });
-
-  it('ignores a vendor bundle with no secret in it, and keeps looking', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = vi.fn(async (...args: unknown[]): Promise<Response> => {
-      const url = String(args[0]);
-      if (url.includes(anonTokenEndpoint)) {
-        return jsonResponse({
-          accessToken: 'ANON',
-          accessTokenExpirationTimestampMs: Date.now() + 3_600_000,
-        });
-      }
-      if (url.includes('mobile-web-player.first.js')) {
-        return new Response('var a={};', { status: 200 });
-      }
-      if (url.includes(playerBundle)) {
-        return new Response('var a={"secret":[12,34,56,78]};', { status: 200 });
-      }
-      return new Response(
-        '<html><head><script src="/mobile-web-player.first.js"></script>' +
-          '<script src="/mobile-web-player.second.js"></script></head></html>',
-        { status: 200, headers: { 'content-type': 'text/html' } },
-      );
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    expect(await manager.getToken()).toBe('ANON');
-    expect(countCalls(fetchMock, 'mobile-web-player.first.js')).toBe(1);
-    expect(countCalls(fetchMock, 'mobile-web-player.second.js')).toBe(1);
-  });
-
-  it('skips a bundle that 404s and tries the next one', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = vi.fn(async (...args: unknown[]): Promise<Response> => {
-      const url = String(args[0]);
-      if (url.includes(anonTokenEndpoint)) {
-        return jsonResponse({
-          accessToken: 'ANON',
-          accessTokenExpirationTimestampMs: Date.now() + 3_600_000,
-        });
-      }
-      if (url.includes('mobile-web-player.first.js')) return new Response('', { status: 404 });
-      if (url.includes(playerBundle)) return new Response('var a={"secret":[12,34,56,78]};', { status: 200 });
-      return new Response(
-        '<html><head><script src="/mobile-web-player.first.js"></script>' +
-          '<script src="/mobile-web-player.second.js"></script></head></html>',
-        { status: 200, headers: { 'content-type': 'text/html' } },
-      );
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    expect(await manager.getToken()).toBe('ANON');
-  });
-
-  it('skips a vendor bundle, which never carries the secret', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = vi.fn(async (...args: unknown[]): Promise<Response> => {
-      const url = String(args[0]);
-      if (url.includes(anonTokenEndpoint)) {
-        return jsonResponse({
-          accessToken: 'ANON',
-          accessTokenExpirationTimestampMs: Date.now() + 3_600_000,
-        });
-      }
-      if (url.includes(playerBundle)) return new Response('var a={"secret":[12,34,56,78]};', { status: 200 });
-      return new Response('<html><head><script src="/vendor-mobile-web-player.js"></script></head></html>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    // Filtered before it is ever requested, so the answer is null rather than a
-    // token derived from the wrong array.
-    expect(await manager.getToken()).toBeNull();
-    expect(countCalls(fetchMock, 'vendor-mobile-web-player.js')).toBe(0);
-  });
-
-  it('answers null when the web-player page itself cannot be read', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = anonScraper({ pageStatus: 503 });
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    expect(await manager.getToken()).toBeNull();
-  });
-
-  it('answers null when the anon token endpoint rejects the TOTP', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = vi.fn(async (...args: unknown[]): Promise<Response> => {
-      const url = String(args[0]);
-      if (url.includes(anonTokenEndpoint)) return jsonResponse({}, 403);
-      if (url.includes(playerBundle)) return new Response('var a={"secret":[12,34,56,78]};', { status: 200 });
-      return new Response('<html><head><script src="/mobile-web-player.abc.js"></script></head></html>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    expect(await manager.getToken()).toBeNull();
-  });
-
-  it('answers null when the anon response carries an error alongside a token', async () => {
-    // A partial payload is not a token. Accepting `accessToken` here would send
-    // a value the vendor simultaneously reported as invalid.
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = vi.fn(async (...args: unknown[]): Promise<Response> => {
-      const url = String(args[0]);
-      if (url.includes(anonTokenEndpoint)) {
-        return jsonResponse({ accessToken: 'SUSPECT', error: { code: 401 } });
-      }
-      if (url.includes(playerBundle)) return new Response('var a={"secret":[12,34,56,78]};', { status: 200 });
-      return new Response('<html><head><script src="/mobile-web-player.abc.js"></script></head></html>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    expect(await manager.getToken()).toBeNull();
-  });
-
-  it('answers null when the anon response has no token at all', async () => {
-    const { SpotifyTokenManager } = await load(CREDS.none);
-    const fetchMock = vi.fn(async (...args: unknown[]): Promise<Response> => {
-      const url = String(args[0]);
-      if (url.includes(anonTokenEndpoint)) return jsonResponse({ nope: true });
-      if (url.includes(playerBundle)) return new Response('var a={"secret":[12,34,56,78]};', { status: 200 });
-      return new Response('<html><head><script src="/mobile-web-player.abc.js"></script></head></html>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const manager = new SpotifyTokenManager();
-
-    expect(await manager.getToken()).toBeNull();
   });
 });

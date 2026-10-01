@@ -271,7 +271,13 @@ export const configureContainer = (): void => {
   container.registerInstance(ComponentPaginatorService, componentPaginatorService);
 
   const spotifyTokenManager = new SpotifyTokenManager();
-  const lastfmApi = new LastfmApi(new LastfmErrorRateTracker());
+  // The SAME tracker the container hands to CrownService/ArtworkService and that
+  // TimerService resets on its statistics tick. It used to be a second, private
+  // `new LastfmErrorRateTracker()`, so nothing else could ever see a Last.fm
+  // call: `isElevated()` answered false through every outage (the crown-steal
+  // kill switch could not fire) and `logAndReset()` early-returned on a
+  // permanent zero. The writer and the reader have to be one object.
+  const lastfmApi = new LastfmApi(errorRateTracker);
   const spotifySearchApi = new SpotifySearchApi(spotifyTokenManager);
   const deezerApi = new DeezerApi();
   const appleMusicTokenScraper = new AppleMusicTokenScraper();
@@ -677,10 +683,18 @@ export const configureContainer = (): void => {
   const overviewService = new OverviewService(genreService);
   const topInteractions = container.resolve(TopInteractions);
   const voiceMessageService = new VoiceMessageService();
+  // Registered HERE, not in the block below: `TrackPreviewInteractions` is
+  // resolved by reflection two lines down and injects this class, and tsyringe
+  // does not fail on an unregistered constructor token - it quietly builds a
+  // SECOND instance of it. `ArtistTrackInteractions` and `ArtistInteractions`
+  // had the same shape, so three classes existed twice each, split between the
+  // instance this file hands to one caller and the one handed to the next.
+  container.registerInstance(VoiceMessageService, voiceMessageService);
   const trackSlashCommands = new TrackSlashCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, colorService);
   const trackCommands = new TrackCommands(userService, trackService, trackDetailsService, lastFmRepository, updateService, lyricsService, colorService);
   const trackPreviewInteractions = container.resolve(TrackPreviewInteractions);
   const artistTrackService = new ArtistTrackService();
+  container.registerInstance(ArtistTrackService, artistTrackService);
   const artistTrackSlashCommands = new ArtistTrackSlashCommands(userService, artistTrackService, lastFmRepository, updateService);
   const artistTrackCommands = new ArtistTrackCommands(userService, artistTrackService, lastFmRepository, updateService);
   const artistTrackInteractions = container.resolve(ArtistTrackInteractions);
@@ -707,6 +721,9 @@ export const configureContainer = (): void => {
   const updateSlashCommands = new UpdateSlashCommands(userService, updateService, indexService);
   const updateCommands = new UpdateCommands(userService, updateService, indexService);
   const musicBrainzService = new MusicBrainzService(cache);
+  // Same reason as VoiceMessageService above: `ArtistInteractions` injects this
+  // class and is resolved by reflection further down.
+  container.registerInstance(MusicBrainzService, musicBrainzService);
   const artistCommands = new ArtistCommands(userService, artistTrackService, musicBrainzService, genreService, spotifySearchApi, lastFmRepository, updateService, artistsService);
   const artistSlashCommands = new ArtistSlashCommands(userService, artistTrackService, musicBrainzService, genreService, spotifySearchApi, lastFmRepository, updateService);
   const artistInteractions = container.resolve(ArtistInteractions);

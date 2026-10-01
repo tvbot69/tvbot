@@ -84,8 +84,7 @@
  *
  * Drift is already known and deliberately unfixed: eight indexes the schema
  * declares that no migration creates, plus `guilds.accent_color` in the history
- * but not in the schema, plus six VARCHAR/TEXT width differences. They are
- * recorded at the bottom of
+ * but not in the schema. They are recorded at the bottom of
  * migrations/20260928140000_add_schema_drift_columns/migration.sql.
  *
  * A gate that fails on those is a gate that is red the moment it lands, and a
@@ -96,24 +95,43 @@
  * scripts/check-import-cycles.ts and scripts/count-debt.ts: a recorded number
  * that may only go down, not a suppression flag.
  *
- * Two properties keep that honest:
+ * Three properties keep that honest:
  *
  *   - The list is frozen data, NOT computed from the migrations at runtime. A
  *     baseline derived from the same source as the check proves nothing, and
  *     would silently widen to cover new drift.
  *   - It matches on a precise fingerprint (kind + table + object name), so it
  *     cannot absorb an unrelated item on the same table.
+ *   - EVERY RUN, `auditBaseline` FAILS the run on an entry that matched nothing.
+ *     This is not decoration. The fingerprint is `kind|table.column`, so a
+ *     baseline entry that documents drift which has since been fixed is not
+ *     inert - it is a pre-armed trap for the next real drift on that exact
+ *     object, which then gets absorbed silently. Six entries sat in this file
+ *     doing exactly that, transcribed from a migration record that was already
+ *     stale when it was written. A gate that silently absorbs a regression is
+ *     worse than no gate, so the check is the fix and not a reminder.
+ *
+ *     The check is mode-aware on purpose. With no database this run cannot
+ *     observe types, nullability, defaults, constraints or enums at all, so an
+ *     entry of one of those kinds is reported as UNVERIFIED rather than failed -
+ *     an unavailable database is a stated reason, a stale baseline is a defect.
  *
  * Every entry carries the reason it is tolerated, so nobody has to guess why
  * the file is long. Shrinking it is the intended way to pay the debt down:
- * add the missing migration, delete the line, watch the count fall.
+ * add the missing migration, delete the line, watch the count fall. The count
+ * cannot fall on its own and it cannot stay high on its own either - a line
+ * that starts matching nothing fails the gate.
  *
  * EXIT CODES
  *
- *   0  no drift outside KNOWN_DRIFT
+ *   0  no drift outside KNOWN_DRIFT, and every baseline entry still matches
  *   1  drift outside KNOWN_DRIFT
  *   2  the check could not run at all (prisma missing, schema unreadable,
  *      diff invocation failed). NOT 0, and never silently 0.
+ *   3  the check ran, and found that ITS OWN BASELINE is stale: at least one
+ *      KNOWN_DRIFT entry documented no observed difference. Distinct from 1 on
+ *      purpose - 1 means the database drifted, 3 means this gate is lying about
+ *      how much drift it tolerates.
  *
  * Run: npm run db:verify-schema-drift
  *      npm run db:verify-schema-drift -- --suggest-baseline
@@ -178,19 +196,35 @@ const KNOWN_DRIFT: readonly KnownEntry[] = [
     fingerprint: 'column-extra|guilds.accent_color',
     reason: 'reverse drift: created by 20260926105535, absent from the schema, read by nothing',
   },
-  // VARCHAR(255)/VARCHAR(750) in the history, TEXT in the schema. Reads and
-  // writes both work; widening or narrowing a live column is not a thing to do
-  // as a side effect of a P2022 fix.
-  { fingerprint: 'column-type|artists.name', reason: 'VARCHAR in history, TEXT in schema (documented)' },
-  { fingerprint: 'column-type|albums.name', reason: 'VARCHAR in history, TEXT in schema (documented)' },
-  { fingerprint: 'column-type|tracks.name', reason: 'VARCHAR in history, TEXT in schema (documented)' },
-  {
-    fingerprint: 'column-type|user_plays.artist_name',
-    reason: 'VARCHAR in history, TEXT in schema (documented)',
-  },
-  { fingerprint: 'column-type|user_albums.name', reason: 'VARCHAR in history, TEXT in schema (documented)' },
-  { fingerprint: 'column-type|user_tracks.name', reason: 'VARCHAR in history, TEXT in schema (documented)' },
 ];
+
+/**
+ * SIX ENTRIES USED TO BE HERE AND WERE DEAD. Do not add them back.
+ *
+ *   column-type|artists.name, albums.name, tracks.name,
+ *   user_plays.artist_name, user_albums.name, user_tracks.name
+ *
+ * "VARCHAR in history, TEXT in schema". The widths are long since gone:
+ * 20260826095158_text_name_columns already ran
+ * `ALTER TABLE ... ALTER COLUMN "name" SET DATA TYPE TEXT` for all of them, and
+ * it ran BEFORE the fix migration whose trailing record this list was
+ * transcribed from - so the record was stale the day it was written, and six
+ * fingerprints were copied out of a comment that described a fixed state.
+ *
+ * WHY THAT WAS NOT COSMETIC. The fingerprint is `kind|table.column`, so those
+ * six strings were a live tripwire with the batteries REMOVED: the next person to
+ * introduce a real type drift on `artists.name` produced a byte-identical
+ * fingerprint, it was sorted into KNOWN_BACKLOG, it printed "documented", and
+ * the gate exited 0. Six open holes in the exact class this script exists to
+ * protect, and a gate that silently absorbs a regression is worse than no gate.
+ * All six are `text` in a database built by replaying the whole migrations
+ * folder, and the strict comparison emits zero column-type findings.
+ *
+ * The lesson is now enforced rather than remembered: `auditBaseline` below FAILS
+ * the run on any entry that matched nothing. A baseline entry that documents
+ * drift which no longer exists is a defect in the baseline, and deleting the
+ * line is the fix.
+ */
 
 // ---------------------------------------------------------------------------
 // Types
@@ -230,6 +264,91 @@ interface Finding {
 }
 
 const KNOWN_BY_FINGERPRINT = new Map(KNOWN_DRIFT.map((k) => [k.fingerprint, k]));
+
+/**
+ * The kinds the DATABASE-FREE pass can actually observe.
+ *
+ * `reconcileTextually` emits exactly three: a column the schema declares and no
+ * migration creates, a column a migration creates and the schema does not, and an
+ * index no migration creates. It cannot see a type, a nullability, a default, a
+ * constraint or an enum, because the migration files are read as text.
+ *
+ * This set is what makes the stale-baseline check safe to run offline. A
+ * `column-nullability|...` entry matches nothing in DEGRADED mode - not because
+ * it is stale but because the weak mode is blind to it - and failing the run for
+ * that would be the gate punishing a contributor for the absence of a database.
+ * An unavailable database is a stated reason. A stale baseline is a defect.
+ */
+const DEGRADED_OBSERVABLE: ReadonlySet<FindingKind> = new Set<FindingKind>([
+  'column-missing',
+  'column-extra',
+  'index-missing',
+]);
+
+/** Every kind either pass can emit. `parseDifferential` + `reconcileTextually`
+ *  together cover all of FindingKind, so in a strict run nothing is unverifiable. */
+const STRICT_OBSERVABLE: ReadonlySet<FindingKind> = new Set<FindingKind>([
+  'table-missing',
+  'table-extra',
+  'column-missing',
+  'column-extra',
+  'column-type',
+  'column-nullability',
+  'column-default',
+  'index-missing',
+  'index-extra',
+  'constraint-missing',
+  'constraint-extra',
+  'enum-missing',
+  'enum-extra',
+  'other',
+]);
+
+/** The `kind` prefix of a fingerprint, which is by construction a FindingKind. */
+const kindOfFingerprint = (fingerprint: string): FindingKind =>
+  fingerprint.slice(0, fingerprint.indexOf('|')) as FindingKind;
+
+interface BaselineAudit {
+  /** Baseline entries that matched an observed difference. */
+  readonly matched: readonly KnownEntry[];
+  /** Entries that matched nothing, in a kind this run COULD have seen. A defect. */
+  readonly stale: readonly KnownEntry[];
+  /** Entries that matched nothing because this run cannot see that kind at all. */
+  readonly unverifiable: readonly KnownEntry[];
+}
+
+/**
+ * THE TRIPWIRE: a baseline entry that documents drift which no longer exists is
+ * a hole in this gate, and a hole in a gate is worse than no gate.
+ *
+ * The fingerprint is `kind|table.column`, so a dead entry is not inert - it is a
+ * pre-armed trap for the next real drift on the same object. That next drift is
+ * sorted into KNOWN_BACKLOG, reported as "documented", and the run exits 0. Six of
+ * them sat here doing exactly that (see the block above KNOWN_DRIFT), so the fix
+ * is not "remember to delete them", it is a check that cannot be forgotten.
+ *
+ * `observable` is what keeps the offline path honest: an entry whose kind the
+ * current mode cannot produce is reported as UNVERIFIED rather than failed,
+ * because the mode is what is missing, not the entry.
+ */
+const auditBaseline = (
+  matched: ReadonlySet<string>,
+  observable: ReadonlySet<FindingKind>,
+  baseline: readonly KnownEntry[] = KNOWN_DRIFT,
+): BaselineAudit => {
+  const hit: KnownEntry[] = [];
+  const stale: KnownEntry[] = [];
+  const unverifiable: KnownEntry[] = [];
+  for (const entry of baseline) {
+    // `matched` wins over `observable`, and in a real run it cannot disagree:
+    // the set is built from findings the CURRENT mode actually produced, so a
+    // kind it cannot emit is never in it.
+    if (matched.has(entry.fingerprint)) hit.push(entry);
+    else if (observable.has(kindOfFingerprint(entry.fingerprint))) stale.push(entry);
+    else unverifiable.push(entry);
+  }
+  return { matched: hit, stale, unverifiable };
+};
 
 const finding = (
   kind: FindingKind,
@@ -859,7 +978,7 @@ const describeMode = (mode: 'shadow' | 'live' | 'none'): string => {
   ].join('\n');
 };
 
-const printFindings = (findings: readonly Finding[]): void => {
+const printFindings = (findings: readonly Finding[], audit: BaselineAudit, mode: 'shadow' | 'live' | 'none'): void => {
   const blocking = findings.filter((f) => f.severity === 'blocking');
   const known = findings.filter((f) => f.severity === 'known');
 
@@ -874,6 +993,40 @@ const printFindings = (findings: readonly Finding[]): void => {
       `\n  Each of these is a documented, deliberate omission. Shrinking KNOWN_DRIFT in\n` +
         `  scripts/verify-schema-drift.ts is how the debt gets paid - add the migration,\n` +
         `  delete the entry, watch the count fall.`,
+    );
+  }
+
+  // Printed before the blocking block on purpose: if the baseline is lying, the
+  // reason the summary line below is about to be wrong is here.
+  console.log(
+    `\nBASELINE AUDIT - ${audit.matched.length} of ${KNOWN_DRIFT.length} known entr(ies) still match` +
+      `${audit.unverifiable.length > 0 ? `, ${audit.unverifiable.length} unverifiable in this mode` : ''}\n`,
+  );
+  if (audit.unverifiable.length > 0) {
+    for (const e of audit.unverifiable) {
+      console.log(`  UNVERIFIED        ${e.fingerprint}`);
+      console.log(
+        `  ${' '.repeat(LABEL_WIDTH)} mode is ${mode === 'none' ? 'DEGRADED' : 'STRICT'}, which cannot observe ` +
+          `${kindOfFingerprint(e.fingerprint)} - NOT a stale entry, and NOT evidence it still exists`,
+      );
+    }
+  }
+  for (const e of audit.stale) {
+    console.log(`  STALE             ${e.fingerprint}`);
+    console.log(
+      `  ${' '.repeat(LABEL_WIDTH)} baselined, but no observed difference matches it. The drift it ` +
+        `documents is GONE.`,
+    );
+  }
+  if (audit.stale.length === 0 && audit.unverifiable.length === 0) {
+    console.log(`  ${'Every entry matched a real, observed difference. The baseline is not hiding anything.'}`);
+  }
+  if (audit.stale.length > 0) {
+    console.log(
+      `\n  A STALE BASELINE ENTRY IS A HOLE, NOT A NOTE. The fingerprint is\n` +
+        `  \`kind|table.column\`, so each entry above is a pre-armed trap: the next real\n` +
+        `  drift on that exact object produces the identical fingerprint, lands in\n` +
+        `  KNOWN_BACKLOG, prints "documented", and this gate exits 0. Delete the entry.`,
     );
   }
 
@@ -991,6 +1144,148 @@ CREATE INDEX "users_last_update_idx" ON "users"("last_update");
   },
 ];
 
+/**
+ * The baseline audit, as pure data.
+ *
+ * A SYNTHETIC baseline, not KNOWN_DRIFT, on purpose. The real list changes
+ * whenever the debt is paid, and a fixture written against the real list rots
+ * into a false failure the moment a line is legitimately deleted - which is
+ * exactly how this file shipped six dead entries in the first place. The real
+ * list is asserted separately, and for real, by `runBaselineSelfcheck` below.
+ *
+ * The cases that matter are the two ways this can be WRONG, and they point in
+ * opposite directions: calling a live entry stale makes the gate unusable, and
+ * calling a dead entry unverifiable reopens the hole.
+ */
+const FIXTURE_LIVE: KnownEntry = {
+  fingerprint: 'index-missing|widgets.widgets_idx',
+  reason: 'fixture: a live entry',
+};
+const FIXTURE_DEAD: KnownEntry = {
+  fingerprint: 'column-type|artists.name',
+  reason: 'fixture: documents a drift that was fixed',
+};
+
+const BASELINE_AUDIT_CASES: readonly {
+  name: string;
+  baseline: readonly KnownEntry[];
+  matched: readonly string[];
+  observable: ReadonlySet<FindingKind>;
+  expect: { matched: number; stale: readonly string[]; unverifiable: readonly string[] };
+}[] = [
+  {
+    name: 'an entry that matched nothing, in an observable kind, is STALE',
+    // This is the six dead `column-type|*` entries, in one line.
+    baseline: [FIXTURE_LIVE, FIXTURE_DEAD],
+    matched: ['index-missing|widgets.widgets_idx'],
+    observable: STRICT_OBSERVABLE,
+    expect: { matched: 1, stale: ['column-type|artists.name'], unverifiable: [] },
+  },
+  {
+    name: 'in DEGRADED mode a dead column-type entry is UNVERIFIABLE, and a dead index entry IS stale',
+    // The offline pass cannot see column types, so failing on the column-type
+    // entry would punish a contributor for having no Postgres. It CAN see a
+    // missing index, so failing on that one is correct. This pair is what keeps
+    // the tripwire from breaking the offline path in either direction: the mode
+    // is what is missing, not the entry.
+    baseline: [FIXTURE_LIVE, FIXTURE_DEAD],
+    matched: [],
+    observable: DEGRADED_OBSERVABLE,
+    expect: {
+      matched: 0,
+      stale: ['index-missing|widgets.widgets_idx'],
+      unverifiable: ['column-type|artists.name'],
+    },
+  },
+  {
+    name: 'a strict run calls the SAME column-type entry stale, not unverifiable',
+    // The complement of the case above, and the reason the design is two sets
+    // rather than one flag.
+    baseline: [FIXTURE_LIVE, FIXTURE_DEAD],
+    matched: [],
+    observable: STRICT_OBSERVABLE,
+    expect: {
+      matched: 0,
+      stale: ['column-type|artists.name', 'index-missing|widgets.widgets_idx'],
+      unverifiable: [],
+    },
+  },
+  {
+    name: 'a fully matched baseline is neither stale nor unverifiable',
+    baseline: [FIXTURE_LIVE],
+    matched: ['index-missing|widgets.widgets_idx'],
+    observable: DEGRADED_OBSERVABLE,
+    expect: { matched: 1, stale: [], unverifiable: [] },
+  },
+];
+
+/**
+ * THE CLOSED HOLE, as a live lock against the CURRENT baseline.
+ *
+ * `column-type|artists.name` sat in KNOWN_DRIFT as dead text for months. This
+ * runs the real severity classifier over the exact differential a real
+ * `artists.name` type drift produces, and requires the result to be BLOCKING.
+ * The instant somebody re-adds that fingerprint to absorb such a drift, the
+ * finding comes back `known`, the gate prints "documented", and this fails.
+ *
+ * The SQL is Prisma's own output shape for the case, which is what the parser
+ * fixture above already pins. What this adds is the SEVERITY, against the real
+ * list rather than a fixture list - the one thing that changed when the six
+ * entries were deleted.
+ */
+const ABSORPTION_LOCKS: readonly { name: string; sql: string; fingerprint: string }[] = [
+  {
+    name: 'a real artists.name type drift is BLOCKING, not absorbed by the baseline',
+    sql: '-- AlterTable\nALTER TABLE "artists" ALTER COLUMN "name" SET DATA TYPE VARCHAR(255);\n',
+    fingerprint: 'column-type|artists.name',
+  },
+];
+
+const runAbsorptionLocks = (): boolean => {
+  let ok = true;
+  for (const lock of ABSORPTION_LOCKS) {
+    const found = parseDifferential(lock.sql).find((f) => f.fingerprint === lock.fingerprint);
+    const pass = found !== undefined && found.severity === 'blocking';
+    if (!pass) ok = false;
+    console.log(`  ${pass ? 'PASS' : 'FAIL'}  ${lock.name}`);
+    if (!pass) {
+      console.log(
+        `        ${lock.fingerprint} -> severity=${found?.severity ?? 'NOT PRODUCED'}` +
+          (found?.severity === 'known'
+            ? '  <- the baseline is absorbing real drift again; delete the KNOWN_DRIFT entry'
+            : ''),
+      );
+    }
+  }
+  return ok;
+};
+
+/**
+ * The live half of the tripwire, and the part that would have caught the six.
+ *
+ * Needs no database: `--from-empty` reads only the schema, and the migration
+ * files are read as text, so the database-free reconciliation runs in the
+ * selftest. That matters because the whole failure being fixed happened on a
+ * machine that DID have a Postgres and nobody looked at the list - the check has
+ * to be somewhere it always runs, and `--selftest` is the step CI runs first and
+ * blocking.
+ */
+const runBaselineSelfcheck = (): boolean => {
+  const schema = readSchemaFacts(prismaDiff(['--from-empty', '--to-schema-datamodel', SCHEMA]));
+  const observed = reconcileTextually(schema, readMigrationFacts());
+  const audit = auditBaseline(
+    new Set(observed.filter((f) => f.severity === 'known').map((f) => f.fingerprint)),
+    DEGRADED_OBSERVABLE,
+  );
+  const ok = audit.stale.length === 0;
+  console.log(
+    `  ${ok ? 'PASS' : 'FAIL'}  KNOWN_DRIFT has no stale entry in the observable kinds` +
+      `  (${audit.matched.length} matched, ${audit.stale.length} stale, ${audit.unverifiable.length} unverifiable)`,
+  );
+  for (const e of audit.stale) console.log(`        STALE: ${e.fingerprint}`);
+  return ok;
+};
+
 const runSelftest = (): void => {
   console.log('selftest: differential parser\n');
   let failures = 0;
@@ -1007,8 +1302,48 @@ const runSelftest = (): void => {
       console.log(`        got:  ${JSON.stringify(got)}`);
     }
   }
-  console.log(`\n${SELFTEST.length - failures}/${SELFTEST.length} passed`);
-  if (failures > 0) process.exitCode = 1;
+  const parserTotal = SELFTEST.length;
+  console.log(`\n${parserTotal - failures}/${parserTotal} differential parser fixtures passed\n`);
+
+  console.log('selftest: baseline audit\n');
+  let auditFailures = 0;
+  for (const c of BASELINE_AUDIT_CASES) {
+    const a = auditBaseline(new Set(c.matched), c.observable, c.baseline);
+    const gotStale = a.stale.map((e) => e.fingerprint).sort();
+    const gotUnverifiable = a.unverifiable.map((e) => e.fingerprint).sort();
+    const ok =
+      a.matched.length === c.expect.matched &&
+      JSON.stringify(gotStale) === JSON.stringify([...c.expect.stale].sort()) &&
+      JSON.stringify(gotUnverifiable) === JSON.stringify([...c.expect.unverifiable].sort());
+    if (!ok) auditFailures += 1;
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${c.name}`);
+    if (!ok) {
+      console.log(
+        `        want: matched=${c.expect.matched} stale=${JSON.stringify([...c.expect.stale].sort())} ` +
+          `unverifiable=${JSON.stringify([...c.expect.unverifiable].sort())}`,
+      );
+      console.log(
+        `        got:  matched=${a.matched.length} stale=${JSON.stringify(gotStale)} ` +
+          `unverifiable=${JSON.stringify(gotUnverifiable)}`,
+      );
+    }
+  }
+
+  // The live check. Needs no database, so it runs everywhere -- which is the
+  // whole point: the six dead entries survived on a machine that had one.
+  if (!runBaselineSelfcheck()) auditFailures += 1;
+
+  console.log('\nselftest: absorption locks\n');
+  let lockFailures = 0;
+  if (!runAbsorptionLocks()) lockFailures += 1;
+  console.log(
+    `\n${ABSORPTION_LOCKS.length - lockFailures}/${ABSORPTION_LOCKS.length} absorption lock(s) passed`,
+  );
+
+  const auditTotal = BASELINE_AUDIT_CASES.length + 1;
+  console.log(`\n${auditTotal - auditFailures}/${auditTotal} baseline audit checks passed`);
+
+  if (failures > 0 || auditFailures > 0 || lockFailures > 0) process.exitCode = 1;
 };
 
 // ---------------------------------------------------------------------------
@@ -1092,7 +1427,16 @@ const main = (): void => {
     a.fingerprint === b.fingerprint ? 0 : a.fingerprint.localeCompare(b.fingerprint),
   );
 
-  printFindings(all);
+  // The tripwire. In a strict run every kind is observable, so an unmatched entry
+  // is stale. In DEGRADED mode only the three kinds reconcileTextually emits are
+  // observable, and an entry of any other kind is reported as unverifiable rather
+  // than failed - the missing thing is the database, not the entry.
+  const audit = auditBaseline(
+    new Set(all.filter((f) => f.severity === 'known').map((f) => f.fingerprint)),
+    mode === 'none' ? DEGRADED_OBSERVABLE : STRICT_OBSERVABLE,
+  );
+
+  printFindings(all, audit, mode);
 
   const blocking = all.filter((f) => f.severity === 'blocking');
   const known = all.filter((f) => f.severity === 'known');
@@ -1107,6 +1451,17 @@ const main = (): void => {
 
   console.log('\n' + '='.repeat(72));
 
+  if (audit.stale.length > 0) {
+    console.log(
+      `FAILED: ${audit.stale.length} STALE baseline entr(ies) - KNOWN_DRIFT documents drift that no ` +
+        `longer exists, and every one of them is a hole in this gate. Delete the line(s) listed under ` +
+        `BASELINE AUDIT. (mode ${mode === 'none' ? 'DEGRADED (columns+indexes only)' : 'STRICT'}; ` +
+        `${blocking.length} blocking drift, ${known.length} known-baselined)`,
+    );
+    process.exitCode = 3;
+    return;
+  }
+
   if (blocking.length > 0) {
     console.log(
       `FAILED: ${blocking.length} blocking drift item(s), ${known.length} known-baselined, mode ${mode === 'none' ? 'DEGRADED (columns+indexes only)' : 'STRICT'}`,
@@ -1116,9 +1471,10 @@ const main = (): void => {
   }
 
   console.log(
-    `OK: no drift outside the ${known.length} known-baselined item(s). Mode: ${
-      mode === 'none' ? 'DEGRADED (columns+indexes only - types, nullability, keys and enums NOT checked)' : 'STRICT'
-    }`,
+    `OK: no drift outside the ${known.length} known-baselined item(s), and all ${audit.matched.length} ` +
+      `baseline entr(ies) still match a real difference. Mode: ${
+        mode === 'none' ? 'DEGRADED (columns+indexes only - types, nullability, keys and enums NOT checked)' : 'STRICT'
+      }`,
   );
 };
 

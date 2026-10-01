@@ -8,8 +8,9 @@ repeated here.
 
 - `prismaClient.ts` — the singleton. `prisma` is `$extends`-wrapped so **every** model
   operation goes through `withDbRetry` (`:60-68`). `isTransientDbError` (`:5-19`) is the
-  allow-list: P1001/P1002/P1017 and four connection messages. Anything else is thrown,
-  not retried.
+  allow-list: P1001/P1002/P1017 and **five** connection messages (`ECONNRESET`,
+  `ETIMEDOUT`, `connection closed`, `Connection terminated`, `Can't reach database
+  server`). Anything else is thrown, not retried.
 - `prisma/schema.prisma` — the model of record for the **client**, not for the
   database. See "read the live schema" below.
 - `prisma/migrations/<timestamp>_<name>/migration.sql` — 19 migrations.
@@ -86,8 +87,9 @@ leaked a live `abuse_flags` row forward and cost CI seven failing tests
 **Cast your bind parameters.** Prisma sends `$1` as an **untyped** parameter and
 Postgres cannot resolve an untyped parameter in an `INSERT VALUES list` — the uncast
 form fails with 42804 while the identical query with literals succeeds. That is why
-`seedUser` and `seedPlays` spell out `::int4`, `::varchar`, `::int8`, `::timestamptz`
-and `::"PlaySource"` (`:78-127`). It is the most common failure in this suite.
+`seedUser` spells out `::int4`, `::varchar`, `::int8` and `seedPlays` spells out
+`::int4`, `::text` ×3, `::timestamptz` and `::"PlaySource"` (`:78-127`). It is the most
+common failure in this suite.
 
 ## 3. Read the live schema, not the Prisma model
 
@@ -113,9 +115,18 @@ It prefers the executed comparison — replay the migrations folder into a shado
 database and diff the result against the schema, which also catches index, constraint,
 foreign-key, enum, type and nullability drift. It falls back to `--from-url` when
 `SHADOW_DATABASE_URL` is unset, and degrades to a textual reconstruction rather than
-crashing when no database is available (`verify-schema-drift.ts:27-70`). The degradation
+crashing when no database is available (`verify-schema-drift.ts:58-81`). The degradation
 is deliberate: a check that only runs when a Postgres happens to be running is a check
 contributors learn to skip.
+
+**A baseline entry that matches nothing FAILS the gate** (exit 3, distinct from exit 1
+for real drift). Six `column-type|*` entries sat in that list documenting VARCHAR/TEXT
+widths that migration `20260826095158_text_name_columns` had already fixed, and because
+the fingerprint is `kind|table.column` each one silently absorbed the *next* real drift
+on the same column. The check is mode-aware: with no database the run cannot observe
+types, nullability, defaults, constraints or enums at all, so an entry of one of those
+kinds is reported as UNVERIFIED rather than failed. An unavailable database is a stated
+reason; a stale baseline is a defect.
 
 Corollary: a **migration file** can outrank the Prisma model. Trust the SQL, and trust
 `migrate diff` over your reading of the schema.
@@ -155,6 +166,23 @@ and its closing block fails the suite if a `catch { return [] }` appears. That i
 shape to copy: **test both directions.** A genuine empty result IS empty, and a database
 failure is NOT.
 
+**Sibling queries must agree, and a clause one of them lost is silent.** The three
+`whoKnowsRepository` friend queries once omitted the
+`NOT EXISTS (SELECT 1 FROM abuse_flags …)` clause their three indexed siblings carried,
+so a banned account vanished from the guild leaderboard and stayed on the caller's
+personal "your friends also listen to this" list — one moderation decision answered two
+ways, from two queries, about the same user. All six now carry it
+(`repositories/whoKnowsRepository.ts:29, 49, 68` and `:104, 134, 164`), the reasoning is
+in the file at `:78-86`, and it is asserted for the SQL shape of all six in
+`whoKnowsRepository.scopedReads.test.ts:374-394`.
+
+Unlike the P2022 defects above, a missing clause **parses and executes perfectly** — no
+mock and no typechecker can see it, because nothing about it is invalid. The only
+detector that works is a test that compares the queries against each other, which is why
+the db suite asserts it with real rows and a seeded flag
+(`whoKnowsRepository.db.test.ts:37-41`) rather than only checking the text. When you add
+a seventh query to a family, ask what the other six carry that it does not.
+
 ## 5. Every `$queryRaw` needs a `*.db.test.ts` that parses
 
 The `raw-query-without-db-test` ratchet is at **0** (`scripts/debt-budget.json:9`), and
@@ -162,7 +190,7 @@ The `raw-query-without-db-test` ratchet is at **0** (`scripts/debt-budget.json:9
 of raw-query count, for the 19 files that already have a matching `*.db.test.ts`.
 
 The rule is **overflow, not presence**, and the arithmetic is three lines
-(`scripts/count-debt.ts:399-404`):
+(`scripts/count-debt.ts:400-403`):
 
 ```
 allowed = hasDbTest(basename) ? (baseline[rel] ?? 0) : 0
@@ -199,38 +227,47 @@ once sat there unexecuted. Run them with `npm run test:db`. They are serial
 ## 6. BigInt is not decoration, and the guards are not optional
 
 `BigInt` columns in the schema: `users.discordUserId` and `.dmChannelId`;
-`user_fm_settings.footerOptions` / `.buttons`; `guild.guild_id`; `channel.channel_id`
-and `.guild_id`; `guild_disabled_command.guild_id`; the Deezer id columns on `artists`
-and `albums`; `user_plays.user_play_id`; `guild_user.guild_id`; `user_crowns.guild_id`;
-`guild_music_settings.guild_id`; `bot_scrobble_opt_in.discord_user_id`; and
-`guild_autopost.guild_id` / `.channel_id` (`schema.prisma:35, 44, 72, 73, 84, 108, 109,
-121, 143, 179, 211, 287, 323, 343, 356, 373, 374`).
+`user_fm_settings.footerOptions` / `.buttons`; `guild.guild_id`; `guild.crownRoles` (a
+`BigInt[]`, and the one column whose elements are user-supplied — see `setCrownRole`
+below); `channel.channel_id` and `.guild_id`; `guild_disabled_command.guild_id`; the
+Deezer id columns on `artists` and `albums`; `user_plays.user_play_id`;
+`guild_user.guild_id`; `user_crowns.guild_id`; `guild_music_settings.guild_id`;
+`bot_scrobble_opt_in.discord_user_id`; and `guild_autopost.guild_id` / `.channel_id`
+(`schema.prisma:35, 44, 72, 73, 84, 95, 108, 109, 121, 143, 179, 211, 287, 323, 343, 356,
+373, 374`). That list is exhaustive — a `BigInt` column not on it does not exist.
 
 Every guild id and Discord id arrives from the interaction layer as a **string**, and
 `BigInt('abc')` **throws** `SyntaxError`. So:
 
 - **Guard every external id before it reaches a query.** `crownRepository.safeBigInt`
-  (`repositories/crownRepository.ts:18-33`) validates with `/^\d+$/` and returns `null`,
-  and its callers return an empty answer. `guildRepository` has the same guard as a
-  module-level `toGuildId` (`repositories/guildRepository.ts:11-24`), and both files
-  contain exactly ONE `BigInt()` call — inside the guard — so a new writer has no
-  second conversion to reach for by accident. `albumService.parseDiscordUserId`
-  (`src/bot/services/albumService.ts:73-80`) is the same shape and says why in the
-  comment: a malformed id is a **caller** bug, and laundering it into "database
-  unavailable" sends the operator to look at Postgres instead of at the caller. Same
-  reasoning as `parseGuildId` in `genreService` / `musicIntelligenceService` and
-  `toGuildId` in `countryService`.
+  (`repositories/crownRepository.ts:18-33`) validates with `/^\d+$/` and returns `null`.
+  `guildRepository` has the same guard as a module-level `toGuildId`
+  (`repositories/guildRepository.ts:16-24`). Both files contain exactly **one**
+  `BigInt()` call — `crownRepository.ts:21` and `guildRepository.ts:19`, each inside its
+  guard — so a new writer has no second conversion to reach for by accident.
+  `albumService.parseDiscordUserId` (`src/bot/services/albumService.ts:73-80`) is the
+  same shape and says why in the comment: a malformed id is a **caller** bug, and
+  laundering it into "database unavailable" sends the operator to look at Postgres
+  instead of at the caller. Same reasoning as `parseGuildId` in `genreService` /
+  `musicIntelligenceService` and `toGuildId` in `countryService`.
 - **A method with an empty answer returns it; a method that must produce a row
-  raises.** That is the whole rule for a malformed id, and it is why `killCrown`,
-  `removeUserCrowns` and `setCrownBlock` answer `false` / `0` / do-nothing while
-  `createCrown` and `replaceCrown` raise a `TypeError` that names the ARGUMENT.
+  raises.** That is the whole rule for a malformed id, and the two halves are two
+  different guards, not two styles of one. `safeBigInt` (`:18-33`) is the first;
+  `requireGuildId` (`repositories/crownRepository.ts:35-52`) is the second, and it
+  throws a `TypeError` that names the **argument**. So `killCrown`, `removeUserCrowns`
+  and `setCrownBlock` answer `false` / `0` / do-nothing, while `createCrown` and
+  `replaceCrown` raise, and `setCrownRole` raises for its own argument the same way
+  (`:471-477`) — a bad **role** id is also a caller bug, and it used to be stored as
+  garbage.
   `replaceCrown` must not answer `null`: that value already means "a concurrent
   steal got there first", and reusing it for a bad argument would send the caller
   round the re-read loop for a crown that was never written
-  (`crownRepository.reads.test.ts:940-1023`).
+  (`crownRepository.reads.test.ts:940-1023`). Reusing an existing return value to mean
+  a new failure is the shape to watch for: it does not raise, it sends the caller round
+  a loop.
 - **A raw bigint column is not a JS number.** Raw queries cast explicitly —
   `c.guild_id::text as "guildId"` and `u.discord_user_id::text as "discordUserId"`
-  (`crownRepository.ts:33, 43, 197, 207, 232, 263, 273, 409`) — and every `map` then
+  (`crownRepository.ts:61, 71, 229, 239, 264, 295, 305, 451`) — and every `map` then
   runs `Number(...)` on the value (`whoKnowsRepository.ts:36`, `trackService.ts:370,
   403, 517`). Drop the `Number()` and a leaderboard entry becomes the string `"200"`
   and is compared and sorted as text.
@@ -238,15 +275,16 @@ Every guild id and Discord id arrives from the interaction layer as a **string**
 Which runtime type a raw bigint actually arrives as is not something a mock can pin:
 Prisma `$queryRaw` yields a JS `BigInt`, while one scoped-reads fixture builds a
 `string` on the node-postgres rule (`whoKnowsRepository.scopedReads.test.ts:24-29`) and
-another declares the type `bigint` (`whoKnowsRepository.db.test.ts:632`). Keep the
-`Number()` — the real-DB suite asserts the *outcome*, `typeof playcount === 'number'`
-(`trackService.db.test.ts:200-206`), which is the assertion that survives either.
+another declares the type `bigint` and asserts it (`whoKnowsRepository.db.test.ts:645-650`).
+Keep the `Number()` — the real-DB suite asserts the *outcome*, `typeof playcount ===
+'number'` (`trackService.db.test.ts:200-206`), which is the assertion that survives
+either.
 
 ## 7. Two named error classes you will meet
 
 - **Prisma codes.** `P2022` — a column that does not exist (§3). `P2025` — an
   `update` against a missing primary key; swallowing it tells the caller the crown is
-  deactivated when it never was (`crownRepository.reads.test.ts:893-898`).
+  deactivated when it never was (`crownRepository.reads.test.ts:913-916`).
 - **`SourceUnavailableError`** (`src/domain/models/sourceUnavailableError.ts`) and its
   subclass `LastFmUnavailableError`. Distinguish with `isSourceUnavailable`, which
   matches on `err.name` rather than `instanceof` **on purpose**: the same class is loaded

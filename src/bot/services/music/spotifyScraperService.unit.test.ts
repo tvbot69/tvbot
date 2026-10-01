@@ -72,8 +72,44 @@ describe('SpotifyScraperService.isCloseMatch', () => {
     expect(closeMatch(svc(), 'Radiohead', 'Airbag', 'Radiohead', 'Airbag (Remastered)')).toBe(true);
   });
 
-  it('accepts when the artist matches and the title differs slightly', () => {
-    expect(closeMatch(svc(), 'Radiohead', 'Airbag', 'Radiohead', 'Airbag Redux')).toBe(true);
+  it('REJECTS the right artist with a DIFFERENT title, which the loose tail used to accept', async () => {
+    // THE INVERSION. This test used to read "accepts when the artist matches and
+    // the title differs slightly" and assert `true` for ('Radiohead','Airbag')
+    // against ('Radiohead','Airbag Redux'), pinning the predicate's final
+    // `return cExpA === cActA` — which accepted ANY title once the artist
+    // matched.
+    //
+    // That is the wrong answer for both of this class's callers. `getTrackPreview`
+    // and `extractPreviewFromNextData` both ask "is this the recording the user
+    // asked for", and Spotify's search returns the NEAREST match rather than the
+    // exact one — so a "Radiohead Creep" query routinely returns "Karma Police",
+    // which the old tail accepted and handed back as a working preview button.
+    // `previewResolverService.validateTrack` was later added around this file to
+    // close the Spotify rung inside `resolve`, and its own test file recorded
+    // this predicate as still loose; the predicate itself was never tightened.
+    //
+    // The behaviour a user would see: asking for a preview of one Radiohead song
+    // and being handed a different Radiohead song, with no indication.
+    const svc = new SpotifyScraperService();
+    // A right-artist row whose title shares nothing with the expected one.
+    expect(closeMatch(svc, 'Radiohead', 'Creep', 'Radiohead', 'Karma Police')).toBe(false);
+    expect(closeMatch(svc, 'Radiohead', 'Airbag', 'Radiohead', 'Let Down')).toBe(false);
+    // And the same pair the old test used, which is now decided by the
+    // CONTAINMENT rule rather than by the loose tail: 'Airbag Redux' contains
+    // 'Airbag', so this one is still accepted — by a rule that was always
+    // intended, not by the one being removed.
+    expect(closeMatch(svc, 'Radiohead', 'Airbag', 'Radiohead', 'Airbag Redux')).toBe(true);
+  });
+
+  it('rejects a row with NO title to corroborate against', async () => {
+    // The other half of the strictness. Empty strings clean to '', so a missing
+    // title or artist must not satisfy a containment test. `getPreviewById`
+    // reaches `extractPreviewFromNextData` with empty expectations, and this is
+    // the line that stops that path claiming a match.
+    const svc = new SpotifyScraperService();
+    expect(closeMatch(svc, '', '', 'Radiohead', 'Airbag')).toBe(false);
+    expect(closeMatch(svc, 'Radiohead', 'Airbag', '', 'Airbag')).toBe(false);
+    expect(closeMatch(svc, 'Radiohead', 'Airbag', 'Radiohead', '')).toBe(false);
   });
 
   it('REJECTS a different artist even when the title matches exactly', () => {

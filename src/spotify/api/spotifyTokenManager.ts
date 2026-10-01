@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import { ConfigData } from '@config/configData';
 import { Logger } from '@domain/logger';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
@@ -8,47 +7,147 @@ interface CachedToken {
   expiresAt: number;
 }
 
+/**
+ * The two classes of token failure, and the only reason they are separated.
+ *
+ * `accounts.spotify.com/api/token` splits cleanly: a 4xx says the credential
+ * itself is unacceptable, and a 429/5xx says the service is having a moment.
+ * Only one of those can fix itself inside a request, so only one of them earns
+ * a short retry.
+ */
+type TokenFailure = 'credential-rejected' | 'transient';
+
 const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
-const ANON_TOKEN_ENDPOINT = 'https://open.spotify.com/api/token';
-const WEB_PLAYER_PAGE = 'https://open.spotify.com/';
-const WEB_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
 const REFRESH_MARGIN_MS = 60000;
-const SECRET_CACHE_MS = 24 * 3600 * 1000;
 
 /**
- * Derives the anon-token TOTP secret from the `secret` int array scraped out
- * of the web-player bundle (LavaSrc SpotifyTokenTracker): each byte XORed
- * with ((index % 33) + 9), decimal-concatenated, UTF-8 hex-encoded.
+ * How long a reported failure is remembered before the credential is retried.
+ *
+ * This exists because the anon rung that used to sit behind this one is gone
+ * (see the class docstring). Before that, a token-endpoint 500 was answered
+ * half the time from the anon token's cache, so a sustained outage cost one
+ * auth request per two lookups. With a single path left it would cost one auth
+ * request per lookup, and every artwork miss is a lookup.
  */
-export function transformSpotifySecret(secret: number[]): string {
-  const decimal = secret.map((b, i) => String((b ^ ((i % 33) + 9)) & 0xff)).join('');
-  return Buffer.from(decimal, 'utf8').toString('hex');
+const TRANSIENT_BACKOFF_MS = 30_000;
+
+/**
+ * A wrong secret does not become a right one by waiting, so it gets a backoff
+ * long enough that the auth endpoint is not hammered for fifteen minutes on a
+ * misconfiguration — and long enough that the operator has a window in which the
+ * fix lands without a restart. It is not permanent: this is a rate limit on a
+ * dead credential, not a decision to stop trying.
+ */
+const CREDENTIAL_BACKOFF_MS = 15 * 60_000;
+
+/**
+ * The vendor's own account of why a credential was refused.
+ *
+ * Read from the BODY rather than inferred from the status, because the status
+ * alone is a worse answer than the vendor gives. MEASURED 2026-09-30 with a
+ * deliberately wrong secret: HTTP **400** with
+ * `{"error":"invalid_client","error_description":"Invalid client secret"}` — not
+ * 401. The old comment here claimed 401, and it was wrong in the direction that
+ * matters: it made a 400 look like a transient blip.
+ *
+ * `sensitive` is the submitted values. The description is a fixed vendor string
+ * today, but this repo is public and a future vendor that echoes the submitted
+ * secret would put it in a log file. So it is checked, not trusted, and this
+ * repo has a rule about printing secrets that outranks a tidy message.
+ */
+async function readTokenError(response: Response, sensitive: readonly string[]): Promise<string> {
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch {
+    return '(no JSON body)';
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return '(non-object body)';
+  }
+  const body = parsed as { error?: unknown; error_description?: unknown };
+  const code = typeof body.error === 'string' ? body.error : 'unknown_error';
+  let description = typeof body.error_description === 'string' ? body.error_description : '';
+  for (const value of sensitive) {
+    if (value.length >= 4 && description.includes(value)) {
+      description = '<redacted: the vendor echoed a submitted credential>';
+      break;
+    }
+  }
+  return description ? `${code}: ${description.slice(0, 80)}` : code;
 }
 
-/** RFC-6238 TOTP (SHA-1, 30s step, 6 digits) over the hex secret. */
-export function generateSpotifyTotp(hexSecret: string, nowMs: number): string {
-  const key = Buffer.from(hexSecret, 'hex');
-  const counter = Math.floor(nowMs / 1000 / 30);
-  const msg = Buffer.alloc(8);
-  msg.writeBigUInt64BE(BigInt(counter));
-  const hmac = createHmac('sha1', key).update(msg).digest();
-  const offset = (hmac[hmac.length - 1] as number) & 0x0f;
-  const code =
-    (((hmac[offset] as number) & 0x7f) << 24) |
-    (((hmac[offset + 1] as number) & 0xff) << 16) |
-    (((hmac[offset + 2] as number) & 0xff) << 8) |
-    ((hmac[offset + 3] as number) & 0xff);
-  return String(code % 1_000_000).padStart(6, '0');
+/**
+ * A wrong credential is a config fault; everything else is the service's mood.
+ *
+ * MEASURED: 400 `invalid_client` for a bad secret. 401 and 403 are grouped
+ * with it on the reading that a token endpoint answering "your Basic auth is
+ * not acceptable" is describing the credential and nothing else — that is a
+ * judgement, NOT a probe, and it is written down here so the next reader knows
+ * which of the three is evidence.
+ *
+ * A 429 is rate limiting and a 5xx is an outage. A 404 would mean the endpoint
+ * moved, which is also not the credential's fault — so it stays transient and
+ * the error line says so rather than blaming the pool.
+ */
+function classifyTokenFailure(status: number): TokenFailure {
+  if (status === 400 || status === 401 || status === 403) return 'credential-rejected';
+  return 'transient';
 }
 
-let cachedSecretHex: { hex: string; at: number } | null = null;
-
+/**
+ * Client-credentials tokens, with per-credential caching, rotation and failure
+ * reporting. This is the ONLY way this bot authenticates to Spotify.
+ *
+ * ## The anon web-player token was deleted, not kept as a fallback
+ *
+ * This class used to fall back to a reverse-engineered account-free token: the
+ * `open.spotify.com` landing page → the `mobile-web-player` JS bundle → a
+ * `"secret":[<digits>]` array → `transformSpotifySecret` (XOR with
+ * `(i % 33) + 9`) → an RFC-6238 TOTP → `open.spotify.com/api/token?reason=init`.
+ * It was the credential-less path AND the degraded-mode backup.
+ *
+ * It has been dead, silently, and stayed dead while thirteen tests went on
+ * passing. Probed live 2026-09-30: the landing page answers 200 and the bundle
+ * fetches fine (1,375,445 characters, 7 literal occurrences of `secret`), but
+ * there are **zero** matches for `"secret":[<digits>]` — so the scrape yields
+ * nothing and the mint is never attempted. The vendor bundle is the same
+ * (1,943,394 characters, 23 occurrences, zero matches), so excluding it was
+ * never the problem. The secret is still in the player, but it is no longer an
+ * array: today's bundle carries `[{secret:'…',version:61}, …]` and picks one by
+ * build version.
+ *
+ * Deleting it is the honest reading of the repo's own rules, and the reason is
+ * the *history* rather than the current state:
+ *   - §3.8 delete scrapped approaches completely, no flags, no legacy rungs.
+ *   - §2.1 A2: no dead feature presents itself as working. This one presented
+ *     itself as a second line of defence while providing none, which is worse
+ *     than having no fallback, because the code reads as resilient.
+ *   - The failure mode was total silence. The scrape returning nothing logged one
+ *     DEBUG line, so the one symptom of a dead rung was "Spotify quietly stopped
+ *     answering" and nothing else.
+ *   - Repairing it would mean tracking a version constant that is internal,
+ *     undocumented and rotates with Spotify's build. It has already changed
+ *     representation once — from the digit array to a version-picked string —
+ *     and that change produced no signal whatsoever. That is the whole argument
+ *     against betting the rung on it a second time.
+ *   - The only configuration it served is credentials being absent, which
+ *     `envValidator` already reports at boot, as a WARN, through the same
+ *     `ConfigData` import that builds the pool this class reads.
+ *
+ * `getToken()` therefore has one path. A token it cannot obtain is reported (at
+ * ERROR for a refused request, WARN for one that never arrived) and answered
+ * with `null` — which `spotifySearchApi` turns into a raised
+ * `SpotifyUnavailableError`, i.e. "we do not know", not "this album has no
+ * tracks". `getToken()` must never throw for that reason: a throw that is not a
+ * `SpotifyUnavailableError` is caught upstream and becomes the `null` that the
+ * artwork cascade caches as `'none'`.
+ */
 export class SpotifyTokenManager {
   private activeIndex: number = 0;
   private readonly cachedTokens = new Map<number, CachedToken>();
   private readonly inflightRequests = new Map<number, Promise<string | null>>();
-  private anonToken: CachedToken | null = null;
-  private anonInflight: Promise<string | null> | null = null;
+  private readonly failureBackoff = new Map<number, { reason: TokenFailure; until: number }>();
 
   private getCredentials(): Array<{ key: string; secret: string }> {
     const config = ConfigData.Data.spotify;
@@ -81,9 +180,13 @@ export class SpotifyTokenManager {
   public async getToken(): Promise<string | null> {
     const creds = this.getCredentials();
     if (creds.length === 0) {
-      // No client credentials configured — the anon web-player token is the
-      // only path (previously this returned null and killed all Spotify).
-      return this.getAnonToken();
+      // Already reported: `ConfigData` calls `assertValidEnvironment()` at
+      // import, which pushes "Spotify credentials missing … will be disabled"
+      // through `Logger.warn`. Re-warning here would duplicate a boot line on a
+      // path that runs once per Spotify lookup. What this method owes the caller
+      // is the honest answer — null, meaning no token — and no network traffic
+      // pretending otherwise.
+      return null;
     }
 
     // Capture the index. `rotateCredential()` runs on every 429, so by the
@@ -98,40 +201,66 @@ export class SpotifyTokenManager {
       return cached.accessToken;
     }
 
+    // A failure already reported for THIS credential. Checked before the
+    // inflight map so a burst of concurrent callers during an outage costs one
+    // round trip, not one each.
+    const backoff = this.failureBackoff.get(index);
+    if (backoff && backoff.until > Date.now()) {
+      return null;
+    }
+
     const inflight = this.inflightRequests.get(index);
     if (inflight) {
       return inflight;
     }
 
-    // Credential failure no longer throws up the stack (which surfaced as a
-    // command crash) — it degrades to the anon token, then to null.
-    const req = this.requestToken(cred.key, cred.secret, index)
-      .then((token): string | null => token)
-      .catch(() => this.getAnonToken())
-      .finally(() => {
-        this.inflightRequests.delete(index);
-      });
+    // `requestToken` reports its own failures and answers null rather than
+    // throwing, so there is no `.catch()` here to hide one. That `.catch()` is
+    // exactly how a DNS blip used to produce no log line at all.
+    const req = this.requestToken(cred.key, cred.secret, index).finally(() => {
+      this.inflightRequests.delete(index);
+    });
 
     this.inflightRequests.set(index, req);
     return req;
   }
 
-  private async requestToken(clientId: string, clientSecret: string, index: number): Promise<string> {
-    const response = await fetchWithTimeout(TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-      },
-      body: 'grant_type=client_credentials',
-    });
+  private async requestToken(clientId: string, clientSecret: string, index: number): Promise<string | null> {
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(TOKEN_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+        },
+        body: 'grant_type=client_credentials',
+      });
+    } catch (err) {
+      // A DNS failure, a refused connection or a timeout never reached Spotify,
+      // so there is no status to report and nothing about the credential can be
+      // concluded. That is the definition of a transient fault and it gets the
+      // short backoff.
+      this.rememberFailure(index, 'transient');
+      Logger.warn({ err }, `[Spotify] Token request for credential #${index + 1} never reached accounts.spotify.com`);
+      return null;
+    }
 
     if (!response.ok) {
-      Logger.error(`Spotify token request failed with HTTP ${response.status} for credential #${index + 1}`);
-      throw new Error(`Spotify token request failed (${response.status})`);
+      const detail = await readTokenError(response, [clientId, clientSecret]);
+      const reason = classifyTokenFailure(response.status);
+      this.rememberFailure(index, reason);
+      Logger.error(
+        `[Spotify] Token request failed with HTTP ${response.status} for credential #${index + 1} (${detail})` +
+          (reason === 'credential-rejected'
+            ? ' — the credential was refused, not throttled. This is a config fault, so it is not retried as a blip.'
+            : ' — treated as a transient fault; the credential is kept and retried.'),
+      );
+      return null;
     }
 
     const json = (await response.json()) as { access_token: string; expires_in: number };
+    this.failureBackoff.delete(index);
     const tokenObj: CachedToken = {
       accessToken: json.access_token,
       expiresAt: Date.now() + json.expires_in * 1000 - REFRESH_MARGIN_MS,
@@ -140,100 +269,19 @@ export class SpotifyTokenManager {
     return tokenObj.accessToken;
   }
 
+  private rememberFailure(index: number, reason: TokenFailure): void {
+    this.failureBackoff.set(index, {
+      reason,
+      until: Date.now() + (reason === 'credential-rejected' ? CREDENTIAL_BACKOFF_MS : TRANSIENT_BACKOFF_MS),
+    });
+  }
+
   public invalidate(): void {
-    this.cachedTokens.delete(this.activeIndex);
-    this.anonToken = null;
-  }
-
-  /**
-   * Anonymous web-player token (LavaSrc SpotifyTokenTracker flow): the TOTP
-   * secret is scraped from the `mobile-web-player` bundle once a day, then
-   * `api/token?reason=init&productType=web-player` mints an account-free
-   * bearer good for public catalog endpoints. Credential-less fallback AND
-   * degraded-mode backup when client credentials fail.
-   */
-  private async getAnonToken(): Promise<string | null> {
-    if (this.anonToken && this.anonToken.expiresAt > Date.now()) {
-      return this.anonToken.accessToken;
-    }
-    if (!this.anonInflight) {
-      this.anonInflight = this.requestAnonToken().finally(() => {
-        this.anonInflight = null;
-      });
-    }
-    return this.anonInflight;
-  }
-
-  private async requestAnonToken(): Promise<string | null> {
-    const hex = await this.fetchAnonSecretHex();
-    if (!hex) return null;
-    const now = Date.now();
-    const totp = generateSpotifyTotp(hex, now);
-    const endpoint = `${ANON_TOKEN_ENDPOINT}?reason=init&productType=web-player&totp=${totp}&totpVer=7&ts=${now}`;
-    try {
-      const res = await fetchWithTimeout(endpoint, undefined, 10000);
-      if (!res.ok) {
-        Logger.warn({ status: res.status }, '[Spotify] Anon token request failed');
-        return null;
-      }
-      const data = (await res.json()) as {
-        accessToken?: string;
-        accessTokenExpirationTimestampMs?: number;
-        error?: unknown;
-      };
-      if (!data.accessToken || data.error) return null;
-      this.anonToken = {
-        accessToken: data.accessToken,
-        expiresAt: (data.accessTokenExpirationTimestampMs ?? now + 3600000) - REFRESH_MARGIN_MS,
-      };
-      Logger.info('[Spotify] Anon web-player token acquired (credential fallback)');
-      return data.accessToken;
-    } catch (err) {
-      Logger.debug({ err }, '[Spotify] Anon token fetch exception');
-      return null;
-    }
-  }
-
-  private async fetchAnonSecretHex(): Promise<string | null> {
-    if (cachedSecretHex && Date.now() - cachedSecretHex.at < SECRET_CACHE_MS) {
-      return cachedSecretHex.hex;
-    }
-    try {
-      const page = await fetchWithTimeout(WEB_PLAYER_PAGE, { headers: { 'User-Agent': WEB_UA } }, 10000);
-      if (!page.ok) return null;
-      const html = await page.text();
-      const scripts = [...html.matchAll(/src="([^"]*mobile-web-player[^"]*\.js)"/g)]
-        .map((m) => m[1])
-        .filter((src): src is string => !!src && !src.includes('vendor'));
-      for (const src of scripts) {
-        try {
-          const jsUrl = new URL(src, WEB_PLAYER_PAGE).toString();
-          const jsRes = await fetchWithTimeout(jsUrl, undefined, 15000);
-          if (!jsRes.ok) continue;
-          const js = await jsRes.text();
-          const secretMatch = js.match(/"secret":\[([\d,]+)\]/);
-          const nums = secretMatch?.[1]?.split(',').map(Number).filter((n) => Number.isFinite(n));
-          if (!nums || nums.length === 0) continue;
-          const hex = transformSpotifySecret(nums);
-          cachedSecretHex = { hex, at: Date.now() };
-          return hex;
-        } catch {
-          continue;
-        }
-      }
-      return null;
-    } catch (err) {
-      // CORRECT AS IS. This is the LAST link in a documented fallback chain,
-      // and every layer above already degrades visibly: `requestAnonToken`
-      // answers null, and the client-credential path that runs before this one
-      // logs its own failures. A null here means "no anon token", which the
-      // callers turn into `SpotifyUnavailableError('credentials not configured')`
-      // — a raised, un-cacheable "we do not know", not a claim about the
-      // catalogue. It is worth one line anyway, because the secret is scraped
-      // from a web bundle that can change without warning, and when that happens
-      // the ONLY symptom is that Spotify silently stops answering.
-      Logger.debug({ err }, '[Spotify] Anon web-player secret could not be scraped');
-      return null;
-    }
+    const index = this.activeIndex;
+    this.cachedTokens.delete(index);
+    // The backoff goes too, or the retry that a 401-driven `invalidate()` exists
+    // to trigger would be swallowed by the backoff and answer null — turning a
+    // recoverable "this bearer expired" into a 30-second or 15-minute outage.
+    this.failureBackoff.delete(index);
   }
 }

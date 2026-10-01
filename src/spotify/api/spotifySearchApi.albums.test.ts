@@ -20,11 +20,14 @@ import { Logger } from '@domain/logger';
  *     flatten into a miss: a quoted search that 400s says nothing about the
  *     unquoted one that follows it.
  *
- * VENDOR ASSUMPTION encoded here: Spotify's search accepts the quoted field
- * syntax `album:"x" artist:"y"` on `/v1/search`, and a search for an album
- * returns album objects whose `id` is directly fetchable from `/v1/albums/{id}`.
- * That is ordinary Web API behaviour, but nothing in this file checks it against
- * the live API, so it carries the flag.
+ * VENDOR ASSUMPTIONS encoded here, and what the live probe made of them
+ * (`scripts/liveVerify.ts`, 2026-09-30):
+ *   - Spotify's search accepts the quoted field syntax `album:"x" artist:"y"` on
+ *     `/v1/search`, and a search result's `id` is directly fetchable from
+ *     `/v1/albums/{id}`. CONFIRMED end to end through the production class:
+ *     `searchAndGetFullAlbum('Geogaddi', 'Boards of Canada')` resolved the album,
+ *     and it reported `total_tracks` 23 with 3 images. The selection logic below
+ *     is ordinary Web API behaviour, so the doubles are the right shape.
  */
 
 const jsonResponse = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -333,25 +336,33 @@ describe('searchAndGetFullAlbum — the two rungs are genuinely independent', ()
 });
 
 /**
- * The tracklist limit, which is the one place a measured ceiling is MISSING.
+ * The tracklist limit — the one measured ceiling that was MISSING, and is no
+ * longer.
  *
- * `spotifyApiLimits.ts` carries a live probe log for `/v1/search`,
- * `/v1/artists/{id}/albums` and the `q` length, and all three say the server
- * rejects limit>10 while the documentation says 50. `/v1/albums/{id}/tracks` is
- * NOT in that log, and this method sends it `Math.min(limit, 50)` with no clamp —
- * and `albumService` calls it with 50.
+ * `spotifyApiLimits.ts` carried a live probe log for `/v1/search`,
+ * `/v1/artists/{id}/albums` and the `q` length, and did not cover
+ * `/v1/albums/{id}/tracks`, which this method sent `Math.min(limit, 50)` with no
+ * lower bound while `albumService` called it with 50. The note here used to say
+ * "whether the server actually rejects 50 here is still UNVERIFIED — I have no
+ * network access and did not probe it", which is the state it was in. It is
+ * measured now (2026-09-30, `scripts/liveVerify.ts`; full table in
+ * `spotifyApiLimits.ts`):
  *
- * So the 400-is-a-lie shape that the `/v1/artists/{id}/albums` fix removed used
- * to be reachable here too — a 4xx treated as an ANSWER — and worse, the branch
- * that did it (`if (res.status < 500) return []`) was satisfied by a 200 as
- * well, so the method reported "this album has no tracks" for every album and
- * the code below it was dead. It is now `=== 404`: a 404 is the one genuine
- * absence, and every other non-200 raises. Whether the server actually rejects
- * 50 here is still UNVERIFIED — I have no network access and did not probe it.
- * What is verified is that the code sends 50, and that a rejection is now loud
- * rather than an empty tracklist.
+ *   GET /v1/albums/{id}/tracks, on a 199-track album
+ *     limit=50       -> 200, 50 items, "total": 199. Accepted AND HONOURED —
+ *                       a full page came back, so 50 is not being shortened.
+ *     limit=100      -> 400 {"error":{"status":400,"message":"Invalid limit"}}
+ *     limit=0        -> 400 "Invalid limit"   (which is why the clamp has a floor)
+ *     offset=999999  -> 200, 0 items, "next": null. Paging PAST the end is an
+ *                       empty page and never a rejection, so an empty tracklist
+ *                       is not evidence of a bad offset — and a method that ever
+ *                       paged must not treat its own empty page as a failure.
+ *
+ * So 50 is the ceiling, it is honoured, and this endpoint is the one that agrees
+ * with `/v1/search` and `/v1/artists/{id}/albums`. What remains unmeasured here:
+ * nothing. The 4xx/5xx statuses below are doubles, which is all a test can do.
  */
-describe('getAlbumTrackNames — the tracklist limit is the one UNMEASURED ceiling', () => {
+describe('getAlbumTrackNames — the tracklist limit, measured at 50', () => {
   const tracklistRouter = (tracksStatus: number, tracksBody: unknown = {}) => {
     const fetchMock = vi.fn(async (..._args: unknown[]): Promise<Response> => {
       const url = String(_args[0]);
@@ -365,10 +376,11 @@ describe('getAlbumTrackNames — the tracklist limit is the one UNMEASURED ceili
   const tracklistUrl = (fetchMock: ReturnType<typeof vi.fn>): string =>
     fetchMock.mock.calls.map((c) => String(c[0])).find((u) => u.includes('/tracks')) ?? '';
 
-  it('sends limit=50 to the tracklist endpoint — the documented value, NOT the measured 10', async () => {
+  it('sends limit=50 to the tracklist endpoint — MEASURED accepted AND honoured on a 199-track album', async () => {
     // Recorded as the number in the code, so a future change to it is visible.
-    // If someone probes this endpoint and finds the same 10 ceiling the other
-    // two have, this test and `spotifyApiLimits.ts` are where the change goes.
+    // The measurement is what makes this more than a restatement of the literal:
+    // the endpoint returned 50 items at limit=50, so the 50 is a real page and
+    // not a value the server quietly shortens.
     const { api } = build();
     const fetchMock = tracklistRouter(200, { items: [{ name: 'Xtal' }] });
     vi.stubGlobal('fetch', fetchMock);
@@ -380,7 +392,7 @@ describe('getAlbumTrackNames — the tracklist limit is the one UNMEASURED ceili
     expect(url).not.toContain('limit=10');
   });
 
-  it('caps a wildly over-large caller limit at 50, the value the docs suggest', async () => {
+  it('caps a wildly over-large caller limit at 50, the measured ceiling', async () => {
     const { api } = build();
     const fetchMock = tracklistRouter(200, { items: [{ name: 'Xtal' }] });
     vi.stubGlobal('fetch', fetchMock);
@@ -388,6 +400,28 @@ describe('getAlbumTrackNames — the tracklist limit is the one UNMEASURED ceili
     await api.getAlbumTrackNames('Geogaddi', 'Boards of Canada', 500);
 
     expect(tracklistUrl(fetchMock)).toContain('limit=50');
+  });
+
+  it.each([
+    ['zero, which the old Math.min passed straight through', 0, 1],
+    ['a negative limit', -3, 1],
+    ['a fractional limit', 1.5, 1],
+    ['NaN, which reaches the wire as the string "NaN"', Number.NaN, 1],
+  ])('clamps %s to the 1 the server accepts rather than sending it', async (_label, asked, expected) => {
+    // `limit=0` was measured returning 400 "Invalid limit" on this endpoint, and
+    // `NaN` is sent as the literal string "NaN", which was measured returning
+    // 400 on `/v1/search`. The clamp is therefore TOTAL here too, which is what
+    // replaced the partial `Math.min(limit, 50)`. Without it the request is
+    // refused, and the refusal raises — loud, but a failure this module caused
+    // itself on a path whose only callers pass 5 and 50.
+    const { api } = build();
+    const fetchMock = tracklistRouter(200, { items: [{ name: 'Xtal' }] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.getAlbumTrackNames('Geogaddi', 'Boards of Canada', asked as number);
+
+    const sent = Number(new URL(tracklistUrl(fetchMock)).searchParams.get('limit'));
+    expect(sent).toBe(expected as number);
   });
 
   it('RAISES on a 400 from the tracklist endpoint, because a rejected request is not "this album has no tracks"', async () => {

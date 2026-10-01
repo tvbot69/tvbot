@@ -15,64 +15,90 @@ half-feature, and users type both. Both delegate to the same builder in
 ## 2. The response layer is already single-copy. The argument layer is not.
 
 **Do not deduplicate the command layer wholesale.** Measure before you believe any claim
-either way. Counted over non-test `.ts` files:
+either way. Counted over non-test `.ts` files, re-measured 2026-09-30 (the method is in
+the table, so re-run it rather than trusting it):
 
-- `src/bot/slashCommands/`: 34 files, **186** `.add*Option(` call sites, **149**
-  `*Builders.x(` call sites, **77** distinct top-level command names.
-- `src/bot/textCommands/`: 35 files, **0** `.add*Option(` call sites, **150**
-  `*Builders.x(` call sites, **575** distinct names + aliases across **34** modules
-  resolved in `textCommands/index.ts:43-76`.
-- The two families share **34** builder modules. The only asymmetry is
-  `AutopostBuilders`, used by the text family alone.
+| | `src/bot/slashCommands/` | `src/bot/textCommands/` (recursive) |
+|---|---|---|
+| non-test `.ts` files | **33** | **34** |
+| `.add\w*Option(` call sites | **184** | **0** |
+| `\w+Builders\.\w+(` call sites | **147** | **149** |
+| distinct command names | **76** top-level (`new SlashCommandBuilder()` fluent chain, the same walk `commandRegistryInvariants.test.ts:246-276` does) | **570** names + aliases across **33** resolved modules (`textCommands/index.ts:41-75`) |
+| hand-written string-grammar sites | 20 in 8 files | **81** in **18** files |
 
-So the *response* layer is genuinely one copy, as the root claims. The *argument* layer
-is disjoint by construction: 186 typed Discord option declarations on the slash side and
-zero on the text side, against **82** hand-written string-grammar sites (`.match(`,
-`.test(`, `new RegExp(`, `split(/\s+/)`, `startsWith('lfm:')`, `parseInt(`) spread
-across **18** text files.
+String-grammar sites are `.match(`, `.test(`, `new RegExp(`, `split(/\s+/)`,
+`startsWith('lfm:')`, `parseInt(`.
+
+So the *response* layer is genuinely one copy: of the 38 non-test modules in
+`src/bot/builders/`, **33** are used by both families and exactly one —
+`autopostBuilders` — is used by the text family alone. The *argument* layer is disjoint
+by construction: 184 typed Discord option declarations on the slash side and zero on the
+text side, against 81 hand-written string-grammar sites in 18 text files.
 
 **The two argument models are different languages.** Typed Discord options versus
 hand-written string grammars:
 
-- `seek 1:30` / `seek 1:01:01` — `textCommands/music/musicCommands.ts:526-537` splits
+- `seek 1:30` / `seek 1:01:01` — `textCommands/music/musicCommands.ts:530-538` splits
   on `:` and accepts 2 or 3 parts. The slash twin is an integer option
-  (`slashCommands/musicSlashCommands.ts:126`).
-- `lfm:username` — `textCommands/lastfm/playCommands.ts:121-122` branches on a
+  (`slashCommands/musicSlashCommands.ts:128-130`).
+- `lfm:username` — `textCommands/lastfm/playCommands.ts:151-152` branches on a
   `startsWith('lfm:')` prefix. The slash twin declares a separate `lfm` **string
-  option** and coerces it (`slashCommands/userSlashCommands.ts:61`, `:96`).
-- `filters clear` / `reset` / `echo` — `musicCommands.ts:608-630` dispatches on a bare
+  option** (`slashCommands/userSlashCommands.ts:61`) and coerces it (`:96`).
+- `filters clear` / `reset` / `echo` — `musicCommands.ts:628-635` dispatches on a bare
   verb. There is no slash `filters` command at all.
+- `<@123>` / `<@!123>` mentions — `playCommands.ts:138`.
 
 A shared parser has to model both, which means it models neither cleanly, and each
 unmodelled case becomes a divergence. **Fix concrete drift when you find it; do not
 merge the layers.**
 
-## 3. A live example of why: the layout token
+## 3. A worked example: the layout token, found and fixed
 
-`.fm <@123> mini` is **silently ignored**, and it is pinned as a bug rather than
-accidentally fixed.
+A hand-written grammar has failure modes a typed option cannot have. This one shipped,
+was found, and is now fixed — it is the worked example, in the form that is still true.
 
-`playCommands.ts:100` calls `parseFmEmbedType(options)` on the **whole argument
-string**. `parseFmEmbedType` only matches a bare token — its lists are exact values
-(`src/domain/enums/fmEmbedType.ts:31-36`) — so the composite string parses to `null`,
-the `if` at `playCommands.ts:102` is skipped, and the token is never stripped and never
-applied. The user asks for a mini embed and receives the default. `lfm:name tiny` is
-the same shape: it falls into the `startsWith('lfm:')` branch with the layout word still
-attached.
+`parseFmEmbedType` matches **bare tokens only**; its lists are exact values
+(`src/domain/enums/fmEmbedType.ts:31-36`). `.fm` was handing it the **whole** argument
+string, so `.fm <@123> mini` parsed to `null`: the branch was skipped, the token was
+neither applied nor stripped, and the user asked for a mini embed and got the default.
+`lfm:name tiny` had the same shape. The slash twin never had it — it reads a typed
+choice (`slashCommands/userSlashCommands.ts:62-69`), so there is no position for the
+token to be in the wrong place.
 
-The slash twin is unaffected — it reads a typed option
-(`userSlashCommands.ts:62-70`).
+The fix, and the two things it had to be careful about
+(`textCommands/lastfm/playCommands.ts:118-136`):
 
-The test that documents this is `textCommands/lastfm/playCommands.test.ts:478-495`. It
-is a **behaviour lock**, not an endorsement: if you fix the parser, that test is what
-has to change, deliberately and in the same commit.
+- **Read the token from the TAIL of the argument list**, not from the whole string — the
+  same shape `lfm:` is read with fifteen lines below. That is what makes
+  `.fm <@123> mini` and `.fm mini` behave identically.
+- **Remove it by a LENGTH slice, not by replacement.** The obvious repair,
+  `options.replace(/mini/i, '')`, is worse than the bug it fixes: `mini` and `minidisco`
+  are both real Last.fm usernames, and a global replace turns `lfm:mini` into `lfm:` — an
+  empty target that searches the **caller's own account** and answers with a wrong
+  track for a perfectly valid request, with no error anywhere. A length slice can only
+  drop the tail it just matched.
+
+Both directions are pinned, because a test that only asserted the fix would also pass on
+the `replace` version (`textCommands/lastfm/playCommands.test.ts:505-582`):
+
+- a token after a mention applies **and** is stripped, so the mention still resolves
+  (`:517-536`);
+- an argument that is **not** a layout token changes **nothing**, which is what stops the
+  fix from becoming a shredder (`:538-553`);
+- a username that merely **contains** a layout word survives whole — `lfm:mini` and
+  `lfm:minidisco` both reach Last.fm as themselves (`:565-581`).
+
+That is the argument in one paragraph: a typed option arrives carrying its own grammar,
+its own arity and its own validation. A string grammar has to be re-derived at every call
+site, and a word that is only *sometimes* a keyword is a defect waiting for the first
+user who puts it in the wrong position.
 
 ## 4. Names must be unique, and the registry is last-write-wins
 
-`textCommands/index.ts:86-99` — `claim()` overwrites the map and logs
+`textCommands/index.ts:84-97` — `claim()` overwrites the map and logs
 `'Text command name collision — the later registration wins'`. Registration order is
-the module array at `:42-77`. Two passes: canonical names first (`:101-106`), then
-aliases, which only fill names nobody claimed (`:107-116`).
+the module array at `:41-75`. Two passes: canonical names first (`:99-104`), then
+aliases, which only fill names nobody claimed (`:105-114`).
 
 Two real incidents, both silent, both on the text side: `.remove` became queue-remove
 instead of account-unlink, and `.lyrics` became music lyrics instead of the Last.fm
@@ -109,11 +135,18 @@ class inside a test is positional, so a new required parameter breaks every call
 at build time — and `npm test` alone will not tell you.
 
 - `MusicSlashCommands` — `slashCommands/musicSlashCommands.test.ts:9-12` passes **2**
-  args; production passes 4 (`startup.ts:625`). The trailing params are optional.
-- `PlayCommands` — `textCommands/lastfm/playCommands.test.ts:219` passes **3**
-  (`userService, lastfmRepository, updateService`), matching `startup.ts:659`.
-- `ChartCommands` — `chartCommands.test.ts:123` passes **5**; `:512` passes **4** and
-  works, so the tail is optional.
+  args; production passes 4 (`startup.ts`, the `new MusicSlashCommands(...)` line). The
+  trailing params are optional.
+- `PlayCommands` — `textCommands/lastfm/playCommands.test.ts:221-225` passes **3**
+  (`userService, lastfmRepository, updateService`), matching `startup.ts` (`new
+  PlayCommands(...)`).
+- `ChartCommands` — `chartCommands.test.ts:123-129` passes **5**; `:512-517` passes
+  **4** and works, so the tail is optional.
+
+Those three `startup.ts` sites are cited by expression rather than by line on purpose:
+`startup.ts` is the file most often reshuffled, and a reference that is wrong the day it
+is written is worse than one that names the expression. Every other reference in this
+file is a `file:line`.
 
 Two positional traps worth knowing:
 
@@ -125,13 +158,17 @@ Two positional traps worth knowing:
   `executeAsync` or `execute` **and** no spread. `musicCommands` writes
   `{ ...def, executeAsync: ... }`, and counting a spread literal as a definition
   double-counts the name and manufactures a false clash
-  (`commandRegistryInvariants.test.ts:80-88`).
+  (`commandRegistryInvariants.test.ts:78-89`).
 
 ## 6. Dead code in this subtree
 
 - A builder assembled through a helper rather than
   `new SlashCommandBuilder().setName(...)` is not matched by the duplicate sweep
-  (`:285-290`). If you add a top-level command that way, it is invisible to the check.
+  (`commandRegistryInvariants.test.ts:285-290`). If you add a top-level command that
+  way, it is invisible to the check.
 - `getSlashCommandPayloads()` is the whole-registry read, for the same reason
   `getTextCommands()` exists: a single-name lookup cannot express "no two of these
-  collide" (`textCommands/index.ts:127-138`).
+  collide" (`textCommands/index.ts:125-136`).
+- The dispatcher adds the prefix and splits on whitespace
+  (`src/bot/handlers/commandHandler.ts:197-203`), so a registered name or alias
+  containing a dot or a space can never match anything.

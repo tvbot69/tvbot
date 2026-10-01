@@ -4,6 +4,15 @@ import { container } from 'tsyringe';
 import { SpotifySearchApi, SpotifyUnavailableError } from './spotifySearchApi';
 import type { SpotifyTokenManager } from './spotifyTokenManager';
 import { TelemetryService } from '@bot/services/telemetryService';
+import { ArtworkService } from '@bot/services/artworkService';
+import type { CacheService } from '@bot/services/cacheService';
+import type { DeezerApi } from '@deezer/apis/deezerApi';
+import type { AppleMusicWebApi } from '@applemusic/apis/appleMusicWebApi';
+import type { AppleMusicSearchApi } from '@applemusic/apis/appleMusicSearchApi';
+import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
+import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
+import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { Logger } from '@domain/logger';
 
 /**
@@ -17,15 +26,29 @@ import { Logger } from '@domain/logger';
  * what this file measures — including one place where the current behaviour
  * contradicts the method's own documentation (see the marked test).
  *
- * VENDOR ASSUMPTIONS encoded here. None of them can be verified from a test, so
- * each one needs re-checking against the live API:
- *   - a 404 from `/v1/artists/{id}` means "no such artist" (a miss),
+ * VENDOR ASSUMPTIONS encoded here, and what the live probe made of each one
+ * (`scripts/liveVerify.ts`, 2026-09-30):
+ *   - a 404 from `/v1/artists/{id}` means "no such artist" (a miss). CONFIRMED:
+ *     an unknown-but-well-formed id is 404 "Resource not found".
+ *   - a MALFORMED id is 400 "Invalid base62 id" — a verdict on a request this
+ *     module built, not on the artist, so it raises instead of answering null.
+ *     CONFIRMED, and it is the status that replaced the phantom 403 below.
  *   - a 401 means "the bearer token was rejected" (inconclusive, and the only
- *     status that invalidates the cached token),
+ *     status that invalidates the cached token). CONFIRMED for a missing or
+ *     garbage bearer on `/v1/artists/{id}`.
+ *   - a SCOPE problem is a 401 on this deploy, never a 403: `/v1/me` on a
+ *     client-credentials token returns 401 "Valid user authentication required".
+ *     CONFIRMED. An earlier version of this file carried a 403 test justified as
+ *     "a scope problem"; on a client-credentials deploy that status cannot occur,
+ *     so the test described a failure mode the bot can never reach, and the 401
+ *     branch that actually catches it was the untested one.
  *   - a 429 carries `Retry-After` in seconds, and means the CREDENTIAL is
- *     rate-limited rather than the app,
+ *     rate-limited rather than the app. NOT VERIFIED: a 429 cannot be induced
+ *     without provoking the vendor.
  *   - only a 5xx counts toward the transport-outage breaker: a 4xx is a bad
- *     request of ours and asking again cannot fix it.
+ *     request of ours and asking again cannot fix it. Same caveat — a 5xx cannot
+ *     be induced either, so the breaker thresholds are pinned with doubles and
+ *     the "only 5xx" half rests on the 400 case below, which was observed shape.
  */
 
 const jsonResponse = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
@@ -40,7 +63,7 @@ const fetchFails = (): never => {
   throw new TypeError('fetch failed: getaddrinfo ENOTFOUND');
 };
 
-const build = (token: string | null = 'test-token') => {
+const build = (token: string | null = 'test-token', credentialCount = token === null ? 0 : 1) => {
   const getToken = vi.fn(async (): Promise<string | null> => token);
   const invalidate = vi.fn();
   const rotateCredential = vi.fn((): boolean => false);
@@ -48,6 +71,9 @@ const build = (token: string | null = 'test-token') => {
     getToken,
     invalidate,
     rotateCredential,
+    // Read by `noTokenError()` to tell "unconfigured" from "refused". Real value:
+    // `SpotifyTokenManager.credentialCount` counts the credentials in the pool.
+    credentialCount,
   } as unknown as SpotifyTokenManager;
   return { api: new SpotifySearchApi(tokenManager), getToken, invalidate, rotateCredential };
 };
@@ -70,7 +96,7 @@ afterEach(() => {
 // getArtistById
 // ---------------------------------------------------------------------------
 
-describe('getArtistById — a 4xx is a miss, a 5xx is inconclusive', () => {
+describe('getArtistById — only a 404 is a miss, everything else is inconclusive', () => {
   it('answers null for a 404, which is Spotify saying there is no such artist', async () => {
     // VENDOR ASSUMPTION: 404 on /v1/artists/{id} == unknown artist. If that ever
     // stops being true this becomes a wrong "no art for this artist" rather than
@@ -83,15 +109,52 @@ describe('getArtistById — a 4xx is a miss, a 5xx is inconclusive', () => {
     expect(SpotifySearchApi.isRateLimited()).toBe(false);
   });
 
-  it('answers null for a 403 as well, and does not arm the transport breaker', async () => {
+  it('RAISES on a 400 from a malformed id, because a request we built is not a verdict on the artist', async () => {
+    // The status the 403 test used to stand for. MEASURED 2026-09-30:
+    // `/v1/artists/%20`, `/v1/artists/!!` and `/v1/artists/a` each return 400
+    // `{"error":{"status":400,"message":"Invalid base62 id"}}`, while a
+    // well-formed but unknown id returns 404. Those are opposites: one is a fact
+    // about the ARTIST and one is a fact about our URL.
+    //
+    // This used to be answered `null`, because the branch read
+    // `if (res.status < 500) return null`. That is the A1 failure in miniature:
+    // `artworkService` writes a null into its cache as `'none'`, so a malformed
+    // or hand-edited cached id published "this artist has no cover" for the whole
+    // negative-cache TTL, and nothing above DEBUG said why. The 404 test above
+    // must keep answering null — fixing one by inverting the other would swap one
+    // lie for another.
     const { api } = build();
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({}, 403));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({}, 400));
+
+    await expect(api.getArtistById('a')).rejects.toThrow(/HTTP 400/);
+  });
+
+  it('does not arm the transport breaker for a 400, because a bug of ours does not get better by asking again', async () => {
+    // Six rejected requests, none of which counts as an outage. The breaker exists
+    // to stop us re-running a leg that is known to be down; a mis-formed request
+    // is not down, and the next attempt is identically mis-formed. Arming it would
+    // also report a client bug as an outage, which is the other half of the lie.
+    const { api } = build();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({}, 400));
 
     for (let i = 0; i < 6; i++) {
-      await expect(api.getArtistById('a')).resolves.toBeNull();
+      await expect(api.getArtistById('a')).rejects.toThrow(SpotifyUnavailableError);
     }
-    // Six rejected requests, none of which counts as an outage. A 4xx is a bug
-    // of ours (or a scope problem) and re-asking cannot fix either.
+    expect(SpotifySearchApi.isRateLimited()).toBe(false);
+  });
+
+  it('treats a SCOPE problem as inconclusive, because on this deploy it arrives as a 401', async () => {
+    // MEASURED 2026-09-30: `/v1/me` on a client-credentials token is 401 "Valid
+    // user authentication required" — there is no 403 on this deploy. So the
+    // question "is a scope problem a miss or inconclusive?" has one branch, the
+    // 401 one, and the answer must be inconclusive: a scope problem is a fact
+    // about the deployment, not about the artist, and answering null would cache
+    // `'none'` in `artworkService` and suppress the correct art for the whole TTL.
+    const { api, invalidate } = build();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({}, 401));
+
+    await expect(api.getArtistById('4Z8W4fKeB5YxbusRsdQVPb')).rejects.toThrow(/token rejected/i);
+    expect(invalidate).toHaveBeenCalledTimes(1);
     expect(SpotifySearchApi.isRateLimited()).toBe(false);
   });
 
@@ -153,15 +216,76 @@ describe('getArtistById — a 4xx is a miss, a 5xx is inconclusive', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('RAISES when there are no credentials, because nothing was ever asked', async () => {
+  it('RAISES when there are NO credentials, because nothing was ever asked', async () => {
     // `artworkService.resolveArtistImage` writes `'none'` into its cache on a
     // null. A deploy that lost its secrets must not be recorded as "this artist
     // has no cover", so unconfigured raises exactly like an outage does.
-    const { api } = build(null);
+    //
+    // The message is also the operator's instruction, so it names the actual
+    // fault: no credential in the pool, nothing was asked of Spotify.
+    const { api } = build(null, 0);
     const fetchMock = vi.spyOn(globalThis, 'fetch');
 
     await expect(api.getArtistById('a')).rejects.toThrow(/credentials not configured/i);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call a REFUSED credential unconfigured, because that sends the operator to fix the wrong thing', async () => {
+    // The classified outcome: credentials ARE configured, they were submitted,
+    // and accounts.spotify.com refused them with 400 `invalid_client` — which
+    // `SpotifyTokenManager` already reports at ERROR with the status and the
+    // vendor's code. `getToken()` answers `null` for that, exactly as it does
+    // for an absent credential, so this message used to read "Spotify
+    // credentials not configured" for a deploy whose credentials are configured.
+    // The operator is then sent to configure credentials that exist, while the
+    // real refusal sits on a different log line.
+    //
+    // Pinned separately from the test above on purpose: one message covering both
+    // cases is what let a refused credential be reported as unconfigured.
+    const { api } = build(null, 1);
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const raised = await api.getArtistById('a').then(
+      () => null,
+      (err: unknown) => err,
+    );
+
+    expect(raised).toBeInstanceOf(SpotifyUnavailableError);
+    const message = (raised as Error).message;
+    expect(message).toMatch(/configured/i);
+    expect(message).not.toMatch(/not configured/i);
+    // Names the pool size and points at the line that carries the status/code,
+    // so the two log lines join up instead of contradicting each other.
+    expect(message).toContain('1 in the pool');
+    expect(message).toMatch(/Token request failed/);
+    // The underlying cause rides along, so a call site can branch on it rather
+    // than regexing a message.
+    expect((raised as Error).cause).toMatchObject({ kind: 'credentials-refused' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a refused credential is reported the same way on every method that raises for a null token', async () => {
+    // The wording is centralised in `noTokenError()` precisely so it cannot
+    // drift per method. All four `!token` sites share one message pair, and this
+    // pins the two that have their own tests below plus `search()` — a method
+    // that used to carry the same wrong sentence.
+    const { api } = build(null, 2);
+    vi.spyOn(globalThis, 'fetch');
+
+    for (const run of [
+      () => api.getArtistById('a'),
+      () => api.getTrack('t1'),
+      () => api.searchArtists('radiohead'),
+      () => api.getAlbumTrackNames('Geogaddi', 'Boards of Canada'),
+    ]) {
+      const raised = await run().then(
+        () => null,
+        (err: unknown) => err as Error,
+      );
+      expect(raised, 'must raise rather than answer a miss').toBeInstanceOf(SpotifyUnavailableError);
+      expect(raised?.message, 'must not blame an absent credential').not.toMatch(/not configured/i);
+      expect(raised?.message).toContain('2 in the pool');
+    }
   });
 
   it('RAISES on a network failure, because nothing asked Spotify anything', async () => {
@@ -211,9 +335,20 @@ describe('getArtistById — a 4xx is a miss, a 5xx is inconclusive', () => {
     await expect(api.getArtistById('a')).rejects.toThrow(/network error/i);
   });
 
-  it('a 200 whose body is not JSON also answers null, without arming the breaker', async () => {
-    // A shape surprise is not a verdict. The request succeeded, we just could not
-    // read the answer, so this must not be counted as an outage either.
+  it('RAISES on a 200 whose body cannot be parsed, because an unreadable answer is not "no such artist"', async () => {
+    // THE INVERSION. This test used to assert that a 200 with an unparseable body
+    // `resolves.toBeNull()`, on the reasoning that "a shape surprise is not a
+    // verdict". The reasoning was right about the status and wrong about the
+    // consequence: `artworkService.resolveArtistImage` treats this null as a
+    // SETTLED miss and writes `'none'` into its cache (artworkService.ts:542), so
+    // one malformed body — a truncated response, or a captive-portal HTML page
+    // served with a 200 — published "this artist has no cover" for the whole
+    // negative-cache TTL. That is the same lie as the 400 case above, reached
+    // through a different door: a source that could not be READ recorded as a
+    // verdict about the world.
+    //
+    // It is also a shape surprise rather than an outage, so it must NOT arm the
+    // transport breaker — the request did get an answer. Pinned below.
     const { api } = build();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -224,8 +359,120 @@ describe('getArtistById — a 4xx is a miss, a 5xx is inconclusive', () => {
       },
     } as unknown as Response);
 
-    await expect(api.getArtistById('a')).resolves.toBeNull();
+    await expect(api.getArtistById('a')).rejects.toThrow(SpotifyUnavailableError);
+    await expect(api.getArtistById('a')).rejects.toThrow(/could not be read/i);
     expect(SpotifySearchApi.isRateLimited()).toBe(false);
+  });
+
+  it('a 200 whose body is a truncated or non-object payload RAISES too', async () => {
+    // The other unreadable shapes a proxy or a captive portal produces. Each is
+    // reachable with a 200 and none of them is an artist, so none may be
+    // answered as "no such artist".
+    const notAnObject = [null, 'a string body', 42, ['an', 'array']];
+    for (const body of notAnObject) {
+      const { api } = build();
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(body));
+
+      await expect(
+        api.getArtistById('a'),
+        `body ${JSON.stringify(body) ?? 'null'} must not be answered as a miss`,
+      ).rejects.toThrow(/not an artist object/i);
+    }
+  });
+
+  it('CONTROL: a well-formed 200 with no artist in it still answers null, which IS a miss', async () => {
+    // The opposite direction, and the reason the fix above is not "refuse
+    // everything". A body that PARSES and carries no `id` is the vendor saying
+    // there is no such artist here — that is an answer, and it must reach the
+    // caller as the null that `artworkService` legitimately caches as `'none'`.
+    // A method that raised here would suppress correct art forever.
+    const { api } = build();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ artists: [] }));
+
+    await expect(api.getArtistById('a')).resolves.toBeNull();
+  });
+
+  it('CONTROL: an empty artist object also answers null, for the same reason', async () => {
+    const { api } = build();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({}));
+
+    await expect(api.getArtistById('a')).resolves.toBeNull();
+  });
+
+  it('CONTROL: a genuine 404 still answers null — the fix above must not have touched it', async () => {
+    // The control the 400 and network tests each demand in turn: a transport
+    // failure and a 400 are now both inconclusive, so 404 is the ONLY remaining
+    // miss and it has to stay one. If raising ever swallowed this, the method
+    // would answer "unknown" for every artist and no lookup would ever settle.
+    const { api } = build();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({}, 404));
+
+    await expect(api.getArtistById('no-such-artist')).resolves.toBeNull();
+  });
+
+  it('the real ArtworkService does NOT cache a poisoned "no cover" for an unreadable 200', async () => {
+    // The half of the bug that made it matter, and the reason the null above had
+    // to change. `resolveArtistImage` caches `'none'` on a settled miss
+    // (artworkService.ts:542), so the old behaviour wrote ONE unreadable body
+    // into the negative cache and every later lookup for that artist read "this
+    // artist has no cover" for the whole TTL — the correct art was never fetched
+    // again, and nothing above DEBUG said why.
+    //
+    // Driven through the REAL `ArtworkService` and the REAL `SpotifySearchApi`
+    // with only `fetch` faked, so the assertion covers the seam rather than a
+    // restatement of it: the anchored path must leave `anchoredSettled` false.
+    const cache = new Map<string, unknown>();
+    const cacheService = {
+      get: async (k: string) => (cache.has(k) ? cache.get(k) : null),
+      set: async (k: string, v: unknown) => {
+        cache.set(k, v);
+      },
+    } as unknown as CacheService;
+    const spotify = new SpotifySearchApi(
+      { getToken: async () => 'test-token', invalidate: () => undefined, rotateCredential: () => false, credentialCount: 1 } as unknown as SpotifyTokenManager,
+    );
+    vi.spyOn(spotify, 'getArtistIdViaTrackSample').mockResolvedValue('4Z8W4fKeB5YxbusRsdQVPb');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => {
+        throw new SyntaxError('Unexpected token < in JSON at position 0');
+      },
+    } as unknown as Response);
+
+    const artwork = new ArtworkService(
+      spotify,
+      {} as unknown as DeezerApi,
+      {} as unknown as AppleMusicWebApi,
+      {} as unknown as AppleMusicSearchApi,
+      { getArtistByName: async () => null, getOrCreateArtist: async () => ({ artistId: 1 }), setSpotifyImage: async () => undefined, setDeezerImage: async () => undefined, setAppleMusicUrl: async () => undefined } as unknown as IArtistRepository,
+      { getAlbumByNameAndArtist: async () => null, setSpotifyImage: async () => undefined, setDeezerImage: async () => undefined, setImageUrl: async () => undefined } as unknown as IAlbumRepository,
+      { getTrackByNameAndArtist: async () => null, setSpotifyImage: async () => undefined, setImageUrl: async () => undefined } as unknown as ITrackRepository,
+      { getArtistInfo: async () => null, getAlbumInfo: async () => null, getTrackInfo: async () => null } as unknown as ILastfmRepository,
+      cacheService,
+    );
+
+    await artwork.getArtistImageUrl('Radiohead', 'Airbag');
+
+    // The assertion: nothing anywhere in the cache says this artist has no cover.
+    const cached = [...cache.entries()].filter(([, v]) => v === 'none');
+    expect(
+      cached,
+      'an unreadable 200 must not be cached as "this artist has no cover"',
+    ).toEqual([]);
+  });
+
+  it('a 200 that parses is returned, so the readable path is not refused', async () => {
+    const { api } = build();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ id: '4Z8W4fKeB5YxbusRsdQVPb', name: 'Radiohead', images: [{ url: 'https://i/a.jpg' }] }),
+    );
+
+    await expect(api.getArtistById('4Z8W4fKeB5YxbusRsdQVPb')).resolves.toMatchObject({
+      id: '4Z8W4fKeB5YxbusRsdQVPb',
+      name: 'Radiohead',
+    });
   });
 });
 
@@ -309,11 +556,21 @@ describe('getTrack — token refresh, credential rotation, and never a null', ()
   });
 
   it('RAISES when no token could be obtained, rather than returning a null track', async () => {
-    const { api } = build(null);
+    const { api } = build(null, 0);
     const fetchMock = vi.spyOn(globalThis, 'fetch');
 
     await expect(api.getTrack('t1')).rejects.toThrow(/credentials not configured/i);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('getTrack reports a REFUSED credential as refused, not as unconfigured', async () => {
+    // The paired half of the `getArtistById` pair above, on the second method
+    // that carries its own null-token test.
+    const { api } = build(null, 1);
+    vi.spyOn(globalThis, 'fetch');
+
+    await expect(api.getTrack('t1')).rejects.toThrow(/no access token was issued/i);
+    await expect(api.getTrack('t1')).rejects.not.toThrow(/not configured/i);
   });
 
   it('a 200 clears the transport-failure run, so a later outage needs four fresh failures', async () => {

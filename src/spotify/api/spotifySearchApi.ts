@@ -3,7 +3,12 @@ import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import { SpotifyTokenManager } from './spotifyTokenManager';
 import { TelemetryService } from '@bot/services/telemetryService';
 import { Logger } from '@domain/logger';
-import { SPOTIFY_SEARCH_QUERY_MAX, clampSpotifyArtistAlbumsLimit, clampSpotifySearchLimit } from './spotifyApiLimits';
+import {
+  SPOTIFY_SEARCH_QUERY_MAX,
+  clampSpotifyAlbumTracksLimit,
+  clampSpotifyArtistAlbumsLimit,
+  clampSpotifySearchLimit,
+} from './spotifyApiLimits';
 import type {
   SpotifyArtistAlbumsResponse,
   SpotifySearchAlbum,
@@ -31,8 +36,8 @@ const DEFAULT_LIMIT = 5;
  * one again.
  */
 export class SpotifyUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = 'SpotifyUnavailableError';
   }
 }
@@ -121,6 +126,46 @@ export class SpotifySearchApi {
     }
   }
 
+  /**
+   * The raised answer for "no token", which has TWO causes and must not report
+   * them with one message.
+   *
+   * `getToken()` answers `null` for both, so this method is what tells them
+   * apart — using `credentialCount`, which already exists on the token manager,
+   * rather than changing its public shape. The distinction is not cosmetic:
+   *
+   *   - `credentialCount === 0` means SPOTIFY_CLIENT_ID / _SECRET are absent.
+   *     Nothing was ever asked of accounts.spotify.com, and the operator's fix
+   *     is to configure the deploy.
+   *   - `credentialCount > 0` with a `null` means the credentials WERE
+   *     submitted and REFUSED — measured as HTTP 400 `invalid_client` from the
+   *     token endpoint, which `SpotifyTokenManager` already reports at ERROR
+   *     with the status and the vendor's own code. Calling that "not
+   *     configured" sends the operator to configure credentials that are
+   *     already configured, while the actual refusal sits in a different log
+   *     line. The transient case (a 5xx, or a request that never arrived) also
+   *     lands here, so the wording says "configured but no token was issued"
+   *     and points at the ERROR line rather than asserting the refusal.
+   *
+   * The vendor's status and code are deliberately NOT re-read here: they are on
+   * the token manager's own ERROR line, and re-deriving that state would be a
+   * second classification of the same failure. What is attached is the `cause`
+   * that says which of the two situations this was, which is what makes the two
+   * distinguishable at the call site.
+   */
+  private noTokenError(): SpotifyUnavailableError {
+    const configured = this.tokenManager.credentialCount;
+    if (configured === 0) {
+      return new SpotifyUnavailableError(
+        'Spotify credentials not configured: no SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET in the pool, so nothing was ever asked of accounts.spotify.com',
+      );
+    }
+    return new SpotifyUnavailableError(
+      `Spotify credentials are configured (${String(configured)} in the pool) but no access token was issued — the credential was refused, or the token endpoint was unreachable. The status and the vendor code are on the "[Spotify] Token request failed" ERROR line.`,
+      { cause: { kind: 'credentials-refused', credentialCount: configured } },
+    );
+  }
+
   private static handleRateLimit(response: Response): void {
     const retryHeader = response.headers.get('Retry-After');
     const retrySeconds = retryHeader ? Math.max(1, parseInt(retryHeader, 10) || 10) : 10;
@@ -204,6 +249,19 @@ export class SpotifySearchApi {
    * reason as `getArtistIdViaTrackSample`: `artworkService` treats this null as
    * a settled "no artist" and caches `'none'`, so a swallowed outage is written
    * to the cache as a fact about the artist.
+   *
+   * 404 is the ONE 4xx that is a miss. Measured 2026-09-30 on
+   * `/v1/artists/{id}`: an unknown-but-well-formed id is 404 "Resource not found",
+   * while a malformed id is 400 "Invalid base62 id" — a verdict on a request this
+   * module built, not on the artist, and the one that must not become a cached
+   * `'none'`. There is no 403 to handle on this deploy: a scope failure is a 401
+   * (`/v1/me` on a client-credentials token returns 401 "Valid user
+   * authentication required"), and 401 is already inconclusive below.
+   *
+   * A 200 whose body cannot be read raises too, for the same reason the 400
+   * does: `artworkService` caches this method's `null` as `'none'`, so a null is
+   * a published statement about the artist, and an unreadable body is not one.
+   * A 200 that parses and carries no artist IS a miss and stays a null.
    */
   public async getArtistById(artistId: string): Promise<SpotifySearchArtist | null> {
     try {
@@ -213,8 +271,9 @@ export class SpotifySearchApi {
       const token = await this.tokenManager.getToken();
       // Unconfigured credentials never asked Spotify anything, so the null this
       // used to return was indistinguishable from "no such artist" — and that is
-      // the value `artworkService` caches as `'none'`.
-      if (!token) throw new SpotifyUnavailableError('Spotify credentials not configured');
+      // the value `artworkService` caches as `'none'`. The message also has to
+      // keep the two null-token causes apart; see `noTokenError`.
+      if (!token) throw this.noTokenError();
       let res: Response;
       try {
         res = await fetchWithTimeout(`https://api.spotify.com/v1/artists/${artistId}`, {
@@ -235,20 +294,61 @@ export class SpotifySearchApi {
         this.tokenManager.invalidate();
         // A rejected token is not a verdict on the artist, and the caller has a
         // retry available on a fresh token — so this is inconclusive, not a miss.
+        // On a client-credentials deploy this is also where a SCOPE problem
+        // lands: measured, `/v1/me` answers 401 "Valid user authentication
+        // required", never 403.
         throw new SpotifyUnavailableError('Spotify token rejected');
       }
       if (res.status === 429) {
         SpotifySearchApi.handleRateLimit(res);
         throw new SpotifyUnavailableError('Spotify rate limited');
       }
-      // A 4xx that is not 401/429 is Spotify answering: 404 means no such artist
-      // entity, which IS a miss and stays a null. Only a 5xx is inconclusive.
+      // 404 is the only status that is an ANSWER about the artist: no such
+      // entity, which IS a miss and stays a null. Every other 4xx is a request
+      // this module built badly (400 "Invalid base62 id" is the measured shape)
+      // and is raised, because `artworkService` caches a null as `'none'` — so a
+      // client bug would be published as "this artist has no cover" and, unlike a
+      // 5xx, must NOT arm the transport breaker, since re-asking cannot fix it.
+      if (res.status === 404) return null;
       if (!res.ok) {
-        if (res.status < 500) return null;
-        SpotifySearchApi.noteTransportFailure();
+        if (res.status >= 500) SpotifySearchApi.noteTransportFailure();
         throw new SpotifyUnavailableError(`Spotify HTTP ${res.status}`);
       }
-      return (await res.json()) as SpotifySearchArtist;
+      // A 200 that will not PARSE is the same lie as a 400, in a quieter dress.
+      // The status says the request succeeded, which is true — but the answer was
+      // not delivered in a form anyone can read: a truncated body, a captive
+      // portal serving HTML with a 200, a proxy injecting its own page. Answering
+      // `null` here said "this artist does not exist", and `artworkService` writes
+      // that null into its cache as `'none'`, so ONE unreadable body published
+      // "this artist has no cover" for the whole negative-cache TTL and the
+      // correct art was never fetched again.
+      //
+      // A shape surprise is still not an OUTAGE — the request got an answer — so
+      // this deliberately does NOT arm the transport breaker, exactly as the 400
+      // case above does not. It raises, so the value cannot reach the negative
+      // cache, and `artworkService`'s anchored path leaves `anchoredSettled`
+      // false (artworkService.ts:537) and falls through to the name-based rungs.
+      let parsed: unknown;
+      try {
+        parsed = await res.json();
+      } catch (err) {
+        throw new SpotifyUnavailableError(
+          `Spotify artist response was 200 but the body could not be read: ${String(err)}`,
+          { cause: err },
+        );
+      }
+      // A well-formed body that carries no artist is a real answer — a miss — and
+      // stays a null. That is the other direction of the same rule: "we could not
+      // read it" is inconclusive, "we read it and it holds no such artist" is a
+      // verdict. Refusing both would make this method useless to its only caller.
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new SpotifyUnavailableError(
+          'Spotify artist response was 200 but the body was not an artist object',
+        );
+      }
+      const artist = parsed as SpotifySearchArtist;
+      if (!artist.id) return null;
+      return artist;
     } catch (err) {
       if (isInconclusive(err)) throw err;
       return null;
@@ -263,7 +363,9 @@ export class SpotifySearchApi {
   public async getTrack(trackId: string, isRetry = false): Promise<SpotifySearchTrack | null> {
     const token = await this.tokenManager.getToken();
     if (!token) {
-      throw new SpotifyUnavailableError('Spotify credentials not configured');
+      // Two causes, two messages: see `noTokenError`. A refused credential must
+      // never be reported to the operator as an unconfigured one.
+      throw this.noTokenError();
     }
     let response: Response;
     try {
@@ -298,17 +400,18 @@ export class SpotifySearchApi {
 
   public async getSpotifyTrackUrl(artistName: string, trackName: string): Promise<string | null> {
     try {
-      // limit 5 is deliberate and well under the measured ceiling of 10 — see
-      // `spotifyApiLimits`. This line used to claim that "limit 15 triggers HTTP
-      // 400 for some Arabic queries (e.g. Lege-Cy)" and to retry with a quoted
-      // query on any 400. Both were false, and the retry was a no-op:
-      //   - The 400 is the LIMIT, never the query. Measured 2026-09-30: at
-      //     limit=15 every one of `test`, `Lege-Cy`, `Radiohead` and an Arabic
-      //     query returned 400 "Invalid limit". There is no charset bug.
-      //   - The one 400 that a limit-5 request CAN produce is `q` over 250 raw
-      //     characters ("Query exceeds maximum length"), because unlike
-      //     `SpotifyResolver.searchTracks` this method never truncated. The
-      //     quoted retry made the query LONGER (`artist:"x" track:"y"` is
+      // limit 5 is deliberate and sits well inside the measured ceiling of 50 —
+      // see `spotifyApiLimits`. This line used to claim that "limit 15 triggers
+      // HTTP 400 for some Arabic queries (e.g. Lege-Cy)" and to retry with a
+      // quoted query on any 400. Both were false, and the retry was a no-op for a
+      // reason that has nothing to do with the limit:
+      //   - The 400 was NEVER the limit. Measured 2026-09-30: limit=15 on
+      //     `/v1/search` returns 200 with 15 items, for `test`, `Lege-Cy`,
+      //     `Radiohead` and an Arabic query alike. There is no charset bug.
+      //   - The one 400 a limit-5 request CAN produce is `q` over 250 raw
+      //     characters ("Query exceeds maximum length of 250 characters"), and
+      //     unlike `SpotifyResolver.searchTracks` this method never truncated.
+      //     The quoted retry made the query LONGER (`artist:"x" track:"y"` is
       //     longer than `x y`), so it was guaranteed to be rejected by the very
       //     check it was written to survive: a 280-char query was retried as a
       //     297-char query, both 400. One wasted request, then a null.
@@ -468,17 +571,20 @@ export class SpotifySearchApi {
 
     const token = await this.tokenManager.getToken();
     if (!token) {
-      throw new SpotifyUnavailableError('Spotify credentials not configured');
+      // Two causes, two messages: see `noTokenError`.
+      throw this.noTokenError();
     }
 
     const url = new URL(SEARCH_ENDPOINT);
     url.searchParams.set('q', query);
     url.searchParams.set('type', type);
     // Clamped, because every public entry point above forwards a caller-supplied
-    // `limit` straight through and the server's real ceiling is 10, not the 50
-    // the docs claim. Measured; see `spotifyApiLimits`. Without this a caller
-    // asking for more gets a 400, which `search()` raises as inconclusive — the
-    // same "never got an answer" signal as a rate limit, for a bug of ours.
+    // `limit` straight through. Measured 2026-09-30: the server accepts 50 and
+    // returns 50 items, and rejects 51 with 400 "Invalid limit" — the same
+    // ceiling, and the same total clamp, as the two limits in
+    // `spotifyApiLimits`. Without it a caller asking for more gets a 400, which
+    // `search()` raises as inconclusive — the same "never got an answer" signal
+    // as a rate limit, for a bug of ours.
     url.searchParams.set('limit', String(clampSpotifySearchLimit(limit)));
 
     const startTime = Date.now();
@@ -596,13 +702,15 @@ export class SpotifySearchApi {
       if (!artistId) return [];
 
       // 3. Query official albums, singles, and features (appears_on)
-      // The limit is CLAMPED, not trusted: 10 is what the server accepts and both
-      // collage builders ask for 15. Sending 15 got a 400 "Invalid limit", which
-      // the `!res.ok` branch below turned into `[]` — indistinguishable from
-      // "this artist has no covers" — so every mosaic the bot has ever rendered
-      // was missing its Spotify rung with nothing logged above DEBUG.
-      // `include_groups=album,single,appears_on` was probed separately and is
-      // valid; the 400 was the limit alone. See `spotifyApiLimits` for the probe.
+      // The limit is clamped because a caller can ask for more than the server
+      // takes: measured 2026-09-30, `limit=50` returns 50 items and `limit=51`
+      // is 400 "Invalid limit". Both collage builders ask for 15, which is inside
+      // the range and therefore goes out as 15. They used to be clamped DOWN to
+      // 10 — an earlier probe of this file measured a ceiling of 10 that the
+      // server does not have, so every Spotify column of every mosaic the bot has
+      // ever rendered was a third short, silently, with nothing logged above
+      // DEBUG. `include_groups=album,single,appears_on` was probed at every limit
+      // from 5 to 50 and is valid. See `spotifyApiLimits` for the probe.
       const albumLimit = clampSpotifyArtistAlbumsLimit(limit);
       const url = `https://api.spotify.com/v1/artists/${artistId}/albums?include_groups=album,single,appears_on&limit=${albumLimit}`;
       const res = await fetchWithTimeout(url, {
@@ -620,7 +728,8 @@ export class SpotifySearchApi {
         // This is the branch that hid B1 for the lifetime of the feature, and it
         // conflated three different things under one silent `[]`. Split them:
         //
-        //  - 4xx (401/429 already handled above, so this is 400/403/404): a
+        //  - 4xx (401/429 already handled above, so in practice 400 or 404: a
+        //    scope failure is a 401 on this deploy, measured, never a 403): a
         //    REJECTED REQUEST. Spotify refused to parse a URL this module built.
         //    It is a client-side bug, and the caller must not be told "this
         //    artist has no covers" — but neither is it an outage, so it must NOT
@@ -652,6 +761,19 @@ export class SpotifySearchApi {
       const data = (await res.json()) as SpotifyArtistAlbumsResponse;
       const items = data.items ?? [];
 
+      // The payload carries a `total` (measured 2026-09-30: 60 for Radiohead, and
+      // the top-level keys are href, limit, next, offset, previous, total,
+      // items). It is deliberately NOT attached to the answer, and it is not a
+      // denominator even if someone wanted one: with
+      // `include_groups=...,appears_on` that total counts RELEASES THE ARTIST
+      // APPEARS ON — other people's compilations and soundtracks — not this
+      // artist's artwork, and the list below is smaller again because items with
+      // no `images` are dropped and repeated cover URLs are de-duplicated. So
+      // `covers.length`, `items.length` and `total` are three different numbers,
+      // and reporting any of them as "how many covers this artist has" would be a
+      // fresh fabrication rather than a correction of one. The callers render
+      // these as collage cells and read no count at all, so a bare list is the
+      // whole honest answer.
       const covers: string[] = [];
       const seenUrls = new Set<string>();
 
@@ -691,8 +813,9 @@ export class SpotifySearchApi {
       // Unconfigured credentials are the same shape as an outage: this run never
       // asked Spotify anything. `search()` already raises for exactly this, and
       // answering `[]` here would cache "this album has no tracks" in dev and in
-      // any deploy that lost its secrets.
-      if (!token) throw new SpotifyUnavailableError('Spotify credentials not configured');
+      // any deploy that lost its secrets. Two causes, two messages: see
+      // `noTokenError`.
+      if (!token) throw this.noTokenError();
 
       let albums: SpotifySearchAlbum[] = [];
       try {
@@ -721,9 +844,19 @@ export class SpotifySearchApi {
 
       let res: Response;
       try {
-        res = await fetchWithTimeout(`https://api.spotify.com/v1/albums/${albumId}/tracks?limit=${Math.min(limit, 50)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // Clamped, TOTAL, through the same measured ceiling as the other two
+        // limits: 50 is accepted AND honoured on a 199-track album, 51+ is a 400.
+        // This was `Math.min(limit, 50)` — a partial clamp with the ceiling right
+        // and no floor, so a caller passing 0 or NaN built a request the server
+        // refuses. `albumService` passes 50 and `whoKnowsImageBuilder` passes 5,
+        // so nothing in production exercises the floor; that is a reason to clamp,
+        // not a reason to leave it open.
+        res = await fetchWithTimeout(
+          `https://api.spotify.com/v1/albums/${albumId}/tracks?limit=${String(clampSpotifyAlbumTracksLimit(limit))}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
       } catch (err) {
         SpotifySearchApi.noteTransportFailure();
         // Same reason as the rung above: a transport error on the LAST call

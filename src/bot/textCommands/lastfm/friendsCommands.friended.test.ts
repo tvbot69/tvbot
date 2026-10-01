@@ -122,6 +122,32 @@ describe('FriendsCommands.friended: whose name each row shows', () => {
     expect(textOf(response)).toContain('Nobody has added you');
   });
 
+  it('does not render a broken relative time for a row with no created date', async () => {
+    // `f.created ?? new Date()` — the fallback is the LAST second the row could
+    // have been written, so the rendered `<t:…:R>` is "in a moment" rather than
+    // "when this person added you". Recording today's date for a missing
+    // timestamp is a confident claim about a moment nobody recorded.
+    //
+    // The assertion is on the SHAPE, not the value: whatever instant it falls
+    // back to, the row must carry a well-formed relative timestamp and never the
+    // literal `NaN` an undefined `getTime()` would produce.
+    const { cmd } = build([
+      // `created` genuinely absent, not `undefined` via a spread — the point is
+      // the `?? new Date()` arm, so the key must not be there at all.
+      (() => {
+        const row = adderRow(10, 'adderregistered', 'typedonly', true) as unknown as Record<string, unknown>;
+        delete row.created;
+        return row;
+      })() as unknown as Friend,
+    ]);
+
+    const text = textOf(await friendedOf(cmd).executeAsync(makeContext(), []));
+    const timestamp = text.match(/<t:(\d+):R>/)?.[1];
+
+    expect(timestamp).toMatch(/^\d+$/);
+    expect(text).not.toContain('NaN');
+  });
+
   it('asks the repository for the caller, not for someone else', async () => {
     // `getFriended` is filtered on `friendUserId`, so passing the wrong id
     // returns the wrong people while looking perfectly correct in the embed.

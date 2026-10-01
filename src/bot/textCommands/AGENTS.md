@@ -17,37 +17,51 @@ A text command receives `args: string[]` and must parse it itself. That is the w
 reason the two families are not mergeable, and it is where defects that a typed option
 cannot have come from.
 
-Measured across these 35 non-test files: **zero** `.add*Option(` call sites, against
-**186** on the slash side, and **82** hand-written string-grammar sites (`.match(`,
+Measured across these 34 non-test files: **zero** `.add\w*Option(` call sites, against
+**184** on the slash side, and **81** hand-written string-grammar sites (`.match(`,
 `.test(`, `new RegExp(`, `split(/\s+/)`, `startsWith('lfm:')`, `parseInt(`) in **18**
 files. Shapes you will meet:
 
-- `seek 1:30`, `seek 1:01:01` — `music/musicCommands.ts:526-537`
-- `lfm:username` — `lastfm/playCommands.ts:121-122`, also `topCommands.ts`,
+- `seek 1:30`, `seek 1:01:01` — `music/musicCommands.ts:530-538`
+- `lfm:username` — `lastfm/playCommands.ts:151-152`, also `topCommands.ts`,
   `genreCommands.ts`, `countryCommands.ts`, `overviewCommands.ts`
-- `filters clear` — `music/musicCommands.ts:608-630`, bare verb, no slash twin
-- `<@123>` / `<@!123>` mentions — `lastfm/playCommands.ts:108`
+- `filters clear` — `music/musicCommands.ts:628-635`, bare verb, no slash twin
+- `<@123>` / `<@!123>` mentions — `lastfm/playCommands.ts:138`
 
-## Parse on the whole argument string, and know what that costs
+## The layout token: a grammar defect that shipped, and what the fix had to respect
 
-`parseFmEmbedType(options)` is called on the **entire** argument string
-(`lastfm/playCommands.ts:100`), and the predicate only matches a bare token — its lists
-are exact values (`src/domain/enums/fmEmbedType.ts:31-36`). So `.fm <@123> mini`
-parses to `null`, the `if` at `:102` is skipped, and the token is neither stripped nor
-applied: the user asked for a mini embed and silently received the default.
-`lfm:name tiny` has the same shape.
+`parseFmEmbedType` matches **bare tokens only**; its lists are exact values
+(`src/domain/enums/fmEmbedType.ts:31-36`). `.fm` used to hand it the **entire** argument
+string (`lastfm/playCommands.ts`), so `.fm <@123> mini` parsed to `null`, the branch was
+skipped, and the token was neither stripped nor applied: the user asked for a mini embed
+and silently received the default. `lfm:name tiny` had the same shape. The slash twin was
+never affected — it reads a typed choice (`../../slashCommands/userSlashCommands.ts:62-69`),
+so there is no position for a token to be misplaced in.
 
-This is a **pinned bug**, not an endorsement —
-`lastfm/playCommands.test.ts:478-495` asserts the broken behaviour so a fix has to be
-deliberate. The slash twin reads a typed option and is unaffected
-(`../../slashCommands/userSlashCommands.ts:62-70`). Use it as your worked example of why
-the two parsers stay separate.
+Both the fix and the trap it had to avoid are in the code at
+`lastfm/playCommands.ts:118-136`:
+
+- the token is read from the **tail** of the argument list, which is what makes
+  `.fm <@123> mini` and `.fm mini` behave identically;
+- it is removed by a **length slice**, not by `replace(/mini/i, '')`. The obvious repair
+  is worse than the bug: `mini` and `minidisco` are real Last.fm usernames, so a global
+  replace turns `lfm:mini` into `lfm:` — an empty target, which searches the **caller's
+  own account** and answers with a wrong track for a valid request, with no error.
+
+`lastfm/playCommands.test.ts:505-582` pins all three directions, and the two negatives
+are the point: a non-layout argument after a mention changes **nothing** (`:538-553`),
+and a username that merely *contains* a layout word survives whole (`:565-581`). A test
+that only asserted the fix would also have passed on the `replace` version.
+
+Use this as the worked example of why the two parsers stay separate: a typed option
+arrives carrying its own grammar, arity and validation, and a string grammar has to be
+re-derived at every call site.
 
 ## The registry is last-write-wins, and both passes are pinned
 
-`index.ts:86-99` is the whole mechanism; the module array at `:42-77` is the order.
-Canonical names register first, aliases only fill names nobody claimed
-(`:101-116`). Every remaining collision is logged as
+`index.ts:84-97` is the whole mechanism; the module array at `:41-75` is the order
+(33 modules). Canonical names register first (`:99-104`), aliases only fill names nobody
+claimed (`:105-114`). Every remaining collision is logged as
 `'Text command name collision — the later registration wins'`.
 
 Three facts the gate pins, each of which is a live behaviour rather than an accident:
@@ -56,19 +70,22 @@ Three facts the gate pins, each of which is a live behaviour rather than an acci
   queue-remove (`src/tests/commandRegistryInvariants.test.ts:170-181`).
 - `history`, `nowplaying` and `prefix` are aliases shadowed by another command's
   canonical name. They are inert **and latent**: rename the owner and one activates
-  silently with different behaviour (`:196-216`).
+  silently with different behaviour (`:211-215`).
 - `.remove` / `.lyrics` are owned by the music commands, `.unlink` / `.lyric` by the
   Last.fm ones (`:218-228`). Do not reintroduce the old spellings.
 
 A name or alias containing a dot or whitespace can never match, because the prefix is
-added by the dispatcher (`:161-168`).
+added by the dispatcher (`src/bot/handlers/commandHandler.ts:197-203`).
 
 ## Registration is `container.resolve`, not the constructor
 
-`index.ts:43-76` resolves 34 command modules. Production wiring is manual and
-positional in `src/bot/startup.ts` — `PlayCommands` at `:657-660`, `ChartCommands` at
-`:663-666`, `MusicCommands` at `:624`. `getTextCommands()` returns the **live** map;
-callers must not mutate it (`index.ts:139-144`).
+`index.ts:41-75` resolves 33 command modules. Production wiring is manual and
+positional in `src/bot/startup.ts` — `PlayCommands`, `ChartCommands` and
+`MusicCommands` are each built by a `new <Class>(...)` expression there. Those three are
+cited by expression rather than by line because `startup.ts` is the file most often
+reshuffled, and a stale line number is worse than a nameable expression.
+`getTextCommands()` returns the **live** map; callers must not mutate it
+(`index.ts:137-142`).
 
 ## Dead code in this subtree
 
