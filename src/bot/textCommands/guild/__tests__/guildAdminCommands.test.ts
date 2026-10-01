@@ -1,16 +1,16 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { GuildAdminCommands } from '../guildAdminCommands';
+import { GuildAdminCommands } from '@bot/textCommands/guild/guildAdminCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 import type {
   GuildMemberOverviewItem,
   RefreshResult,
-} from '@bot/services/guildAdminService';
+} from '@bot/services/guild/guildAdminService';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 
 /**

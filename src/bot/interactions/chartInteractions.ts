@@ -11,15 +11,15 @@ import {
   type ModalSubmitInteraction,
 } from 'discord.js';
 import { inject, injectable } from 'tsyringe';
-import { ChartService } from '@bot/services/chartService';
-import { NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/chartService';
+import { ChartService } from '@bot/services/charts/chartService';
+import { NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/charts/chartService';
 import { ChartBuilders } from '@bot/builders/chartBuilders';
 import { ChartSettings, TitleSetting } from '@bot/models/chartModels';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { ColorService } from '@bot/services/system/colorService';
-import { registerModalHandler } from './index';
+import { registerModalHandler } from '@bot/interactions/index';
 import { Logger } from '@domain/logger';
-import { deferUpdateSafe } from './interactionAck';
+import { deferUpdateSafe } from '@bot/interactions/interactionAck';
 
 const MODAL_PREFIX = 'chart-edit-modal:';
 

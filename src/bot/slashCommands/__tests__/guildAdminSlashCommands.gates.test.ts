@@ -45,15 +45,15 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { GuildAdminSlashCommands } from '../guildAdminSlashCommands';
+import { GuildAdminSlashCommands } from '@bot/slashCommands/guildAdminSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { PROTECTED_COMMAND_NAMES } from '@bot/services/guild/protectedCommandNames';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { GuildService } from '@bot/services/guild/guildService';
-import type { GuildAdminService } from '@bot/services/guildAdminService';
-import type { UserService } from '@bot/services/userService';
-import type { PrefixService } from '@bot/services/prefixService';
+import type { GuildAdminService } from '@bot/services/guild/guildAdminService';
+import type { UserService } from '@bot/services/user/userService';
+import type { PrefixService } from '@bot/services/user/prefixService';
 import type { ColorService } from '@bot/services/system/colorService';
 import type { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
 import type { DisabledChannelService } from '@bot/services/guild/disabledChannelService';

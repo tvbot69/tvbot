@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { GameBuilders } from '../gameBuilders';
-import { JumbleSession, UserGameStats } from '@bot/services/gameService';
+import { GameBuilders } from '@bot/builders/gameBuilders';
+import { JumbleSession, UserGameStats } from '@bot/services/guild/gameService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 describe('GameBuilders', () => {

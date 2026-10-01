@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Logger } from '@domain/logger';
 import { TelemetryService } from '@bot/services/system/telemetryService';
 import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
-import { AutopostService, type AutopostConfig } from '@bot/services/autopostService';
+import { AutopostService, type AutopostConfig } from '@bot/services/charts/autopostService';
 import type { ButtonInteraction, Client } from 'discord.js';
 
 describe('Phase 3: Logging & Telemetry System', () => {
@@ -208,7 +208,7 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const { container } = await import('tsyringe');
     const { UserRepository } = await import('@persistence/repositories/userRepository');
     const { LastFmRepository } = await import('@lastfm/repositories/lastFmRepository');
-    const { TrackService } = await import('@bot/services/trackService');
+    const { TrackService } = await import('@bot/services/library/trackService');
     const { LyricsService } = await import('@bot/services/music/lyricsService');
 
     container.registerInstance(UserRepository, mockUserRepo as any);

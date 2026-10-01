@@ -1,14 +1,14 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { GameSlashCommands } from '../gameSlashCommands';
+import { GameSlashCommands } from '@bot/slashCommands/gameSlashCommands';
 import { GameBuilders } from '@bot/builders/gameBuilders';
-import { GameService } from '@bot/services/gameService';
-import { isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { GameService } from '@bot/services/guild/gameService';
+import { isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { JumbleSession, UserGameStats } from '@bot/services/gameService';
+import type { JumbleSession, UserGameStats } from '@bot/services/guild/gameService';
 
 /**
  * `/game` — the slash twin of `gameCommands.ts`.

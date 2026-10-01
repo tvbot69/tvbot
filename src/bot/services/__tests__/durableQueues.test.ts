@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { UserUpdateQueueService } from '../lastfm/userUpdateQueueService';
-import { UserIndexQueueService } from '../lastfm/userIndexQueueService';
+import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
+import { UserIndexQueueService } from '@bot/services/lastfm/userIndexQueueService';
 
 const makeCache = (backlog: unknown[] = []) => {
   const list = [...backlog];

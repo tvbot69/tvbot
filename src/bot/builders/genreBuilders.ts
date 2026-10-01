@@ -10,9 +10,9 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
-import { TopGenreItem, WhoKnowsGenreItem } from '@bot/services/genreService';
-import { pluralise } from './pluralise';
-import { pageSizeOr } from './paging';
+import { TopGenreItem, WhoKnowsGenreItem } from '@bot/services/library/genreService';
+import { pluralise } from '@bot/builders/pluralise';
+import { pageSizeOr } from '@bot/builders/paging';
 
 function toTitleCase(str: string): string {
   return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());

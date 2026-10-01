@@ -5,21 +5,21 @@ import { Logger } from '@domain/logger';
 import { Statistics } from '@domain/statistics';
 
 import { ContextModel } from '@bot/models/contextModel';
-import { PrefixService } from '@bot/services/prefixService';
+import { PrefixService } from '@bot/services/user/prefixService';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { GuildService } from '@bot/services/guild/guildService';
 import { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
 import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
 import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
 import { ColorService } from '@bot/services/system/colorService';
 import { getTextCommand } from '@bot/textCommands';
-import { GameService } from '@bot/services/gameService';
+import { GameService } from '@bot/services/guild/gameService';
 import { GameBuilders } from '@bot/builders/gameBuilders';
 
 import { RateLimitService } from '@bot/services/system/rateLimitService';
-import { CommandDispatcher } from './commandDispatcher';
+import { CommandDispatcher } from '@bot/handlers/commandDispatcher';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { EmbedBuilder } from 'discord.js';
 

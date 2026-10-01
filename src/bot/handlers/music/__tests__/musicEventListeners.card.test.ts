@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { MusicEventListeners } from '../musicEventListeners';
+import { MusicEventListeners } from '@bot/handlers/music/musicEventListeners';
 import { healthFor } from '@bot/services/music/youtubeHealth';
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 

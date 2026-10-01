@@ -9,13 +9,13 @@ import {
   type StringSelectMenuInteraction,
   type Interaction,
 } from 'discord.js';
-import { UserSettingsInteractions, USER_SETTINGS_PREFIX } from '../userSettingsInteractions';
+import { UserSettingsInteractions, USER_SETTINGS_PREFIX } from '@bot/interactions/userSettingsInteractions';
 import { UserSettingsBuilders } from '@bot/builders/userSettingsBuilders';
 import { PlayBuilders } from '@bot/builders/playBuilders';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { ResponseMode } from '@domain/enums/responseMode';
 import { CoverType } from '@domain/enums/coverType';
-import { UserType, DataSource, type User } from '@persistence/domain/models/user';
+import { UserType, DataSource, type User } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 import { ResponseModel } from '@bot/models/responseModel';
 

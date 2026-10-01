@@ -13,7 +13,7 @@ import { FM_MODE_PREFIX } from '@bot/interactions/fmModeInteractions';
 import { FRIEND_BUTTON_PREFIXES } from '@bot/interactions/friendInteractions';
 import { MUSIC_INTERACTION_PREFIXES } from '@bot/interactions/musicInteractions';
 import { TRACK_PREVIEW_PREFIX } from '@bot/interactions/trackPreviewInteractions';
-import { InteractionHandler } from '../interactionHandler';
+import { InteractionHandler } from '@bot/handlers/interactionHandler';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 

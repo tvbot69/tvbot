@@ -6,12 +6,12 @@ import {
   ServerInteractions,
   storeServerRankingQuery,
   getCachedServerRankingQuery,
-} from '../serverInteractions';
-import type { CachedServerRanking } from '../serverInteractions';
+} from '@bot/interactions/serverInteractions';
+import type { CachedServerRanking } from '@bot/interactions/serverInteractions';
 import { ServerBuilders } from '@bot/builders/serverBuilders';
 import type { ServerRankingType } from '@bot/builders/serverBuilders';
-import { OrderType } from '@bot/services/guildRankingService';
-import type { GuildRankingItem, GuildRankingSettings } from '@bot/services/guildRankingService';
+import { OrderType } from '@bot/services/guild/guildRankingService';
+import type { GuildRankingItem, GuildRankingSettings } from '@bot/services/guild/guildRankingService';
 import { CacheService } from '@bot/services/system/cacheService';
 import type { ButtonInteraction } from 'discord.js';
 

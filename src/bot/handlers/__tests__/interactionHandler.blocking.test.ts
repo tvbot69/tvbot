@@ -1,6 +1,6 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { InteractionHandler } from '../interactionHandler';
+import { InteractionHandler } from '@bot/handlers/interactionHandler';
 
 /**
  * interactionHandler was 38.44% with 349 uncovered lines.

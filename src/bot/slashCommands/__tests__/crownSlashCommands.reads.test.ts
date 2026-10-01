@@ -43,17 +43,17 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { CrownSlashCommands } from '../crownSlashCommands';
+import { CrownSlashCommands } from '@bot/slashCommands/crownSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ColorService } from '@bot/services/system/colorService';
-import type { ArtworkService } from '@bot/services/artworkService';
+import type { ArtworkService } from '@bot/services/media/artworkService';
 import type { CrownService } from '@bot/services/crown/crownService';
-import type { ArtistsService } from '@bot/services/artistsService';
+import type { ArtistsService } from '@bot/services/library/artistsService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 
 const CALLER = {

@@ -1,7 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import fs from 'fs';
 import path from 'path';
-import { PuppeteerService } from './puppeteerService';
+import { PuppeteerService } from '@images/generators/puppeteerService';
 import { Logger } from '@domain/logger';
 
 export interface ReceiptTrackItem {

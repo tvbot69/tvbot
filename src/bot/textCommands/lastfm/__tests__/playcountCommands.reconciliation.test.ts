@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { PlaycountCommands } from '../playcountCommands';
+import { PlaycountCommands } from '@bot/textCommands/lastfm/playcountCommands';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';

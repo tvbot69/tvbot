@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MusicService } from '../musicService';
-import { QueueService } from '../queueService';
+import { MusicService } from '@bot/services/music/musicService';
+import { QueueService } from '@bot/services/music/queueService';
 import { MusicHistoryRepository } from '@persistence/repositories/musicHistoryRepository';
-import type { MoonlinkManager } from '../moonlinkManager';
-import type { SpotifyResolver } from '../spotifyResolver';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
+import type { SpotifyResolver } from '@bot/services/music/spotifyResolver';
 import type { Player } from 'moonlink.js';
 
 const YT_THUMB = 'https://i.ytimg.com/vi/ytpick00001/hqdefault.jpg';

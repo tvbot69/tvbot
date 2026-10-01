@@ -5,12 +5,12 @@ import type { TopAlbum, TopArtist, TopTrack } from '@domain/models/topLists';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import { ResponseMode } from '@domain/enums/responseMode';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { TopBuildersDeps } from './topBuildersDeps';
-import { matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
+import type { TopBuildersDeps } from '@bot/builders/topBuildersDeps';
+import { matchesArtistName, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { Logger } from '@domain/logger';
 import { EMOJI } from '@bot/resources/emojis';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 
 const lastfmArtistUrl = (artist: string) => `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
 const lastfmAlbumUrl = (artist: string, album: string) => `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}/${encodeURIComponent(album).replace(/%20/g, '+')}`;

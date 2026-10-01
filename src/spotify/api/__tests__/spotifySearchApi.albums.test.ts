@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SpotifySearchApi, SpotifyUnavailableError } from '../spotifySearchApi';
-import type { SpotifyTokenManager } from '../spotifyTokenManager';
+import { SpotifySearchApi, SpotifyUnavailableError } from '@spotify/api/spotifySearchApi';
+import type { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
 import { Logger } from '@domain/logger';
 
 /**

@@ -1,10 +1,10 @@
 import type { Player } from 'moonlink.js';
 import type { FilterName } from '@domain/models/music/musicQueue';
-import { resolverEnabled } from './ytResolver';
-import { HOME_NODE } from './youtubeHealth';
-import { isNodeCooling } from './musicNodeHealth';
-import type { MoonlinkManager } from './moonlinkManager';
-import type { QueueService } from './queueService';
+import { resolverEnabled } from '@bot/services/music/ytResolver';
+import { HOME_NODE } from '@bot/services/music/youtubeHealth';
+import { isNodeCooling } from '@bot/services/music/musicNodeHealth';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
+import type { QueueService } from '@bot/services/music/queueService';
 
 /**
  * Custom definitions for our FilterNames that Moonlink does NOT ship

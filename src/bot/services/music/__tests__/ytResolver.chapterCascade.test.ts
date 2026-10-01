@@ -18,7 +18,7 @@ describe('chapter cascade: unusable rung is never a chapter-less fact', () => {
   const SAVED_URL = process.env.HOME_RESOLVER_URL;
   const SAVED_TOKEN = process.env.HOME_RESOLVER_TOKEN;
   const SAVED_KEY = process.env.YOUTUBE_API_KEY;
-  let mod: typeof import('../ytResolver');
+  let mod: typeof import('@bot/services/music/ytResolver');
   /**
    * A clock we can wind forward, because "retry sooner" is 10 minutes
    * (NEG_TTL_MS) and a test must not sit still for 10 of them. Only
@@ -46,7 +46,7 @@ describe('chapter cascade: unusable rung is never a chapter-less fact', () => {
     process.env.YOUTUBE_API_KEY = 'test-key';
     clock = Date.parse('2026-09-29T12:00:00Z');
     vi.spyOn(Date, 'now').mockImplementation(() => clock);
-    mod = await import('../ytResolver');
+    mod = await import('@bot/services/music/ytResolver');
   });
 
   afterEach(() => {

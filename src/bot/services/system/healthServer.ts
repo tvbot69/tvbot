@@ -232,7 +232,7 @@ export class HealthServer {
 
     let lavalinkHealthyNodes = 0;
     try {
-      const { MoonlinkManager } = await import('../music/moonlinkManager');
+      const { MoonlinkManager } = await import('@bot/services/music/moonlinkManager');
       if (container.isRegistered(MoonlinkManager)) {
         lavalinkHealthyNodes = container.resolve(MoonlinkManager).getHealthyNodeCount();
       }

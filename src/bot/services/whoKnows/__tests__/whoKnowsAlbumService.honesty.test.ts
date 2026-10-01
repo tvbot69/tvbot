@@ -1,13 +1,13 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { WhoKnowsAlbumService } from '../whoKnowsAlbumService';
+import { WhoKnowsAlbumService } from '@bot/services/whoKnows/whoKnowsAlbumService';
 import type { IWhoKnowsRepository, WhoKnowsDbRow } from '@domain/interfaces/iwhoKnowsRepository';
 import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
-import type { GuildService } from '../../guild/guildService';
+import type { GuildService } from '@bot/services/guild/guildService';
 import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
 import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import type { Guild as DiscordGuild } from 'discord.js';
 

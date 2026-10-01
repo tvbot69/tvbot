@@ -21,8 +21,8 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { ArtistBuilders } from '../artistBuilders';
-import type { MusicBrainzArtistData } from '@bot/services/musicBrainzService';
+import { ArtistBuilders } from '@bot/builders/artistBuilders';
+import type { MusicBrainzArtistData } from '@bot/services/media/musicBrainzService';
 import type { ResponseModel } from '@bot/models/responseModel';
 
 interface Cv2Component {

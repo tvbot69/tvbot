@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { RateLimitService } from '../system/rateLimitService';
-import { CacheService } from '../system/cacheService';
+import { RateLimitService } from '@bot/services/system/rateLimitService';
+import { CacheService } from '@bot/services/system/cacheService';
 
 describe('RateLimitService', () => {
   beforeEach(() => {

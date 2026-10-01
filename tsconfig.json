@@ -16,7 +16,6 @@
       "@applemusic/*": ["src/applemusic/*"],
       "@spotify/*": ["src/spotify/*"],
       "@deezer/*": ["src/deezer/*"],
-      "@discogs/*": ["src/discogs/*"],
       "@config/*": ["src/config/*"]
     },
     "strict": true,

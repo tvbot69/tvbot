@@ -6,11 +6,11 @@ import {
   ensureFilterDefinedOn,
   FILTER_DEFINITIONS,
   EQ_EXCLUSIVE_GROUP,
-} from '../musicPlayerRegistry';
-import type { MoonlinkManager } from '../moonlinkManager';
-import type { QueueService } from '../queueService';
+} from '@bot/services/music/musicPlayerRegistry';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
+import type { QueueService } from '@bot/services/music/queueService';
 import type { FilterName } from '@domain/models/music/musicQueue';
-import { HOME_NODE } from '../youtubeHealth';
+import { HOME_NODE } from '@bot/services/music/youtubeHealth';
 
 /**
  * Player acquisition and creation.

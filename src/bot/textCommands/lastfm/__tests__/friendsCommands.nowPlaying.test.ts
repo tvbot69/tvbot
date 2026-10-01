@@ -45,19 +45,19 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { container } from 'tsyringe';
 
-import { FriendsCommands } from '../friendsCommands';
+import { FriendsCommands } from '@bot/textCommands/lastfm/friendsCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { FriendType } from '@domain/enums/friendType';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { Friend } from '@persistence/domain/models/user';
+import type { Friend } from '@persistence/models/user';
 import type { RecentTrack } from '@domain/models/recentTrack';
-import type { UserService } from '@bot/services/userService';
-import type { FriendsService } from '@bot/services/friendsService';
+import type { UserService } from '@bot/services/user/userService';
+import type { FriendsService } from '@bot/services/social/friendsService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 
 const textOf = (response: ResponseModel): string => {

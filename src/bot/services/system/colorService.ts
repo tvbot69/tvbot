@@ -1,10 +1,10 @@
 import { inject, injectable } from 'tsyringe';
 import sharp from 'sharp';
 import crypto from 'crypto';
-import { CacheService } from './cacheService';
+import { CacheService } from '@bot/services/system/cacheService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { Logger } from '@domain/logger';
-import { isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 
 const COLOR_CACHE_TTL_SECONDS = 86400; // 24 hours
 const ACCENT_FAILURE_TTL_SECONDS = 600; // 10-minute cooldown so dead images don't re-download every publish tick

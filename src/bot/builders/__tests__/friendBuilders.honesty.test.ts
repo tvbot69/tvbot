@@ -1,11 +1,11 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { FriendBuilders, type FriendNowPlayingItem } from '../friendBuilders';
+import { FriendBuilders, type FriendNowPlayingItem } from '@bot/builders/friendBuilders';
 import { FriendType } from '@domain/enums/friendType';
 import { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { Friend, User } from '@persistence/domain/models/user';
+import type { Friend, User } from '@persistence/models/user';
 import type { Message } from 'discord.js';
 /**
  * The caller row the builders take. Only `userNameLastFm` is read, and it is the

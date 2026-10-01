@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { replyChannel, typingChannel, fetchableChannel } from '../discordChannel';
+import { replyChannel, typingChannel, fetchableChannel } from '@domain/interfaces/discordChannel';
 
 describe('discordChannel narrowing', () => {
   it('passes a real-ish channel straight through', () => {

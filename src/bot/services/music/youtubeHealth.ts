@@ -1,5 +1,5 @@
 import { homeLadderMode, homePluginRung } from '@config/musicEnv';
-import { resolverEnabled } from './ytResolver';
+import { resolverEnabled } from '@bot/services/music/ytResolver';
 
 export type Rung = 'plugin' | 'resolver' | 'soundcloud';
 

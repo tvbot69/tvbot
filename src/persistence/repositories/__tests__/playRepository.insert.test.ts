@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { PlayRepository } from '../playRepository';
+import { PlayRepository } from '@persistence/repositories/playRepository';
 import type { PlayInsert } from '@domain/interfaces/iplayRepository';
 
 /**

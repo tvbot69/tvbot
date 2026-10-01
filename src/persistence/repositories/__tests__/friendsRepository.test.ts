@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { FriendsRepository } from '../friendsRepository';
+import { FriendsRepository } from '@persistence/repositories/friendsRepository';
 import { FriendType } from '@domain/enums/friendType';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 
 /**
  * FriendsRepository was at 13.9% line coverage. Two things make it worth

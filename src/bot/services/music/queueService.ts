@@ -1,5 +1,5 @@
 import type { Player, Track } from 'moonlink.js';
-import { USER_SEEK_INTENT_WINDOW_MS } from './musicConstants';
+import { USER_SEEK_INTENT_WINDOW_MS } from '@bot/services/music/musicConstants';
 import type { LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { mapMoonlinkTrack, type MusicTrack } from '@domain/models/music/musicTrack';
 import { MusicHistoryRepository } from '@persistence/repositories/musicHistoryRepository';

@@ -110,7 +110,7 @@ export const homePluginRung = (): HomePluginRung => (process.env.HOME_PLUGIN_RUN
  * logger and puppeteer too - it is not music-specific. Re-exported here so the
  * four music call sites keep importing it from the module they already used.
  */
-export { runtimeEnvironment } from './runtimeEnv';
+export { runtimeEnvironment } from '@config/runtimeEnv';
 
 /**
  * `ENABLE_LAVALINK` as a validated tri-state. Only the two documented literals

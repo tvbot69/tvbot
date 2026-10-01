@@ -2,7 +2,7 @@
 // imported here is tsyringe-decorated, so it is belt-and-braces (AGENTS.md §5).
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { TrackConverter } from '../recentTrackConverter';
+import { TrackConverter } from '@lastfm/converters/recentTrackConverter';
 import type { RecentTrackLfm } from '@lastfm/models/recentTracksLfm';
 
 /**

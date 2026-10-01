@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { UserFmSettingRepository } from '../userFmSettingRepository';
+import { UserFmSettingRepository } from '@persistence/repositories/userFmSettingRepository';
 
 /**
  * userFmSettingRepository had NO unit test at all. It is small and its whole

@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ReceiptGenerator, type ReceiptData } from '../receiptGenerator';
-import type { PuppeteerService } from '../puppeteerService';
+import { ReceiptGenerator, type ReceiptData } from '@images/generators/receiptGenerator';
+import type { PuppeteerService } from '@images/generators/puppeteerService';
 
 /**
  * `ReceiptGenerator` — the "your listening wrapped up as a till receipt" card.

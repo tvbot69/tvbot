@@ -11,7 +11,7 @@ import {
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { Friend, User } from '@persistence/domain/models/user';
+import type { Friend, User } from '@persistence/models/user';
 import { FriendType, FriendTypeNames } from '@domain/enums/friendType';
 
 

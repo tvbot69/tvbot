@@ -1,14 +1,14 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { TrackBuilders } from '../trackBuilders';
-import { PlaycountBuilders } from '../playcountBuilders';
-import { MusicBuilders } from '../musicBuilders';
-import { DiscogsAndImportBuilders } from '../discogsAndImportBuilders';
-import { WhoKnowsBuilders } from '../whoKnowsBuilders';
+import { TrackBuilders } from '@bot/builders/trackBuilders';
+import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { DiscogsAndImportBuilders } from '@bot/builders/discogsAndImportBuilders';
+import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { VideoChapter } from '@bot/services/music/videoChapters';
-import type { GuildLeaderboardEntry } from '@bot/services/playHistoryService';
+import type { GuildLeaderboardEntry } from '@bot/services/library/playHistoryService';
 
 /**
  * Five unsendable-card defects, all the same mechanism.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeStoredName } from '../textNormalize';
+import { normalizeStoredName } from '@domain/textNormalize';
 
 describe('normalizeStoredName', () => {
   it('trims and collapses whitespace', () => {

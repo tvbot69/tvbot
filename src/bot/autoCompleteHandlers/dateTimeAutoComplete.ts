@@ -2,7 +2,7 @@ import type {
   ApplicationCommandOptionChoiceData,
   AutocompleteInteraction,
 } from 'discord.js';
-import type { IAutoCompleteHandler } from './iautoCompleteHandler';
+import type { IAutoCompleteHandler } from '@bot/autoCompleteHandlers/iautoCompleteHandler';
 
 const periodChoices = [
   { name: 'Weekly', value: 'weekly' },

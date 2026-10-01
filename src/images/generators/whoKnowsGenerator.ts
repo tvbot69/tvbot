@@ -1,9 +1,9 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
-import { PuppeteerService } from './puppeteerService';
+import { PuppeteerService } from '@images/generators/puppeteerService';
 
-import { escapeHtml } from '../html';
+import { escapeHtml } from '@images/html';
 export interface WhoKnowsStatItem {
   value: string | number;
   label: string;

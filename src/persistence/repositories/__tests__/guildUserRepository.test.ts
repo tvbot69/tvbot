@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { GuildUserRepository } from '../guildUserRepository';
+import { GuildUserRepository } from '@persistence/repositories/guildUserRepository';
 
 /**
  * GuildUserRepository was at 15.4% line coverage. It is the guild-membership

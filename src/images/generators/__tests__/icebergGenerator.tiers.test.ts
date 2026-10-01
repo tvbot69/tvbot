@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { IcebergGenerator } from '../icebergGenerator';
-import type { PuppeteerService } from '../puppeteerService';
-import type { IcebergData } from '@bot/services/musicIntelligenceService';
+import { IcebergGenerator } from '@images/generators/icebergGenerator';
+import type { PuppeteerService } from '@images/generators/puppeteerService';
+import type { IcebergData } from '@bot/services/library/musicIntelligenceService';
 
 /**
  * `IcebergGenerator` — the depth chart, and what it does when a tier comes back

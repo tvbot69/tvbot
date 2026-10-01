@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { TextChannel } from 'discord.js';
-import { ImageUploadService } from '../system/imageUploadService';
+import { ImageUploadService } from '@bot/services/system/imageUploadService';
 import { ConfigData } from '@bot/configurations/configData';
 
 /**

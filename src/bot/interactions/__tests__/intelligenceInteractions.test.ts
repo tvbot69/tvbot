@@ -2,16 +2,16 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { container } from 'tsyringe';
 import { MessageFlags } from 'discord.js';
-import { IntelligenceInteractions } from '../intelligenceInteractions';
+import { IntelligenceInteractions } from '@bot/interactions/intelligenceInteractions';
 import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type {
   AffinityData,
   AffinityNeighbor,
   DiscoveryItem,
   ListeningGapItem,
-} from '@bot/services/musicIntelligenceService';
+} from '@bot/services/library/musicIntelligenceService';
 import type { ButtonInteraction } from 'discord.js';
 
 const makeNeighbor = (over: Partial<AffinityNeighbor> = {}): AffinityNeighbor => ({

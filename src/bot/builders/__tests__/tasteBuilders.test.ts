@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { TasteBuilders } from '../tasteBuilders';
-import type { TasteData } from '@bot/services/tasteService';
+import { TasteBuilders } from '@bot/builders/tasteBuilders';
+import type { TasteData } from '@bot/services/library/tasteService';
 
 describe('TasteBuilders', () => {
   it('builds Component v2 container with comparison codeblock table, tabs, and expand button', () => {

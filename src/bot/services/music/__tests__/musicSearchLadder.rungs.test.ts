@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MusicSearchLadder, type LadderResult } from '../musicSearchLadder';
-import type { MoonlinkManager } from '../moonlinkManager';
-import type { SpotifyResolvedTrack, SpotifyResolver } from '../spotifyResolver';
+import { MusicSearchLadder, type LadderResult } from '@bot/services/music/musicSearchLadder';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
+import type { SpotifyResolvedTrack, SpotifyResolver } from '@bot/services/music/spotifyResolver';
 import type { Player, Track } from 'moonlink.js';
-import { HOME_NODE } from '../youtubeHealth';
+import { HOME_NODE } from '@bot/services/music/youtubeHealth';
 
 /**
  * The provider search ladder, tested directly.

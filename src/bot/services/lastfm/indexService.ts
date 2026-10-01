@@ -8,7 +8,7 @@ import type {
   IUserRepository,
 } from '@domain/interfaces/iuserRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { CacheService } from '../system/cacheService';
+import { CacheService } from '@bot/services/system/cacheService';
 import { UpdateType } from '@domain/enums/updateType';
 import { Logger } from '@domain/logger';
 import { prisma } from '@persistence/prismaClient';

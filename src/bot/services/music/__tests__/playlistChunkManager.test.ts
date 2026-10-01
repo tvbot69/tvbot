@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { PlaylistChunkManager } from '../playlistChunkManager';
-import { MusicService, MAX_QUEUE_TRACKS } from '../musicService';
+import { PlaylistChunkManager } from '@bot/services/music/playlistChunkManager';
+import { MusicService, MAX_QUEUE_TRACKS } from '@bot/services/music/musicService';
 
 const makeChunk = (opts?: {
   resolver?: (player: unknown, spTrack: any) => Promise<any>;

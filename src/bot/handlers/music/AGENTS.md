@@ -115,10 +115,10 @@ other guild's playback mid-song (`moonlinkManager.ts:200-231`).
 This one lives outside this subtree, in `src/bot/services/`. Do not reorder it.
 
 `CacheService` exposes the list as push / pop-count / length
-(`src/bot/services/cacheService.ts:211`, `:219`, `:235`). `pump` writes first, runs the
+(`src/bot/services/system/cacheService.ts:211`, `:219`, `:235`). `pump` writes first, runs the
 processor, and only then trims — **the trim is the acknowledgement**
-(`src/bot/services/userUpdateQueueService.ts:125-135`, and the index twin at
-`src/bot/services/userIndexQueueService.ts:113-121`). A failed trim replays the batch
+(`src/bot/services/lastfm/userUpdateQueueService.ts:125-135`, and the index twin at
+`src/bot/services/lastfm/userIndexQueueService.ts:113-121`). A failed trim replays the batch
 after a restart, and the processor is an idempotent delta sync, so the replay costs
 work and no correctness. That is deliberate, and the code says so in as many words at
 `userUpdateQueueService.ts:128-133`.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { GuildAdminBuilders } from '../guildAdminBuilders';
-import type { GuildMemberOverviewItem } from '@bot/services/guildAdminService';
+import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
+import type { GuildMemberOverviewItem } from '@bot/services/guild/guildAdminService';
 
 /**
  * Two defects on the members card, both the same shape: a claim the data does

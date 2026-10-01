@@ -5,7 +5,7 @@ import { mkdirSync, rmSync } from 'fs';
 import path from 'path';
 import { Logger } from '@domain/logger';
 import { isProduction, puppeteerExecutablePath } from '@config/runtimeEnv';
-import { installBrowserRequestPolicy, type DenyLogger, type InterceptablePage } from '../browserRequestPolicy';
+import { installBrowserRequestPolicy, type DenyLogger, type InterceptablePage } from '@images/browserRequestPolicy';
 
 export class PuppeteerService {
   private browser: Browser | null = null;

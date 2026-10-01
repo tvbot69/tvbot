@@ -1,6 +1,6 @@
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
-import { LibrarySearchService, SearchTab } from '@bot/services/librarySearchService';
+import { LibrarySearchService, SearchTab } from '@bot/services/library/librarySearchService';
 import { LibrarySearchBuilders } from '@bot/builders/librarySearchBuilders';
 import { ColorService } from '@bot/services/system/colorService';
 import { TtlStore } from '@bot/services/system/ttlStore';

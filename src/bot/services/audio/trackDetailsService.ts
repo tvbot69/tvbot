@@ -1,9 +1,9 @@
 import { Logger } from '@domain/logger';
-import { EssentiaService } from './essentiaService';
-import { getAudioSignalAndSr } from './audioSignalService';
-import { PreviewResolverService, type ResolvedPreview } from './previewResolverService';
+import { EssentiaService } from '@bot/services/audio/essentiaService';
+import { getAudioSignalAndSr } from '@bot/services/audio/audioSignalService';
+import { PreviewResolverService, type ResolvedPreview } from '@bot/services/audio/previewResolverService';
 import type { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import { setPreview } from './voiceMessageService';
+import { setPreview } from '@bot/services/audio/voiceMessageService';
 
 function formatDuration(ms: number): string {
   const totalSec = Math.floor(ms / 1000);

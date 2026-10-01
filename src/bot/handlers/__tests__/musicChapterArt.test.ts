@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { MusicHandler } from '../musicHandler';
+import { MusicHandler } from '@bot/handlers/musicHandler';
 
 const makeHandler = (artworkService: unknown) => {
   const manager = { on: vi.fn(), players: { get: () => undefined } };

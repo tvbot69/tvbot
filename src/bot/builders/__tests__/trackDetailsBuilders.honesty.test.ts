@@ -23,7 +23,7 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { TrackDetailsBuilders } from '../trackDetailsBuilders';
+import { TrackDetailsBuilders } from '@bot/builders/trackDetailsBuilders';
 import { getPreview } from '@bot/services/audio/voiceMessageService';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { TrackDetailsResult } from '@bot/services/audio/trackDetailsService';

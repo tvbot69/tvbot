@@ -2,15 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import path from 'path';
 import puppeteer from 'puppeteer';
-import { PuppeteerService } from '../puppeteerService';
-import { safeUrl } from '../../html';
+import { PuppeteerService } from '@images/generators/puppeteerService';
+import { safeUrl } from '@images/html';
 import {
   IMAGE_CDN_HOST_ALLOWLIST,
   decideBrowserRequest,
   handleBrowserRequest,
   installBrowserRequestPolicy,
   isPrivateOrLoopbackHost,
-} from '../../browserRequestPolicy';
+} from '@images/browserRequestPolicy';
 
 /**
  * Plan item 5.1, request interception.

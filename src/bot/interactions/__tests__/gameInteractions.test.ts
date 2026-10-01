@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags } from 'discord.js';
-import { GameInteractions } from '../gameInteractions';
+import { GameInteractions } from '@bot/interactions/gameInteractions';
 import { GameBuilders } from '@bot/builders/gameBuilders';
-import type { JumbleSession } from '@bot/services/gameService';
+import type { JumbleSession } from '@bot/services/guild/gameService';
 import type { ButtonInteraction } from 'discord.js';
 
 const makeSession = (over: Partial<JumbleSession> = {}): JumbleSession => ({

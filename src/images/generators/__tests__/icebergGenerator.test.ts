@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { IcebergGenerator } from '../icebergGenerator';
-import { PuppeteerService } from '../puppeteerService';
-import type { IcebergData } from '@bot/services/musicIntelligenceService';
+import { IcebergGenerator } from '@images/generators/icebergGenerator';
+import { PuppeteerService } from '@images/generators/puppeteerService';
+import type { IcebergData } from '@bot/services/library/musicIntelligenceService';
 
 describe('IcebergGenerator', () => {
   it('renders all iceberg tiers and artists into HTML and screenshots via Puppeteer', async () => {

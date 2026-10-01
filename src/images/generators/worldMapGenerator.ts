@@ -1,8 +1,8 @@
 import { injectable, inject } from 'tsyringe';
 import fs from 'fs';
 import path from 'path';
-import { PuppeteerService } from './puppeteerService';
-import type { TopCountryItem } from '@bot/services/countryService';
+import { PuppeteerService } from '@images/generators/puppeteerService';
+import type { TopCountryItem } from '@bot/services/library/countryService';
 
 export enum CountryChartTheme {
   Dark = 1,

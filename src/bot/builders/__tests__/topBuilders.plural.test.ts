@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { TopBuilders } from '../topBuilders';
-import type { TopBuildersDeps } from '../topBuildersDeps';
+import { TopBuilders } from '@bot/builders/topBuilders';
+import type { TopBuildersDeps } from '@bot/builders/topBuildersDeps';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import { TimePeriod } from '@domain/enums/timePeriod';
 

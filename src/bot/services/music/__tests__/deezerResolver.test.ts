@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { DeezerResolver } from '../deezerResolver';
-import { DeezerApi } from '@deezer/apis/deezerApi';
+import { DeezerResolver } from '@bot/services/music/deezerResolver';
+import { DeezerApi } from '@deezer/api/deezerApi';
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });

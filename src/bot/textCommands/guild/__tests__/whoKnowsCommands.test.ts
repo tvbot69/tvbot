@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { WhoKnowsCommands } from '../whoKnowsCommands';
+import { WhoKnowsCommands } from '@bot/textCommands/guild/whoKnowsCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { SettingService } from '@bot/services/system/settingService';
-import { ArtistTrackService } from '@bot/services/artistTrackService';
-import { GenreService } from '@bot/services/genreService';
+import { ArtistTrackService } from '@bot/services/library/artistTrackService';
+import { GenreService } from '@bot/services/library/genreService';
 import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';

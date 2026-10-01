@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { Guild as DiscordGuild } from 'discord.js';
-import { GuildService } from '../guildService';
-import type { Guild } from '@persistence/domain/models/guild';
+import { GuildService } from '@bot/services/guild/guildService';
+import type { Guild } from '@persistence/models/guild';
 
 /**
  * GuildService is a thin cache-aside wrapper: read through `getGuild`, and

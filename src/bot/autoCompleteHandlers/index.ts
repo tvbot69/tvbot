@@ -1,8 +1,8 @@
 import type { AutocompleteInteraction } from 'discord.js';
-import type { IAutoCompleteHandler } from './iautoCompleteHandler';
-import { ArtistAutoComplete } from './artistAutoComplete';
-import { ChartSizeAutoComplete } from './chartSizeAutoComplete';
-import { DateTimeAutoComplete } from './dateTimeAutoComplete';
+import type { IAutoCompleteHandler } from '@bot/autoCompleteHandlers/iautoCompleteHandler';
+import { ArtistAutoComplete } from '@bot/autoCompleteHandlers/artistAutoComplete';
+import { ChartSizeAutoComplete } from '@bot/autoCompleteHandlers/chartSizeAutoComplete';
+import { DateTimeAutoComplete } from '@bot/autoCompleteHandlers/dateTimeAutoComplete';
 
 const handlers: Record<string, IAutoCompleteHandler> = {
   artist: new ArtistAutoComplete(),

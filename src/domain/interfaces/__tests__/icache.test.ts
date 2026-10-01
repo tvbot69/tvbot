@@ -4,7 +4,7 @@ import { container } from 'tsyringe';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CacheService } from '@bot/services/system/cacheService';
-import { ICache, ICACHE } from '../icache';
+import { ICache, ICACHE } from '@domain/interfaces/icache';
 
 /**
  * A minimal ICache. The point of the test below is that a *test double* can

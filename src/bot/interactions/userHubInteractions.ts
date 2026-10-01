@@ -1,7 +1,7 @@
 import { ButtonInteraction } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
 import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { ColorService } from '@bot/services/system/colorService';
 import { UserHubBuilders } from '@bot/builders/userHubBuilders';
 

@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { TopBuilders } from '../topBuilders';
+import { TopBuilders } from '@bot/builders/topBuilders';
 import { ResponseMode } from '@domain/enums/responseMode';
-import type { TopBuildersDeps } from '../topBuildersDeps';
+import type { TopBuildersDeps } from '@bot/builders/topBuildersDeps';
 
 /** Nothing registered: the shape of a partially built container. */
 const NO_DEPS: TopBuildersDeps = {

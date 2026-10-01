@@ -2,18 +2,18 @@ import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { CrownService } from '@bot/services/crown/crownService';
 import { CrownBuilders } from '@bot/builders/crownBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { ArtistsService } from '@bot/services/artistsService';
+import { ArtistsService } from '@bot/services/library/artistsService';
 
 import { container } from 'tsyringe';
 import { ColorService } from '@bot/services/system/colorService';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 
 export class CrownSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];

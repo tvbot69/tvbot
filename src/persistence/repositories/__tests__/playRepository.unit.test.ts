@@ -1,6 +1,6 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { PlayRepository } from '../playRepository';
+import { PlayRepository } from '@persistence/repositories/playRepository';
 
 /**
  * playRepository was 33.4% with 325 uncovered lines. The database-backed parts

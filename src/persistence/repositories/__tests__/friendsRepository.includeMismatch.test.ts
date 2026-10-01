@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { FriendsRepository } from '../friendsRepository';
+import { FriendsRepository } from '@persistence/repositories/friendsRepository';
 
 /**
  * The counterpart relation, pinned as a CROSS-METHOD invariant rather than as a

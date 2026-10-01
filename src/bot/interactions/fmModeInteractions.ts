@@ -2,7 +2,7 @@ import { MessageFlags, type StringSelectMenuInteraction } from 'discord.js';
 import { injectable } from 'tsyringe';
 import { PlayBuilders } from '@bot/builders/playBuilders';
 import { FmSettingService } from '@bot/services/system/fmSettingService';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 
 export const FM_MODE_PREFIX = 'fmmode:';
 

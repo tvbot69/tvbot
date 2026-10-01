@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { MusicCommands } from '../musicCommands';
+import { MusicCommands } from '@bot/textCommands/music/musicCommands';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { playErrorMessage } from '@bot/services/music/musicService';

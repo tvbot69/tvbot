@@ -1,10 +1,10 @@
 import type { Player } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import type { FilterName, LoopMode } from '@domain/models/music/musicQueue';
-import { SEEK_REST_TIMEOUT_MS } from './musicConstants';
-import { EQ_EXCLUSIVE_GROUP } from './musicPlayerRegistry';
-import type { PlayerRegistry } from './musicPlayerRegistry';
-import type { QueueService } from './queueService';
+import { SEEK_REST_TIMEOUT_MS } from '@bot/services/music/musicConstants';
+import { EQ_EXCLUSIVE_GROUP } from '@bot/services/music/musicPlayerRegistry';
+import type { PlayerRegistry } from '@bot/services/music/musicPlayerRegistry';
+import type { QueueService } from '@bot/services/music/queueService';
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 
 /**

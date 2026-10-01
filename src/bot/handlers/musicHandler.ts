@@ -2,22 +2,22 @@
 import type { Manager, Player } from 'moonlink.js';
 import { Track } from 'moonlink.js';
 import { Logger } from '@domain/logger';
-import { FallbackBudget } from './music/fallbackBudget';
-import { KaraokeController, type KaraokeHost } from './music/karaokeController';
-import { NowPlayingCardPublisher, type CardPublisherHost } from './music/nowPlayingCardPublisher';
-import { ChapterArtController, type ChapterArtHost } from './music/chapterArtController';
-import { AlternateTrackFinder } from './music/alternateTrackFinder';
-import { VoiceLifecycle, type VoiceLifecycleHost } from './music/voiceLifecycle';
-import { ChapterTimeline, type ChapterTimelineHost } from './music/chapterTimeline';
-import { MusicEventListeners, type EventListenerHost } from './music/musicEventListeners';
-import { buildFallbackQuery, chapterKeyFor, clientFailuresText, fingerprintFor } from './music/cardFingerprint';
+import { FallbackBudget } from '@bot/handlers/music/fallbackBudget';
+import { KaraokeController, type KaraokeHost } from '@bot/handlers/music/karaokeController';
+import { NowPlayingCardPublisher, type CardPublisherHost } from '@bot/handlers/music/nowPlayingCardPublisher';
+import { ChapterArtController, type ChapterArtHost } from '@bot/handlers/music/chapterArtController';
+import { AlternateTrackFinder } from '@bot/handlers/music/alternateTrackFinder';
+import { VoiceLifecycle, type VoiceLifecycleHost } from '@bot/handlers/music/voiceLifecycle';
+import { ChapterTimeline, type ChapterTimelineHost } from '@bot/handlers/music/chapterTimeline';
+import { MusicEventListeners, type EventListenerHost } from '@bot/handlers/music/musicEventListeners';
+import { buildFallbackQuery, chapterKeyFor, clientFailuresText, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { QueueService } from '@bot/services/music/queueService';
 import type { ColorService } from '@bot/services/system/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import type { LyricsService } from '@bot/services/music/lyricsService';
-import type { ArtworkService } from '@bot/services/artworkService';
+import type { ArtworkService } from '@bot/services/media/artworkService';
 import type { LyricWindow } from '@bot/services/music/syncedLyrics';
 import {
   extractArtistFromTitle,

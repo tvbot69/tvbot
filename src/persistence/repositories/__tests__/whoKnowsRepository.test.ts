@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { WhoKnowsRepository } from '../whoKnowsRepository';
+import { WhoKnowsRepository } from '@persistence/repositories/whoKnowsRepository';
 
 describe('WhoKnowsRepository artist dedup', () => {
   it('aggregates one row per user across case-variant duplicates', async () => {

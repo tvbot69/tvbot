@@ -3,8 +3,8 @@ import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/comm
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { UserService } from '@bot/services/userService';
-import { TrackService } from '@bot/services/trackService';
+import { UserService } from '@bot/services/user/userService';
+import { TrackService } from '@bot/services/library/trackService';
 import { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
 import { setPreview } from '@bot/services/audio/voiceMessageService';
 import { TrackBuilders } from '@bot/builders/trackBuilders';

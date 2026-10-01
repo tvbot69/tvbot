@@ -30,11 +30,11 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { AlbumInteractions } from '../albumInteractions';
+import { AlbumInteractions } from '@bot/interactions/albumInteractions';
 import { AlbumBuilders } from '@bot/builders/albumBuilders';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import type { AlbumSearchResult } from '@bot/services/albumService';
+import type { AlbumSearchResult } from '@bot/services/library/albumService';
 
 const GUILD_ID = 'g1';
 const CALLER_ID = 'caller1';

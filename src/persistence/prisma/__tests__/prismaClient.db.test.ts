@@ -41,7 +41,7 @@ import { databaseUrl, skipReason } from '../../../testSupport/dbHarness';
 const skip = skipReason();
 const suite = skip ? describe.skip : describe;
 
-type PrismaClientModule = typeof import('../../prismaClient');
+type PrismaClientModule = typeof import('@persistence/prismaClient');
 
 let mod: PrismaClientModule | null = null;
 let restore: (() => void) | null = null;
@@ -65,7 +65,7 @@ const scratchDatabaseName = (): string => {
 const importAgainst = async (url: string): Promise<PrismaClientModule> => {
   process.env.DATABASE_URL = url;
   vi.resetModules();
-  return import('../../prismaClient');
+  return import('@persistence/prismaClient');
 };
 
 suite('prismaClient.checkDatabaseHealth against a real database', () => {

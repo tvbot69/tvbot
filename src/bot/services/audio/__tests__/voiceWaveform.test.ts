@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encodeVoiceWaveform, waveformPointCount, MAX_WAVEFORM_POINTS } from '../voiceWaveform';
+import { encodeVoiceWaveform, waveformPointCount, MAX_WAVEFORM_POINTS } from '@bot/services/audio/voiceWaveform';
 
 const SR = 44100;
 const bytes = (b64: string): number[] => [...Buffer.from(b64, 'base64')];

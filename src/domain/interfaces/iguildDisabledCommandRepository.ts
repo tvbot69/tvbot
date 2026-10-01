@@ -1,4 +1,4 @@
-import type { GuildDisabledCommand } from '@persistence/domain/models/guildDisabledCommand';
+import type { GuildDisabledCommand } from '@persistence/models/guildDisabledCommand';
 
 export interface IGuildDisabledCommandRepository {
   getAllForGuild(guildId: string): Promise<GuildDisabledCommand[]>;

@@ -18,10 +18,10 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { UserEventHandler } from '../userEventHandler';
+import { UserEventHandler } from '@bot/handlers/userEventHandler';
 import { Events } from 'discord.js';
 import type { Client } from 'discord.js';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { GuildUserService } from '@bot/services/guild/guildUserService';
 
 type Listener = (...args: never[]) => unknown;

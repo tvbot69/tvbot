@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { ReconcileService } from '../lastfm/reconcileService';
+import { ReconcileService } from '@bot/services/lastfm/reconcileService';
 
 const db = vi.hoisted(() => ({
   user: { findMany: vi.fn() },

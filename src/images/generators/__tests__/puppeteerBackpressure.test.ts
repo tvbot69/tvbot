@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PuppeteerService } from '../puppeteerService';
+import { PuppeteerService } from '@images/generators/puppeteerService';
 
 describe('PuppeteerService backpressure (Phase 5)', () => {
   beforeEach(() => {

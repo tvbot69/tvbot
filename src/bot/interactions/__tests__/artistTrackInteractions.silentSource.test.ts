@@ -27,7 +27,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags } from 'discord.js';
-import { ArtistTrackInteractions } from '../artistTrackInteractions';
+import { ArtistTrackInteractions } from '@bot/interactions/artistTrackInteractions';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import type { ButtonInteraction } from 'discord.js';
@@ -36,7 +36,7 @@ const userHolder = vi.hoisted(() => ({
   user: { userId: 7, userNameLastFm: 'Tester', discordUserId: 'u1' } as unknown,
 }));
 
-vi.mock('@bot/services/userService', () => ({
+vi.mock('@bot/services/user/userService', () => ({
   UserService: class {
     public getUserByDiscordId(): unknown {
       return userHolder.user;

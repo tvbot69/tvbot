@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { CountryBuilders } from '../countryBuilders';
-import type { WhoKnowsCountryItem } from '@bot/services/countryService';
-import type { CountryInfo } from '@bot/services/countryService';
+import { CountryBuilders } from '@bot/builders/countryBuilders';
+import type { WhoKnowsCountryItem } from '@bot/services/library/countryService';
+import type { CountryInfo } from '@bot/services/library/countryService';
 
 /**
  * The country cards print a count of artists in two places, and both used to

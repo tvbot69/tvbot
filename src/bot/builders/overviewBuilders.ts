@@ -2,7 +2,7 @@ import { SeparatorSpacingSize } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, SeparatorBuilder, TextDisplayBuilder } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 
-import type { OverviewResult } from '@bot/services/overviewService';
+import type { OverviewResult } from '@bot/services/library/overviewService';
 import { EMOJI } from '@bot/resources/emojis';
 
 function formatDuration(ms: number): string {

@@ -69,18 +69,18 @@ const prismaMock = vi.hoisted(() => ({
 
 vi.mock('@persistence/prismaClient', () => ({ prisma: prismaMock }));
 
-import { ArtistCommands } from '../artistCommands';
+import { ArtistCommands } from '@bot/textCommands/lastfm/artistCommands';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { UserService } from '@bot/services/userService';
-import type { ArtistTrackService } from '@bot/services/artistTrackService';
-import type { MusicBrainzArtistData, MusicBrainzService } from '@bot/services/musicBrainzService';
-import type { GenreService } from '@bot/services/genreService';
+import type { UserService } from '@bot/services/user/userService';
+import type { ArtistTrackService } from '@bot/services/library/artistTrackService';
+import type { MusicBrainzArtistData, MusicBrainzService } from '@bot/services/media/musicBrainzService';
+import type { GenreService } from '@bot/services/library/genreService';
 import type { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import type { SpotifySearchArtist } from '@spotify/models/spotifyModels';
 import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import type { UpdateService } from '@bot/services/lastfm/updateService';
-import type { ArtistsService } from '@bot/services/artistsService';
+import type { ArtistsService } from '@bot/services/library/artistsService';
 
 /**
  * Everything the user reads.

@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { ArtistGenreRepository } from '../artistGenreRepository';
+import { ArtistGenreRepository } from '@persistence/repositories/artistGenreRepository';
 
 /**
  * artistGenreRepository had NO unit test at all. It is the storage half of the

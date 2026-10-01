@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { AutopostRepository } from '../autopostRepository';
-import { MusicHistoryRepository } from '../musicHistoryRepository';
+import { AutopostRepository } from '@persistence/repositories/autopostRepository';
+import { MusicHistoryRepository } from '@persistence/repositories/musicHistoryRepository';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 
 /**

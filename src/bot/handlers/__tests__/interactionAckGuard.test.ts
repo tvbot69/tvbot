@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { InteractionHandler } from '../interactionHandler';
+import { InteractionHandler } from '@bot/handlers/interactionHandler';
 
 describe('InteractionHandler slow-button safety net (Phase 1.4)', () => {
   beforeEach(() => {

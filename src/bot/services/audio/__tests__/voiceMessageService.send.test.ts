@@ -47,9 +47,9 @@ vi.mock('../audioSignalService', () => ({ buildVoiceWaveform }));
 
 /** Fresh module per test, so the fs/runtimeEnv mocks attach to the instance
  *  under test rather than to a module graph cached by an earlier file. */
-const load = async (): Promise<typeof import('../voiceMessageService')> => {
+const load = async (): Promise<typeof import('@bot/services/audio/voiceMessageService')> => {
   vi.resetModules();
-  return import('../voiceMessageService');
+  return import('@bot/services/audio/voiceMessageService');
 };
 
 const OK = (body: unknown = { ok: true }): Response =>

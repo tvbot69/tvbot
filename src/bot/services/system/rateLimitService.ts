@@ -1,5 +1,5 @@
 import { container, singleton } from 'tsyringe';
-import { CacheService } from './cacheService';
+import { CacheService } from '@bot/services/system/cacheService';
 import { Logger } from '@domain/logger';
 
 interface RateLimitEntry {

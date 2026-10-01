@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { container } from 'tsyringe';
-import { ShutdownService } from '../system/shutdownService';
-import { TimerService } from '../lastfm/timerService';
+import { ShutdownService } from '@bot/services/system/shutdownService';
+import { TimerService } from '@bot/services/lastfm/timerService';
 import { Client } from 'discord.js';
-import { CacheService } from '../system/cacheService';
+import { CacheService } from '@bot/services/system/cacheService';
 import { PuppeteerService } from '@images/generators/puppeteerService';
 
 describe('ShutdownService', () => {

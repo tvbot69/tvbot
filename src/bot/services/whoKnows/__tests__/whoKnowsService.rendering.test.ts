@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { WhoKnowsService } from '../whoKnowsService';
+import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 
 /**

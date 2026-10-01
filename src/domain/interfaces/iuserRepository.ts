@@ -1,5 +1,5 @@
-import type { User } from '@persistence/domain/models/user';
-import type { Friend } from '@persistence/domain/models/user';
+import type { User } from '@persistence/models/user';
+import type { Friend } from '@persistence/models/user';
 
 export interface IUserRepository {
   getUserByDiscordUserId(discordUserId: string): Promise<User | null>;

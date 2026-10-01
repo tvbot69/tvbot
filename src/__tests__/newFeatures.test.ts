@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AutopostService } from '@bot/services/autopostService';
+import { AutopostService } from '@bot/services/charts/autopostService';
 import { CrownCommands } from '@bot/textCommands/guild/crownCommands';
 import { GuildAdminCommands } from '@bot/textCommands/guild/guildAdminCommands';
 import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';

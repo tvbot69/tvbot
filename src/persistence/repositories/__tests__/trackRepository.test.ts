@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { TrackRepository } from '../trackRepository';
+import { TrackRepository } from '@persistence/repositories/trackRepository';
 
 /**
  * TrackRepository was at 14.5% line coverage. It mirrors AlbumRepository, but

@@ -2,17 +2,17 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
 import { CommandHandler } from '@bot/handlers/commandHandler';
-import { PrefixService } from '@bot/services/prefixService';
+import { PrefixService } from '@bot/services/user/prefixService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
 import { ColorService } from '@bot/services/system/colorService';
-import { GameService } from '@bot/services/gameService';
+import { GameService } from '@bot/services/guild/gameService';
 import { RateLimitService } from '@bot/services/system/rateLimitService';
 import type { Client } from 'discord.js';
 import type { GuildService } from '@bot/services/guild/guildService';
 import type { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
 import type { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
 import type { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 
 /**
  * The text dispatcher runs for every message in every channel. These cover

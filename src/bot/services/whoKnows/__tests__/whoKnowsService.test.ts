@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { WhoKnowsService } from '../whoKnowsService';
+import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 
 describe('WhoKnowsService', () => {
   it('formats whoKnows list with proper ranking, padding, and bolding for requester', () => {

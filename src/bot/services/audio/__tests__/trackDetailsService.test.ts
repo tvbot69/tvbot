@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TrackDetailsService } from '../trackDetailsService';
-import type { PreviewResolverService, ResolvedPreview } from '../previewResolverService';
-import type { EssentiaService } from '../essentiaService';
+import { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
+import type { PreviewResolverService, ResolvedPreview } from '@bot/services/audio/previewResolverService';
+import type { EssentiaService } from '@bot/services/audio/essentiaService';
 import type { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 // Two module-level dependencies are mocked rather than injected: the resolver's

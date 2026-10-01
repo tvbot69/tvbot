@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
 import { MessageFlags } from 'discord.js';
 import type { ModalSubmitInteraction } from 'discord.js';
-import { ComponentPaginatorService } from '../system/componentPaginatorService';
+import { ComponentPaginatorService } from '@bot/services/system/componentPaginatorService';
 
 /**
  * The paginator page-jump modal.

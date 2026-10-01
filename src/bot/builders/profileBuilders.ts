@@ -10,9 +10,9 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import type { LastFmUser } from '@domain/models/lastFmUser';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { UserType } from '@persistence/domain/models/user';
+import { UserType } from '@persistence/models/user';
 
 export interface ProfileStats {
   userDisplayName: string;

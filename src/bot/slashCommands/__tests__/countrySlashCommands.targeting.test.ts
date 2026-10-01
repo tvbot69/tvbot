@@ -46,16 +46,16 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { CountrySlashCommands } from '../countrySlashCommands';
+import { CountrySlashCommands } from '@bot/slashCommands/countrySlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { SettingService } from '@bot/services/system/settingService';
 import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import type { CountryService } from '@bot/services/countryService';
+import type { CountryService } from '@bot/services/library/countryService';
 import type { ColorService } from '@bot/services/system/colorService';
 import type { WorldMapGenerator } from '@images/generators/worldMapGenerator';
 

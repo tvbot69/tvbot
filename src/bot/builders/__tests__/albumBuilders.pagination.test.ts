@@ -30,10 +30,10 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { AlbumBuilders } from '../albumBuilders';
-import type { AlbumSearchResult } from '@bot/services/albumService';
+import { AlbumBuilders } from '@bot/builders/albumBuilders';
+import type { AlbumSearchResult } from '@bot/services/library/albumService';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 import type { ResponseModel } from '@bot/models/responseModel';
 

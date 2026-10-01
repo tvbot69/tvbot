@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { GuildAdminBuilders } from '../guildAdminBuilders';
+import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 
 describe('GuildAdminBuilders', () => {
   const dummyGuild: Guild = {

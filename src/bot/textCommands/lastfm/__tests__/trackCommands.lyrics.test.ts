@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { TrackCommands } from '../trackCommands';
+import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';

@@ -1,8 +1,8 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
-import { OverviewService } from '@bot/services/overviewService';
+import { UserService } from '@bot/services/user/userService';
+import { OverviewService } from '@bot/services/library/overviewService';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { OverviewBuilders } from '@bot/builders/overviewBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
@@ -10,7 +10,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 
 import { container } from 'tsyringe';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 
 export class OverviewCommands implements ITextCommandModule {

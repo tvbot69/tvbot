@@ -3,14 +3,14 @@ import { MessageFlags } from 'discord.js';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import { GameService, JumbleSession } from '@bot/services/gameService';
+import { GameService, JumbleSession } from '@bot/services/guild/gameService';
 import { GameBuilders } from '@bot/builders/gameBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/system/colorService';
-import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 import { Logger } from '@domain/logger';
 
 @injectable()

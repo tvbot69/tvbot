@@ -2,8 +2,8 @@
 // tsyringe-decorated, and AGENTS.md section 5 requires this ordering.
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { isPlaceholderImageUrl } from '../lastfmPlaceholder';
-import { isPlaceholderImageUrl as viaArtworkService } from '@bot/services/artworkService';
+import { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
+import { isPlaceholderImageUrl as viaArtworkService } from '@bot/services/media/artworkService';
 
 describe('isPlaceholderImageUrl', () => {
   it('detects the Last.fm no-image hash', () => {

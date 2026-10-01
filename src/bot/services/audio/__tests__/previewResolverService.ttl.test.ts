@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PreviewResolverService } from '../previewResolverService';
-import type { AppleMusicSearchApi } from '@applemusic/apis/appleMusicSearchApi';
-import type { DeezerApi } from '@deezer/apis/deezerApi';
-import type { CacheService } from '../../system/cacheService';
+import { PreviewResolverService } from '@bot/services/audio/previewResolverService';
+import type { AppleMusicSearchApi } from '@applemusic/api/appleMusicSearchApi';
+import type { DeezerApi } from '@deezer/api/deezerApi';
+import type { CacheService } from '@bot/services/system/cacheService';
 
 /**
  * Why this file exists

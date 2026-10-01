@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { PlayBuilders } from '../playBuilders';
+import { PlayBuilders } from '@bot/builders/playBuilders';
 import { FmEmbedType } from '@domain/enums/fmEmbedType';
 import { FmButton } from '@domain/enums/fmButton';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';

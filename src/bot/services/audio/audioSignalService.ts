@@ -6,7 +6,7 @@ import cp from 'child_process';
 import { Logger } from '@domain/logger';
 import { ffmpegPath, ffprobePath, setFfmpegPath, setFfprobePath, currentEnv } from '@config/runtimeEnv';
 
-import { encodeVoiceWaveform } from './voiceWaveform';
+import { encodeVoiceWaveform } from '@bot/services/audio/voiceWaveform';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 import ffmpegFluent from 'fluent-ffmpeg';

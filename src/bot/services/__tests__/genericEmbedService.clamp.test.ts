@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { GenericEmbedService } from '../system/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { StreamingSlashCommands } from '../streamingSlashCommands';
+import { StreamingSlashCommands } from '@bot/slashCommands/streamingSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';

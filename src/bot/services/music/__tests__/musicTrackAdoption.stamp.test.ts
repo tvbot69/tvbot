@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { adoptMirrorTrack } from '../musicTrackAdoption';
+import { adoptMirrorTrack } from '@bot/services/music/musicTrackAdoption';
 import type { Track } from 'moonlink.js';
 import type { MirrorTrack, MusicTrackRequester } from '@domain/models/music/musicTrack';
 

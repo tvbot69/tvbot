@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { ReceiptBuilders } from '../receiptBuilders';
+import { ReceiptBuilders } from '@bot/builders/receiptBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 describe('ReceiptBuilders', () => {

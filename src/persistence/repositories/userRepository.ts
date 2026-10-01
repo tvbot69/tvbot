@@ -1,8 +1,8 @@
 import { PrismaClient, User as UserEntity } from '@prisma/client';
 import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
-import type { Friend } from '@persistence/domain/models/user';
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import type { Friend } from '@persistence/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 import { Logger } from '@domain/logger';
 
 function userTypeFromEntity(value: string): UserType {

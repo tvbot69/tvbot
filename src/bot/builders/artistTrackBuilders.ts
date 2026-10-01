@@ -2,7 +2,7 @@ import { SeparatorSpacingSize } from 'discord.js';
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, SeparatorBuilder, TextDisplayBuilder } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { EMOJI } from '@bot/resources/emojis';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 
 
 export class ArtistTrackBuilders {

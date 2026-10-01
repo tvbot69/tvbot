@@ -1,4 +1,4 @@
-import type { Channel } from '@persistence/domain/models/channel';
+import type { Channel } from '@persistence/models/channel';
 
 export interface IChannelRepository {
   getChannel(channelId: string): Promise<Channel | null>;

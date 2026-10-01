@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags } from 'discord.js';
-import { TrackPreviewInteractions, TRACK_PREVIEW_PREFIX } from '../trackPreviewInteractions';
+import { TrackPreviewInteractions, TRACK_PREVIEW_PREFIX } from '@bot/interactions/trackPreviewInteractions';
 import { setPreview } from '@bot/services/audio/voiceMessageService';
 import { Logger } from '@domain/logger';
 import type { ButtonInteraction } from 'discord.js';

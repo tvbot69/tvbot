@@ -4,7 +4,7 @@ import path from 'path';
 import { getAudioDurationInSeconds } from 'get-audio-duration';
 import { Logger } from '@domain/logger';
 import { ffprobePath as configuredFfprobePath } from '@config/runtimeEnv';
-import { buildVoiceWaveform } from './audioSignalService';
+import { buildVoiceWaveform } from '@bot/services/audio/audioSignalService';
 
 /**
  * Preview URL hand-off between a command that resolves one and the button

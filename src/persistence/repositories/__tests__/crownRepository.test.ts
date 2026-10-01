@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { CrownRepository } from '../crownRepository';
+import { CrownRepository } from '@persistence/repositories/crownRepository';
 
 /**
  * Crowns are the closest thing this bot has to money: `replaceCrown` is a

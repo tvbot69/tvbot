@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { LastFmRepository } from '../lastFmRepository';
+import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 
 /**
  * lastFmRepository is the largest untested file in the repo at 8.9% of 654

@@ -4,10 +4,10 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { UserService } from '@bot/services/userService';
-import { FriendsService } from '@bot/services/friendsService';
+import { UserService } from '@bot/services/user/userService';
+import { FriendsService } from '@bot/services/social/friendsService';
 import { FriendBuilders, type FriendNowPlayingItem } from '@bot/builders/friendBuilders';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';

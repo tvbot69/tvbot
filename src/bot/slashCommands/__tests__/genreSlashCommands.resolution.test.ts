@@ -33,16 +33,16 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { GenreSlashCommands } from '../genreSlashCommands';
+import { GenreSlashCommands } from '@bot/slashCommands/genreSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { SettingService } from '@bot/services/system/settingService';
 import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import type { GenreService } from '@bot/services/genreService';
+import type { GenreService } from '@bot/services/library/genreService';
 import type { ColorService } from '@bot/services/system/colorService';
 
 const CALLER = {

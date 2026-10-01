@@ -1,11 +1,11 @@
 import type { Player, Track } from 'moonlink.js';
 import { Track as MoonlinkTrack } from 'moonlink.js';
 import { Logger } from '@domain/logger';
-import { ladderFor, HOME_NODE, type Rung } from './youtubeHealth';
-import { resolveViaHome, type ResolverMeta } from './ytResolver';
-import { LOAD_TRACKS_TIMEOUT_MS } from './musicConstants';
-import { isNodeCooling } from './musicNodeHealth';
-import { leadArtist, preCleanArtwork } from './musicTrackArtwork';
+import { ladderFor, HOME_NODE, type Rung } from '@bot/services/music/youtubeHealth';
+import { resolveViaHome, type ResolverMeta } from '@bot/services/music/ytResolver';
+import { LOAD_TRACKS_TIMEOUT_MS } from '@bot/services/music/musicConstants';
+import { isNodeCooling } from '@bot/services/music/musicNodeHealth';
+import { leadArtist, preCleanArtwork } from '@bot/services/music/musicTrackArtwork';
 import {
   cleanArtistName,
   isSpotifyMatchValid,
@@ -13,8 +13,8 @@ import {
   spotifyUriToUrl,
   type MusicTrack,
 } from '@domain/models/music/musicTrack';
-import type { MoonlinkManager } from './moonlinkManager';
-import type { SpotifyResolvedTrack, SpotifyResolver } from './spotifyResolver';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
+import type { SpotifyResolvedTrack, SpotifyResolver } from '@bot/services/music/spotifyResolver';
 
 export type LadderResult = { track: Track; rung: Rung } | { transportError: true } | null;
 

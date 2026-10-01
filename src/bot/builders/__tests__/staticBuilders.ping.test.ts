@@ -10,7 +10,7 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { StaticBuilders } from '../staticBuilders';
+import { StaticBuilders } from '@bot/builders/staticBuilders';
 
 describe('StaticBuilders.buildPingResponse', () => {
   it('reports the latency it was handed', () => {

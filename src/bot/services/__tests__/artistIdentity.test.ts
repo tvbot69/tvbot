@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { isArtistIndexPartial } from '../artistTrackService';
-import { GenreService } from '../genreService';
-import { ArtworkService } from '../artworkService';
+import { isArtistIndexPartial } from '@bot/services/library/artistTrackService';
+import { GenreService } from '@bot/services/library/genreService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 describe('isArtistIndexPartial', () => {

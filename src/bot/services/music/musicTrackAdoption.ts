@@ -1,7 +1,7 @@
 import type { Track } from 'moonlink.js';
 import { spotifyUriToUrl, type MirrorTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
-import type { Rung } from './youtubeHealth';
-import { isYoutubeThumb } from './musicTrackArtwork';
+import type { Rung } from '@bot/services/music/youtubeHealth';
+import { isYoutubeThumb } from '@bot/services/music/musicTrackArtwork';
 
 /**
  * Stamps provider display metadata onto a resolved Lavalink track. The

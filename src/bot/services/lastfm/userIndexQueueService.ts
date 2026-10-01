@@ -1,5 +1,5 @@
 import type { IndexUserQueueItem, IUserIndexQueue } from '@domain/interfaces/iuserIndexQueue';
-import type { CacheService } from '../system/cacheService';
+import type { CacheService } from '@bot/services/system/cacheService';
 import { Logger } from '@domain/logger';
 
 const REDIS_LIST_KEY = 'queue:user-index';

@@ -1,4 +1,4 @@
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 
 export interface IGuildRepository {
   getGuild(guildId: string): Promise<Guild | null>;

@@ -8,7 +8,7 @@ import type {
 } from '@lastfm/models/topListsLfm';
 import type { LfmImage } from '@lastfm/models/recentTracksLfm';
 import type { TopAlbum, TopArtist, TopTrack } from '@domain/models/topLists';
-import { TrackConverter } from './recentTrackConverter';
+import { TrackConverter } from '@lastfm/converters/recentTrackConverter';
 
 const extractArtistName = (
   artist:

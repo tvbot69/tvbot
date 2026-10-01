@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Logger } from '@domain/logger';
-import { fetchDescriptionChapters, parseTimestampLines, __resetDescriptionChaptersForTests } from '../descriptionChapters';
+import { fetchDescriptionChapters, parseTimestampLines, __resetDescriptionChaptersForTests } from '@bot/services/music/descriptionChapters';
 
 const SAVED_KEY = process.env.YOUTUBE_API_KEY;
 

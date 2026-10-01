@@ -28,11 +28,11 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags, type ButtonInteraction, type StringSelectMenuInteraction } from 'discord.js';
-import { FriendInteractions } from '../friendInteractions';
+import { FriendInteractions } from '@bot/interactions/friendInteractions';
 import { FriendBuilders } from '@bot/builders/friendBuilders';
 import { FriendType } from '@domain/enums/friendType';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import type { Friend } from '@persistence/domain/models/user';
+import type { Friend } from '@persistence/models/user';
 
 const CALLER_ID = 'caller1';
 const OWNER_USER_ID = 1;

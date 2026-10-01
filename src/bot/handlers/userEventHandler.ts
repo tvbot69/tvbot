@@ -6,7 +6,7 @@ import {
   type PartialGuildMember,
 } from 'discord.js';
 import { Logger } from '@domain/logger';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
 
 @injectable()

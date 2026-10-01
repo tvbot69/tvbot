@@ -2,7 +2,7 @@ import type {
   ApplicationCommandOptionChoiceData,
   AutocompleteInteraction,
 } from 'discord.js';
-import type { IAutoCompleteHandler } from './iautoCompleteHandler';
+import type { IAutoCompleteHandler } from '@bot/autoCompleteHandlers/iautoCompleteHandler';
 
 const allCombinations: string[] = [];
 for (let i = 1; i <= 50; i++) {

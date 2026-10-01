@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { TrackCommands } from '../trackCommands';
+import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
 import { TrackBuilders } from '@bot/builders/trackBuilders';
 import { TrackDetailsBuilders } from '@bot/builders/trackDetailsBuilders';
 import { DiscordConstants } from '@bot/resources/discordConstants';

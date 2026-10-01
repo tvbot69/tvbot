@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { TopInteractions } from '../topInteractions';
+import { TopInteractions } from '@bot/interactions/topInteractions';
 import { TopBuilders } from '@bot/builders/topBuilders';
 import { OverviewBuilders } from '@bot/builders/overviewBuilders';
 import { TimePeriod } from '@domain/enums/timePeriod';

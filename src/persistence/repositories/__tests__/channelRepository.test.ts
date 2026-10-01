@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { ChannelRepository } from '../channelRepository';
+import { ChannelRepository } from '@persistence/repositories/channelRepository';
 
 /**
  * channelRepository had NO unit test at all. It is small, but it owns the

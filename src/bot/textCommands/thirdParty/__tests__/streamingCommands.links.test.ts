@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, type MockInstance } from 'vitest';
-import { StreamingCommands } from '../streamingCommands';
-import { AppleMusicService } from '@bot/services/appleMusicService';
+import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
+import { AppleMusicService } from '@bot/services/media/appleMusicService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';

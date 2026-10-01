@@ -1,11 +1,11 @@
 import { Logger } from '@domain/logger';
 import { spotifyUriToUrl } from '@domain/models/music/musicTrack';
 import type { Manager, Player, Track } from 'moonlink.js';
-import { MAX_QUEUE_TRACKS } from './musicConstants';
-import type { SpotifyScraperService, ScrapedTrack } from './spotifyScraperService';
-import type { SpotifyResolvedTrack } from './spotifyResolver';
-import type { Rung } from './youtubeHealth';
-import type { MoonlinkManager } from './moonlinkManager';
+import { MAX_QUEUE_TRACKS } from '@bot/services/music/musicConstants';
+import type { SpotifyScraperService, ScrapedTrack } from '@bot/services/music/spotifyScraperService';
+import type { SpotifyResolvedTrack } from '@bot/services/music/spotifyResolver';
+import type { Rung } from '@bot/services/music/youtubeHealth';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 
 /**
  * Resolves one scraper track through the health ladder (same contract as

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { AutopostService, type AutopostConfig } from '@bot/services/autopostService';
+import { AutopostService, type AutopostConfig } from '@bot/services/charts/autopostService';
 import { AutopostRepository } from '@persistence/repositories/autopostRepository';
 import { SpotifySearchApi, SpotifyUnavailableError } from '@spotify/api/spotifySearchApi';
 import type { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';

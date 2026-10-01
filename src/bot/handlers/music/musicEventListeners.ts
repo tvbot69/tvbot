@@ -10,7 +10,7 @@ import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import type { ColorService } from '@bot/services/system/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
-import { chapterKeyFor, clientFailuresText, fingerprintFor } from './cardFingerprint';
+import { chapterKeyFor, clientFailuresText, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
 import type { LyricWindow } from '@bot/services/music/syncedLyrics';
 import type { ChapterCard } from '@bot/services/music/videoChapters';
 import {

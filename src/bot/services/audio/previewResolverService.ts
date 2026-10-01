@@ -1,8 +1,8 @@
-import { AppleMusicSearchApi } from '@applemusic/apis/appleMusicSearchApi';
-import { DeezerApi } from '@deezer/apis/deezerApi';
-import { SpotifyScraperService } from '../music/spotifyScraperService';
-import { CacheService } from '../system/cacheService';
-import { matchesTrackTitle } from '../artworkService';
+import { AppleMusicSearchApi } from '@applemusic/api/appleMusicSearchApi';
+import { DeezerApi } from '@deezer/api/deezerApi';
+import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
+import { CacheService } from '@bot/services/system/cacheService';
+import { matchesTrackTitle } from '@bot/services/media/artworkService';
 import { Logger } from '@domain/logger';
 import type { ITunesSearchResult } from '@applemusic/models/itunesModels';
 import type { DeezerTrack } from '@deezer/models/deezerModels';

@@ -15,7 +15,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 
 import type { UserCrownDto, CrownViewType, CrownLeaderboardEntry } from '@domain/models/crownModels';
 import { EMOJI } from '@bot/resources/emojis';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 
 const lastfmArtistUrl = (artist: string): string =>
   `https://last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;

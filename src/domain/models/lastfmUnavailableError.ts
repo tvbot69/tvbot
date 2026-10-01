@@ -19,7 +19,7 @@
  * dropped connection as a year of zero plays. `name` and the message text are
  * unchanged, so `isLastFmUnavailable` and every `instanceof` keep working.
  */
-import { SourceUnavailableError } from './sourceUnavailableError';
+import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 
 export class LastFmUnavailableError extends SourceUnavailableError {
   constructor(method: string, cause: unknown) {

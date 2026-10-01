@@ -18,7 +18,7 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { UpdateBuilders } from '../updateBuilders';
+import { UpdateBuilders } from '@bot/builders/updateBuilders';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 const desc = (r: { embed: { data: { description?: string } } }): string => r.embed.data.description ?? '';

@@ -35,13 +35,13 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { ServerCommands } from '../serverCommands';
+import { ServerCommands } from '@bot/textCommands/guild/serverCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { OrderType, parseGuildRankingSettings } from '@bot/services/guildRankingService';
+import { OrderType, parseGuildRankingSettings } from '@bot/services/guild/guildRankingService';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { GuildRankingItem, GuildRankingSettings } from '@bot/services/guildRankingService';
-import type { GuildRankingService } from '@bot/services/guildRankingService';
+import type { GuildRankingItem, GuildRankingSettings } from '@bot/services/guild/guildRankingService';
+import type { GuildRankingService } from '@bot/services/guild/guildRankingService';
 import type { ColorService } from '@bot/services/system/colorService';
 
 vi.mock('@bot/interactions/serverInteractions', () => ({

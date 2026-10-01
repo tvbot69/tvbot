@@ -2,13 +2,13 @@ import { container } from 'tsyringe';
 import { Client } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { prisma } from '@persistence/prismaClient';
-import { TimerService } from '../lastfm/timerService';
-import { CacheService } from './cacheService';
+import { TimerService } from '@bot/services/lastfm/timerService';
+import { CacheService } from '@bot/services/system/cacheService';
 import { PuppeteerService } from '@images/generators/puppeteerService';
-import { HealthServer } from './healthServer';
-import { MoonlinkManager } from '../music/moonlinkManager';
-import { UserUpdateQueueService } from '../lastfm/userUpdateQueueService';
-import { UserIndexQueueService } from '../lastfm/userIndexQueueService';
+import { HealthServer } from '@bot/services/system/healthServer';
+import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
+import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
+import { UserIndexQueueService } from '@bot/services/lastfm/userIndexQueueService';
 
 const DRAIN_TIMEOUT_MS = 30000;
 

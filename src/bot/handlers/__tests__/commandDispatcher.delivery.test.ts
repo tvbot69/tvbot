@@ -31,7 +31,7 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { CommandDispatcher } from '../commandDispatcher';
+import { CommandDispatcher } from '@bot/handlers/commandDispatcher';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { MessageFlags, PermissionFlagsBits } from 'discord.js';

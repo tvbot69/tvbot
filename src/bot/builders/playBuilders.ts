@@ -11,11 +11,11 @@ import { FmEmbedType, FmEmbedTypeNames } from '@domain/enums/fmEmbedType';
 import { FmFooterOption, FmFooterOptionMeta } from '@domain/enums/fmFooterOption';
 import { FmButton, FmButtonMetaList } from '@domain/enums/fmButton';
 import { FmTextType } from '@domain/enums/fmTextType';
-import { buildFooterText } from './footerBuilder';
-import { PlaycountBuilders } from './playcountBuilders';
-import { StreakBuilders } from './streakBuilders';
-import { OverviewBuilders } from './overviewBuilders';
-import { RecentBuilders } from './recentBuilders';
+import { buildFooterText } from '@bot/builders/footerBuilder';
+import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { StreakBuilders } from '@bot/builders/streakBuilders';
+import { OverviewBuilders } from '@bot/builders/overviewBuilders';
+import { RecentBuilders } from '@bot/builders/recentBuilders';
 import { EMOJI } from '@bot/resources/emojis';
 
 const lastfmTrackUrl = (artist: string, track: string): string =>

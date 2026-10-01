@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GenreBuilders } from '../genreBuilders';
+import { GenreBuilders } from '@bot/builders/genreBuilders';
 
 /**
  * Three footers on the genre cards printed the plural unconditionally, so a

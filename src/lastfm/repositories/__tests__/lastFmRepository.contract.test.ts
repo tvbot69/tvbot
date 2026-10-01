@@ -1,6 +1,6 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { LastFmRepository } from '../lastFmRepository';
+import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import { LastfmApiError } from '@domain/models/lastfmError';
 import { TimePeriod } from '@domain/enums/timePeriod';

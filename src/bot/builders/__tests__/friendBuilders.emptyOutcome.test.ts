@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { FriendBuilders } from '../friendBuilders';
+import { FriendBuilders } from '@bot/builders/friendBuilders';
 import { FriendType } from '@domain/enums/friendType';
 import type { ContextModel } from '@bot/models/contextModel';
 

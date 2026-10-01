@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { TrackBuilders } from '../trackBuilders';
+import { TrackBuilders } from '@bot/builders/trackBuilders';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { TrackSearchResult } from '@bot/services/trackService';
+import type { TrackSearchResult } from '@bot/services/library/trackService';
 import type { ResponseModel } from '@bot/models/responseModel';
 
 interface Cv2Component {

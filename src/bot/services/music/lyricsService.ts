@@ -1,6 +1,6 @@
 import { singleton } from 'tsyringe';
 import { Logger } from '@domain/logger';
-import { selectSynced, type SyncedLine } from './syncedLyrics';
+import { selectSynced, type SyncedLine } from '@bot/services/music/syncedLyrics';
 
 export interface LyricsResult {
   title: string;

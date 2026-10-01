@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WhoKnowsRepository } from '../whoKnowsRepository';
+import { WhoKnowsRepository } from '@persistence/repositories/whoKnowsRepository';
 
 /**
  * The five of six `WhoKnowsRepository` queries that `whoKnowsRepository.test.ts`

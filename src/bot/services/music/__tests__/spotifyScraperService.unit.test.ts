@@ -1,6 +1,6 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { SpotifyScraperService } from '../spotifyScraperService';
+import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
 import { Logger } from '@domain/logger';
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CrownBuilders } from '../crownBuilders';
+import { CrownBuilders } from '@bot/builders/crownBuilders';
 import type { UserCrownDto } from '@domain/models/crownModels';
 
 /**

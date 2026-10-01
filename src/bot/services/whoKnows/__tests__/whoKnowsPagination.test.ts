@@ -1,11 +1,11 @@
 import 'reflect-metadata';
 import { ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { describe, it, expect, vi } from 'vitest';
-import { WhoKnowsService } from '../whoKnowsService';
+import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { ContextModel } from '@bot/models/contextModel';
-import { ComponentPaginatorService } from '../../system/componentPaginatorService';
+import { ComponentPaginatorService } from '@bot/services/system/componentPaginatorService';
 
 describe('WhoKnows Pagination Mode & Parity', () => {
   const users = [

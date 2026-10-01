@@ -7,10 +7,10 @@ import {
   sanitizeOverride,
   ARTWORK_TIMEOUT_MS,
   BACKGROUND_ARTWORK_TIMEOUT_MS,
-} from '../musicTrackArtwork';
-import type { PendingEntry, PendingQueueView } from '../musicTypes';
-import type { SpotifyResolver } from '../spotifyResolver';
-import type { ArtworkService } from '@bot/services/artworkService';
+} from '@bot/services/music/musicTrackArtwork';
+import type { PendingEntry, PendingQueueView } from '@bot/services/music/musicTypes';
+import type { SpotifyResolver } from '@bot/services/music/spotifyResolver';
+import type { ArtworkService } from '@bot/services/media/artworkService';
 import type { MirrorTrack } from '@domain/models/music/musicTrack';
 import type { Track } from 'moonlink.js';
 

@@ -31,11 +31,11 @@ const gate = (): Deferred => {
 };
 
 describe('CacheService.setNX', () => {
-  let CacheService: typeof import('../system/cacheService').CacheService;
-  let cache: import('../system/cacheService').CacheService;
+  let CacheService: typeof import('@bot/services/system/cacheService').CacheService;
+  let cache: import('@bot/services/system/cacheService').CacheService;
 
   beforeEach(async () => {
-    ({ CacheService } = await import('../system/cacheService'));
+    ({ CacheService } = await import('@bot/services/system/cacheService'));
     cache = new CacheService();
   });
 
@@ -78,11 +78,11 @@ describe('CacheService.setNX', () => {
 });
 
 describe('delta sync runs once for five concurrent callers', () => {
-  let UpdateService: typeof import('../lastfm/updateService').UpdateService;
+  let UpdateService: typeof import('@bot/services/lastfm/updateService').UpdateService;
   let performDeltaSync: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
-    ({ UpdateService } = await import('../lastfm/updateService'));
+    ({ UpdateService } = await import('@bot/services/lastfm/updateService'));
     performDeltaSync = vi.fn(async () => ({ newPlays: 3, removedPlays: 0 }));
   });
 
@@ -98,7 +98,7 @@ describe('delta sync runs once for five concurrent callers', () => {
     lastUpdate: new Date(0),
   };
 
-  const buildService = (cache: import('../system/cacheService').CacheService) => {
+  const buildService = (cache: import('@bot/services/system/cacheService').CacheService) => {
     const lastFmRepository = { getUserRecentTracks: vi.fn(async () => []) };
     const userRepository = { setLastUpdate: vi.fn(async () => undefined), getUserById: vi.fn(async () => user) };
     const playRepository = { insertPlays: vi.fn(async () => 3) };
@@ -124,7 +124,7 @@ describe('delta sync runs once for five concurrent callers', () => {
 
 
   it('lets exactly one of five through', async () => {
-    const { CacheService } = await import('../system/cacheService');
+    const { CacheService } = await import('@bot/services/system/cacheService');
     const cache = new CacheService();
     const { service } = buildService(cache);
 
@@ -142,7 +142,7 @@ describe('delta sync runs once for five concurrent callers', () => {
   it('releases the lock in finally, so a throwing sync does not wedge the user', async () => {
     // Without the release, one failed sync would block every later sync for the
     // full TTL, and the user would silently stop updating.
-    const { CacheService } = await import('../system/cacheService');
+    const { CacheService } = await import('@bot/services/system/cacheService');
     const cache = new CacheService();
     const { service } = buildService(cache);
 
@@ -159,7 +159,7 @@ describe('delta sync runs once for five concurrent callers', () => {
     // the losers arrive while the lock is genuinely held rather than after it
     // was released. This is the shape the cron sweep plus a user command
     // actually take.
-    const { CacheService } = await import('../system/cacheService');
+    const { CacheService } = await import('@bot/services/system/cacheService');
     const cache = new CacheService();
     const { service } = buildService(cache);
 

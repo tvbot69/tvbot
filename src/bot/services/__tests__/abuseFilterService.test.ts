@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { AbuseFilterService } from '../system/abuseFilterService';
+import { AbuseFilterService } from '@bot/services/system/abuseFilterService';
 
 const makeService = (overrides: {
   scanRows?: Array<{ userId: number }>;

@@ -3,12 +3,12 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { UserService } from '@bot/services/userService';
-import { ArtworkService } from '@bot/services/artworkService';
-import { ArtistsService } from '@bot/services/artistsService';
-import { AlbumService } from '@bot/services/albumService';
-import { TrackService } from '@bot/services/trackService';
-import { FriendsService } from '@bot/services/friendsService';
+import { UserService } from '@bot/services/user/userService';
+import { ArtworkService } from '@bot/services/media/artworkService';
+import { ArtistsService } from '@bot/services/library/artistsService';
+import { AlbumService } from '@bot/services/library/albumService';
+import { TrackService } from '@bot/services/library/trackService';
+import { FriendsService } from '@bot/services/social/friendsService';
 import { WhoKnowsArtistService } from '@bot/services/whoKnows/whoKnowsArtistService';
 import { WhoKnowsTrackService } from '@bot/services/whoKnows/whoKnowsTrackService';
 import { WhoKnowsAlbumService } from '@bot/services/whoKnows/whoKnowsAlbumService';
@@ -20,8 +20,8 @@ import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { container } from 'tsyringe';
-import { ArtistTrackService } from '@bot/services/artistTrackService';
-import { GenreService } from '@bot/services/genreService';
+import { ArtistTrackService } from '@bot/services/library/artistTrackService';
+import { GenreService } from '@bot/services/library/genreService';
 
 const lastfmArtistUrl = (artist: string): string =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { UserHubInteractions } from '../userHubInteractions';
+import { UserHubInteractions } from '@bot/interactions/userHubInteractions';
 import { UserHubBuilders } from '@bot/builders/userHubBuilders';
 import type { ButtonInteraction } from 'discord.js';
 

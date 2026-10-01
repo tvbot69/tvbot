@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ExposedBuilders } from '../exposedBuilders';
-import type { ExposedReport } from '@bot/services/exposedService';
+import { ExposedBuilders } from '@bot/builders/exposedBuilders';
+import type { ExposedReport } from '@bot/services/social/exposedService';
 
 describe('ExposedBuilders', () => {
   const dummyReport: ExposedReport = {

@@ -13,8 +13,8 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { PlayingVoiceTrack } from '@bot/services/music/botScrobblingService';
-import type { FeaturedEntry } from '@bot/services/featuredService';
-import { pluralise } from './pluralise';
+import type { FeaturedEntry } from '@bot/services/library/featuredService';
+import { pluralise } from '@bot/builders/pluralise';
 
 export class UserHubBuilders {
   public static buildBotScrobblingResponse(params: {

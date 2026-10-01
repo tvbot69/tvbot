@@ -3,8 +3,8 @@ import type { Client } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { getLavalinkNodes, type LavalinkNodeConfig } from '@config/lavalink';
 import { lavalinkEnableFlag, runtimeEnvironment } from '@config/musicEnv';
-import type { CacheService } from '../system/cacheService';
-import { MAX_QUEUE_TRACKS } from './musicConstants';
+import type { CacheService } from '@bot/services/system/cacheService';
+import { MAX_QUEUE_TRACKS } from '@bot/services/music/musicConstants';
 
 export interface LavalinkNodeStats {
   identifier: string;

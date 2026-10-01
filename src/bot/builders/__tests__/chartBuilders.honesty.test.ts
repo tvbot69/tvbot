@@ -20,16 +20,16 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { ChartBuilders } from '../chartBuilders';
+import { ChartBuilders } from '@bot/builders/chartBuilders';
 import { ChartSettings } from '@bot/models/chartModels';
-import { NotEnoughAlbumsError } from '@bot/services/chartService';
+import { NotEnoughAlbumsError } from '@bot/services/charts/chartService';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { TimeSettingsModel } from '@domain/models/timeSettings';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { ChartResult } from '@bot/services/chartService';
+import type { ChartResult } from '@bot/services/charts/chartService';
 import type { TopAlbum, TopArtist, TopTrack } from '@domain/models/topLists';
 import type { ResponseModel } from '@bot/models/responseModel';
 

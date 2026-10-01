@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { StreakBuilders } from '../streakBuilders';
-import { getEmojiForStreakCount } from '@bot/services/streakService';
+import { StreakBuilders } from '@bot/builders/streakBuilders';
+import { getEmojiForStreakCount } from '@bot/services/user/streakService';
 
 describe('StreakBuilders', () => {
   it('correctly maps streak emojis based on thresholds', () => {

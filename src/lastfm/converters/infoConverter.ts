@@ -5,7 +5,7 @@ import type {
 } from '@lastfm/models/infoLfm';
 import type { LfmImage } from '@lastfm/models/recentTracksLfm';
 import type { AlbumInfo, ArtistInfo, TrackInfo } from '@domain/models/musicInfo';
-import { TrackConverter } from './recentTrackConverter';
+import { TrackConverter } from '@lastfm/converters/recentTrackConverter';
 
 const stripHtml = (value: string): string =>
   value.replace(/<[^>]*>/g, '').trim();

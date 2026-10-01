@@ -1,4 +1,4 @@
-import type { MusicTrack } from './musicTrack';
+import type { MusicTrack } from '@domain/models/music/musicTrack';
 
 export type LoopMode = 'off' | 'track' | 'queue';
 

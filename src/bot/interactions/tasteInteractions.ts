@@ -1,6 +1,6 @@
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
-import { TasteService } from '@bot/services/tasteService';
+import { TasteService } from '@bot/services/library/tasteService';
 import { TasteBuilders } from '@bot/builders/tasteBuilders';
 import { ColorService } from '@bot/services/system/colorService';
 

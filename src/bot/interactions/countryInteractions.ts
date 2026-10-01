@@ -1,11 +1,11 @@
 import { ButtonInteraction, StringSelectMenuInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
-import { CountryService, CountryInfo, TopCountryItem, WhoKnowsCountryItem } from '@bot/services/countryService';
+import { CountryService, CountryInfo, TopCountryItem, WhoKnowsCountryItem } from '@bot/services/library/countryService';
 import { CountryBuilders } from '@bot/builders/countryBuilders';
 import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { TtlStore } from '@bot/services/system/ttlStore';
-import { deferUpdateSafe } from './interactionAck';
+import { deferUpdateSafe } from '@bot/interactions/interactionAck';
 
 export type CountryInteractionType = 'top' | 'info' | 'wkc' | 'chart';
 

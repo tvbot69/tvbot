@@ -7,12 +7,12 @@ import { Statistics } from '@domain/statistics';
 import { logMemoryReport } from '@domain/memoryReport';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 import { UpdateQueueHandler } from '@bot/handlers/updateQueueHandler';
-import { UserUpdateQueueService } from './userUpdateQueueService';
-import { UserIndexQueueService } from './userIndexQueueService';
+import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
+import { UserIndexQueueService } from '@bot/services/lastfm/userIndexQueueService';
 import { UserRepository } from '@persistence/repositories/userRepository';
 import { PlayRepository } from '@persistence/repositories/playRepository';
-import { AutopostService } from '../autopostService';
-import { LyricStatusService } from '../lyricStatusService';
+import { AutopostService } from '@bot/services/charts/autopostService';
+import { LyricStatusService } from '@bot/services/music/lyricStatusService';
 
 export class TimerService {
   private readonly tasks: Map<string, ScheduledTask> = new Map();
@@ -63,7 +63,7 @@ export class TimerService {
 
     this.registerJob('abuse-scan', '0 5 * * *', this.onlyOwner(async () => {
       try {
-        const { AbuseFilterService } = await import('../system/abuseFilterService');
+        const { AbuseFilterService } = await import('@bot/services/system/abuseFilterService');
         if (container.isRegistered(AbuseFilterService)) {
           await container.resolve(AbuseFilterService).scanAndFlag();
         }
@@ -88,7 +88,7 @@ export class TimerService {
 
     this.registerJob('reconcile-index', '0 9 * * *', this.onlyOwner(async () => {
       try {
-        const { ReconcileService } = await import('./reconcileService');
+        const { ReconcileService } = await import('@bot/services/lastfm/reconcileService');
         if (container.isRegistered(ReconcileService)) {
           const report = await container.resolve(ReconcileService).runAsync();
           Logger.info({ report }, 'Index reconcile complete');
@@ -169,7 +169,7 @@ export class TimerService {
     const repository = container.resolve(UserRepository);
     const playRepository = container.resolve(PlayRepository);
     const { CrownRepository } = await import('@persistence/repositories/crownRepository');
-    const { CacheService } = await import('../system/cacheService');
+    const { CacheService } = await import('@bot/services/system/cacheService');
     const hiddenIds = await repository.getPrivacyHiddenUserIds();
     let cleaned = 0;
     for (const userId of hiddenIds) {

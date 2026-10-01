@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MusicHandler } from '../musicHandler';
+import { MusicHandler } from '@bot/handlers/musicHandler';
 
 describe('MusicHandler voice recovery (Phase 3.3)', () => {
   beforeEach(() => {

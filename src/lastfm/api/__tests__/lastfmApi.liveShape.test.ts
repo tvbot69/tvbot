@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { LastfmApi } from '../lastfmApi';
+import { LastfmApi } from '@lastfm/api/lastfmApi';
 import { LastfmApiError } from '@domain/models/lastfmError';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';

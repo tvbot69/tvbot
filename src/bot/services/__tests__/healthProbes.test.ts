@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, afterEach } from 'vitest';
-import { HealthServer } from '../system/healthServer';
+import { HealthServer } from '@bot/services/system/healthServer';
 
 describe('HealthServer probes (Phase 5)', () => {
   const servers: HealthServer[] = [];

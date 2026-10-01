@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { UserIndexQueueService } from '../lastfm/userIndexQueueService';
-import { UserUpdateQueueService } from '../lastfm/userUpdateQueueService';
+import { UserIndexQueueService } from '@bot/services/lastfm/userIndexQueueService';
+import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
 
 /**
  * The durable full-index queue, and the one branch that decides whether a

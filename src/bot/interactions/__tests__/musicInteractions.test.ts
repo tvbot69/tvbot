@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { GuildMember, type ButtonInteraction, type StringSelectMenuInteraction } from 'discord.js';
-import { MusicInteractions } from '../musicInteractions';
+import { MusicInteractions } from '@bot/interactions/musicInteractions';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { playErrorMessage } from '@bot/services/music/musicService';
 import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';

@@ -10,7 +10,7 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { YearOverviewData, GuildLeaderboardEntry } from '@bot/services/playHistoryService';
+import type { YearOverviewData, GuildLeaderboardEntry } from '@bot/services/library/playHistoryService';
 
 export const getOrdinal = (n: number): string => {
   const s = ['th', 'st', 'nd', 'rd'];

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, transitionLeadSong, extractArtistFromTitle, resolveDisplayedChapter, getVideoTitle, getSourceVideoId } from '../videoChapters';
+import { chapterIndexAt, isGenericChapterTitle, splitChapterTitle, transitionLeadSong, extractArtistFromTitle, resolveDisplayedChapter, getVideoTitle, getSourceVideoId } from '@bot/services/music/videoChapters';
 
 const SHOW = [
   { title: 'Rottweiler', startMs: 0 },

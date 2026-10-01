@@ -5,7 +5,7 @@ import type { ITelemetry } from '@domain/interfaces/telemetry';
 import { ITELEMETRY } from '@domain/interfaces/telemetry';
 import { LastfmApiError } from '@domain/models/lastfmError';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
-import { createLastfmSignature } from './lastfmSignature';
+import { createLastfmSignature } from '@lastfm/api/lastfmSignature';
 
 const LASTFM_API_URL = 'https://ws.audioscrobbler.com/2.0/';
 const REQUEST_TIMEOUT_MS = 12000;

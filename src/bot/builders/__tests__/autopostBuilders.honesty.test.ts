@@ -14,8 +14,8 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { AutopostBuilders } from '../autopostBuilders';
-import type { AutopostConfig } from '@bot/services/autopostService';
+import { AutopostBuilders } from '@bot/builders/autopostBuilders';
+import type { AutopostConfig } from '@bot/services/charts/autopostService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ResponseModel } from '@bot/models/responseModel';

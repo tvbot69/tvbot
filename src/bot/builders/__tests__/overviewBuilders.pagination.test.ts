@@ -16,8 +16,8 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { OverviewBuilders } from '../overviewBuilders';
-import type { DailyBlock, OverviewResult } from '@bot/services/overviewService';
+import { OverviewBuilders } from '@bot/builders/overviewBuilders';
+import type { DailyBlock, OverviewResult } from '@bot/services/library/overviewService';
 import type { ResponseModel } from '@bot/models/responseModel';
 
 interface Cv2Component {

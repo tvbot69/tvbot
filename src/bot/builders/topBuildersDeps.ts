@@ -1,8 +1,8 @@
 import { container } from 'tsyringe';
 import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import { ArtistsService } from '@bot/services/artistsService';
-import { ArtworkService } from '@bot/services/artworkService';
-import { DeezerApi } from '@deezer/apis/deezerApi';
+import { ArtistsService } from '@bot/services/library/artistsService';
+import { ArtworkService } from '@bot/services/media/artworkService';
+import { DeezerApi } from '@deezer/api/deezerApi';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 

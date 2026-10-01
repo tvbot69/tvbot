@@ -2,8 +2,8 @@ import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
-import { GuildAdminCommands } from '../guildAdminCommands';
-import { GuildAdminSlashCommands } from '../../../slashCommands/guildAdminSlashCommands';
+import { GuildAdminCommands } from '@bot/textCommands/guild/guildAdminCommands';
+import { GuildAdminSlashCommands } from '@bot/slashCommands/guildAdminSlashCommands';
 import { CommandHandler } from '@bot/handlers/commandHandler';
 import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
 import { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
@@ -17,13 +17,13 @@ import type { Client } from 'discord.js';
 import type { CacheService } from '@bot/services/system/cacheService';
 import type { ChannelRepository } from '@persistence/repositories/channelRepository';
 import type { GuildService } from '@bot/services/guild/guildService';
-import type { GuildAdminService } from '@bot/services/guildAdminService';
-import type { UserService } from '@bot/services/userService';
-import type { PrefixService } from '@bot/services/prefixService';
+import type { GuildAdminService } from '@bot/services/guild/guildAdminService';
+import type { UserService } from '@bot/services/user/userService';
+import type { PrefixService } from '@bot/services/user/prefixService';
 import type { ColorService } from '@bot/services/system/colorService';
 import type { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
 import type { GuildUserService } from '@bot/services/guild/guildUserService';
-import type { GameService } from '@bot/services/gameService';
+import type { GameService } from '@bot/services/guild/gameService';
 import type { RateLimitService } from '@bot/services/system/rateLimitService';
 
 /**

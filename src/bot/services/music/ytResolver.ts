@@ -1,6 +1,6 @@
 import { Logger } from '@domain/logger';
 import { homeResolverToken, homeResolverUrl, resolverAlertWebhookUrl } from '@config/musicEnv';
-import { fetchDescriptionChapters } from './descriptionChapters';
+import { fetchDescriptionChapters } from '@bot/services/music/descriptionChapters';
 
 let pausedUntil = 0;
 

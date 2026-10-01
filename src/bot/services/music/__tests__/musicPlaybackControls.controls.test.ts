@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import { MusicPlaybackControls } from '../musicPlaybackControls';
-import type { PlayerRegistry } from '../musicPlayerRegistry';
-import type { QueueService } from '../queueService';
+import { MusicPlaybackControls } from '@bot/services/music/musicPlaybackControls';
+import type { PlayerRegistry } from '@bot/services/music/musicPlayerRegistry';
+import type { QueueService } from '@bot/services/music/queueService';
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 import type { GuildMusicPrefs } from '@persistence/repositories/guildMusicSettingsRepository';
 import type { Player } from 'moonlink.js';
-import { SEEK_REST_TIMEOUT_MS } from '../musicConstants';
+import { SEEK_REST_TIMEOUT_MS } from '@bot/services/music/musicConstants';
 
 /**
  * Transport controls and the single playback-control policy.

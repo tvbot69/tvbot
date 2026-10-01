@@ -4,9 +4,9 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { GuildService } from '@bot/services/guild/guildService';
-import { GuildAdminService } from '@bot/services/guildAdminService';
-import { UserService } from '@bot/services/userService';
-import { PrefixService } from '@bot/services/prefixService';
+import { GuildAdminService } from '@bot/services/guild/guildAdminService';
+import { UserService } from '@bot/services/user/userService';
+import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';

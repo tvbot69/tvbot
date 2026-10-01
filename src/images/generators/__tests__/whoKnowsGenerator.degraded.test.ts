@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WhoKnowsGenerator, type WhoKnowsImageParams } from '../whoKnowsGenerator';
-import type { PuppeteerService } from '../puppeteerService';
+import { WhoKnowsGenerator, type WhoKnowsImageParams } from '@images/generators/whoKnowsGenerator';
+import type { PuppeteerService } from '@images/generators/puppeteerService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 
 /**

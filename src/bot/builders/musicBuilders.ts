@@ -21,7 +21,7 @@ import { ALL_FILTERS, type FilterName, type MusicQueueInfo } from '@domain/model
 import type { LavalinkNodeStats } from '@bot/services/music/moonlinkManager';
 import type { VideoChapter } from '@bot/services/music/videoChapters';
 import { escapeInline, escapeLinkLabel } from '@domain/extensions/markdown';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 
 export const MUSIC_SOURCE_BADGES = {
   spotify: '<:sp:1496297132381048995>',

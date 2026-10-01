@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { UserSettingsBuilders } from '../userSettingsBuilders';
+import { UserSettingsBuilders } from '@bot/builders/userSettingsBuilders';
 import { ContextModel } from '@bot/models/contextModel';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { ResponseMode } from '@domain/enums/responseMode';
 import { CoverType } from '@domain/enums/coverType';

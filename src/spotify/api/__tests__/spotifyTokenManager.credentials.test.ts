@@ -44,7 +44,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
  *     silent rot is worse than no fallback.
  */
 
-type TokenManagerModule = typeof import('../spotifyTokenManager');
+type TokenManagerModule = typeof import('@spotify/api/spotifyTokenManager');
 type LoggerModule = typeof import('@domain/logger');
 
 const CREDS = {
@@ -73,7 +73,7 @@ const load = async (pool: { ids: string; secrets: string }): Promise<TokenManage
   vi.stubEnv('SPOTIFY_CLIENT_ID', pool.ids);
   vi.stubEnv('SPOTIFY_CLIENT_SECRET', pool.secrets);
 
-  const mod: TokenManagerModule = await import('../spotifyTokenManager');
+  const mod: TokenManagerModule = await import('@spotify/api/spotifyTokenManager');
   // The whole logger namespace is spread, not just its `Logger` const: the
   // declared return type is the intersection with the module's own type, and
   // `LoggerModule` is every export of that file. Spreading only `Logger` left

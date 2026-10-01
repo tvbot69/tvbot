@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { WhoKnowsGenerator } from '../whoKnowsGenerator';
+import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
 
 const captureHtml = async (params: Record<string, unknown>): Promise<string> => {
   let captured = '';

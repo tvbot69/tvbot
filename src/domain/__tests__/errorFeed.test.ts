@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { reportFatalToDiscord, clearErrorFeedThrottle } from '../errorFeed';
+import { reportFatalToDiscord, clearErrorFeedThrottle } from '@domain/errorFeed';
 
 const SAVED_ENV = { ...process.env };
 

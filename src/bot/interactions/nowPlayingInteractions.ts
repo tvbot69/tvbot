@@ -2,11 +2,11 @@ import { injectable, inject } from 'tsyringe';
 import type { ButtonInteraction } from 'discord.js';
 import { Logger } from '@domain/logger';
 import { TrackBuilders } from '@bot/builders/trackBuilders';
-import { TrackService } from '@bot/services/trackService';
+import { TrackService } from '@bot/services/library/trackService';
 import { LyricsService } from '@bot/services/music/lyricsService';
 import { UserRepository } from '@persistence/repositories/userRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import { deferReplySafe, deferUpdateSafe } from './interactionAck';
+import { deferReplySafe, deferUpdateSafe } from '@bot/interactions/interactionAck';
 import { errorMessage } from '@domain/discordErrors';
 
 @injectable()

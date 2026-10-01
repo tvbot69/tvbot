@@ -8,8 +8,8 @@ import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/comm
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { LoginService, LoginStatus } from '@bot/services/loginService';
-import { UserService } from '@bot/services/userService';
+import { LoginService, LoginStatus } from '@bot/services/user/loginService';
+import { UserService } from '@bot/services/user/userService';
 import { ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';

@@ -9,7 +9,7 @@ import { ColorService } from '@bot/services/system/colorService';
 import { registerModalHandler } from '@bot/interactions';
 import { Logger } from '@domain/logger';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import { respondToModalWithPage } from './modalPageResponse';
+import { respondToModalWithPage } from '@bot/interactions/modalPageResponse';
 
 @injectable()
 export class TopInteractions {
@@ -83,7 +83,7 @@ export class TopInteractions {
       // Same reasoning as the top-jump handler: ack first, look up second.
       await interaction.deferReply().catch(() => undefined);
       try {
-        const { OverviewService } = await import('@bot/services/overviewService');
+        const { OverviewService } = await import('@bot/services/library/overviewService');
         const ovService = container.resolve(OverviewService);
         const overview = await ovService.getOverview(decodeURIComponent(userNameLastFm ?? ''));
         const timeSettings = this.settingService.getTimePeriod(decodeURIComponent(timeKey ?? 'weekly'));
@@ -176,7 +176,7 @@ export class TopInteractions {
       }
       if (prefix === 'overview') {
         const timeSettings = this.settingService.getTimePeriod(timeKey);
-        const { OverviewService } = await import('@bot/services/overviewService');
+        const { OverviewService } = await import('@bot/services/library/overviewService');
         const { container: c } = await import('tsyringe');
         const ovService = c.resolve(OverviewService);
         const overview = await ovService.getOverview(userNameLastFm);

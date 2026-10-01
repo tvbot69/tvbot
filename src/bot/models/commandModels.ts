@@ -1,6 +1,6 @@
 import type { JSONEncodable, RESTPostAPIApplicationCommandsJSONBody } from 'discord.js';
-import type { ContextModel } from './contextModel';
-import type { ResponseModel } from './responseModel';
+import type { ContextModel } from '@bot/models/contextModel';
+import type { ResponseModel } from '@bot/models/responseModel';
 
 export type SlashCommandData = JSONEncodable<RESTPostAPIApplicationCommandsJSONBody> & {
   readonly name: string;

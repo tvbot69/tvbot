@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { PlayRepository } from '../playRepository';
+import { PlayRepository } from '@persistence/repositories/playRepository';
 
 /**
  * The dynamic SQL in `getRecentEntityPlaycounts`, which nothing asserts.

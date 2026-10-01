@@ -6,11 +6,11 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 
 
-import { matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { matchesArtistName, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 
 import type { DeezerAlbum } from '@deezer/models/deezerModels';
-import { DeezerCoverIndexer } from '@bot/services/deezerCoverIndexer';
-import type { WhoKnowsImageDeps } from './whoKnowsImageDeps';
+import { DeezerCoverIndexer } from '@bot/services/media/deezerCoverIndexer';
+import type { WhoKnowsImageDeps } from '@bot/builders/whoKnowsImageDeps';
 import { Logger } from '@domain/logger';
 
 

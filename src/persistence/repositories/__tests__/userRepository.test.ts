@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { UserRepository } from '../userRepository';
+import { UserRepository } from '@persistence/repositories/userRepository';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 
 /**
  * UserRepository was at 14.9% line coverage. It is the root of the persistence

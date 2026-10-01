@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { CacheService } from '../system/cacheService';
+import { CacheService } from '@bot/services/system/cacheService';
 
 describe('CacheService', () => {
   let cache: CacheService;

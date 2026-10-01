@@ -22,13 +22,13 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { FriendsCommands } from '../friendsCommands';
+import { FriendsCommands } from '@bot/textCommands/lastfm/friendsCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { Friend } from '@persistence/domain/models/user';
+import type { Friend } from '@persistence/models/user';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { UserService } from '@bot/services/userService';
-import type { FriendsService } from '@bot/services/friendsService';
+import type { UserService } from '@bot/services/user/userService';
+import type { FriendsService } from '@bot/services/social/friendsService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 
 const CALLER = { userId: 2, userNameLastFm: 'DreadRock', discordUserId: 'caller1' };

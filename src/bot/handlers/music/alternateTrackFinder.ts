@@ -5,8 +5,8 @@ import { resolveViaHome } from '@bot/services/music/ytResolver';
 import { getSourceVideoId, getVideoTitle } from '@bot/services/music/videoChapters';
 import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import type { QueueService } from '@bot/services/music/queueService';
-import type { FallbackBudget } from './fallbackBudget';
-import { buildFallbackQuery } from './cardFingerprint';
+import type { FallbackBudget } from '@bot/handlers/music/fallbackBudget';
+import { buildFallbackQuery } from '@bot/handlers/music/cardFingerprint';
 
 /**
  * The alternate-track ladder: when a track fails or sticks, find another

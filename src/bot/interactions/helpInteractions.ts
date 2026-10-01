@@ -1,7 +1,7 @@
 import { injectable } from 'tsyringe';
 import type { ButtonInteraction, StringSelectMenuInteraction } from 'discord.js';
 import { HelpBuilders, type HelpCategory } from '@bot/builders/helpBuilders';
-import { PrefixService } from '@bot/services/prefixService';
+import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { Logger } from '@domain/logger';
 

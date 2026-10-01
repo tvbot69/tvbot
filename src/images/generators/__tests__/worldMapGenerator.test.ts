@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { WorldMapGenerator, CountryChartTheme } from '../worldMapGenerator';
+import { WorldMapGenerator, CountryChartTheme } from '@images/generators/worldMapGenerator';
 
 describe('WorldMapGenerator', () => {
   describe('theme resolution', () => {

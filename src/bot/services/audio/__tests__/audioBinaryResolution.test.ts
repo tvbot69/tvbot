@@ -3,8 +3,8 @@ import { describe, it, expect, vi, afterEach, afterAll } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { resolveBinary, SIGNAL_SAMPLE_RATE } from '../audioSignalService';
-import { EssentiaService, ESSENTIA_SAMPLE_RATE } from '../essentiaService';
+import { resolveBinary, SIGNAL_SAMPLE_RATE } from '@bot/services/audio/audioSignalService';
+import { EssentiaService, ESSENTIA_SAMPLE_RATE } from '@bot/services/audio/essentiaService';
 import { Logger } from '@domain/logger';
 
 /**

@@ -11,11 +11,11 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 
-import type { MusicBrainzArtistData } from '@bot/services/musicBrainzService';
-import { PlaycountBuilders } from './playcountBuilders';
-import { ArtistTrackBuilders } from './artistTrackBuilders';
+import type { MusicBrainzArtistData } from '@bot/services/media/musicBrainzService';
+import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import { EMOJI } from '@bot/resources/emojis';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 
 const lastfmArtistUrl = (artist: string) =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;

@@ -15,7 +15,7 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { buildFooterText } from '../footerBuilder';
+import { buildFooterText } from '@bot/builders/footerBuilder';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import type { RecentTrack } from '@domain/models/recentTrack';
 

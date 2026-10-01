@@ -13,11 +13,11 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { TrackSearchResult } from '@bot/services/trackService';
-import { PlaycountBuilders } from './playcountBuilders';
-import { TrackDetailsBuilders } from './trackDetailsBuilders';
+import type { TrackSearchResult } from '@bot/services/library/trackService';
+import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { TrackDetailsBuilders } from '@bot/builders/trackDetailsBuilders';
 import { EMOJI } from '@bot/resources/emojis';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 
 export interface TrackMediaDetails {
   uniqueId: string;

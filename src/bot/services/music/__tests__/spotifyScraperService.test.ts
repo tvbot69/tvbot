@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { SpotifyScraperService } from '../spotifyScraperService';
+import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
 
 const htmlPage = (items: unknown[]) =>
   `<html><body><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({

@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { GuildMusicSettingsRepository, DEFAULT_MUSIC_PREFS } from '../guildMusicSettingsRepository';
+import { GuildMusicSettingsRepository, DEFAULT_MUSIC_PREFS } from '@persistence/repositories/guildMusicSettingsRepository';
 
 /**
  * GuildMusicSettingsRepository was at 18.4% line coverage, and every method here

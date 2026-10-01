@@ -2,25 +2,25 @@ import type { Player, Track } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import type { FilterName, LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, spotifyUriToUrl, type MirrorResolution, type MirrorTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
-import { MoonlinkManager, type LavalinkNodeStats } from './moonlinkManager';
-import { SpotifyResolver } from './spotifyResolver';
-import type { DeezerResolver } from './deezerResolver';
-import type { AppleMusicResolver } from './appleMusicResolver';
-import { QueueService } from './queueService';
-import type { PlaylistChunkManager } from './playlistChunkManager';
-import { ladderFor, type Rung } from './youtubeHealth';
-import { type ResolverMeta } from './ytResolver';
-import { MAX_QUEUE_TRACKS, SEEK_REST_TIMEOUT_MS } from './musicConstants';
+import { MoonlinkManager, type LavalinkNodeStats } from '@bot/services/music/moonlinkManager';
+import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
+import type { DeezerResolver } from '@bot/services/music/deezerResolver';
+import type { AppleMusicResolver } from '@bot/services/music/appleMusicResolver';
+import { QueueService } from '@bot/services/music/queueService';
+import type { PlaylistChunkManager } from '@bot/services/music/playlistChunkManager';
+import { ladderFor, type Rung } from '@bot/services/music/youtubeHealth';
+import { type ResolverMeta } from '@bot/services/music/ytResolver';
+import { MAX_QUEUE_TRACKS, SEEK_REST_TIMEOUT_MS } from '@bot/services/music/musicConstants';
 
-import type { ArtworkService } from '@bot/services/artworkService';
-import { MusicSearchLadder } from './musicSearchLadder';
-import { MusicTrackArtwork, isYoutubeThumb, preCleanArtwork, sanitizeOverride, ARTWORK_TIMEOUT_MS, BACKGROUND_ARTWORK_TIMEOUT_MS } from './musicTrackArtwork';
-import { adoptMirrorTrack } from './musicTrackAdoption';
-import { hasHealthyNode } from './musicNodeHealth';
-import { PlayerRegistry, isDestroyedPlayer } from './musicPlayerRegistry';
-import { MusicPlaybackControls } from './musicPlaybackControls';
+import type { ArtworkService } from '@bot/services/media/artworkService';
+import { MusicSearchLadder } from '@bot/services/music/musicSearchLadder';
+import { MusicTrackArtwork, isYoutubeThumb, preCleanArtwork, sanitizeOverride, ARTWORK_TIMEOUT_MS, BACKGROUND_ARTWORK_TIMEOUT_MS } from '@bot/services/music/musicTrackArtwork';
+import { adoptMirrorTrack } from '@bot/services/music/musicTrackAdoption';
+import { hasHealthyNode } from '@bot/services/music/musicNodeHealth';
+import { PlayerRegistry, isDestroyedPlayer } from '@bot/services/music/musicPlayerRegistry';
+import { MusicPlaybackControls } from '@bot/services/music/musicPlaybackControls';
 
-import type { PendingQueueView } from './musicTypes';
+import type { PendingQueueView } from '@bot/services/music/musicTypes';
 
 export interface PlayResult {
   loadType: 'track' | 'playlist' | 'spotify_album' | 'spotify_playlist' | 'spotify_artist' | 'mirror_album' | 'mirror_playlist' | 'mirror_artist' | 'empty' | 'error';

@@ -1,5 +1,5 @@
 import type { IUserFmSettingRepository, UserFmSetting } from '@domain/interfaces/iuserFmSettingRepository';
-import { CacheService } from './cacheService';
+import { CacheService } from '@bot/services/system/cacheService';
 
 export class FmSettingService {
   private readonly repo: IUserFmSettingRepository;

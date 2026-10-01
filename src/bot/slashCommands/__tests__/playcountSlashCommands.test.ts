@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { PlaycountSlashCommands } from '../playcountSlashCommands';
+import { PlaycountSlashCommands } from '@bot/slashCommands/playcountSlashCommands';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { ReceiptBuilders } from '@bot/builders/receiptBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';

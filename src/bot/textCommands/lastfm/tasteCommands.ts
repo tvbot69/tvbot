@@ -1,9 +1,9 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
-import { TasteService } from '@bot/services/tasteService';
-import type { TasteData } from '@bot/services/tasteService';
+import { UserService } from '@bot/services/user/userService';
+import { TasteService } from '@bot/services/library/tasteService';
+import type { TasteData } from '@bot/services/library/tasteService';
 import { TasteBuilders } from '@bot/builders/tasteBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -12,7 +12,7 @@ import { isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { container } from 'tsyringe';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 
 export class TasteCommands implements ITextCommandModule {

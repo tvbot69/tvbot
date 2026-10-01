@@ -13,14 +13,14 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { EMOJI } from '@bot/resources/emojis';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 import type {
   ListeningGapItem,
   GapEntityType,
   DiscoveryItem,
   IcebergData,
   AffinityData,
-} from '@bot/services/musicIntelligenceService';
+} from '@bot/services/library/musicIntelligenceService';
 
 /**
  * THE PAGE NO LONGER EXISTS.

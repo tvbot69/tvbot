@@ -17,7 +17,7 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { UpdateQueueHandler } from '../updateQueueHandler';
+import { UpdateQueueHandler } from '@bot/handlers/updateQueueHandler';
 import type { IUserUpdateQueue, UserUpdateQueueItem } from '@domain/interfaces/iuserUpdateQueue';
 import type { UpdateService } from '@bot/services/lastfm/updateService';
 

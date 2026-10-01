@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PlayRepository } from '../playRepository';
+import { PlayRepository } from '@persistence/repositories/playRepository';
 import { Logger } from '@domain/logger';
 import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 

@@ -42,16 +42,16 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { FriendSlashCommands } from '../friendSlashCommands';
-import { ArtworkService } from '@bot/services/artworkService';
+import { FriendSlashCommands } from '@bot/slashCommands/friendSlashCommands';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { FriendType } from '@domain/enums/friendType';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
-import type { FriendsService } from '@bot/services/friendsService';
+import type { UserService } from '@bot/services/user/userService';
+import type { FriendsService } from '@bot/services/social/friendsService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 
 const CALLER = {

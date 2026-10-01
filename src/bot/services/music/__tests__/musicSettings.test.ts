@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { QueueService } from '../queueService';
-import { BotScrobblingService } from '../botScrobblingService';
+import { QueueService } from '@bot/services/music/queueService';
+import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import { MusicHistoryRepository } from '@persistence/repositories/musicHistoryRepository';
 
 const makeRepo = (settings: Array<{ guildId: string; stay247: boolean; volume: number; loopMode: string; autoplay: boolean; filters: string[] }> = [], optIns: string[] = []) => {

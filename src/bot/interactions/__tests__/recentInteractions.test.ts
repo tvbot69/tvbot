@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { RecentInteractions } from '../recentInteractions';
+import { RecentInteractions } from '@bot/interactions/recentInteractions';
 import { RecentBuilders } from '@bot/builders/recentBuilders';
 import type { RecentTrackList } from '@domain/models/recentTrack';
 

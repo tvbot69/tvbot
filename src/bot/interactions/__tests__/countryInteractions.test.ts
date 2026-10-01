@@ -5,15 +5,15 @@ import {
   CountryInteractions,
   storeCountryQuery,
   getCachedCountryQuery,
-} from '../countryInteractions';
-import type { CachedCountryQuery } from '../countryInteractions';
+} from '@bot/interactions/countryInteractions';
+import type { CachedCountryQuery } from '@bot/interactions/countryInteractions';
 import { CountryBuilders } from '@bot/builders/countryBuilders';
 import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
 import type {
   CountryInfo,
   TopCountryItem,
   WhoKnowsCountryItem,
-} from '@bot/services/countryService';
+} from '@bot/services/library/countryService';
 import type { ButtonInteraction, StringSelectMenuInteraction } from 'discord.js';
 
 const NEPAL: CountryInfo = { Name: 'Nepal', Code: 'NP', Emoji: '🇳🇵' };

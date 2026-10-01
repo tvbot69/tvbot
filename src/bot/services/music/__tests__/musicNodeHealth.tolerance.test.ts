@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { hasHealthyNode, isNodeCooling } from '../musicNodeHealth';
-import type { MoonlinkManager } from '../moonlinkManager';
+import { hasHealthyNode, isNodeCooling } from '@bot/services/music/musicNodeHealth';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 
 /**
  * The two node-health questions the playback service and the search ladder

@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AppleMusicResolver } from '@bot/services/music/appleMusicResolver';
-import { AppleMusicTokenScraper } from '@applemusic/apis/appleMusicTokenScraper';
+import { AppleMusicTokenScraper } from '@applemusic/api/appleMusicTokenScraper';
 
 /**
  * **Captured from the live Apple Music front on 2026-09-30.**

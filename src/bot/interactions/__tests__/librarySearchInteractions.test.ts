@@ -6,10 +6,10 @@ import {
   LibrarySearchInteractions,
   storeSearchQuery,
   getCachedSearchQuery,
-} from '../librarySearchInteractions';
+} from '@bot/interactions/librarySearchInteractions';
 import { LibrarySearchBuilders } from '@bot/builders/librarySearchBuilders';
-import { SearchTab } from '@bot/services/librarySearchService';
-import type { SearchResultRow } from '@bot/services/librarySearchService';
+import { SearchTab } from '@bot/services/library/librarySearchService';
+import type { SearchResultRow } from '@bot/services/library/librarySearchService';
 import type { ButtonInteraction } from 'discord.js';
 
 // The search session lives in a module-level TtlStore, so every test uses its

@@ -1,11 +1,11 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
-import { ArtistTrackService } from '@bot/services/artistTrackService';
+import { UserService } from '@bot/services/user/userService';
+import { ArtistTrackService } from '@bot/services/library/artistTrackService';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { MusicBrainzService } from '@bot/services/musicBrainzService';
-import { GenreService } from '@bot/services/genreService';
+import { MusicBrainzService } from '@bot/services/media/musicBrainzService';
+import { GenreService } from '@bot/services/library/genreService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { ArtistBuilders } from '@bot/builders/artistBuilders';
@@ -15,7 +15,7 @@ import { UpdateService } from '@bot/services/lastfm/updateService';
 import { prisma } from '@persistence/prismaClient';
 import { container } from 'tsyringe';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
-import { ArtistsService } from '@bot/services/artistsService';
+import { ArtistsService } from '@bot/services/library/artistsService';
 
 export class ArtistCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];

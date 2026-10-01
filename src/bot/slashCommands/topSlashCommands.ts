@@ -2,7 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
@@ -22,7 +22,7 @@ const periodChoices = [
 ];
 
 import { ColorService } from '@bot/services/system/colorService';
-import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 
 export class TopSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];

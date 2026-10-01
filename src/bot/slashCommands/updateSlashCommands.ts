@@ -2,7 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { IndexService } from '@bot/services/lastfm/indexService';
 import { UpdateBuilders } from '@bot/builders/updateBuilders';

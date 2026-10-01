@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags, type ButtonInteraction, type StringSelectMenuInteraction } from 'discord.js';
-import { FriendInteractions, FRIEND_BUTTON_PREFIXES } from '../friendInteractions';
+import { FriendInteractions, FRIEND_BUTTON_PREFIXES } from '@bot/interactions/friendInteractions';
 import { FriendBuilders } from '@bot/builders/friendBuilders';
 import { FriendType } from '@domain/enums/friendType';
-import type { Friend } from '@persistence/domain/models/user';
+import type { Friend } from '@persistence/models/user';
 
 const GUILD_ID = 'g1';
 const CALLER_ID = 'caller1';

@@ -85,9 +85,9 @@ const arrange = (streams: Stream[], rawBytes: Buffer): void => {
 const realSignal = (frames: number): Buffer => Buffer.alloc(frames * 4, 0x00);
 
 /** Import the module fresh so the mocked fluent-ffmpeg is picked up. */
-const load = async (): Promise<typeof import('../audioSignalService')> => {
+const load = async (): Promise<typeof import('@bot/services/audio/audioSignalService')> => {
   vi.resetModules();
-  return import('../audioSignalService');
+  return import('@bot/services/audio/audioSignalService');
 };
 
 const okResponse = (): Response =>

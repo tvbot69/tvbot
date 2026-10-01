@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { buildWhoKnowsImageResponse } from '../whoKnowsImageBuilder';
-import type { WhoKnowsImageDeps } from '../whoKnowsImageDeps';
+import { buildWhoKnowsImageResponse } from '@bot/builders/whoKnowsImageBuilder';
+import type { WhoKnowsImageDeps } from '@bot/builders/whoKnowsImageDeps';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';

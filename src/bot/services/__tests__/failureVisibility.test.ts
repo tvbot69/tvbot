@@ -17,8 +17,8 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { container } from 'tsyringe';
 import type { PrismaClient } from '@prisma/client';
-import { ImportService } from '../importService';
-import { LoginService, LoginStatus } from '../loginService';
+import { ImportService } from '@bot/services/library/importService';
+import { LoginService, LoginStatus } from '@bot/services/user/loginService';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { Logger } from '@domain/logger';
 

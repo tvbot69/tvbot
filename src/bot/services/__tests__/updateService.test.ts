@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { UpdateService } from '../lastfm/updateService';
-import { IndexService } from '../lastfm/indexService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
+import { IndexService } from '@bot/services/lastfm/indexService';
 
 const T1 = new Date('2026-03-01T10:00:00.000Z');
 const T2 = new Date('2026-03-01T10:00:01.000Z');

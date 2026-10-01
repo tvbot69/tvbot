@@ -1,14 +1,14 @@
 import { container } from 'tsyringe';
 import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import { ArtistsService } from '@bot/services/artistsService';
-import { AlbumService } from '@bot/services/albumService';
-import { ArtworkService } from '@bot/services/artworkService';
-import { UserService } from '@bot/services/userService';
+import { ArtistsService } from '@bot/services/library/artistsService';
+import { AlbumService } from '@bot/services/library/albumService';
+import { ArtworkService } from '@bot/services/media/artworkService';
+import { UserService } from '@bot/services/user/userService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import { DeezerApi } from '@deezer/apis/deezerApi';
+import { DeezerApi } from '@deezer/api/deezerApi';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { AlbumRepository } from '@persistence/repositories/albumRepository';
-import { DeezerCoverIndexer } from '@bot/services/deezerCoverIndexer';
+import { DeezerCoverIndexer } from '@bot/services/media/deezerCoverIndexer';
 
 /**
  * Every collaborator the WhoKnows image builder needs, passed in rather than

@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MusicService } from '../musicService';
-import type { MoonlinkManager } from '../moonlinkManager';
-import type { SpotifyResolver } from '../spotifyResolver';
-import type { QueueService } from '../queueService';
-import type { PlaylistChunkManager } from '../playlistChunkManager';
-import type { DeezerResolver } from '../deezerResolver';
-import type { AppleMusicResolver } from '../appleMusicResolver';
+import { MusicService } from '@bot/services/music/musicService';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
+import type { SpotifyResolver } from '@bot/services/music/spotifyResolver';
+import type { QueueService } from '@bot/services/music/queueService';
+import type { PlaylistChunkManager } from '@bot/services/music/playlistChunkManager';
+import type { DeezerResolver } from '@bot/services/music/deezerResolver';
+import type { AppleMusicResolver } from '@bot/services/music/appleMusicResolver';
 import { Logger } from '@domain/logger';
 import type { Track } from 'moonlink.js';
 

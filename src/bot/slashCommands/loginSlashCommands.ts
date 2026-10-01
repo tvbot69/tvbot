@@ -10,8 +10,8 @@ import type { ContextModel } from '@bot/models/contextModel';
 import { type ISlashCommandModule } from '@bot/models/commandModels';
 import { ResponseModel } from '@bot/models/responseModel';
 
-import { LoginService, LoginStatus } from '@bot/services/loginService';
-import { UserService } from '@bot/services/userService';
+import { LoginService, LoginStatus } from '@bot/services/user/loginService';
+import { UserService } from '@bot/services/user/userService';
 import { ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';

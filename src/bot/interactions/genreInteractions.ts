@@ -1,8 +1,8 @@
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
-import { GenreService, TopGenreItem, WhoKnowsGenreItem } from '@bot/services/genreService';
+import { GenreService, TopGenreItem, WhoKnowsGenreItem } from '@bot/services/library/genreService';
 import { GenreBuilders } from '@bot/builders/genreBuilders';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { TtlStore } from '@bot/services/system/ttlStore';
 
 export type GenreInteractionType = 'top' | 'info' | 'whoknows';

@@ -43,14 +43,14 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { ChartSlashCommands } from '../chartSlashCommands';
-import { NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/chartService';
+import { ChartSlashCommands } from '@bot/slashCommands/chartSlashCommands';
+import { NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/charts/chartService';
 import { SettingService } from '@bot/services/system/settingService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { ChartService } from '@bot/services/chartService';
-import type { UserService } from '@bot/services/userService';
+import type { ChartService } from '@bot/services/charts/chartService';
+import type { UserService } from '@bot/services/user/userService';
 import type { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ColorService } from '@bot/services/system/colorService';
 

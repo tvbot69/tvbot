@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SpotifyScraperService, type ScrapedPlaylist } from '../spotifyScraperService';
+import { SpotifyScraperService, type ScrapedPlaylist } from '@bot/services/music/spotifyScraperService';
 
 /**
  * `fetchViaSpclient` — the rung that is asked first on every playlist page and

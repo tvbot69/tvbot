@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { IntelligenceCommands } from '../intelligenceCommands';
+import { IntelligenceCommands } from '@bot/textCommands/lastfm/intelligenceCommands';
 import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -9,7 +9,7 @@ import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { AffinityData } from '@bot/services/musicIntelligenceService';
+import type { AffinityData } from '@bot/services/library/musicIntelligenceService';
 
 /**
  * `.iceberg` and `.affinity` — the two commands that put GENERATED ARTWORK in a

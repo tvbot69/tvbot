@@ -1,8 +1,8 @@
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
-import { UserService } from '@bot/services/userService';
-import { PlayHistoryService } from '@bot/services/playHistoryService';
-import { ArtworkService } from '@bot/services/artworkService';
+import { UserService } from '@bot/services/user/userService';
+import { PlayHistoryService } from '@bot/services/library/playHistoryService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';

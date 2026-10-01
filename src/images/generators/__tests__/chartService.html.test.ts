@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ChartService } from '../chartService';
-import type { PuppeteerService } from '../puppeteerService';
+import { ChartService } from '@images/generators/chartService';
+import type { PuppeteerService } from '@images/generators/puppeteerService';
 import { ChartTheme, ChartType, type ChartItem, type ChartSettings } from '@images/models/chartModels';
 import { TimePeriod } from '@domain/enums/timePeriod';
 

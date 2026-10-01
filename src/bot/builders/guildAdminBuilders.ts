@@ -7,14 +7,14 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 import type {
   GuildMemberOverviewItem,
   RefreshResult,
-} from '@bot/services/guildAdminService';
+} from '@bot/services/guild/guildAdminService';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
-import { pluralise } from './pluralise';
-import { pageSizeOr } from './paging';
+import { pluralise } from '@bot/builders/pluralise';
+import { pageSizeOr } from '@bot/builders/paging';
 
 export class GuildAdminBuilders {
   public static buildGuildDashboard(params: {

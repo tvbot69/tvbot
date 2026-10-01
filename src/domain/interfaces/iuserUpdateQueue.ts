@@ -1,4 +1,4 @@
-import type { User } from '@persistence/domain/models/user';
+import type { User } from '@persistence/models/user';
 
 export interface UserUpdateQueueItem {
   userId: number;

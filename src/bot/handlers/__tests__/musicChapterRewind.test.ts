@@ -41,7 +41,7 @@ const buildHandler = async () => {
     }),
     players: { get: () => undefined },
   };
-  const { MusicHandler } = await import('../musicHandler');
+  const { MusicHandler } = await import('@bot/handlers/musicHandler');
   const handler = new MusicHandler(
     client as never,
     { getManager: () => manager } as never,

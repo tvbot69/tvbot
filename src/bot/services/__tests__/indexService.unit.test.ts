@@ -16,7 +16,7 @@ vi.mock('@persistence/repositories/playRepository', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@persistence/repositories/playRepository')>();
   return { ...actual, PlayRepository: actual.PlayRepository };
 });
-import { IndexService } from '../lastfm/indexService';
+import { IndexService } from '@bot/services/lastfm/indexService';
 
 /**
  * indexService was 45% and sits directly on the data-integrity path: it is

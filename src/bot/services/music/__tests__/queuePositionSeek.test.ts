@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { QueueService } from '../queueService';
-import { USER_SEEK_INTENT_WINDOW_MS } from '../musicConstants';
+import { QueueService } from '@bot/services/music/queueService';
+import { USER_SEEK_INTENT_WINDOW_MS } from '@bot/services/music/musicConstants';
 
 /**
  * Regression from a local test log on 2026-09-27, found while reviewing the

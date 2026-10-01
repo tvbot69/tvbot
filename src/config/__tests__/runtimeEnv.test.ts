@@ -10,7 +10,7 @@ import {
   shardCount,
   shardingEnabledFlag,
   skipSlashRegister,
-} from '../runtimeEnv';
+} from '@config/runtimeEnv';
 
 /**
  * Every accessor in `runtimeEnv` is a pure function of an environment map, with

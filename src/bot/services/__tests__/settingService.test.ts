@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { SettingService } from '../system/settingService';
+import { SettingService } from '@bot/services/system/settingService';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 

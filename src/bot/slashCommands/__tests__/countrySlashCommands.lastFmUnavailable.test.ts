@@ -29,14 +29,14 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { CountrySlashCommands } from '../countrySlashCommands';
+import { CountrySlashCommands } from '@bot/slashCommands/countrySlashCommands';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { SettingService } from '@bot/services/system/settingService';
 import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import type { CountryService } from '@bot/services/countryService';
+import type { CountryService } from '@bot/services/library/countryService';
 import type { WorldMapGenerator } from '@images/generators/worldMapGenerator';
 
 /** The real transport failure, built the way `lastfmApi` builds it. */

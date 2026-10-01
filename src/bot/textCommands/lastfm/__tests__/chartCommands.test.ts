@@ -4,14 +4,14 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { ChartCommands } from '../chartCommands';
+import { ChartCommands } from '@bot/textCommands/lastfm/chartCommands';
 import { ChartBuilders } from '@bot/builders/chartBuilders';
-import { ChartService, NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/chartService';
+import { ChartService, NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/charts/chartService';
 import { TitleSetting, ChartSettings } from '@bot/models/chartModels';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@persistence/domain/models/user';
+import type { User } from '@persistence/models/user';
 
 /**
  * `.chart` / `.aotd` / `.artistchart` / `.trackchart`.

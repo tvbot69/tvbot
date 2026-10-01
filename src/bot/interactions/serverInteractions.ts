@@ -4,7 +4,7 @@ import {
   GuildRankingService,
   GuildRankingSettings,
   GuildRankingItem,
-} from '@bot/services/guildRankingService';
+} from '@bot/services/guild/guildRankingService';
 import {
   ServerBuilders,
   ServerRankingType,

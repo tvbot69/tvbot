@@ -1,6 +1,6 @@
 import { Logger } from '@domain/logger';
 import { youtubeDataApiKey } from '@config/musicEnv';
-import type { VideoChapterDto } from './ytResolver';
+import type { VideoChapterDto } from '@bot/services/music/ytResolver';
 
 const FETCH_TIMEOUT_MS = 8_000;
 const POS_TTL_MS = 7 * 24 * 3_600_000;

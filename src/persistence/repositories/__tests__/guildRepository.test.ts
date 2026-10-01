@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { GuildRepository } from '../guildRepository';
+import { GuildRepository } from '@persistence/repositories/guildRepository';
 
 /**
  * guildRepository had NO unit test at all - not a thin one, none - and it is

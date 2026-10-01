@@ -1,10 +1,10 @@
 import { readFileSync } from 'fs';
 import path from 'path';
 import type { ChartItem, ChartSettings } from '@images/models/chartModels';
-import { PuppeteerService } from './puppeteerService';
+import { PuppeteerService } from '@images/generators/puppeteerService';
 import { Logger } from '@domain/logger';
 
-import { escapeHtml } from '../html';
+import { escapeHtml } from '@images/html';
 
 
 let cachedFontCss: string | null = null;

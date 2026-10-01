@@ -1,6 +1,6 @@
 import type { UserInfoResponseLfm } from '@lastfm/models/userInfoLfm';
 import type { LastFmUser } from '@domain/models/lastFmUser';
-import { TrackConverter } from './recentTrackConverter';
+import { TrackConverter } from '@lastfm/converters/recentTrackConverter';
 
 export class UserConverter {
   public static convertUserInfo(response: UserInfoResponseLfm): LastFmUser {

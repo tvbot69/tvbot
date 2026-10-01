@@ -2,13 +2,13 @@ import { inject, injectable } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
-import { PrefixService } from '@bot/services/prefixService';
+import { UserService } from '@bot/services/user/userService';
+import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
-import { FeaturedService } from '@bot/services/featuredService';
-import { ShortcutService } from '@bot/services/shortcutService';
+import { FeaturedService } from '@bot/services/library/featuredService';
+import { ShortcutService } from '@bot/services/user/shortcutService';
 import { UserHubBuilders } from '@bot/builders/userHubBuilders';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 

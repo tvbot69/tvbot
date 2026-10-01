@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { ReceiptGenerator, ReceiptData } from '../receiptGenerator';
-import { PuppeteerService } from '../puppeteerService';
+import { ReceiptGenerator, ReceiptData } from '@images/generators/receiptGenerator';
+import { PuppeteerService } from '@images/generators/puppeteerService';
 
 describe('ReceiptGenerator', () => {
   it('replaces all placeholders and renders receipt through Puppeteer', async () => {

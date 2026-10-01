@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { MusicService } from '../musicService';
+import { MusicService } from '@bot/services/music/musicService';
 
 /**
  * Characterization tests for the invariants that the god-file split must not

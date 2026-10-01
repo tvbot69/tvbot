@@ -1,7 +1,7 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { PermissionFlagsBits } from 'discord.js';
-import { MusicInteractions } from '../musicInteractions';
+import { MusicInteractions } from '@bot/interactions/musicInteractions';
 
 /**
  * musicInteractions was 31.03% with 400 uncovered lines and no tests.

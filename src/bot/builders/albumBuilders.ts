@@ -13,10 +13,10 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { AlbumSearchResult } from '@bot/services/albumService';
-import { PlaycountBuilders } from './playcountBuilders';
+import type { AlbumSearchResult } from '@bot/services/library/albumService';
+import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { EMOJI } from '@bot/resources/emojis';
-import { pluralise } from './pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 
 const TRACKS_PER_PAGE = 12;
 

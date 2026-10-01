@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pluralise } from '../pluralise';
+import { pluralise } from '@bot/builders/pluralise';
 
 describe('pluralise', () => {
   it('agrees with the count for the regular case', () => {

@@ -35,11 +35,11 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { CrownService } from '../crownService';
+import { CrownService } from '@bot/services/crown/crownService';
 import { WhoKnowsArtistService } from '@bot/services/whoKnows/whoKnowsArtistService';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import type { CrownRepository } from '@persistence/repositories/crownRepository';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 

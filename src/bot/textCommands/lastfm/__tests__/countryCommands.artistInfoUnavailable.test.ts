@@ -17,15 +17,15 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { CountryCommands } from '../countryCommands';
+import { CountryCommands } from '@bot/textCommands/lastfm/countryCommands';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { SettingService } from '@bot/services/system/settingService';
 import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import type { CountryService } from '@bot/services/countryService';
+import type { CountryService } from '@bot/services/library/countryService';
 import type { WorldMapGenerator } from '@images/generators/worldMapGenerator';
 
 const LFM_DOWN = () =>

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { PlayRepository, sumEntriesById } from '../playRepository';
+import { PlayRepository, sumEntriesById } from '@persistence/repositories/playRepository';
 
 const makeRepo = (existing: Array<{ artistId?: number; albumId?: number; trackId?: number; playcount: number }>) => {
   const txOps: unknown[] = [];

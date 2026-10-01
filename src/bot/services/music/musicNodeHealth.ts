@@ -1,4 +1,4 @@
-import type { MoonlinkManager } from './moonlinkManager';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 
 /**
  * Node-health probes shared by the playback service and the search ladder.

@@ -12,7 +12,7 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { JumbleSession, UserGameStats } from '@bot/services/gameService';
+import { JumbleSession, UserGameStats } from '@bot/services/guild/gameService';
 
 export class GameBuilders {
   public static buildJumbleStartResponse(session: JumbleSession, accentColor?: number | null): ResponseModel {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escapeHtml, safeUrl } from '../html';
+import { escapeHtml, safeUrl } from '@images/html';
 
 describe('escapeHtml', () => {
   it('escapes all five metacharacters, not just four', () => {

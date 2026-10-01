@@ -6,13 +6,13 @@ import {
   type ButtonInteraction,
   type ModalSubmitInteraction,
 } from 'discord.js';
-import { ChartInteractions } from '../chartInteractions';
-import { ChartService, NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/chartService';
+import { ChartInteractions } from '@bot/interactions/chartInteractions';
+import { ChartService, NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/charts/chartService';
 import { ChartBuilders } from '@bot/builders/chartBuilders';
 import { ChartSettings, TitleSetting } from '@bot/models/chartModels';
-import { UserType, DataSource, type User } from '@persistence/domain/models/user';
+import { UserType, DataSource, type User } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
-import type { ChartResult } from '@bot/services/chartService';
+import type { ChartResult } from '@bot/services/charts/chartService';
 
 const MODAL_PREFIX = 'chart-edit-modal:';
 

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { NowPlayingInteractions } from '../nowPlayingInteractions';
+import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
 import { TrackBuilders } from '@bot/builders/trackBuilders';
 import type { LyricsResult } from '@bot/services/music/lyricsService';
 import type { ButtonInteraction } from 'discord.js';

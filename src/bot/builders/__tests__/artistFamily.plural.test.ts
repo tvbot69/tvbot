@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { AlbumBuilders } from '../albumBuilders';
-import { ArtistBuilders } from '../artistBuilders';
-import { ArtistTrackBuilders } from '../artistTrackBuilders';
-import { TrackBuilders } from '../trackBuilders';
+import { AlbumBuilders } from '@bot/builders/albumBuilders';
+import { ArtistBuilders } from '@bot/builders/artistBuilders';
+import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
+import { TrackBuilders } from '@bot/builders/trackBuilders';
 import type { User } from '@domain/interfaces/iuserRepository';
 
 /**

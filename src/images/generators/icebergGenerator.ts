@@ -1,8 +1,8 @@
 import { injectable, inject } from 'tsyringe';
-import { PuppeteerService } from './puppeteerService';
-import type { IcebergData } from '@bot/services/musicIntelligenceService';
+import { PuppeteerService } from '@images/generators/puppeteerService';
+import type { IcebergData } from '@bot/services/library/musicIntelligenceService';
 
-import { escapeHtml } from '../html';
+import { escapeHtml } from '@images/html';
 @injectable()
 export class IcebergGenerator {
   constructor(

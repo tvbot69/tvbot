@@ -1,6 +1,6 @@
 import { injectable, inject } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
-import type { AutopostConfig, AutopostContentType, AutopostSchedule } from '@bot/services/autopostService';
+import type { AutopostConfig, AutopostContentType, AutopostSchedule } from '@bot/services/charts/autopostService';
 
 @injectable()
 export class AutopostRepository {

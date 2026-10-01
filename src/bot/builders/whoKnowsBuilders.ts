@@ -25,8 +25,8 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 
 
 
-import { buildWhoKnowsImageResponse } from './whoKnowsImageBuilder';
-import { resolveWhoKnowsImageDeps } from './whoKnowsImageDeps';
+import { buildWhoKnowsImageResponse } from '@bot/builders/whoKnowsImageBuilder';
+import { resolveWhoKnowsImageDeps } from '@bot/builders/whoKnowsImageDeps';
 import { EMOJI } from '@bot/resources/emojis';
 
 export class WhoKnowsBuilders {

@@ -4,7 +4,7 @@ import {
   SeparatorBuilder,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
-import { StreakModel, getEmojiForStreakCount } from '@bot/services/streakService';
+import { StreakModel, getEmojiForStreakCount } from '@bot/services/user/streakService';
 
 export class StreakBuilders {
   public static buildStreakResponse(

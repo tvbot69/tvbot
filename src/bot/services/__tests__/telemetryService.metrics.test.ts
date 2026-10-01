@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TelemetryService } from '../system/telemetryService';
+import { TelemetryService } from '@bot/services/system/telemetryService';
 
 /**
  * The numbers behind the health endpoint and the autopost telemetry.

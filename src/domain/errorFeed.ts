@@ -1,6 +1,6 @@
-import { fetchWithTimeout } from './fetchWithTimeout';
+import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import { errorWebhookUrl as configuredErrorWebhookUrl } from '@config/runtimeEnv';
-import { redactSecrets } from './logger';
+import { redactSecrets } from '@domain/logger';
 
 // Minimum gap between two feed posts with the same signature (spam guard).
 const THROTTLE_MS = 5 * 60 * 1000;

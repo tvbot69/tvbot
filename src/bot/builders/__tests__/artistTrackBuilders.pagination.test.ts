@@ -14,7 +14,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { ArtistTrackBuilders } from '../artistTrackBuilders';
+import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import type { ResponseModel } from '@bot/models/responseModel';
 
 interface Cv2Component {

@@ -1,13 +1,13 @@
 import type { IWhoKnowsRepository } from '@domain/interfaces/iwhoKnowsRepository';
 import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
-import type { GuildService } from '../guild/guildService';
+import type { GuildService } from '@bot/services/guild/guildService';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { WhoKnowsService } from './whoKnowsService';
+import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import type { WhoKnowsArtistContext, WhoKnowsRoleRead, WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { isUnknownDiscordMember } from '@domain/discordErrors';
 import type { Guild as DiscordGuild } from 'discord.js';
-import type { GenreService } from '../genreService';
-import type { CrownService } from '../crown/crownService';
+import type { GenreService } from '@bot/services/library/genreService';
+import type { CrownService } from '@bot/services/crown/crownService';
 import type { CrownModel } from '@domain/models/crownModels';
 
 export class WhoKnowsArtistService {

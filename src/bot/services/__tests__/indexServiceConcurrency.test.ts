@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { IndexService } from '../lastfm/indexService';
-import { CacheService } from '../system/cacheService';
+import { IndexService } from '@bot/services/lastfm/indexService';
+import { CacheService } from '@bot/services/system/cacheService';
 
 /**
  * The full-index lock had the same check-then-act race as the delta-sync one.

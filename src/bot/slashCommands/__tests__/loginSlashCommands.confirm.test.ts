@@ -37,12 +37,12 @@
  * (loginService, userService, componentTracker). Three positional arguments.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { LoginSlashCommands } from '../loginSlashCommands';
-import { LoginStatus, type LoginService } from '@bot/services/loginService';
+import { LoginSlashCommands } from '@bot/slashCommands/loginSlashCommands';
+import { LoginStatus, type LoginService } from '@bot/services/user/loginService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
 
 const CALLER_ID = 'caller1';

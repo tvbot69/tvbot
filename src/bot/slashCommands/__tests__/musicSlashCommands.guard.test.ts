@@ -1,6 +1,6 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { MusicSlashCommands } from '../musicSlashCommands';
+import { MusicSlashCommands } from '@bot/slashCommands/musicSlashCommands';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';

@@ -27,7 +27,7 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TopInteractions } from '../topInteractions';
+import { TopInteractions } from '@bot/interactions/topInteractions';
 import { TopBuilders } from '@bot/builders/topBuilders';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
@@ -37,7 +37,7 @@ const overviewHolder = vi.hoisted(() => ({
   getOverview: async (): Promise<{ dailyBlocks: never[] }> => ({ dailyBlocks: [] }),
 }));
 
-vi.mock('@bot/services/overviewService', () => ({
+vi.mock('@bot/services/library/overviewService', () => ({
   OverviewService: class {
     public getOverview(): Promise<{ dailyBlocks: never[] }> {
       return overviewHolder.getOverview();

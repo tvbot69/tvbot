@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { AlbumRepository } from '../albumRepository';
+import { AlbumRepository } from '@persistence/repositories/albumRepository';
 
 /**
  * AlbumRepository was at 13.7% line coverage. The paths worth holding:

@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { TopBuilders } from '../topBuilders';
+import { TopBuilders } from '@bot/builders/topBuilders';
 import { ResponseMode } from '@domain/enums/responseMode';
-import type { TopBuildersDeps } from '../topBuildersDeps';
+import type { TopBuildersDeps } from '@bot/builders/topBuildersDeps';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { TopAlbum, TopArtist, TopTrack } from '@domain/models/topLists';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
@@ -17,9 +17,9 @@ import type { TimeSettingsModel } from '@domain/models/timeSettings';
  * with `as never` would hide exactly the mismatch a reviewer wants to see.
  */
 import type { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import type { ArtistsService } from '@bot/services/artistsService';
-import type { ArtworkService } from '@bot/services/artworkService';
-import type { DeezerApi } from '@deezer/apis/deezerApi';
+import type { ArtistsService } from '@bot/services/library/artistsService';
+import type { ArtworkService } from '@bot/services/media/artworkService';
+import type { DeezerApi } from '@deezer/api/deezerApi';
 import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import type { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 

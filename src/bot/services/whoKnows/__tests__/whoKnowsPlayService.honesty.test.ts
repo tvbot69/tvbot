@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { WhoKnowsPlayService } from '../whoKnowsPlayService';
-import type { CacheService } from '../../system/cacheService';
+import { WhoKnowsPlayService } from '@bot/services/whoKnows/whoKnowsPlayService';
+import type { CacheService } from '@bot/services/system/cacheService';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 
 /**

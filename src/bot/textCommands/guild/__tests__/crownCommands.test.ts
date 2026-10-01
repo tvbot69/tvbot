@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { CrownCommands } from '../crownCommands';
+import { CrownCommands } from '@bot/textCommands/guild/crownCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { CrownBuilders } from '@bot/builders/crownBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';

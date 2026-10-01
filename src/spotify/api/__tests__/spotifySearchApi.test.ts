@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SpotifySearchApi, SpotifyUnavailableError } from '../spotifySearchApi';
-import { SpotifyTokenManager } from '../spotifyTokenManager';
+import { SpotifySearchApi, SpotifyUnavailableError } from '@spotify/api/spotifySearchApi';
+import { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
 
 describe('SpotifySearchApi', () => {
   let tokenManager: SpotifyTokenManager;

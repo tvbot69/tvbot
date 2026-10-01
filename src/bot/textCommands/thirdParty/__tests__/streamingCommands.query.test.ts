@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { StreamingCommands } from '../streamingCommands';
+import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';

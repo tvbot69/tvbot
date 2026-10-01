@@ -22,7 +22,7 @@ import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { TelemetryService } from '@bot/services/system/telemetryService';
 

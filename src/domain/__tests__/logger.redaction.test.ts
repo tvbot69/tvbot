@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import { CustomLogger, redactSecrets, isSecretKey } from '../logger';
+import { CustomLogger, redactSecrets, isSecretKey } from '@domain/logger';
 
 /**
  * DEFECT 1: the logger had NO redaction at all.

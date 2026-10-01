@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { UserHubBuilders } from '../userHubBuilders';
-import { IntelligenceBuilders } from '../intelligenceBuilders';
-import { ProfileBuilders } from '../profileBuilders';
-import type { FeaturedEntry } from '@bot/services/featuredService';
-import type { DiscoveryItem } from '@bot/services/musicIntelligenceService';
+import { UserHubBuilders } from '@bot/builders/userHubBuilders';
+import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
+import { ProfileBuilders } from '@bot/builders/profileBuilders';
+import type { FeaturedEntry } from '@bot/services/library/featuredService';
+import type { DiscoveryItem } from '@bot/services/library/musicIntelligenceService';
 import type { LastFmUser } from '@domain/models/lastFmUser';
 
 /**

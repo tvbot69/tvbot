@@ -33,16 +33,16 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { UserSlashCommands } from '../userSlashCommands';
+import { UserSlashCommands } from '@bot/slashCommands/userSlashCommands';
 import { ColorService } from '@bot/services/system/colorService';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { FmSettingService } from '@bot/services/system/fmSettingService';
 import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { ChannelRepository } from '@persistence/repositories/channelRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 

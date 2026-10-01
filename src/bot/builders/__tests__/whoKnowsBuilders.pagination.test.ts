@@ -20,7 +20,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { WhoKnowsBuilders } from '../whoKnowsBuilders';
+import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
 import { ContextModel } from '@bot/models/contextModel';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { CommandResponse } from '@domain/enums/commandResponse';

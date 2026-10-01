@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { buildWhoKnowsImageResponse } from '../whoKnowsImageBuilder';
+import { buildWhoKnowsImageResponse } from '@bot/builders/whoKnowsImageBuilder';
 /*
  * The collaborator types every `WhoKnowsImageDeps` field is declared as. Named
  * explicitly rather than reached through a blind cast, because a double that does
@@ -9,18 +9,18 @@ import { buildWhoKnowsImageResponse } from '../whoKnowsImageBuilder';
  * one method of a class that has many, and `as never` would hide exactly the
  * mismatch a reviewer wants to see.
  */
-import type { WhoKnowsImageDeps } from '../whoKnowsImageDeps';
+import type { WhoKnowsImageDeps } from '@bot/builders/whoKnowsImageDeps';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import type { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
-import type { ArtistsService } from '@bot/services/artistsService';
-import type { AlbumService } from '@bot/services/albumService';
-import type { ArtworkService } from '@bot/services/artworkService';
-import type { UserService } from '@bot/services/userService';
+import type { ArtistsService } from '@bot/services/library/artistsService';
+import type { AlbumService } from '@bot/services/library/albumService';
+import type { ArtworkService } from '@bot/services/media/artworkService';
+import type { UserService } from '@bot/services/user/userService';
 import type { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import type { DeezerApi } from '@deezer/apis/deezerApi';
+import type { DeezerApi } from '@deezer/api/deezerApi';
 import type { DeezerAlbum } from '@deezer/models/deezerModels';
-import type { DeezerCoverIndexer } from '@bot/services/deezerCoverIndexer';
+import type { DeezerCoverIndexer } from '@bot/services/media/deezerCoverIndexer';
 
 /**
  * The two ladders inside `whoKnowsImageBuilder` that nobody was pinning: how a

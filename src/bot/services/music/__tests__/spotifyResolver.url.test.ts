@@ -1,6 +1,6 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { SpotifyResolver } from '../spotifyResolver';
+import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
 
 /**
  * URL parsing and the token-refresh path, both of which the search ladder

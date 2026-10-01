@@ -8,7 +8,7 @@ import {
   MessageActionRowComponentBuilder,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
-import { SearchTab, SearchResultRow } from '@bot/services/librarySearchService';
+import { SearchTab, SearchResultRow } from '@bot/services/library/librarySearchService';
 
 export interface SearchPageOptions {
   query: string;

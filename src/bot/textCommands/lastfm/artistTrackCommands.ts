@@ -1,8 +1,8 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
-import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/artistTrackService';
+import { UserService } from '@bot/services/user/userService';
+import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/library/artistTrackService';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -10,7 +10,7 @@ import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 
 import { container } from 'tsyringe';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 
 export class ArtistTrackCommands implements ITextCommandModule {

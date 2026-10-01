@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { PlaycountBuilders } from '../playcountBuilders';
+import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { SettingService } from '@bot/services/system/settingService';
 
 describe('PlaycountBuilders and SettingService', () => {

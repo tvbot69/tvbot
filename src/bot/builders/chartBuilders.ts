@@ -13,9 +13,9 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { ChartSettings } from '@bot/models/chartModels';
-import type { ChartResult } from '@bot/services/chartService';
+import type { ChartResult } from '@bot/services/charts/chartService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { NotEnoughAlbumsError } from '@bot/services/chartService';
+import { NotEnoughAlbumsError } from '@bot/services/charts/chartService';
 
 const PERIOD_TOKENS: Partial<Record<TimePeriod, string>> = {
   [TimePeriod.Weekly]: 'weekly',

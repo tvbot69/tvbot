@@ -1,7 +1,7 @@
 import { type ButtonInteraction, MessageFlags } from 'discord.js';
 import { inject, injectable } from 'tsyringe';
-import { AlbumService } from '@bot/services/albumService';
-import { UserService } from '@bot/services/userService';
+import { AlbumService } from '@bot/services/library/albumService';
+import { UserService } from '@bot/services/user/userService';
 import { ColorService } from '@bot/services/system/colorService';
 import { AlbumBuilders } from '@bot/builders/albumBuilders';
 

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ArtworkService, matchesTrackTitle } from '../artworkService';
+import { ArtworkService, matchesTrackTitle } from '@bot/services/media/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 
 describe('matchesTrackTitle', () => {

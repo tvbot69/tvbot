@@ -11,7 +11,7 @@ import {
   type HomeLadderMode,
   type HomePluginRung,
   type LavalinkEnableFlag,
-} from '../musicEnv';
+} from '@config/musicEnv';
 
 /**
  * This suite is a REFACTOR gate, not a feature test. The contract is

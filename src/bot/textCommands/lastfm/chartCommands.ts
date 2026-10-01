@@ -2,12 +2,12 @@ import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/comm
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { ChartSettings, TitleSetting } from '@bot/models/chartModels';
-import type { User } from '@persistence/domain/models/user';
+import type { User } from '@persistence/models/user';
 
-import { ChartService, TooManyImagesError } from '@bot/services/chartService';
-import { NotEnoughAlbumsError } from '@bot/services/chartService';
+import { ChartService, TooManyImagesError } from '@bot/services/charts/chartService';
+import { NotEnoughAlbumsError } from '@bot/services/charts/chartService';
 import { ChartBuilders } from '@bot/builders/chartBuilders';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UpdateService } from '@bot/services/lastfm/updateService';

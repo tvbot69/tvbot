@@ -1,6 +1,6 @@
 import { prisma } from '@persistence/prismaClient';
 import { Logger } from '@domain/logger';
-import type { IndexService } from './indexService';
+import type { IndexService } from '@bot/services/lastfm/indexService';
 
 export interface ReconcileUserResult {
   userId: number;

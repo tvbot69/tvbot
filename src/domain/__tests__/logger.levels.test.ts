@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CustomLogger, Logger } from '../logger';
+import { CustomLogger, Logger } from '@domain/logger';
 
 /**
  * The shape of the logging surface, and the invariants a log line must hold.

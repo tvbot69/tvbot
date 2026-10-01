@@ -7,7 +7,7 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import type { ImportSummary } from '@bot/services/importService';
+import type { ImportSummary } from '@bot/services/library/importService';
 
 export class DiscogsAndImportBuilders {
 

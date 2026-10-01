@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { GuildDisabledCommandRepository } from '../guildDisabledCommandRepository';
+import { GuildDisabledCommandRepository } from '@persistence/repositories/guildDisabledCommandRepository';
 
 /**
  * guildDisabledCommandRepository had NO unit test at all. It is three methods

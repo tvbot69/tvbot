@@ -14,7 +14,7 @@ import {
   OrderType,
   GuildRankingItem,
   GuildRankingSettings,
-} from '@bot/services/guildRankingService';
+} from '@bot/services/guild/guildRankingService';
 
 export const BillboardEmotes = {
   fiveOrMoreUp: '<:five_or_more_up:1545948477807132692>',

@@ -7,7 +7,7 @@ import {
   type MessageActionRowComponentBuilder,
 } from 'discord.js';
 import { randomUUID } from 'crypto';
-import { ComponentInteractionTracker, type ComponentInteraction } from './componentInteractionTracker';
+import { ComponentInteractionTracker, type ComponentInteraction } from '@bot/services/system/componentInteractionTracker';
 import type { ResponseModel } from '@bot/models/responseModel';
 
 const DEFAULT_TTL_MS = 300000;

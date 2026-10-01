@@ -114,7 +114,7 @@ exists because breaking it shipped a real bug.
 
 2. **Never trust Last.fm's `imageUrl`.** It frequently returns the placeholder `2a96cbd8b46e442fc41c2b86b821562f`. All artwork goes through `ArtworkService` (Spotify → Deezer → Apple → Last.fm). The placeholder check lives in exactly one predicate, `isPlaceholderImageUrl`, in `src/domain/lastfmPlaceholder.ts` (re-exported from `artworkService` for the ~20 existing call sites) — call it, never re-inline the hash. It lives in `domain`, not `bot/services`, so lower layers can ask the question without importing the artwork cascade.
 
-3. **Artwork title matching must survive real catalogue shapes.** Matching is deliberately strict (never substring — `"Song"` must not match `"Song 2"`), and it must tolerate a **leading date prefix**, because DJ-pool and compilation rips are often the *only* thing a provider returns: Mac DeMarco's "I Like Her" comes back as `20191009 I Like Her` on "Cottage Core"-style albums. Without the prefix strip, correct-artist/right-recording rows get rejected and the card holds the previous cover forever. See `matchesTrackTitle` in `artworkService.ts` and `artworkService.datePrefix.test.ts` in `src/bot/services/__tests__/`.
+3. **Artwork title matching must survive real catalogue shapes.** Matching is deliberately strict (never substring — `"Song"` must not match `"Song 2"`), and it must tolerate a **leading date prefix**, because DJ-pool and compilation rips are often the *only* thing a provider returns: Mac DeMarco's "I Like Her" comes back as `20191009 I Like Her` on "Cottage Core"-style albums. Without the prefix strip, correct-artist/right-recording rows get rejected and the card holds the previous cover forever. See `matchesTrackTitle` in `artworkService.ts` and `artworkService.datePrefix.test.ts` in `src/bot/services/media/__tests__/`.
 
 4. **Dual-mode commands.** Every command exists as a slash command (`src/bot/slashCommands/`) *and* a text command (`src/bot/textCommands/`, prefix `.`). Both delegate to a shared `src/bot/builders/*Builders.ts` returning a `ResponseModel`. **Command names must be globally unique across both families** — the registry logs a collision and silently lets the later registration win, making the other unreachable. This has already bitten `.remove` (account unlink vs queue remove) and `.lyrics`.
 
@@ -212,16 +212,24 @@ src/
 │   ├── startup.ts        the dependency graph — read first when tracing wiring
 │   ├── handlers/         event dispatch: interactionHandler, commandHandler,
 │   │   └── music/        musicHandler, AGENTS.md
-│   ├── services/
-│   │   ├── music/        playback DAG (§4)
-│   │   ├── lastfm/       index, update, timer, reconcile, *Queue services
-│   │   ├── system/       cache, color, setting, rateLimit, pagination, healthServer,
-│   │   │                 shutdown, startup, telemetry, ttlStore, abuseFilter, …
-│   │   ├── whoKnows/     leaderboards
-│   │   ├── crown/        crowns
-│   │   ├── audio/        previewResolver, audioSignal, essentia, voiceMessage
-│   │   ├── guild/        guild-scoped services
-│   │   └── *.ts          32 loose domain services (artworkService, autopostService, …)
+│   ├── services/           EVERY service is in a subsystem folder; there are no
+│   │                       loose files. `startup.ts` is the index.
+│   │   ├── music/          playback DAG (§4)
+│   │   ├── library/        catalogue reads: album, artists, artistTrack, track,
+│   │   │                   genre, country, overview, playHistory, taste, featured,
+│   │   │                   musicIntelligence, librarySearch, import, albumEnrichment
+│   │   ├── system/         cache, color, setting, rateLimit, pagination, healthServer,
+│   │   │                   shutdown, startup, telemetry, ttlStore, abuseFilter, …
+│   │   ├── user/           user, login, profile, prefix, shortcut, streak
+│   │   ├── media/          artwork, appleMusic, deezerCoverIndexer, musicBrainz
+│   │   ├── lastfm/         index, update, timer, reconcile, *Queue services
+│   │   ├── guild/          guild-scoped services, guildAdmin, guildRanking, game
+│   │   ├── charts/         chartService, autopostService
+│   │   ├── social/         friends, exposed
+│   │   ├── whoKnows/       leaderboards
+│   │   ├── crown/          crowns
+│   │   └── audio/          previewResolver, audioSignal, essentia, voiceMessage,
+│   │                       lyricStatus
 │   ├── builders/         embed/action-row factories returning ResponseModel
 │   ├── slashCommands/    33 files (+ AGENTS.md)
 │   ├── textCommands/     guild, lastfm, meta, music, thirdParty, user
@@ -229,12 +237,27 @@ src/
 │   ├── models/           ContextModel, ResponseModel, command/chart/whoKnows models
 │   ├── configurations/   envValidator, configData
 │   ├── autoCompleteHandlers/  diagnostics/  resources/
-├── persistence/          prisma/ (schema + client), repositories/ (19), domain/
-├── lastfm/               api, converters, models, repositories
+├── persistence/          prisma/ (schema + client), repositories/ (19),
+│                         models/ (row shapes: channel, guild, guildDisabledCommand,
+│                         user) — NOT a second `domain/`
+├── lastfm/               api/, converters/, models/, repositories/
 ├── spotify/  applemusic/  deezer/   images/ (generators, pages, models)
-├── domain/               enums, extensions, interfaces, models, types
+├── domain/               enums, extensions, interfaces, models
 └── config/  types/       lavalink, runtimeEnv, musicEnv; ambient.d.ts
 ```
+
+**Provider folders share one shape.** `spotify/`, `applemusic/`, `deezer/` and
+`lastfm/` are `api/`, `models/`, plus whatever else that provider needs
+(`converters/`, `repositories/`). The `api/` folder is SINGULAR in all four: it was
+`deezer/apis` and `applemusic/apis` against `spotify/api` and `lastfm/api`, and
+the odd ones out were wrong. A folder holding one file is a seam, not noise —
+`deezer/models/deezerModels.ts` is the shape a reader learns once and reuses.
+
+**Every alias in `tsconfig.json` and `vitest.config.ts` must name a folder that
+exists.** `@discogs/*` survived the deletion of Discogs and pointed at nothing for
+months — the exact "you configured something that does not exist" bug AGENTS.md
+§12 calls the purest example of. The two alias lists are hand-maintained and
+drift silently; check both when adding a top-level package.
 
 ---
 
@@ -242,8 +265,8 @@ src/
 
 **Adding a command (1:1 from fmbot)**
 1. Check the `fmbot-dev` reference implementation.
-2. Service method in `src/bot/services/` — pick the subsystem folder that owns the domain, or a loose
-   file beside them. Do not invent a new folder name (§3.12).
+2. Service method in `src/bot/services/` - pick the subsystem folder that owns the domain. There are no loose files there and no new folder names (§3.12).
+
 3. Response in `src/bot/builders/*Builders.ts`.
 4. Slash **and** text command (check the name is unique across both — §3.4). Text commands live in
    `src/bot/textCommands/<area>/`, including `meta/` for help and static triggers.
@@ -301,9 +324,9 @@ Where each pillar of the bot actually lives. Read the file before editing it.
 - **Command framework** — `ContextModel` (`src/bot/models/contextModel.ts`) normalises a `Message`, a `ChatInputCommandInteraction` and a `ButtonInteraction` behind one API. Builders return a `ResponseModel` (embeds, buttons, or Components V2 containers).
 - **Persistence** — `src/persistence/prisma/schema.prisma`. `UserPlay` is the indexed scrobble history; `Artist`/`Album`/`Track` are cached metadata; `UserArtist`/`UserAlbum`/`UserTrack` are per-user denormalised rollups all keyed `(userId, <id>)`; `UserCrown` tracks guild crown holders; `GuildAutopost` holds scheduled-post config.
 - **Last.fm sync** — `src/bot/services/lastfm/updateService.ts` (delta sync, 3h overlap, 14-day fallback, backoff `500/2500/5000/10000/25000ms`), `indexService.ts` (full history, up to 1000 pages, batch commits every 10), `timerService.ts` (cron).
-- **Artwork engine** — `src/bot/services/artworkService.ts`. Memory + Redis cache (1h positive / 10min definitive-none / 90s inconclusive), then a DB row if fresher than 90 days, then the cascade Spotify → Deezer → Apple → Last.fm, then persist. See §3.2 and §3.3.
+- **Artwork engine** — `src/bot/services/media/artworkService.ts`. Memory + Redis cache (1h positive / 10min definitive-none / 90s inconclusive), then a DB row if fresher than 90 days, then the cascade Spotify → Deezer → Apple → Last.fm, then persist. See §3.2 and §3.3.
 - **Social intelligence** — `src/bot/services/whoKnows/`. Ranks top listeners per artist/album/track from indexed plays plus a live Last.fm count, respecting `privacy_level`, guild bans and `self_block_from_who_knows`.
 - **Crowns** — `src/bot/services/crown/crownService.ts`. Claim/steal with a play threshold, dynamic re-evaluation against live scrobbles, bulk seeding, moderation.
-- **Autoposts** — `src/bot/services/autopostService.ts`. Scheduled leaderboard/crown posts on a 15-minute cron sweep.
+- **Autoposts** — `src/bot/services/charts/autopostService.ts`. Scheduled leaderboard/crown posts on a 15-minute cron sweep.
 - **OAuth actions** — `.love`/`.unlove`/`.scrobble` live in the track command modules and now-playing interactions, and use the user's `session_key`.
 - **Audio analysis** — `src/bot/services/audio/`: `previewResolverService` (30s previews), `audioSignalService` (ffmpeg → PCM), `essentiaService` (WASM BPM + key), `voiceMessageService` (Opus OGG with `flags: 8192` and a base64 waveform).

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { UserUpdateQueueService } from '../lastfm/userUpdateQueueService';
+import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
 import type { UserUpdateQueueItem } from '@domain/interfaces/iuserUpdateQueue';
 
 describe('UserUpdateQueueService', () => {

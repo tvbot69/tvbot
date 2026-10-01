@@ -6,7 +6,7 @@ import {
   isTerminalDiscordError,
   isUnknownInteraction,
   isUnrecoverableMessageFetch,
-} from '../discordErrors';
+} from '@domain/discordErrors';
 
 /**
  * Fixtures mirror the shapes discord.js actually produces, because the whole

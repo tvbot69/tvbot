@@ -37,14 +37,14 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { UserHubSlashCommands } from '../userHubSlashCommands';
+import { UserHubSlashCommands } from '@bot/slashCommands/userHubSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
-import type { PrefixService } from '@bot/services/prefixService';
-import type { ShortcutService } from '@bot/services/shortcutService';
-import type { FeaturedService } from '@bot/services/featuredService';
+import type { UserService } from '@bot/services/user/userService';
+import type { PrefixService } from '@bot/services/user/prefixService';
+import type { ShortcutService } from '@bot/services/user/shortcutService';
+import type { FeaturedService } from '@bot/services/library/featuredService';
 import type { ColorService } from '@bot/services/system/colorService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';

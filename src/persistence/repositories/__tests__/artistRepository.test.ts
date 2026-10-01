@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { ArtistRepository } from '../artistRepository';
+import { ArtistRepository } from '@persistence/repositories/artistRepository';
 
 describe('ArtistRepository case-insensitive canonicalization', () => {
   it('reuses a ProperCase twin instead of creating a lowercase dupe', async () => {

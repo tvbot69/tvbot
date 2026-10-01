@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { validateEnvironment } from '../envValidator';
+import { validateEnvironment } from '@bot/configurations/envValidator';
 
 describe('validateEnvironment', () => {
   const originalEnv = { ...process.env };

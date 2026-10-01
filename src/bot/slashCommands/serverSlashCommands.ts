@@ -6,7 +6,7 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import {
   GuildRankingService,
   parseGuildRankingSettings,
-} from '@bot/services/guildRankingService';
+} from '@bot/services/guild/guildRankingService';
 import { ServerBuilders } from '@bot/builders/serverBuilders';
 import { storeServerRankingQuery } from '@bot/interactions/serverInteractions';
 import { ColorService } from '@bot/services/system/colorService';

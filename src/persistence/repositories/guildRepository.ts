@@ -1,6 +1,6 @@
 import { PrismaClient, Guild as GuildEntity } from '@prisma/client';
 import type { IGuildRepository } from '@domain/interfaces/iguildRepository';
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 
 /**
  * The ONLY `BigInt()` call in this file. `guild.guild_id` is a `BigInt @id` and

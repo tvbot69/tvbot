@@ -25,7 +25,7 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PlaycountInteractions } from '../playcountInteractions';
+import { PlaycountInteractions } from '@bot/interactions/playcountInteractions';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';

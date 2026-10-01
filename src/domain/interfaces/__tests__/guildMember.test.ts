@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { memberDisplayName } from '../guildMember';
+import { memberDisplayName } from '@domain/interfaces/guildMember';
 
 describe('memberDisplayName', () => {
   const member = (displayName?: string, username?: string) => ({ displayName, user: { username } });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RecentBuilders } from '../recentBuilders';
+import { RecentBuilders } from '@bot/builders/recentBuilders';
 
 describe('RecentBuilders', () => {
   it('builds a Component v2 container for recent scrobbles with dividers and buttons', () => {

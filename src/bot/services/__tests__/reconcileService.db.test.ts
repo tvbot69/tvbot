@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { ReconcileService } from '../lastfm/reconcileService';
-import type { IndexService } from '../lastfm/indexService';
+import { ReconcileService } from '@bot/services/lastfm/reconcileService';
+import type { IndexService } from '@bot/services/lastfm/indexService';
 import { connect, resetTables, seedPlays, seedUser, skipReason, useScratchSchema } from '../../../testSupport/dbHarness';
 
 /**

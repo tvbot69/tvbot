@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MusicHistoryRepository } from '../musicHistoryRepository';
+import { MusicHistoryRepository } from '@persistence/repositories/musicHistoryRepository';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 
 /**

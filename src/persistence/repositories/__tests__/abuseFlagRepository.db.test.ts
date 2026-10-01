@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { AbuseFlagRepository } from '../abuseFlagRepository';
+import { AbuseFlagRepository } from '@persistence/repositories/abuseFlagRepository';
 import {
   connect,
   resetTables,

@@ -25,7 +25,7 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { ClientLogHandler } from '../clientLogHandler';
+import { ClientLogHandler } from '@bot/handlers/clientLogHandler';
 import { Events } from 'discord.js';
 import type { Client } from 'discord.js';
 import type { GuildService } from '@bot/services/guild/guildService';

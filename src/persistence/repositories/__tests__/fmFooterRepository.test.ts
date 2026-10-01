@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { FmFooterRepository } from '../fmFooterRepository';
+import { FmFooterRepository } from '@persistence/repositories/fmFooterRepository';
 
 /**
  * The footer runs on the now-playing hot path, and every field on it is a

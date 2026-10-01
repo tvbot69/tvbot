@@ -30,7 +30,7 @@ import { DiscordAPIError } from 'discord.js';
 import { WhoKnowsArtistService } from '@bot/services/whoKnows/whoKnowsArtistService';
 import { CrownService } from '@bot/services/crown/crownService';
 import type { CrownRepository } from '@persistence/repositories/crownRepository';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 import type { IWhoKnowsRepository } from '@domain/interfaces/iwhoKnowsRepository';
 import type { IGuildUserRepository } from '@domain/interfaces/iguildUserRepository';

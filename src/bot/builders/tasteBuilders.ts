@@ -2,7 +2,7 @@ import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ContainerBuilder, TextDis
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
-import { TasteData, formatTasteTable } from '@bot/services/tasteService';
+import { TasteData, formatTasteTable } from '@bot/services/library/tasteService';
 import { EMOJI } from '@bot/resources/emojis';
 
 export class TasteBuilders {

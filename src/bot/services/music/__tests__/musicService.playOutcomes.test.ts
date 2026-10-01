@@ -1,11 +1,11 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MusicService, playErrorMessage } from '../musicService';
-import type { MoonlinkManager } from '../moonlinkManager';
-import type { SpotifyResolver } from '../spotifyResolver';
-import type { DeezerResolver } from '../deezerResolver';
-import type { AppleMusicResolver } from '../appleMusicResolver';
-import type { QueueService } from '../queueService';
+import { MusicService, playErrorMessage } from '@bot/services/music/musicService';
+import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
+import type { SpotifyResolver } from '@bot/services/music/spotifyResolver';
+import type { DeezerResolver } from '@bot/services/music/deezerResolver';
+import type { AppleMusicResolver } from '@bot/services/music/appleMusicResolver';
+import type { QueueService } from '@bot/services/music/queueService';
 
 /**
  * `play()` outcome reporting, and the handshake rollback behind it.

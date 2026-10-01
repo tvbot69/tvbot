@@ -6,7 +6,7 @@ import {
   SPOTIFY_SEARCH_QUERY_MAX,
   clampSpotifyArtistAlbumsLimit,
   clampSpotifySearchLimit,
-} from '../spotifyApiLimits';
+} from '@spotify/api/spotifyApiLimits';
 
 /**
  * The clamp is TOTAL, and the word doing the work is "total".

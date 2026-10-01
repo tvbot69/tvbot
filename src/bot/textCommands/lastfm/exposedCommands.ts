@@ -2,10 +2,10 @@ import { injectable, inject } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { ExposedService } from '@bot/services/exposedService';
+import { ExposedService } from '@bot/services/social/exposedService';
 import { ExposedBuilders } from '@bot/builders/exposedBuilders';
 
 @injectable()

@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags } from 'discord.js';
-import { TasteInteractions } from '../tasteInteractions';
+import { TasteInteractions } from '@bot/interactions/tasteInteractions';
 import { TasteBuilders } from '@bot/builders/tasteBuilders';
-import type { TasteData } from '@bot/services/tasteService';
+import type { TasteData } from '@bot/services/library/tasteService';
 import type { ButtonInteraction } from 'discord.js';
 
 const makeTasteData = (over: Partial<TasteData> = {}): TasteData => ({

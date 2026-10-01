@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SpotifyResolver } from '../spotifyResolver';
-import type { SpotifyScraperService } from '../spotifyScraperService';
+import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
+import type { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
 
 /**
  * `resolve()` and the four per-type resolvers behind it.

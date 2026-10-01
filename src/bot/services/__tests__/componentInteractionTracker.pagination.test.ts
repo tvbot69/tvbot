@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ComponentInteractionTracker } from '../system/componentInteractionTracker';
-import { PaginationService } from '../system/paginationService';
+import { ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
+import { PaginationService } from '@bot/services/system/paginationService';
 import { ResponseModel } from '@bot/models/responseModel';
 
 /**

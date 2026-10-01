@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MessageFlags } from 'discord.js';
 import type { ModalSubmitInteraction } from 'discord.js';
-import { respondToModalWithPage } from '../modalPageResponse';
+import { respondToModalWithPage } from '@bot/interactions/modalPageResponse';
 
 /**
  * Guards the page-jump modal's response path.

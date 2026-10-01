@@ -4,13 +4,13 @@ import {
   parseGuildRankingSettings,
   OrderType,
   GuildRankingItem,
-} from '@bot/services/guildRankingService';
+} from '@bot/services/guild/guildRankingService';
 import {
   ServerBuilders,
   getBillboardMovementBadge,
   formatRankingItemLine,
   BillboardEmotes,
-} from '../serverBuilders';
+} from '@bot/builders/serverBuilders';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 describe('ServerBuilders & GuildRankingService', () => {

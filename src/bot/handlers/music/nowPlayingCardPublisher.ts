@@ -4,7 +4,7 @@ import { Logger } from '@domain/logger';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
 import { resolveDisplayedChapter } from '@bot/services/music/videoChapters';
 import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
-import { chapterKeyFor, fingerprintFor } from './cardFingerprint';
+import { chapterKeyFor, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
 import type { LyricWindow } from '@bot/services/music/syncedLyrics';
 
 import {

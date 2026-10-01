@@ -18,7 +18,7 @@ vi.mock('@persistence/repositories/playRepository', async (importOriginal) => {
   return { ...actual, PlayRepository: actual.PlayRepository };
 });
 
-import { IndexService } from '../lastfm/indexService';
+import { IndexService } from '@bot/services/lastfm/indexService';
 import { UpdateType } from '@domain/enums/updateType';
 
 /**

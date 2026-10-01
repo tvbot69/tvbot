@@ -1,14 +1,14 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { TasteCommands } from '../tasteCommands';
+import { TasteCommands } from '@bot/textCommands/lastfm/tasteCommands';
 import { TasteBuilders } from '@bot/builders/tasteBuilders';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import type { TasteData } from '@bot/services/tasteService';
+import type { TasteData } from '@bot/services/library/tasteService';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
 

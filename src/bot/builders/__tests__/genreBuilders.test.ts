@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { GenreBuilders } from '../genreBuilders';
+import { GenreBuilders } from '@bot/builders/genreBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 describe('GenreBuilders', () => {

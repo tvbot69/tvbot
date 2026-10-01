@@ -15,10 +15,10 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { CountryInfo, TopCountryItem, WhoKnowsCountryItem } from '@bot/services/countryService';
+import { CountryInfo, TopCountryItem, WhoKnowsCountryItem } from '@bot/services/library/countryService';
 import { CountryChartTheme } from '@images/generators/worldMapGenerator';
-import { pluralise } from './pluralise';
-import { pageSizeOr } from './paging';
+import { pluralise } from '@bot/builders/pluralise';
+import { pageSizeOr } from '@bot/builders/paging';
 
 export interface BuildTopCountriesOptions {
   displayName: string;

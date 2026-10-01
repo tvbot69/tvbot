@@ -2,7 +2,7 @@ import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { ColorService } from '@bot/services/system/colorService';
 import { RecentBuilders } from '@bot/builders/recentBuilders';
 

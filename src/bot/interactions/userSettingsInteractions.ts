@@ -5,7 +5,7 @@ import {
   type Interaction,
 } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { FmSettingService } from '@bot/services/system/fmSettingService';
 import { UserSettingsBuilders } from '@bot/builders/userSettingsBuilders';
 import { PlayBuilders } from '@bot/builders/playBuilders';
@@ -13,8 +13,8 @@ import { ContextModel } from '@bot/models/contextModel';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { ResponseMode, ResponseModeNames } from '@domain/enums/responseMode';
 import { CoverType, CoverTypeNames } from '@domain/enums/coverType';
-import { buildSettingsPage } from './settingsInteractions';
-import { PrefixService } from '@bot/services/prefixService';
+import { buildSettingsPage } from '@bot/interactions/settingsInteractions';
+import { PrefixService } from '@bot/services/user/prefixService';
 
 export const USER_SETTINGS_PREFIX = 'user-settings:';
 

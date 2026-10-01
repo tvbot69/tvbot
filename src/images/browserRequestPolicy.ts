@@ -1,4 +1,4 @@
-import { safeUrl } from './html';
+import { safeUrl } from '@images/html';
 
 /**
  * Plan item 5.1: what the render browser is allowed to fetch.

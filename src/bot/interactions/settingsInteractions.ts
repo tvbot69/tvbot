@@ -16,8 +16,8 @@ import { inject, injectable } from 'tsyringe';
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { PrefixService } from '@bot/services/prefixService';
-import { registerModalHandler } from './index';
+import { PrefixService } from '@bot/services/user/prefixService';
+import { registerModalHandler } from '@bot/interactions/index';
 import { FmEmbedTypeNames } from '@domain/enums/fmEmbedType';
 
 export const SETTINGS_BUTTON_PREFIX = 'settings-btn:';

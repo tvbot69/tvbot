@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { AbuseFlagRepository } from '../abuseFlagRepository';
+import { AbuseFlagRepository } from '@persistence/repositories/abuseFlagRepository';
 
 /**
  * These assertions exist because the SQL is invisible to every other test. The

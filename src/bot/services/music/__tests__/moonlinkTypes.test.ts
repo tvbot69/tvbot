@@ -8,7 +8,7 @@ import {
   moonlinkNodePool,
   moonlinkSourceName,
   moonlinkTrackKey,
-} from '../moonlinkTypes';
+} from '@bot/services/music/moonlinkTypes';
 
 /**
  * The adapter every Moonlink cast was moved into.

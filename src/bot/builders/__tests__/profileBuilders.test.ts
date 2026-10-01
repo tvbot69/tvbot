@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ProfileBuilders } from '../profileBuilders';
+import { ProfileBuilders } from '@bot/builders/profileBuilders';
 import type { LastFmUser } from '@domain/models/lastFmUser';
-import { UserType } from '@persistence/domain/models/user';
+import { UserType } from '@persistence/models/user';
 
 describe('ProfileBuilders', () => {
   const mockLfmUser: LastFmUser = {

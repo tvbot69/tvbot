@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { ArtistRepository } from '../artistRepository';
+import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { connect, resetTables, skipReason, useScratchSchema } from '../../../testSupport/dbHarness';
 import { normaliseSql, recordRawQueries } from '../../../testSupport/dbRawQueryObserver';
 import type { RawQueryRecorder } from '../../../testSupport/dbRawQueryObserver';

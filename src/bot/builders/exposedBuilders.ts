@@ -1,6 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
-import type { ExposedReport } from '@bot/services/exposedService';
+import type { ExposedReport } from '@bot/services/social/exposedService';
 
 export class ExposedBuilders {
   private static readonly ACCENT_COLOR = 0xff3b30; // Neon red / alert crimson

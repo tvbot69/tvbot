@@ -40,19 +40,19 @@ vi.mock('@persistence/prismaClient', () => ({
 
 import { container } from 'tsyringe';
 import { Client } from 'discord.js';
-import { TimerService } from '../lastfm/timerService';
+import { TimerService } from '@bot/services/lastfm/timerService';
 import { UpdateQueueHandler } from '@bot/handlers/updateQueueHandler';
-import { UserIndexQueueService } from '../lastfm/userIndexQueueService';
-import { UserUpdateQueueService } from '../lastfm/userUpdateQueueService';
+import { UserIndexQueueService } from '@bot/services/lastfm/userIndexQueueService';
+import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
 import { UserRepository } from '@persistence/repositories/userRepository';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { CrownRepository } from '@persistence/repositories/crownRepository';
-import { AutopostService } from '../autopostService';
-import { LyricStatusService } from '../lyricStatusService';
+import { AutopostService } from '@bot/services/charts/autopostService';
+import { LyricStatusService } from '@bot/services/music/lyricStatusService';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
-import { AbuseFilterService } from '../system/abuseFilterService';
-import { ReconcileService } from '../lastfm/reconcileService';
-import { CacheService } from '../system/cacheService';
+import { AbuseFilterService } from '@bot/services/system/abuseFilterService';
+import { ReconcileService } from '@bot/services/lastfm/reconcileService';
+import { CacheService } from '@bot/services/system/cacheService';
 
 /**
  * The cron surface. Every job here fires on a timer with no user watching, so

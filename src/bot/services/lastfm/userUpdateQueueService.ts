@@ -2,7 +2,7 @@ import type {
   IUserUpdateQueue,
   UserUpdateQueueItem,
 } from '@domain/interfaces/iuserUpdateQueue';
-import type { CacheService } from '../system/cacheService';
+import type { CacheService } from '@bot/services/system/cacheService';
 import { Logger } from '@domain/logger';
 
 const BATCH_SIZE = 25;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { UserHubBuilders } from '../userHubBuilders';
+import { UserHubBuilders } from '@bot/builders/userHubBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 describe('UserHubBuilders', () => {

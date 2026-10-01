@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { MusicBuilders } from '../musicBuilders';
+import { MusicBuilders } from '@bot/builders/musicBuilders';
 
 describe('buildLyricSection', () => {
   it('renders current plus next line', () => {

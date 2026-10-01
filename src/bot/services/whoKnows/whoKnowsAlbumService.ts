@@ -2,12 +2,12 @@ import type { IWhoKnowsRepository } from '@domain/interfaces/iwhoKnowsRepository
 import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
 import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
-import type { GuildService } from '../guild/guildService';
+import type { GuildService } from '@bot/services/guild/guildService';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { WhoKnowsService } from './whoKnowsService';
+import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import type { WhoKnowsUser, FilterStats, WhoKnowsRoleRead } from '@bot/models/whoKnowsModels';
 import { isUnknownDiscordMember } from '@domain/discordErrors';
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 import type { Guild as DiscordGuild } from 'discord.js';
 
 export class WhoKnowsAlbumService {

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { HealthServer } from '../system/healthServer';
+import { HealthServer } from '@bot/services/system/healthServer';
 import { container } from 'tsyringe';
 // A VALUE import: `healthServer` resolves the Client token by identity at
 // runtime, so `import type` would give this file a name with no value and

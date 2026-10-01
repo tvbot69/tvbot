@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { ArtistRepository } from '../artistRepository';
+import { ArtistRepository } from '@persistence/repositories/artistRepository';
 
 /**
  * The seven `ArtistRepository` methods `artistRepository.test.ts` does not

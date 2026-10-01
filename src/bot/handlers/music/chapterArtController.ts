@@ -10,7 +10,7 @@ import {
   type ChapterCard,
   type VideoChapter,
 } from '@bot/services/music/videoChapters';
-import type { ArtworkService } from '@bot/services/artworkService';
+import type { ArtworkService } from '@bot/services/media/artworkService';
 import type { ColorService } from '@bot/services/system/colorService';
 
 /**

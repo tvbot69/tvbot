@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldShard } from '../shardManager';
+import { shouldShard } from '@bot/shardManager';
 
 describe('shouldShard (Phase 2.1)', () => {
   it('stays single-process by default (Railway/dev behavior unchanged)', () => {

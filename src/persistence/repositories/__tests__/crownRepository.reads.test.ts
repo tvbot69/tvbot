@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CrownRepository } from '../crownRepository';
+import { CrownRepository } from '@persistence/repositories/crownRepository';
 
 /**
  * The 17 crownRepository methods `crownRepository.test.ts` does not reach.

@@ -6,10 +6,10 @@ import type {
 import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { ChartSettings, TitleSetting } from '@bot/models/chartModels';
-import { ChartService } from '@bot/services/chartService';
-import { NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/chartService';
+import { ChartService } from '@bot/services/charts/chartService';
+import { NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/charts/chartService';
 import { ChartBuilders } from '@bot/builders/chartBuilders';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UpdateService } from '@bot/services/lastfm/updateService';

@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { CountryBuilders } from '../countryBuilders';
+import { CountryBuilders } from '@bot/builders/countryBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { CountryChartTheme } from '@images/generators/worldMapGenerator';
-import type { WhoKnowsCountryItem } from '@bot/services/countryService';
+import type { WhoKnowsCountryItem } from '@bot/services/library/countryService';
 
 describe('CountryBuilders', () => {
   describe('buildTopCountriesResponse', () => {

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { SpotifyScraperService } from '../spotifyScraperService';
+import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
 
 /**
  * The bug these tests exist for

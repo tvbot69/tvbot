@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, afterAll } from 'vitest';
-import { ChartService } from '../chartService';
-import { PuppeteerService } from '../puppeteerService';
+import { ChartService } from '@images/generators/chartService';
+import { PuppeteerService } from '@images/generators/puppeteerService';
 import { ChartTheme, ChartType } from '@images/models/chartModels';
 import { assertRenderedInk } from '../../../testSupport/renderPixelAssert';
 

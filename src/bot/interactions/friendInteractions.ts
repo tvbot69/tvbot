@@ -10,8 +10,8 @@ import {
   TextDisplayBuilder,
 } from 'discord.js';
 import { inject, injectable } from 'tsyringe';
-import { FriendsService } from '@bot/services/friendsService';
-import { UserService } from '@bot/services/userService';
+import { FriendsService } from '@bot/services/social/friendsService';
+import { UserService } from '@bot/services/user/userService';
 import { FriendBuilders } from '@bot/builders/friendBuilders';
 import { FriendType, FriendTypeDescriptions, FriendTypeNames } from '@domain/enums/friendType';
 

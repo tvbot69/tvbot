@@ -3,7 +3,7 @@ import { clampSpotifySearchLimit } from '@spotify/api/spotifyApiLimits';
 import { Logger } from '@domain/logger';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import type { MirrorProvider, MirrorTrack } from '@domain/models/music/musicTrack';
-import { SpotifyScraperService } from './spotifyScraperService';
+import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
 
 export interface SpotifyResolvedTrack extends MirrorTrack {
   /** Canonical open.spotify.com page for this entry. */

@@ -1,7 +1,7 @@
 import type { WhoKnowsUser, FilterStats, WhoKnowsRoleRead } from '@bot/models/whoKnowsModels';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { Guild } from '@persistence/domain/models/guild';
+import type { Guild } from '@persistence/models/guild';
 
 export class WhoKnowsService {
   /**

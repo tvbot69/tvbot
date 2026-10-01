@@ -1,4 +1,4 @@
-import type { AppleMusicService } from '@bot/services/appleMusicService';
+import type { AppleMusicService } from '@bot/services/media/appleMusicService';
 import { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';

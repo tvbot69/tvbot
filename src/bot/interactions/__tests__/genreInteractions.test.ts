@@ -5,10 +5,10 @@ import {
   GenreInteractions,
   storeGenreQuery,
   getCachedGenreQuery,
-} from '../genreInteractions';
-import type { CachedGenreQuery } from '../genreInteractions';
+} from '@bot/interactions/genreInteractions';
+import type { CachedGenreQuery } from '@bot/interactions/genreInteractions';
 import { GenreBuilders } from '@bot/builders/genreBuilders';
-import type { TopGenreItem, WhoKnowsGenreItem } from '@bot/services/genreService';
+import type { TopGenreItem, WhoKnowsGenreItem } from '@bot/services/library/genreService';
 import type { ButtonInteraction } from 'discord.js';
 
 const makeGenres = (n: number): TopGenreItem[] =>

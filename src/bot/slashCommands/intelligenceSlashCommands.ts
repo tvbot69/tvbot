@@ -3,18 +3,18 @@ import { inject, injectable, container } from 'tsyringe';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { ColorService } from '@bot/services/system/colorService';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import {
   MusicIntelligenceService,
   GapEntityType,
-} from '@bot/services/musicIntelligenceService';
+} from '@bot/services/library/musicIntelligenceService';
 import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import type { User } from '@domain/interfaces/iuserRepository';

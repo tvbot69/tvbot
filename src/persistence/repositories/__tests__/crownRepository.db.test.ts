@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { CrownRepository } from '../crownRepository';
+import { CrownRepository } from '@persistence/repositories/crownRepository';
 import {
   connect,
   resetTables,

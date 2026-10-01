@@ -4,9 +4,9 @@ import {
   WorldMapGenerator,
   CountryChartTheme,
   WORLD_MAP_THEMES,
-} from '../worldMapGenerator';
-import type { PuppeteerService } from '../puppeteerService';
-import type { TopCountryItem } from '@bot/services/countryService';
+} from '@images/generators/worldMapGenerator';
+import type { PuppeteerService } from '@images/generators/puppeteerService';
+import type { TopCountryItem } from '@bot/services/library/countryService';
 
 /**
  * `WorldMapGenerator` — the country choropleth, its buckets, and its legend.

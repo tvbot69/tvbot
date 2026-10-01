@@ -1,0 +1,965 @@
+import type {
+  IAlbumRepository,
+} from '@domain/interfaces/ialbumRepository';
+import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
+import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import { CacheService } from '@bot/services/system/cacheService';
+import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
+import { DeezerApi } from '@deezer/api/deezerApi';
+import {
+  AppleMusicSearchApi,
+  upscaleArtwork,
+} from '@applemusic/api/appleMusicSearchApi';
+import { AppleMusicWebApi } from '@applemusic/api/appleMusicWebApi';
+import { Logger } from '@domain/logger';
+import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+
+const MEMORY_CACHE_TTL_SECONDS = 3600;
+/** Negative cache for DEFINITIVE misses (every provider answered no).
+ * Inconclusive runs (throws, rate-limits) are never cached — the next
+ * lookup retries. Kept short anyway: new releases appear, providers change. */
+const NONE_TTL_SECONDS = 600;
+/**
+ * Negative cache for INCONCLUSIVE runs — a provider threw, timed out, or was
+ * rate-limited, so we never learned whether the cover exists. Without this,
+ * an unresolvable chapter re-swept all four providers every 30s for the whole
+ * show: a paused set is re-checked on a timer, and the misses are exactly
+ * what burns provider quota. Short by design — an outage or a 429 must clear
+ * quickly once the provider recovers.
+ */
+const INCONCLUSIVE_TTL_SECONDS = 90;
+const FRESHNESS_WINDOW_MS = 90 * 24 * 3600 * 1000;
+// Canonical implementation lives in domain so lower layers can call it without
+// importing @bot/*. Re-exported here so the ~20 existing call sites are
+// unchanged. See src/domain/lastfmPlaceholder.ts and AGENTS.md rule 2.
+export { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
+import { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
+
+const isValidImageUrl = (url?: string | null): boolean => !!url && !isPlaceholderImageUrl(url);
+
+/**
+ * Cache-key part. A Discord query option can be ~6000 chars, so an
+ * unbounded part minted a multi-KB Redis key per nonsense query — unbounded
+ * key cardinality and bytes for no benefit, since no real title is anywhere
+ * near that long. Normalized (not raw) so lookups converge on one key.
+ */
+const keyPart = (value: string): string =>
+  foldDiacritics(stripInvisible(value))
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .slice(0, 120);
+
+export const sanitizeMusicName = (value?: string): string => {
+  if (!value) return '';
+  return value
+    .replace(/-\s*(single|ep)\s*$/i, '')
+    .replace(/\((?:deluxe|remastered|explicit)[^)]*\)/gi, '')
+    .trim();
+};
+
+/**
+ * Strips auto-generated YouTube channel suffixes ("Drake - Topic", "X
+ * VEVO") down to the real artist. Without this, strict artist matching
+ * rejects every provider hit for topic-channel uploads (candidate "Drake"
+ * vs target "Drake - Topic") and the cascade wrongly falls through to the
+ * artist picture. Real artist names never end this way, so this is safe
+ * to apply to every track-cover lookup.
+ */
+export const stripChannelSuffix = (value?: string | null): string => {
+  if (!value) return '';
+  return value
+    .trim()
+    .replace(/\s*-\s*Topic$/i, '')
+    .replace(/\s*VEVO$/i, '')
+    .trim();
+};
+
+const pickLargest = (
+  images: Array<{ url: string; height: number | null }> | undefined,
+): string | undefined => {
+  if (!images || images.length === 0) {
+    return undefined;
+  }
+  return [...images].sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0]?.url;
+};
+
+/**
+ * Folds diacritics so stylized names match their plain spellings — Yeat's
+ * "Monëy so big" vs "Money so big", Beyoncé vs Beyonce. Providers don't
+ * fold in their search indexes either, but their free-text fallbacks
+ * return the right recordings; folding in the match keys is what lets the
+ * strict gates accept them.
+ */
+const foldDiacritics = (s: string): string => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * Strip invisible formatting before comparing. Zero-width joiners survive
+ * trim() and bidi controls reverse the visual order, so a title pasted from a
+ * fancy chat client produced a key that could never match the provider's —
+ * a guaranteed miss on an otherwise valid track.
+ */
+const stripInvisible = (s: string): string => s.replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF]/g, '');
+
+export const normalizeArtistKey = (s: string): string =>
+  foldDiacritics(stripInvisible(s))
+    .toLowerCase()
+    .replace(/\$/g, 's')
+    .replace(/\+/g, 't')
+    .replace(/&/g, 'and')
+    .replace(/[^\p{L}\p{N}]/gu, '');
+
+const normalizeTitleKey = (s: string): string =>
+  foldDiacritics(stripInvisible(s)).toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]/gu, '');
+
+const stripBracketed = (s: string): string =>
+  s.replace(/\s*[([{\u3010].*?[)\]}\u3011]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+/**
+ * Leading release/import dates, as DJ-pool and compilation rips carry them:
+ * "20191009 I Like Her", "2020-08-17 Proud True Toyota", "17.08.2020 Song".
+ *
+ * This is NOT cosmetic. Measured against the live Spotify catalogue: the
+ * original single "I Like Her" by Mac DeMarco is not returned by search at
+ * all — every hit is a compilation rip titled "20191009 I Like Her" on
+ * "Cottage Core"-style albums. Same for "Proud True Toyota" (only
+ * "20200817 Proud True Toyota" exists there). The artist matched perfectly and
+ * the title did not, so strict matching rejected all of them and chapter art
+ * resolved to nothing.
+ *
+ * Only a LEADING date is stripped, and only when what remains still has real
+ * title text, so "1989" stays a title and "2001 (A Space Odyssey)" is
+ * untouched.
+ */
+const DATE_PREFIX =
+  /^\s*(?:\d{4}[-_.]?\d{2}[-_.]?\d{2}|\d{1,2}[-_.]\d{1,2}[-_.]\d{2,4}|\d{1,2}\/\d{1,2}\/\d{2,4})[\s._-]+/;
+
+const stripDatePrefix = (s: string): string => s.replace(DATE_PREFIX, '').trim();
+
+/**
+ * Recording-variant tags: these identify a DIFFERENT recording (a remix, a
+ * radio edit, a live cut), so a candidate carrying one must never be served
+ * for a target without it — "Song (Remix)" and "Song" were one identity, so
+ * each got the other's cover. A REMASTER is deliberately absent: it is the
+ * same recording, and providers legitimately return it for a plain title.
+ */
+const EDITION_TAG =
+  /\s*[-–—(]\s*(?:radio\s+edit|extended\s+(?:mix|version)|club\s+mix|dub\s+remix|remix|live|acoustic|sped\s*up|nightcore|8d|rework|bootleg)\b[^)\]}]*\)?\s*$/i;
+
+/**
+ * Strict recording-title match: normalized equality, tolerating harmless
+ * bracketed noise ("Song (Official Video)" vs "Song") but NOT edition tags.
+ * Never use substring matching here — "Song" must not match "Song 2" or a
+ * same-title recording by another artist.
+ */
+export const matchesTrackTitle = (candidate: string, target: string): boolean => {
+  if (!candidate || !target) return false;
+  // A candidate that ADDS a distinguishing edition tag is a different
+  // recording; refuse before anything else can call it equal.
+  if (EDITION_TAG.test(candidate) && !EDITION_TAG.test(target)) return false;
+  const cd = stripDatePrefix(candidate);
+  const td = stripDatePrefix(target);
+  const c = normalizeTitleKey(cd);
+  const t = normalizeTitleKey(td);
+  if (!c || !t) return false;
+  if (c === t) return true;
+  const cs = normalizeTitleKey(stripBracketed(cd));
+  const ts = normalizeTitleKey(stripBracketed(td));
+  return cs.length > 0 && ts.length > 0 && (cs === ts || cs === t || c === ts);
+};
+
+export const matchesArtistName = (candidate: string, target: string): boolean => {
+  const cLow = candidate.toLowerCase().trim();
+  const tLow = target.toLowerCase().trim();
+  if (cLow === tLow) return true;
+
+  const nc = normalizeArtistKey(candidate);
+  const nt = normalizeArtistKey(target);
+  if (nc.length > 0 && nc === nt) return true;
+
+  // Split collaboration/feature formats: "A & B", "A feat. B", "A x B", "A / B", "A with B".
+  // BOTH sides are split: a provider row spells the credits "Drake, Future"
+  // while the track is billed "Drake feat. Future", and with only the
+  // candidate split that pair never matched — the whole cascade was wasted
+  // and the card fell back to an artist photo instead of the song cover.
+  const splitArtists = (value: string): string[] =>
+    value
+      .split(/\s*(?:feat\.?|ft\.?|featuring|\bx\b|&|\/|,|\bwith\b)\s*/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  const collabs = splitArtists(cLow);
+  const targets = splitArtists(tLow);
+  for (const part of collabs) {
+    for (const target of targets) {
+      if (part === target || normalizeArtistKey(part) === normalizeArtistKey(target)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+export interface ProviderAttempt {
+  source: string;
+}
+
+export class ArtworkService {
+  private readonly spotifyApi: SpotifySearchApi;
+  private readonly deezerApi: DeezerApi;
+  private readonly appleMusicWebApi: AppleMusicWebApi;
+  private readonly appleMusicApi: AppleMusicSearchApi;
+  private readonly artistRepository: IArtistRepository;
+  private readonly albumRepository: IAlbumRepository;
+  private readonly trackRepository: ITrackRepository;
+  private readonly lastfmRepository: ILastfmRepository;
+  private readonly cache: CacheService;
+  /** Shared outage signal — gates negative caching of ambiguous Last.fm nulls. */
+  private readonly lastFmErrorTracker?: LastfmErrorRateTracker;
+  /**
+   * In-flight cascade dedupe: the now-playing card, chapter art, JIT top-ups
+   * and commands can ask for the same cover within milliseconds — they share
+   * one provider sweep instead of stampeding the APIs N times.
+   */
+  private readonly inFlight = new Map<string, Promise<string | null>>();
+
+  constructor(
+    spotifyApi: SpotifySearchApi,
+    deezerApi: DeezerApi,
+    appleMusicWebApi: AppleMusicWebApi,
+    appleMusicApi: AppleMusicSearchApi,
+    artistRepository: IArtistRepository,
+    albumRepository: IAlbumRepository,
+    trackRepository: ITrackRepository,
+    lastfmRepository: ILastfmRepository,
+    cache: CacheService,
+    lastFmErrorTracker?: LastfmErrorRateTracker,
+  ) {
+    this.spotifyApi = spotifyApi;
+    this.deezerApi = deezerApi;
+    this.appleMusicWebApi = appleMusicWebApi;
+    this.appleMusicApi = appleMusicApi;
+    this.artistRepository = artistRepository;
+    this.albumRepository = albumRepository;
+    this.trackRepository = trackRepository;
+    this.lastfmRepository = lastfmRepository;
+    this.cache = cache;
+    this.lastFmErrorTracker = lastFmErrorTracker;
+  }
+
+  /**
+   * The Last.fm repo swallows transport failures into null — indistinguishable
+   * from "provider has no such entity". While Last.fm is erroring hard (shared
+   * rate tracker), that null is an outage symptom and must not count as a
+   * definitive miss; otherwise one blip poisons the 10-min negative cache.
+   */
+  private isLastFmUnhealthy(): boolean {
+    try {
+      return this.lastFmErrorTracker?.isElevated() ?? false;
+    } catch {
+      return false;
+    }
+  }
+
+  private joinFlight(flightKey: string, run: () => Promise<string | null>): Promise<string | null> {
+    const existing = this.inFlight.get(flightKey);
+    if (existing) return existing;
+    // Never reject: a shared flight hands its outcome to every joiner, so one
+    // unexpected throw (a cache-layer failure, say) would otherwise propagate
+    // into unrelated callers that had no way to anticipate it.
+    const flight = run()
+      .catch(() => null)
+      .finally(() => {
+        this.inFlight.delete(flightKey);
+      });
+    this.inFlight.set(flightKey, flight);
+    return flight;
+  }
+
+  public async getAlbumCoverUrl(
+    albumName?: string,
+    artistName?: string,
+    outerAttempts?: ProviderAttempt[],
+  ): Promise<string | null> {
+    if (!albumName || !artistName) return null;
+    const cleanAlbum = sanitizeMusicName(albumName);
+    const flightKey = `flight:album:${keyPart(artistName)}|${keyPart(cleanAlbum)}`;
+    const existingFlight = this.inFlight.get(flightKey);
+    if (existingFlight) {
+      // Joining another caller's cascade — its outcome is opaque here, so the
+      // outer gate must treat a null as inconclusive, never a definitive miss.
+      outerAttempts?.push({ source: 'album-inner:shared' });
+      return existingFlight;
+    }
+    return this.joinFlight(flightKey, () => this.resolveAlbumCover(cleanAlbum, artistName, outerAttempts));
+  }
+
+  private async resolveAlbumCover(
+    cleanAlbum: string,
+    artistName: string,
+    outerAttempts?: ProviderAttempt[],
+  ): Promise<string | null> {
+    const key = `art:album:${keyPart(artistName)}|${keyPart(cleanAlbum)}`;
+
+    const cached = await this.cache.get<string>(key);
+    if (cached) {
+      if (cached === 'none') return null;
+      if (isPlaceholderImageUrl(cached)) return null;
+      return cached;
+    }
+
+    let result: string | null = null;
+    const attempts: ProviderAttempt[] = [];
+
+    const existing = await this.findExistingAlbumRow(cleanAlbum, artistName);
+    if (existing?.spotifyImageUrl && this.isFresh(existing.spotifyImageDate) && isValidImageUrl(existing.spotifyImageUrl)) {
+      await this.cache.set(key, existing.spotifyImageUrl, MEMORY_CACHE_TTL_SECONDS);
+      return existing.spotifyImageUrl;
+    }
+    if (existing?.deezerImageUrl && isValidImageUrl(existing.deezerImageUrl)) {
+      result = existing.deezerImageUrl;
+    }
+    if (!result && existing?.lastFmImageUrl && isValidImageUrl(existing.lastFmImageUrl)) {
+      result = existing.lastFmImageUrl;
+    }
+
+    if (!result && existing?.spotifyImageUrl && isValidImageUrl(existing.spotifyImageUrl)) {
+      result = existing.spotifyImageUrl;
+    }
+
+    if (!result && SpotifySearchApi.isRateLimited()) {
+      attempts.push({ source: 'spotify:rate-limited' });
+    }
+    if (!result && !SpotifySearchApi.isRateLimited()) {
+      try {
+        let albums: Awaited<ReturnType<SpotifySearchApi['searchAlbums']>> = [];
+        try {
+          albums = await this.spotifyApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`, 10);
+        } catch {
+          albums = [];
+        }
+        if (albums.length === 0) {
+          albums = await this.spotifyApi.searchAlbums(`${cleanAlbum} ${artistName}`, 10);
+        }
+
+        let match = albums.find((a) =>
+          a.artists?.some((art) => matchesArtistName(art.name, artistName)),
+        );
+        if (!match && albums[0] && matchesArtistName(albums[0].artists?.[0]?.name ?? '', artistName)) {
+          match = albums[0];
+        }
+
+        let url = pickLargest(match?.images);
+        if (!url && cleanAlbum !== `${cleanAlbum} ${artistName}`) {
+          // Retry with album-only query for Arabic / transliteration mismatches.
+          // Only a verified artist match is accepted — never the first result.
+          const retryAlbums = await this.spotifyApi.searchAlbums(cleanAlbum, 10);
+          const retryMatch = retryAlbums.find((a) =>
+            a.artists?.some((art) => matchesArtistName(art.name, artistName)),
+          );
+          url = pickLargest(retryMatch?.images);
+        }
+        if (url && isValidImageUrl(url)) {
+          result = url;
+          if (existing) {
+            await this.albumRepository.setSpotifyImage(existing.albumId, url, new Date());
+          }
+        }
+      } catch (err) {
+        attempts.push({ source: `spotify:${String(err).slice(0, 60)}` });
+      }
+    }
+
+    if (!result) {
+      try {
+        let albums: Awaited<ReturnType<DeezerApi['searchAlbums']>> = [];
+        try {
+          albums = await this.deezerApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`);
+        } catch {
+          albums = [];
+        }
+        if (albums.length === 0) {
+          albums = await this.deezerApi.searchAlbums(`${cleanAlbum} ${artistName}`);
+        }
+
+        let match = albums.find((a) =>
+          a.artist?.name ? matchesArtistName(a.artist.name, artistName) : false,
+        );
+        if (!match && albums[0] && albums[0].artist?.name && matchesArtistName(albums[0].artist.name, artistName)) {
+          match = albums[0];
+        }
+
+        let url = match?.cover_xl ?? match?.cover_big;
+        if (!url || !isValidImageUrl(url)) {
+          // Retry album-only — Deezer is strongest for Arabic catalog.
+          // Only a verified artist match is accepted AND persisted — never the
+          // first result (persistence of a wrong cover poisons the DB for 90d).
+          const retryAlbums = await this.deezerApi.searchAlbums(cleanAlbum);
+          const retryMatch = retryAlbums.find((a) =>
+            a.artist?.name ? matchesArtistName(a.artist.name, artistName) : false,
+          );
+          url = retryMatch?.cover_xl ?? retryMatch?.cover_big;
+          match = retryMatch;
+        }
+        if (url && match && isValidImageUrl(url)) {
+          result = url;
+          if (existing) {
+            await this.albumRepository.setDeezerImage(existing.albumId, match.id, url);
+          }
+        }
+      } catch (err) {
+        attempts.push({ source: `deezer:${String(err).slice(0, 60)}` });
+      }
+    }
+
+    if (!result) {
+      try {
+        const albums = await this.appleMusicWebApi.searchAlbums(cleanAlbum, artistName);
+        const match = albums.find((a) => matchesArtistName(a.artistName ?? '', artistName));
+        const art = match?.artwork;
+        if (art?.url && isValidImageUrl(art.url)) {
+          result = art.url;
+          if (existing) {
+            await this.albumRepository.setImageUrl(existing.albumId, result);
+          }
+        }
+      } catch (err) {
+        attempts.push({ source: `am-web:${String(err).slice(0, 60)}` });
+      }
+    }
+
+    if (!result) {
+      try {
+        const albums = await this.appleMusicApi.searchAlbums(cleanAlbum, artistName);
+        const match = albums.find(
+          (a) => a.artworkUrl100 && matchesArtistName(a.artistName ?? '', artistName),
+        );
+        if (match?.artworkUrl100) {
+          const upscaled = upscaleArtwork(match.artworkUrl100);
+          if (isValidImageUrl(upscaled)) {
+            result = upscaled;
+            if (existing) {
+              await this.albumRepository.setImageUrl(existing.albumId, result);
+            }
+          }
+        }
+      } catch (err) {
+        attempts.push({ source: `itunes:${String(err).slice(0, 60)}` });
+      }
+    }
+
+    if (!result) {
+      let answered = false;
+      try {
+        // CORRECT AS IS: no raise. Last.fm is the LAST of five rungs here
+        // (Spotify, Deezer, Apple web, iTunes, Last.fm), and the catch below
+        // pushes an attempt, so the `attempts.length === 0` gate that writes the
+        // 'none' marker is unreachable on this path - an outage is never
+        // remembered as "this album has no cover", and nothing at all is cached
+        // when it happens, so the next lookup re-runs the whole cascade. The
+        // user sees the same embed minus the picture, and no number moves: a
+        // null cover only drops the image and the accent colour it fed
+        // (`colorService.getColorFromImageUrl` answers a null with a constant).
+        const info = await this.lastfmRepository.getAlbumInfo(artistName, cleanAlbum);
+        const lfmUrl = info?.imageUrl ?? null;
+        if (isValidImageUrl(lfmUrl)) {
+          result = lfmUrl;
+          answered = true;
+        }
+      } catch {
+        // `answered` is deliberately NOT set. The cache decision below keys off
+        // attempts.length, and this catch has already pushed an attempt, so the
+        // run is inconclusive regardless of why it threw. Setting it would look
+        // like it distinguished an outage from a miss and do nothing.
+        attempts.push({ source: 'lastfm' });
+      }
+      if (!answered && this.isLastFmUnhealthy()) {
+        // Ambiguous null during a hard outage — inconclusive, not definitive.
+        attempts.push({ source: 'lastfm:outage' });
+      }
+    }
+
+    if (attempts.length > 0) {
+      Logger.debug({ attempts }, 'Artwork resolution fell through providers');
+    }
+
+    // Never cache Last.fm star as valid
+    if (result && isPlaceholderImageUrl(result)) result = null;
+    if (result) {
+      await this.cache.set(key, result, MEMORY_CACHE_TTL_SECONDS);
+    } else if (attempts.length === 0) {
+      // Definitive miss only: every provider answered no. Anything else
+      // (throws, rate-limits) retries on the next lookup.
+      await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    } else if (outerAttempts) {
+      // Inner lookup was inconclusive — the outer gate must not read this
+      // null as a definitive miss.
+      outerAttempts.push({ source: 'album-inner' });
+    }
+    return result;
+  }
+
+  public async getArtistImageUrl(artistName?: string, sampleTrack?: string): Promise<string | null> {
+    if (!artistName) return null;
+    const flightKey = `flight:artist:${artistName.toLowerCase()}:${sampleTrack?.toLowerCase().trim() ?? ''}`;
+    return this.joinFlight(flightKey, () => this.resolveArtistImage(artistName, sampleTrack));
+  }
+
+  private async resolveArtistImage(artistName: string, sampleTrack?: string): Promise<string | null> {
+    // Track-anchored resolution: when the caller's own scrobble (Artist + Track) is
+    // known, pin the exact Spotify artist entity instead of trusting a bare
+    // name search (which returns the globally-most-popular same-name artist).
+    // Anchored results are cached under a track-scoped key and NEVER persisted to
+    // the global name-keyed artist row, so colliding artists can't pollute each other.
+    if (sampleTrack?.trim()) {
+      const anchoredKey = `art:artist:${artistName.toLowerCase()}:via:${sampleTrack.toLowerCase().trim()}`;
+      const anchoredCached = await this.cache.get<string>(anchoredKey);
+      if (anchoredCached) {
+        if (anchoredCached === 'none') return null;
+        if (!isPlaceholderImageUrl(anchoredCached)) return anchoredCached;
+      }
+      // Only a clean run with no hit earns a negative cache — rate limits
+      // and throws stay uncached so the next lookup retries.
+      let anchoredSettled = false;
+      if (!SpotifySearchApi.isRateLimited()) {
+        try {
+          const artistId = await this.spotifyApi.getArtistIdViaTrackSample(artistName, sampleTrack);
+          if (artistId) {
+            const artist = await this.spotifyApi.getArtistById(artistId);
+            const url = pickLargest(artist?.images);
+            if (url && isValidImageUrl(url)) {
+              await this.cache.set(anchoredKey, url, MEMORY_CACHE_TTL_SECONDS);
+              return url;
+            }
+          }
+          anchoredSettled = true;
+        } catch (err) {
+          Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: anchored miss');
+        }
+      }
+      if (anchoredSettled) await this.cache.set(anchoredKey, 'none', NONE_TTL_SECONDS);
+      // Fall through to the name-based flow as a last resort.
+    }
+
+    const key = `art:artist:${keyPart(artistName)}`;
+    // Hotfix for Jordana — Deezer/Spotify search conflates with Jordana Bryant; force correct Spotify image
+    if (artistName.toLowerCase().trim() === 'jordana') {
+      const correct = 'https://i.scdn.co/image/ab6761610000e5eb856b7f7308eff9c24c17cb88';
+      try {
+        const existing = await this.artistRepository.getArtistByName(artistName);
+        if (existing && existing.spotifyImageUrl !== correct) {
+          await this.artistRepository.setSpotifyImage(existing.artistId, correct, new Date()).catch(() => undefined);
+        }
+      } catch (err) {
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: DB probe failed (jordana hotfix)');
+      }
+      await this.cache.set(key, correct, MEMORY_CACHE_TTL_SECONDS);
+      return correct;
+    }
+
+    const cached = await this.cache.get<string>(key);
+    if (cached) {
+      if (cached === 'none') return null;
+      if (isPlaceholderImageUrl(cached)) return null;
+      return cached;
+    }
+
+    let result: string | null = null;
+    const attempts: ProviderAttempt[] = [];
+
+    let existing: Awaited<ReturnType<IArtistRepository['getArtistByName']>> | null = null;
+    try {
+      existing = await this.artistRepository.getArtistByName(artistName);
+    } catch (err) {
+      Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: DB probe failed — treating as cache miss');
+    }
+    if (existing?.spotifyImageUrl && this.isFresh(existing.spotifyImageDate) && isValidImageUrl(existing.spotifyImageUrl)) {
+      await this.cache.set(key, existing.spotifyImageUrl, MEMORY_CACHE_TTL_SECONDS);
+      return existing.spotifyImageUrl;
+    }
+
+    // 1. PRIMARY: Query Spotify API first for highest-quality artist profile picture
+    if (!result && SpotifySearchApi.isRateLimited()) {
+      attempts.push({ source: 'spotify:rate-limited' });
+    }
+    if (!SpotifySearchApi.isRateLimited()) {
+      try {
+        const artists = await this.spotifyApi.searchArtists(artistName);
+        let match = artists.find((a) => matchesArtistName(a.name, artistName));
+        if (!match && artistName.includes('$')) {
+          const clean = artistName.replace(/\$/g, 's');
+          const retry = await this.spotifyApi.searchArtists(clean);
+          match = retry.find((a) => matchesArtistName(a.name, clean));
+        }
+        if (!match && artists[0] && matchesArtistName(artists[0].name, artistName)) {
+          match = artists[0];
+        }
+        const url = pickLargest(match?.images);
+        if (url && isValidImageUrl(url) && match) {
+          result = url;
+          try {
+            const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
+            await this.artistRepository.setSpotifyImage(target.artistId, url, new Date());
+          } catch {
+            // ignore persistence failure
+          }
+        }
+      } catch (err) {
+        attempts.push({ source: 'spotify' });
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: spotify miss');
+      }
+    }
+
+    // 2. FALLBACK 1: If Spotify API missed/rate-limited, check DB for older Spotify, Deezer, or Last.fm image
+    if (!result) {
+      if (existing?.spotifyImageUrl && isValidImageUrl(existing.spotifyImageUrl)) {
+        result = existing.spotifyImageUrl;
+      } else if (existing?.deezerImageUrl && isValidImageUrl(existing.deezerImageUrl)) {
+        result = existing.deezerImageUrl;
+      } else if (existing?.imageUrl && isValidImageUrl(existing.imageUrl)) {
+        result = existing.imageUrl;
+      }
+    }
+
+    // 3. FALLBACK 2: Query Deezer API
+    if (!result) {
+      try {
+        const artists = await this.deezerApi.searchArtists(artistName);
+        let match = artists.find((a) => matchesArtistName(a.name, artistName));
+        if (!match && artistName.includes('$')) {
+          const clean = artistName.replace(/\$/g, 's');
+          const retry = await this.deezerApi.searchArtists(clean);
+          match = retry.find((a) => matchesArtistName(a.name, clean));
+        }
+        if (!match && artists[0] && matchesArtistName(artists[0].name, artistName)) {
+          match = artists[0];
+        }
+        if (!match) {
+          Logger.debug(`Artist art: deezer no match for ${artistName}`);
+        } else {
+          const url = match.picture_xl ?? match.picture_big;
+          if (url && isValidImageUrl(url)) {
+            result = url;
+            try {
+              const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
+              await this.artistRepository.setDeezerImage(target.artistId, match.id, url);
+            } catch {
+              // ignore persistence failure
+            }
+          }
+        }
+      } catch (err) {
+        attempts.push({ source: 'deezer' });
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: deezer miss');
+      }
+    }
+
+    if (!result) {
+      try {
+        const artists = await this.appleMusicWebApi.searchArtists(artistName);
+        let match = artists.find((a) => matchesArtistName(a.name, artistName));
+        if (!match && artistName.includes('$')) {
+          const clean = artistName.replace(/\$/g, 's');
+          const retry = await this.appleMusicWebApi.searchArtists(clean);
+          match = retry.find((a) => matchesArtistName(a.name, clean));
+        }
+        if (!match && artists[0] && matchesArtistName(artists[0].name, artistName)) {
+          match = artists[0];
+        }
+        if (!match) {
+          Logger.debug(`Artist art: apple-web no match for ${artistName}`);
+        } else {
+          // This used to require an existing `artists` row to accept the URL at
+          // all, so an artist who had never been indexed got `null` from a
+          // provider that had just handed over a perfect match — and, because
+          // nothing threw and nothing pushed an attempt, the bottom gate cached
+          // the run as a DEFINITIVE miss: "this artist has no cover" for ten
+          // minutes, with no error anywhere. The album and track rungs both
+          // accept an Apple result without a row, and Spotify and Deezer above
+          // both create the row they need, so persisting was the only thing that
+          // ever required one.
+          const url = match.artwork?.url;
+          if (url) {
+            result = url;
+            try {
+              const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
+              await this.artistRepository.setAppleMusicUrl(target.artistId, url);
+            } catch {
+              // ignore persistence failure
+            }
+          }
+        }
+      } catch (err) {
+        attempts.push({ source: 'am-web' });
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: am-web miss');
+      }
+    }
+
+    if (!result) {
+      let answered = false;
+      try {
+        // CORRECT AS IS: no raise, same shape as the album ladder above. Last.fm
+        // is the fourth and last rung (Spotify, DB rows, Deezer, Apple web,
+        // Last.fm), the catch pushes an attempt so the 'none' marker stays
+        // unreachable on a throw, and the `answered` flag exists for the OTHER
+        // case: a Last.fm that answered "no such artist" while the shared error
+        // tracker is elevated, which must not become a definitive miss either.
+        const info = await this.lastfmRepository.getArtistInfo(artistName);
+        answered = info !== null;
+        if (info?.name && info.name.toLowerCase() !== artistName.toLowerCase()) {
+          // Last.fm redirected to canonical name (e.g. "Travi$ Scott" -> "Travis Scott")
+          const resolvedCanonical = await this.getArtistImageUrl(info.name);
+          if (resolvedCanonical) {
+            result = resolvedCanonical;
+          } else {
+            // Inner outcome is opaque (own cache/gate) — treat as
+            // inconclusive rather than a definitive miss.
+            attempts.push({ source: 'lastfm-redirect:unknown' });
+          }
+        }
+        if (!result) {
+          const lfmUrl = info?.imageUrl ?? null;
+          if (isValidImageUrl(lfmUrl)) result = lfmUrl;
+        }
+      } catch {
+        // See the note in getAlbumCoverUrl: `answered` is not set here because
+        // the cache decision keys off attempts.length, not this flag.
+        attempts.push({ source: 'lastfm' });
+      }
+      if (!answered && this.isLastFmUnhealthy()) {
+        // Ambiguous null during a hard outage — inconclusive, not definitive.
+        attempts.push({ source: 'lastfm:outage' });
+      }
+    }
+
+    if (result && isPlaceholderImageUrl(result)) result = null;
+    if (result) {
+      await this.cache.set(key, result, MEMORY_CACHE_TTL_SECONDS);
+    } else if (attempts.length === 0) {
+      await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    }
+    return result;
+  }
+
+  public async getTrackCoverUrl(trackName?: string, artistName?: string): Promise<string | null> {
+    if (!trackName || !artistName) return null;
+    const cleanTrack = sanitizeMusicName(trackName);
+    const cleanArtist = stripChannelSuffix(artistName) || artistName.trim();
+    const flightKey = `flight:track:${keyPart(cleanArtist)}|${keyPart(cleanTrack)}`;
+    return this.joinFlight(flightKey, () => this.resolveTrackCover(cleanTrack, cleanArtist, trackName, artistName));
+  }
+
+  private async resolveTrackCover(
+    cleanTrack: string,
+    cleanArtist: string,
+    _trackName: string,
+    _artistName: string,
+  ): Promise<string | null> {
+    const key = `art:track:${keyPart(cleanArtist)}|${keyPart(cleanTrack)}`;
+
+    const cached = await this.cache.get<string>(key);
+    if (cached) {
+      // 'inconclusive' is a short-lived backoff marker, not a URL: a previous
+      // run never learned whether this cover exists (outage/rate limit).
+      if (cached === 'none' || cached === 'inconclusive') return null;
+      if (isPlaceholderImageUrl(cached)) return null;
+      return cached;
+    }
+
+    let result: string | null = null;
+    const attempts: ProviderAttempt[] = [];
+
+    // Every provider below must match BOTH artist and title. First-result
+    // trust is what produced wrong covers (same-title recordings, covers,
+    // remixes by other artists) — a miss falls through to the next provider.
+    const trackMatches = (
+      candidateArtist: string | undefined,
+      candidateTitle: string | undefined,
+    ): boolean =>
+      matchesArtistName(candidateArtist ?? '', cleanArtist) &&
+      matchesTrackTitle(candidateTitle ?? '', cleanTrack);
+
+    if (SpotifySearchApi.isRateLimited()) {
+      attempts.push({ source: 'spotify:rate-limited' });
+    }
+    if (!SpotifySearchApi.isRateLimited()) {
+      try {
+        let tracks = await this.spotifyApi.searchTracks(
+          `track:${cleanTrack} artist:${cleanArtist}`,
+          10,
+        );
+        if (tracks.length === 0) {
+          tracks = await this.spotifyApi.searchTracks(`${cleanTrack} ${cleanArtist}`, 10);
+        }
+        const match = tracks.find((t) =>
+          (t.artists ?? []).some((a) => matchesArtistName(a.name, cleanArtist)) &&
+          matchesTrackTitle(t.name, cleanTrack),
+        );
+        const url = pickLargest(match?.album?.images);
+        if (url) {
+          result = url;
+          const artistRow = await this.artistRepository.getArtistByName(cleanArtist);
+          if (artistRow) {
+            const trackRow = await this.trackRepository.getTrackByNameAndArtist(
+              cleanTrack,
+              artistRow.artistId,
+            );
+            if (trackRow) {
+              await this.trackRepository.setSpotifyImage(trackRow.trackId, url, new Date());
+            }
+          }
+        }
+      } catch (err) {
+        attempts.push({ source: 'spotify' });
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: spotify miss');
+      }
+    }
+
+    if (!result) {
+      try {
+        let tracks = await this.deezerApi.searchTracks(`${cleanTrack} ${cleanArtist}`);
+        if (tracks.length === 0) {
+          tracks = await this.deezerApi.searchTracks(`${cleanArtist} ${cleanTrack}`);
+        }
+        const match = tracks.find((t) => trackMatches(t.artist?.name, t.title));
+        result = match?.album?.cover_xl ?? match?.album?.cover_big ?? null;
+      } catch (err) {
+        attempts.push({ source: 'deezer' });
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: deezer miss');
+      }
+    }
+
+    if (!result) {
+      try {
+        const songs = await this.appleMusicWebApi.searchSongs(cleanTrack, cleanArtist);
+        const match = songs.find((s) => trackMatches(s.artistName, s.name));
+        result = match?.artwork?.url ?? null;
+      } catch (err) {
+        attempts.push({ source: 'am-web' });
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: am-web miss');
+      }
+    }
+
+    if (!result) {
+      try {
+        // The gate below matches on the CLEAN artist, so the query must use it
+        // too: "Song Drake - Topic" matches nothing, making this leg a
+        // guaranteed miss on every topic-channel author.
+        const songs = await this.appleMusicApi.searchSongs(cleanTrack, cleanArtist);
+        const match = songs.find(
+          (s) => s.artworkUrl100 && trackMatches(s.artistName, s.trackName),
+        );
+        if (match?.artworkUrl100) {
+          const upscaled = upscaleArtwork(match.artworkUrl100);
+          if (isValidImageUrl(upscaled)) result = upscaled;
+        }
+      } catch (err) {
+        attempts.push({ source: 'itunes' });
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: itunes miss');
+      }
+    }
+
+    if (!result) {
+      let answered = false;
+      try {
+        // Last.fm indexes the clean title; the raw one carries "(Official
+        // Video)"-style cruft that the strict gate then rejects anyway.
+        // CORRECT AS IS: no raise, same shape as the two ladders above. This is
+        // the last of five rungs, and the catch pushes an attempt, so the
+        // bottom gate writes 'inconclusive' (a 90s backoff) rather than 'none' -
+        // the deliberate outcome for a run that never learned whether the cover
+        // exists. `answered` being unset costs the `lastfm:outage` push, which
+        // the attempt already covers. Nothing about the degradation is a number:
+        // the caller gets `null` and draws no thumbnail.
+        const info = await this.lastfmRepository.getTrackInfo(cleanTrack, cleanArtist);
+        if (info?.albumName) {
+          answered = true;
+          result = await this.getAlbumCoverUrl(info.albumName, cleanArtist, attempts);
+        }
+      } catch (err) {
+        attempts.push({ source: 'lastfm' });
+        // `answered` is deliberately NOT set here: the cache decision below
+        // keys off attempts.length, and the catch has already pushed one, so
+        // the run is inconclusive either way. Setting it would be a no-op.
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: lastfm miss');
+      }
+      if (!answered && this.isLastFmUnhealthy()) {
+        // Ambiguous null during a hard outage — inconclusive, not definitive.
+        attempts.push({ source: 'lastfm:outage' });
+      }
+    }
+
+    if (result && isPlaceholderImageUrl(result)) result = null;
+    if (result) {
+      await this.cache.set(key, result, MEMORY_CACHE_TTL_SECONDS);
+    } else if (attempts.length === 0) {
+      // Definitive miss only — see NONE_TTL_SECONDS.
+      await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    } else {
+      // Inconclusive (outage / rate limit / timeout). Do not remember it as
+      // "no cover exists", but do stop the 30s chapter retry from re-running
+      // the entire cascade every time — see INCONCLUSIVE_TTL_SECONDS.
+      await this.cache.set(key, 'inconclusive', INCONCLUSIVE_TTL_SECONDS);
+    }
+    return result;
+  }
+
+  /**
+   * Exact cover fetch by Spotify track ID: one GET, no search, no matching
+   * risk. Same cache semantics as the cascade: hits cached 1h, definitive
+   * no-art cached 10 min, throws/rate-limits uncached (retry later).
+   */
+  async getTrackCoverBySpotifyId(id: string): Promise<string | null> {
+    if (!/^[\w-]{22}$/.test(id)) return null;
+    return this.joinFlight(`flight:spid:${id}`, () => this.resolveTrackCoverBySpotifyId(id));
+  }
+
+  private async resolveTrackCoverBySpotifyId(id: string): Promise<string | null> {
+    const key = `art:spid:${id}`;
+    try {
+      // Inside the try: a cache-layer rejection here used to escape to every
+      // joiner of this flight, and nothing would be negatively cached.
+      const hit = await this.cache.get<string>(key);
+      if (hit === 'none' || hit === 'inconclusive') return null;
+      if (hit) return isPlaceholderImageUrl(hit) ? null : hit;
+    } catch {
+      // Treat an unreadable cache as a miss and fall through to the provider.
+    }
+    if (SpotifySearchApi.isRateLimited()) return null;
+    try {
+      const t = await this.spotifyApi.getTrack(id);
+      const url = pickLargest(t?.album?.images);
+      if (url && isValidImageUrl(url)) {
+        await this.cache.set(key, url, MEMORY_CACHE_TTL_SECONDS);
+        return url;
+      }
+      await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  private isFresh(date?: Date | null): boolean {
+    if (!date) {
+      return false;
+    }
+    return Date.now() - date.getTime() < FRESHNESS_WINDOW_MS;
+  }
+
+  private async findExistingAlbumRow(albumName: string, artistName: string) {
+    // A DB hiccup must degrade to a cache miss, never reject the cascade.
+    try {
+      const artist = await this.artistRepository.getArtistByName(artistName);
+      if (!artist) {
+        return null;
+      }
+      return await this.albumRepository.getAlbumByNameAndArtist(albumName, artist.artistId);
+    } catch (err) {
+      Logger.debug({ err: String(err).slice(0, 80) }, 'Artwork DB probe failed (album row) — treating as cache miss');
+      return null;
+    }
+  }
+}

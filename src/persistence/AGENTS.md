@@ -16,10 +16,12 @@ repeated here.
 - `prisma/migrations/<timestamp>_<name>/migration.sql` — 19 migrations.
 - `repositories/` — 19 repositories. A repository takes `@inject(PrismaClient)` and
   nothing else.
-- `domain/models/` — Prisma-adjacent DTOs (`user`, `guild`, `channel`,
+- `models/` — Prisma-adjacent DTOs (`user`, `guild`, `channel`,
   `guildDisabledCommand`). They type every BigInt id as a **string**
-  (`domain/models/guild.ts:2`, `channel.ts:2-3`, `user.ts:19`), which is §6 in one
-  line.
+  (`models/guild.ts:2`, `channel.ts:2-3`, `user.ts:19`), which is §6 in one
+  line. This folder was `domain/models/` until the tree re-sort, which removed the
+  second `domain` in the repo: `src/domain/` is the shared kernel, and nesting
+  another one under `persistence` gave the same word two meanings.
 - The shared db test harness is `src/testSupport/dbHarness.ts`, not a sibling of the
   repositories, and that placement is load-bearing for the gates: the raw-query ratchet
   skips any path containing `/dbHarness` (its `$executeRawUnsafe` seeds and TRUNCATE are
@@ -143,7 +145,7 @@ through `albums.artist_id`), `albums` has no `type` (it is `spotify_album_type`)
 catch returned the UNFILTERED all-time list**, so a query that threw on every single
 call produced a confident embed with a decade filter that had done nothing. The method
 is now wrapped in `orDatabaseUnavailable(...)` and raises
-(`src/bot/services/albumService.ts:763-813`; the history is in the comment at
+(`src/bot/services/library/albumService.ts:763-813`; the history is in the comment at
 `:768-779`).
 
 **Say this plainly: a `catch` that turns a failed read into `[]`, `null` or `0` is a
@@ -245,7 +247,7 @@ Every guild id and Discord id arrives from the interaction layer as a **string**
   (`repositories/guildRepository.ts:16-24`). Both files contain exactly **one**
   `BigInt()` call — `crownRepository.ts:21` and `guildRepository.ts:19`, each inside its
   guard — so a new writer has no second conversion to reach for by accident.
-  `albumService.parseDiscordUserId` (`src/bot/services/albumService.ts:73-80`) is the
+  `albumService.parseDiscordUserId` (`src/bot/services/library/albumService.ts:73-80`) is the
   same shape and says why in the comment: a malformed id is a **caller** bug, and
   laundering it into "database unavailable" sends the operator to look at Postgres
   instead of at the caller. Same reasoning as `parseGuildId` in `genreService` /

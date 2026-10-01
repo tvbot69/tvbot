@@ -2,11 +2,11 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { MockInstance } from 'vitest';
 import { MessageFlags } from 'discord.js';
-import { FmModeInteractions, FM_MODE_PREFIX } from '../fmModeInteractions';
+import { FmModeInteractions, FM_MODE_PREFIX } from '@bot/interactions/fmModeInteractions';
 import { PlayBuilders } from '@bot/builders/playBuilders';
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
-import type { User } from '@persistence/domain/models/user';
+import type { User } from '@persistence/models/user';
 import type { UserFmSetting } from '@domain/interfaces/iuserFmSettingRepository';
 import type { StringSelectMenuInteraction } from 'discord.js';
 

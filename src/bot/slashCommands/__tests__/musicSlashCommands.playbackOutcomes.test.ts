@@ -33,7 +33,7 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { MusicSlashCommands } from '../musicSlashCommands';
+import { MusicSlashCommands } from '@bot/slashCommands/musicSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';

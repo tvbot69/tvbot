@@ -1,11 +1,11 @@
 import type { Track } from 'moonlink.js';
 import { Logger } from '@domain/logger';
 import { isYoutubeThumbUrl } from '@domain/models/music/musicTrack';
-import type { ArtworkService } from '@bot/services/artworkService';
-import { extractArtistFromTitle } from './videoChapters';
+import type { ArtworkService } from '@bot/services/media/artworkService';
+import { extractArtistFromTitle } from '@bot/services/music/videoChapters';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import type { SpotifyResolver } from './spotifyResolver';
-import type { PendingQueueView } from './musicTypes';
+import type { SpotifyResolver } from '@bot/services/music/spotifyResolver';
+import type { PendingQueueView } from '@bot/services/music/musicTypes';
 
 /** Artwork backfill must never stall resolution: cold provider cascades take seconds. */
 export const ARTWORK_TIMEOUT_MS = 6000;

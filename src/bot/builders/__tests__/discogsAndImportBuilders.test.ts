@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DiscogsAndImportBuilders } from '../discogsAndImportBuilders';
+import { DiscogsAndImportBuilders } from '@bot/builders/discogsAndImportBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 describe('DiscogsAndImportBuilders', () => {

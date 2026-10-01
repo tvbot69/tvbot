@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
-import { PuppeteerService } from '../puppeteerService';
+import { PuppeteerService } from '@images/generators/puppeteerService';
 
 /**
  * Regression test for the profile leak this machine accumulated.

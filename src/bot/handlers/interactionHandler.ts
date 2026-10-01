@@ -22,7 +22,7 @@ import { ChannelToggledCommandService } from '@bot/services/guild/channelToggled
 import { ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
 import { ComponentPaginatorService } from '@bot/services/system/componentPaginatorService';
 import { ColorService } from '@bot/services/system/colorService';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
 import { SettingsInteractions, SETTINGS_BUTTON_PREFIX } from '@bot/interactions/settingsInteractions';
 import { UserSettingsInteractions } from '@bot/interactions/userSettingsInteractions';

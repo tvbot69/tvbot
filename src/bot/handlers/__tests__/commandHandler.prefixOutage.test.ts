@@ -30,15 +30,15 @@ import { describe, it, expect, vi } from 'vitest';
 import { CommandHandler } from '@bot/handlers/commandHandler';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import type { Client } from 'discord.js';
-import type { PrefixService } from '@bot/services/prefixService';
+import type { PrefixService } from '@bot/services/user/prefixService';
 import type { GuildService } from '@bot/services/guild/guildService';
 import type { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
 import type { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
 import type { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 import type { GuildUserService } from '@bot/services/guild/guildUserService';
 import type { ColorService } from '@bot/services/system/colorService';
-import type { GameService } from '@bot/services/gameService';
+import type { GameService } from '@bot/services/guild/gameService';
 import type { RateLimitService } from '@bot/services/system/rateLimitService';
 
 /**

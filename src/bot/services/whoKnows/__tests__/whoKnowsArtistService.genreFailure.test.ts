@@ -1,11 +1,11 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { WhoKnowsArtistService } from '../whoKnowsArtistService';
+import { WhoKnowsArtistService } from '@bot/services/whoKnows/whoKnowsArtistService';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import type { IWhoKnowsRepository } from '@domain/interfaces/iwhoKnowsRepository';
 import type { IGuildUserRepository } from '@domain/interfaces/iguildUserRepository';
-import type { GuildService } from '../../guild/guildService';
-import type { GenreService } from '../../genreService';
+import type { GuildService } from '@bot/services/guild/guildService';
+import type { GenreService } from '@bot/services/library/genreService';
 import type { User } from '@domain/interfaces/iuserRepository';
 
 /**

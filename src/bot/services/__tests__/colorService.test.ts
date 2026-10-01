@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import crypto from 'crypto';
-import { ColorService } from '../system/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 describe('ColorService accent failure cooldown', () => {

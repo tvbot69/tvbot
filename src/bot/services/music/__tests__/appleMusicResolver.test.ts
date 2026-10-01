@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { AppleMusicResolver } from '../appleMusicResolver';
-import type { AppleMusicTokenScraper } from '@applemusic/apis/appleMusicTokenScraper';
+import { AppleMusicResolver } from '@bot/services/music/appleMusicResolver';
+import type { AppleMusicTokenScraper } from '@applemusic/api/appleMusicTokenScraper';
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });

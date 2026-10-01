@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { RateLimitService } from '@bot/services/system/rateLimitService';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { Logger } from '@domain/logger';
 import { TimePeriod } from '@domain/enums/timePeriod';

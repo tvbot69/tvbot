@@ -49,14 +49,14 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { MessageFlags } from 'discord.js';
 
-import { LoginCommands } from '../loginCommands';
-import { LoginStatus, type LoginService } from '@bot/services/loginService';
+import { LoginCommands } from '@bot/textCommands/lastfm/loginCommands';
+import { LoginStatus, type LoginService } from '@bot/services/user/loginService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ComponentInteraction, ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { UserService } from '@bot/services/userService';
+import type { UserService } from '@bot/services/user/userService';
 
 const textOf = (response: ResponseModel): string => {
   // The TITLE is read too: `.unlink` puts "Account Deletion" there and the

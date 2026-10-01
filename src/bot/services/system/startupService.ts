@@ -6,16 +6,16 @@ import { Logger } from '@domain/logger';
 import { ClientLogHandler } from '@bot/handlers/clientLogHandler';
 import { InteractionHandler } from '@bot/handlers/interactionHandler';
 import { CommandHandler } from '@bot/handlers/commandHandler';
-import { TimerService } from '../lastfm/timerService';
-import { HealthServer } from './healthServer';
-import { GuildService } from '../guild/guildService';
+import { TimerService } from '@bot/services/lastfm/timerService';
+import { HealthServer } from '@bot/services/system/healthServer';
+import { GuildService } from '@bot/services/guild/guildService';
 import { PuppeteerService } from '@images/generators/puppeteerService';
 import { getSlashCommandPayloads } from '@bot/slashCommands';
-import { MoonlinkManager } from '../music/moonlinkManager';
+import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { MusicHandler } from '@bot/handlers/musicHandler';
-import { LyricStatusService } from '../lyricStatusService';
-import { QueueService } from '../music/queueService';
-import { BotScrobblingService } from '../music/botScrobblingService';
+import { LyricStatusService } from '@bot/services/music/lyricStatusService';
+import { QueueService } from '@bot/services/music/queueService';
+import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 
 import { errorMessage } from '@domain/discordErrors';
 import { skipSlashRegister } from '@config/runtimeEnv';
@@ -112,7 +112,7 @@ export class StartupService {
         Logger.warn({ err }, 'Failed to restore scrobbling opt-ins');
       }
       try {
-        const { AbuseFilterService } = await import('./abuseFilterService');
+        const { AbuseFilterService } = await import('@bot/services/system/abuseFilterService');
         if (container.isRegistered(AbuseFilterService)) {
           await container.resolve(AbuseFilterService).refresh();
         }
@@ -182,7 +182,7 @@ export class StartupService {
     // Skip the PUT entirely when nothing changed (global commands propagate
     // slowly; redundant sets only burn rate-limit budget).
     try {
-      const { CacheService } = await import('./cacheService');
+      const { CacheService } = await import('@bot/services/system/cacheService');
       const cache = container.resolve(CacheService);
       const hash = createHash('sha256').update(JSON.stringify(payloads)).digest('hex');
       // CORRECT AS IS: the catch is UNREACHABLE — `CacheService.get` catches its

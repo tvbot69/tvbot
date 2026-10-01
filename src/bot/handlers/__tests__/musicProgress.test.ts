@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { MusicHandler } from '../musicHandler';
+import { MusicHandler } from '@bot/handlers/musicHandler';
 
 const LINES = [
   { ms: 2000, text: 'Line one' },
@@ -196,7 +196,7 @@ describe('MusicHandler progress card', () => {
       autoplay: false,
       position: 5000,
     };
-    const handler = new (await import('../musicHandler')).MusicHandler(
+    const handler = new (await import('@bot/handlers/musicHandler')).MusicHandler(
       client as never,
       { getManager: () => manager } as never,
       { getQueueInfo: () => queue, is247: () => false, isKaraokeEnabled: () => true } as never,
@@ -234,7 +234,7 @@ describe('MusicHandler progress card', () => {
   it('opens hype chapters on the first real song cover without naming it', async () => {
     const manager = { on: vi.fn(), players: { get: () => undefined } };
     const client = { on: vi.fn(), channels: { cache: new Map() } };
-    const handler = new (await import('../musicHandler')).MusicHandler(
+    const handler = new (await import('@bot/handlers/musicHandler')).MusicHandler(
       client as never,
       { getManager: () => manager } as never,
       { getQueueInfo: () => null, is247: () => false, isKaraokeEnabled: () => true } as never,
@@ -431,7 +431,7 @@ describe('MusicHandler progress card', () => {
   it('holds an implausible multi-chapter jump, then commits it once confirmed', async () => {
     const manager = { on: vi.fn(), players: { get: () => undefined } };
     const client = { on: vi.fn(), channels: { cache: new Map() } };
-    const handler = new (await import('../musicHandler')).MusicHandler(
+    const handler = new (await import('@bot/handlers/musicHandler')).MusicHandler(
       client as never,
       { getManager: () => manager } as never,
       { getQueueInfo: () => null, is247: () => false, isKaraokeEnabled: () => false } as never,
@@ -544,7 +544,7 @@ describe('MusicHandler progress card', () => {
       autoplay: false,
       position: 0,
     };
-    const { MusicHandler: Handler } = await import('../musicHandler');
+    const { MusicHandler: Handler } = await import('@bot/handlers/musicHandler');
     const handler = new Handler(
       client as never,
       { getManager: () => manager } as never,
@@ -610,7 +610,7 @@ describe('MusicHandler progress card', () => {
       }),
       players: { get: () => undefined },
     };
-    const { MusicHandler: Handler } = await import('../musicHandler');
+    const { MusicHandler: Handler } = await import('@bot/handlers/musicHandler');
     // Constructed for its event registrations; the instance is never read.
     new Handler(
       client as never,

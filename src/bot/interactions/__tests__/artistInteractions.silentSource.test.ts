@@ -30,7 +30,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags } from 'discord.js';
-import { ArtistInteractions } from '../artistInteractions';
+import { ArtistInteractions } from '@bot/interactions/artistInteractions';
 import { ArtistBuilders } from '@bot/builders/artistBuilders';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';

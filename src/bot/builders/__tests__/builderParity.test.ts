@@ -1,16 +1,16 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { PlayBuilders, buildNowPlayingButtons } from '../playBuilders';
-import { TrackBuilders, renderProgressBar } from '../trackBuilders';
-import { AlbumBuilders } from '../albumBuilders';
-import { ArtistBuilders } from '../artistBuilders';
-import { WhoKnowsBuilders } from '../whoKnowsBuilders';
-import { PlaycountBuilders } from '../playcountBuilders';
-import { StreakBuilders } from '../streakBuilders';
-import { OverviewBuilders } from '../overviewBuilders';
-import { RecentBuilders } from '../recentBuilders';
-import { TrackDetailsBuilders } from '../trackDetailsBuilders';
-import { ArtistTrackBuilders } from '../artistTrackBuilders';
+import { PlayBuilders, buildNowPlayingButtons } from '@bot/builders/playBuilders';
+import { TrackBuilders, renderProgressBar } from '@bot/builders/trackBuilders';
+import { AlbumBuilders } from '@bot/builders/albumBuilders';
+import { ArtistBuilders } from '@bot/builders/artistBuilders';
+import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
+import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { StreakBuilders } from '@bot/builders/streakBuilders';
+import { OverviewBuilders } from '@bot/builders/overviewBuilders';
+import { RecentBuilders } from '@bot/builders/recentBuilders';
+import { TrackDetailsBuilders } from '@bot/builders/trackDetailsBuilders';
+import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import { ContextModel } from '@bot/models/contextModel';
 import { FmButton } from '@domain/enums/fmButton';
 import { FmEmbedType } from '@domain/enums/fmEmbedType';
@@ -18,7 +18,7 @@ import type { RecentTrack } from '@domain/models/recentTrack';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 
-import { UserType, DataSource } from '@persistence/domain/models/user';
+import { UserType, DataSource } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 
 describe('Phase 2 Builders Parity & Zero Duplication', () => {

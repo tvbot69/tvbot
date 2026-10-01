@@ -1,10 +1,10 @@
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject, container } from 'tsyringe';
-import { MusicIntelligenceService, type GapEntityType } from '@bot/services/musicIntelligenceService';
+import { MusicIntelligenceService, type GapEntityType } from '@bot/services/library/musicIntelligenceService';
 import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { ColorService } from '@bot/services/system/colorService';
-import { ArtworkService } from '@bot/services/artworkService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 @injectable()

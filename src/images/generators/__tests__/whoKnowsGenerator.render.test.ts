@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, afterAll } from 'vitest';
-import { WhoKnowsGenerator } from '../whoKnowsGenerator';
-import { PuppeteerService } from '../puppeteerService';
+import { WhoKnowsGenerator } from '@images/generators/whoKnowsGenerator';
+import { PuppeteerService } from '@images/generators/puppeteerService';
 import { assertRenderedInk } from '../../../testSupport/renderPixelAssert';
 
 const puppeteer = new PuppeteerService();

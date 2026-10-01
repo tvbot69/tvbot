@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { AutopostRepository } from '../autopostRepository';
-import type { AutopostConfig } from '@bot/services/autopostService';
+import { AutopostRepository } from '@persistence/repositories/autopostRepository';
+import type { AutopostConfig } from '@bot/services/charts/autopostService';
 
 /**
  * The autopost CRUD, which `autopostRepository.claimIsAuthoritative.test.ts`

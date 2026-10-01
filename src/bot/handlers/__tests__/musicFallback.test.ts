@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { VoiceChannel } from 'discord.js';
-import { MusicHandler } from '../musicHandler';
+import { MusicHandler } from '@bot/handlers/musicHandler';
 import { MusicService, playErrorMessage, MAX_QUEUE_TRACKS } from '@bot/services/music/musicService';
 import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';

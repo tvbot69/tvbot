@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { MoonlinkManager } from '../moonlinkManager';
+import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 
 const SAVED_ENV = { ...process.env };
 const HOME_KEYS = ['HOME_LAVALINK_URL', 'HOME_LAVALINK_PASSWORD', 'HOME_LAVALINK_SECURE', 'HOME_NODE_ENABLED'] as const;

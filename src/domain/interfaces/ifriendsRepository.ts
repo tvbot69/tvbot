@@ -1,4 +1,4 @@
-import type { Friend } from '@persistence/domain/models/user';
+import type { Friend } from '@persistence/models/user';
 import type { FriendType } from '@domain/enums/friendType';
 
 export interface IFriendsRepository {

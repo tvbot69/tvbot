@@ -16,7 +16,7 @@ import { TtlStore } from '@bot/services/system/ttlStore';
 import { chapterIndexAt, resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
 import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { lyricWindowAt, type SyncedLine } from '@bot/services/music/syncedLyrics';
-import { deferUpdateSafe, respondSafe } from './interactionAck';
+import { deferUpdateSafe, respondSafe } from '@bot/interactions/interactionAck';
 
 export const MUSIC_INTERACTION_PREFIXES = [
   'music:queue:',

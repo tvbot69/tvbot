@@ -36,15 +36,15 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { StreakSlashCommands } from '../streakSlashCommands';
-import { ArtworkService } from '@bot/services/artworkService';
+import { StreakSlashCommands } from '@bot/slashCommands/streakSlashCommands';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
-import type { StreakService } from '@bot/services/streakService';
-import type { StreakModel } from '@bot/services/streakService';
+import type { UserService } from '@bot/services/user/userService';
+import type { StreakService } from '@bot/services/user/streakService';
+import type { StreakModel } from '@bot/services/user/streakService';
 import type { ColorService } from '@bot/services/system/colorService';
 
 const CALLER = { userId: 7, discordUserId: 'caller1', userNameLastFm: 'DreadRock', sessionKey: 'sk-caller' };

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { CrownService } from '../crownService';
+import { CrownService } from '@bot/services/crown/crownService';
 
 const guild = { guildId: '1445761601129943222' } as never;
 const guildUsers = new Map();

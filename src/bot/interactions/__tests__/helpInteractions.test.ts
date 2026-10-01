@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { MockInstance } from 'vitest';
-import { HelpInteractions } from '../helpInteractions';
+import { HelpInteractions } from '@bot/interactions/helpInteractions';
 import { HelpBuilders } from '@bot/builders/helpBuilders';
 import { Logger } from '@domain/logger';
 import type { ButtonInteraction, StringSelectMenuInteraction } from 'discord.js';

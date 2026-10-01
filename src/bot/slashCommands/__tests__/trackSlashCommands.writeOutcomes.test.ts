@@ -30,12 +30,12 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { TrackSlashCommands } from '../trackSlashCommands';
+import { TrackSlashCommands } from '@bot/slashCommands/trackSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { UserService } from '@bot/services/userService';
-import type { TrackService } from '@bot/services/trackService';
+import type { UserService } from '@bot/services/user/userService';
+import type { TrackService } from '@bot/services/library/trackService';
 import type { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { UpdateService } from '@bot/services/lastfm/updateService';

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { parseLrc, selectSynced, lyricWindowAt } from '../syncedLyrics';
+import { parseLrc, selectSynced, lyricWindowAt } from '@bot/services/music/syncedLyrics';
 
 const LRC = [
   '[00:00.15] Is this the real life?',

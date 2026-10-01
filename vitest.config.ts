@@ -102,7 +102,6 @@ exclude: [
       '@applemusic': new URL('./src/applemusic', import.meta.url).pathname,
       '@spotify': new URL('./src/spotify', import.meta.url).pathname,
       '@deezer': new URL('./src/deezer', import.meta.url).pathname,
-      '@discogs': new URL('./src/discogs', import.meta.url).pathname,
       '@config': new URL('./src/config', import.meta.url).pathname,
     },
   },

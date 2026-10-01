@@ -2,7 +2,7 @@ import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
 import 'reflect-metadata';
 import { Logger } from '@domain/logger';
-import { shouldShard } from './shardManager';
+import { shouldShard } from '@bot/shardManager';
 import { reportFatalToDiscord } from '@domain/errorFeed';
 
 process.on('unhandledRejection', (reason) => {
@@ -23,10 +23,10 @@ async function bootstrap(): Promise<void> {
     // Manager mode only when explicitly enabled; default is the single worker
     // (identical behavior to before sharding existed).
     if (shouldShard()) {
-      const { runShardManager } = await import('./shardManager');
+      const { runShardManager } = await import('@bot/shardManager');
       await runShardManager();
     } else {
-      await import('./shardWorker');
+      await import('@bot/shardWorker');
     }
   } catch (err) {
     Logger.fatal({ err }, 'Fatal error during bootstrap import');

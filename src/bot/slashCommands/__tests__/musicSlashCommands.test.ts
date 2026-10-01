@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { MusicSlashCommands } from '../musicSlashCommands';
+import { MusicSlashCommands } from '@bot/slashCommands/musicSlashCommands';
 
 // Discord caps a command at 25 options and subcommands count as options.
 // Exceeding it used to crash shard startup (shapeshift "Invalid Array

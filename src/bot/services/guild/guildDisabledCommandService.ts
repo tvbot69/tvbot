@@ -1,4 +1,4 @@
-import { CacheService } from '../system/cacheService';
+import { CacheService } from '@bot/services/system/cacheService';
 import { GuildDisabledCommandRepository } from '@persistence/repositories/guildDisabledCommandRepository';
 
 const CACHE_TTL_SECONDS = 300;

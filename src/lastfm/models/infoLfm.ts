@@ -1,4 +1,4 @@
-import type { LfmImage } from './recentTracksLfm';
+import type { LfmImage } from '@lastfm/models/recentTracksLfm';
 
 export interface ArtistInfoResponseLfm {
   artist: {

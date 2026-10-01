@@ -1,6 +1,6 @@
 ﻿import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { PlayRepository } from '../playRepository';
+import { PlayRepository } from '@persistence/repositories/playRepository';
 import { connect, resetTables, seedUser, skipReason, useScratchSchema } from '../../../testSupport/dbHarness';
 import type { PlayInsert } from '@domain/interfaces/iplayRepository';
 

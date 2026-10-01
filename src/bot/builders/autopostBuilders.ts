@@ -7,7 +7,7 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import type { AutopostConfig } from '@bot/services/autopostService';
+import type { AutopostConfig } from '@bot/services/charts/autopostService';
 
 export class AutopostBuilders {
   public static buildAutopostOverview(params: {

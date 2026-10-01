@@ -23,9 +23,9 @@ const CAP = 500;
  * just seeded, silently. `vi.resetModules()` re-runs the module body, which
  * re-creates both Maps.
  */
-const load = async (): Promise<typeof import('../voiceMessageService')> => {
+const load = async (): Promise<typeof import('@bot/services/audio/voiceMessageService')> => {
   vi.resetModules();
-  return import('../voiceMessageService');
+  return import('@bot/services/audio/voiceMessageService');
 };
 
 type Store = Awaited<ReturnType<typeof load>>;

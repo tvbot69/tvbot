@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { AlbumInteractions, ALBUM_BUTTON_PREFIXES } from '../albumInteractions';
+import { AlbumInteractions, ALBUM_BUTTON_PREFIXES } from '@bot/interactions/albumInteractions';
 import { AlbumBuilders } from '@bot/builders/albumBuilders';
-import type { AlbumSearchResult } from '@bot/services/albumService';
+import type { AlbumSearchResult } from '@bot/services/library/albumService';
 
 const GUILD_ID = 'g1';
 const CALLER_ID = 'caller1';

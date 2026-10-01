@@ -1,6 +1,6 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { PlaycountCommands } from '../playcountCommands';
+import { PlaycountCommands } from '@bot/textCommands/lastfm/playcountCommands';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { SettingService } from '@bot/services/system/settingService';
 import { CommandResponse } from '@domain/enums/commandResponse';

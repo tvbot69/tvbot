@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { YoutubeHealth, healthFor } from '../youtubeHealth';
+import { YoutubeHealth, healthFor } from '@bot/services/music/youtubeHealth';
 
 describe('YoutubeHealth', () => {
   it('recognizes outage signatures and ignores the rest', () => {

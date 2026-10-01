@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { LyricsService, type LyricsResult } from '../lyricsService';
+import { LyricsService, type LyricsResult } from '@bot/services/music/lyricsService';
 
 /**
  * `LyricsService` — 178 of 200 lines uncovered, and entirely untested.

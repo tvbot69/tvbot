@@ -1,13 +1,13 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { GameCommands } from '../gameCommands';
+import { GameCommands } from '@bot/textCommands/lastfm/gameCommands';
 import { GameBuilders } from '@bot/builders/gameBuilders';
-import { isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { User } from '@domain/interfaces/iuserRepository';
-import type { JumbleSession, UserGameStats } from '@bot/services/gameService';
+import type { JumbleSession, UserGameStats } from '@bot/services/guild/gameService';
 
 /**
  * `.jumble` / `.pixel` / `.gamestats` — the text half of the game pair.

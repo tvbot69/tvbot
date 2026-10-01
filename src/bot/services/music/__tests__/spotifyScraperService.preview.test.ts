@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SpotifyScraperService, type ScrapedPlaylist } from '../spotifyScraperService';
+import { SpotifyScraperService, type ScrapedPlaylist } from '@bot/services/music/spotifyScraperService';
 import { Logger } from '@domain/logger';
 
 /**

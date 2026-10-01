@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { container } from 'tsyringe';
 import { MessageFlags } from 'discord.js';
-import { CrownInteractions } from '../crownInteractions';
+import { CrownInteractions } from '@bot/interactions/crownInteractions';
 import { CrownBuilders } from '@bot/builders/crownBuilders';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { WhoKnowsCommands } from '@bot/textCommands/guild/whoKnowsCommands';

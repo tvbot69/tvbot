@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { ArtistInteractions } from '../artistInteractions';
+import { ArtistInteractions } from '@bot/interactions/artistInteractions';
 import { ArtistBuilders } from '@bot/builders/artistBuilders';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import type { ButtonInteraction } from 'discord.js';

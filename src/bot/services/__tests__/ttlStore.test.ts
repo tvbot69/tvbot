@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { TtlStore } from '../system/ttlStore';
-import { CacheService } from '../system/cacheService';
+import { TtlStore } from '@bot/services/system/ttlStore';
+import { CacheService } from '@bot/services/system/cacheService';
 
 describe('TtlStore (Phase 2.2)', () => {
   const backing = new Map<string, unknown>();

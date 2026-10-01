@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { GenreCommands } from '../genreCommands';
+import { GenreCommands } from '@bot/textCommands/lastfm/genreCommands';
 import { GenreBuilders } from '@bot/builders/genreBuilders';
 import { storeGenreQuery } from '@bot/interactions/genreInteractions';
 import { CommandResponse } from '@domain/enums/commandResponse';

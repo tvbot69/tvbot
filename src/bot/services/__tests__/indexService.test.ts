@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { IndexService } from '../lastfm/indexService';
+import { IndexService } from '@bot/services/lastfm/indexService';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { UpdateType } from '@domain/enums/updateType';
 

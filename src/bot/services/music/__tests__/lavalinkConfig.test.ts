@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getLavalinkNodes } from '../../../../config/lavalink';
+import { getLavalinkNodes } from '@config/lavalink';
 
 describe('Lavalink Configuration', () => {
   const originalEnv = process.env;

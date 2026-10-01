@@ -15,7 +15,7 @@ import {
   CHAPTER_REGRESSION_TOLERANCE_MS,
   USER_SEEK_INTENT_WINDOW_MS,
 } from '@bot/services/music/musicConstants';
-import type { ChapterArtController } from './chapterArtController';
+import type { ChapterArtController } from '@bot/handlers/music/chapterArtController';
 
 /**
  * The chapter timeline: probing a video's chapters, deriving which chapter a

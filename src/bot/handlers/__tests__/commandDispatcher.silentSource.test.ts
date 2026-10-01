@@ -26,7 +26,7 @@
  */
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
-import { CommandDispatcher } from '../commandDispatcher';
+import { CommandDispatcher } from '@bot/handlers/commandDispatcher';
 import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 

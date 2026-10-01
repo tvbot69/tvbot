@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { LibrarySearchBuilders } from '../librarySearchBuilders';
-import { SearchTab } from '@bot/services/librarySearchService';
+import { LibrarySearchBuilders } from '@bot/builders/librarySearchBuilders';
+import { SearchTab } from '@bot/services/library/librarySearchService';
 
 describe('LibrarySearchBuilders', () => {
   it('builds library search page with tabs and pagination matching fmbot 1:1', () => {

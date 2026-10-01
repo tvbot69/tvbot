@@ -30,13 +30,13 @@
  */
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
-import { ServerSlashCommands } from '../serverSlashCommands';
+import { ServerSlashCommands } from '@bot/slashCommands/serverSlashCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { OrderType } from '@bot/services/guildRankingService';
+import { OrderType } from '@bot/services/guild/guildRankingService';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { GuildRankingService } from '@bot/services/guildRankingService';
+import type { GuildRankingService } from '@bot/services/guild/guildRankingService';
 import type { ColorService } from '@bot/services/system/colorService';
 
 const DB_DOWN = () => new Error("Can't reach database server");

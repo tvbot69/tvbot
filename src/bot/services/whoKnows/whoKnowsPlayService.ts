@@ -1,4 +1,4 @@
-import { CacheService } from '../system/cacheService';
+import { CacheService } from '@bot/services/system/cacheService';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
 
 export class WhoKnowsPlayService {

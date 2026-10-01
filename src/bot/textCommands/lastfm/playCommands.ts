@@ -4,7 +4,7 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import { PlayBuilders } from '@bot/builders/playBuilders';
 import { RecentBuilders } from '@bot/builders/recentBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { UserService } from '@bot/services/userService';
+import { UserService } from '@bot/services/user/userService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -13,12 +13,12 @@ import { FmSettingService } from '@bot/services/system/fmSettingService';
 import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { ChannelRepository } from '@persistence/repositories/channelRepository';
 import { parseFmEmbedType } from '@domain/enums/fmEmbedType';
-import { PrefixService } from '@bot/services/prefixService';
-import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
+import { PrefixService } from '@bot/services/user/prefixService';
+import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 import { FmFooterResolver } from '@bot/services/system/fmFooterResolver';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import { ColorService } from '@bot/services/system/colorService';
-import { ExposedService } from '@bot/services/exposedService';
+import { ExposedService } from '@bot/services/social/exposedService';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
 async function enrichFmTracks(tracks: RecentTrack[]): Promise<void> {

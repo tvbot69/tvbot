@@ -1,6 +1,6 @@
 import { container } from 'tsyringe';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
-import { SpotifyTokenManager } from './spotifyTokenManager';
+import { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
 import { TelemetryService } from '@bot/services/system/telemetryService';
 import { Logger } from '@domain/logger';
 import {
@@ -8,7 +8,7 @@ import {
   clampSpotifyAlbumTracksLimit,
   clampSpotifyArtistAlbumsLimit,
   clampSpotifySearchLimit,
-} from './spotifyApiLimits';
+} from '@spotify/api/spotifyApiLimits';
 import type {
   SpotifyArtistAlbumsResponse,
   SpotifySearchAlbum,

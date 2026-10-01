@@ -303,10 +303,10 @@ describe('debt ratchet: silent-failure-default', () => {
     // file here is the brittleness that made the previous version of this test
     // go red the moment its subject was fixed.
     const withOwnTests = sites.filter((s) =>
-      s.trim().startsWith('bot/services/artistsService.ts:'),
+      s.trim().startsWith('bot/services/library/artistsService.ts:'),
     );
     const testFileExists = fs.existsSync(
-      path.join(ROOT, 'src', 'bot', 'services', '__tests__', 'artistsService.test.ts'),
+      path.join(ROOT, 'src', 'bot', 'services', 'library', '__tests__', 'artistsService.test.ts'),
     );
     expect(testFileExists, 'fixture subject assumption broke: no artistsService.test.ts').toBe(true);
     expect(withOwnTests.length, 'a tested production file was skipped by the detector').toBeGreaterThan(0);

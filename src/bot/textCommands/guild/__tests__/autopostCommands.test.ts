@@ -1,13 +1,13 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { AutopostCommands } from '../autopostCommands';
+import { AutopostCommands } from '@bot/textCommands/guild/autopostCommands';
 import { AutopostBuilders } from '@bot/builders/autopostBuilders';
-import { AutopostService } from '@bot/services/autopostService';
+import { AutopostService } from '@bot/services/charts/autopostService';
 import { auditAdminAction } from '@domain/adminAudit';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { AutopostConfig } from '@bot/services/autopostService';
+import type { AutopostConfig } from '@bot/services/charts/autopostService';
 
 /**
  * `.autopost` — the one command file here whose load-bearing behaviour is a

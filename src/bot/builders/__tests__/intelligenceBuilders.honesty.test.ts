@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ComponentType } from 'discord.js';
-import { IntelligenceBuilders } from '../intelligenceBuilders';
+import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type {
@@ -10,7 +10,7 @@ import type {
   IcebergData,
   IcebergTier,
   ListeningGapItem,
-} from '@bot/services/musicIntelligenceService';
+} from '@bot/services/library/musicIntelligenceService';
 
 /**
  * `IntelligenceBuilders` — the three paginated intelligence cards, and the one

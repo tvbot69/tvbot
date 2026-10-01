@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { SpotifyResolver } from '../spotifyResolver';
+import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
 
 /**
  * spotifyResolver is at 10.8% of 343 lines. `isSpotifyUrl` and

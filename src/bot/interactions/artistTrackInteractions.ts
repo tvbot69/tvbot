@@ -2,7 +2,7 @@ import { memberDisplayName } from '@domain/interfaces/guildMember';
 import { inject, injectable , container} from 'tsyringe';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
-import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/artistTrackService';
+import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/library/artistTrackService';
 import { ColorService } from '@bot/services/system/colorService';
 
 @injectable()
@@ -19,7 +19,7 @@ export class ArtistTrackInteractions {
   public async handle(interaction: ButtonInteraction): Promise<void> {
     const id = interaction.customId;
     if (id.startsWith('artist-overview')) {
-      const { ArtistInteractions } = await import('./artistInteractions');
+      const { ArtistInteractions } = await import('@bot/interactions/artistInteractions');
       const handler = container.resolve(ArtistInteractions);
       await handler.handle(interaction);
       return;
@@ -47,7 +47,7 @@ export class ArtistTrackInteractions {
       }
     }
 
-    const { UserService } = await import('@bot/services/userService');
+    const { UserService } = await import('@bot/services/user/userService');
     const userService = container.resolve(UserService);
     const user = await userService.getUserByDiscordId(targetUserId) ?? await userService.getUserByDiscordId(interaction.user.id);
     if (!user) {

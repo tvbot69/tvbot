@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { HelpBuilders, HELP_CATEGORIES } from '../helpBuilders';
+import { HelpBuilders, HELP_CATEGORIES } from '@bot/builders/helpBuilders';
 
 describe('HelpBuilders', () => {
   it('normalizes category strings correctly', () => {

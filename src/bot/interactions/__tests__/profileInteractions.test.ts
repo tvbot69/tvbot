@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MessageFlags, ContainerBuilder, TextDisplayBuilder } from 'discord.js';
-import { ProfileInteractions } from '../profileInteractions';
+import { ProfileInteractions } from '@bot/interactions/profileInteractions';
 import { ProfileBuilders } from '@bot/builders/profileBuilders';
 import { ResponseModel } from '@bot/models/responseModel';
 import type { ProfileStats, ProfileHistoryStats } from '@bot/builders/profileBuilders';

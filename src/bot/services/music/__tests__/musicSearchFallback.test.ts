@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { MusicService } from '../musicService';
+import { MusicService } from '@bot/services/music/musicService';
 
 describe('MusicService.fallbackSearchQuery', () => {
   it('strips featured artists to the lead artist', () => {

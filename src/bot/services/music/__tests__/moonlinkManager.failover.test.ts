@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { MoonlinkManager } from '../moonlinkManager';
+import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { Logger } from '@domain/logger';
 
 /**

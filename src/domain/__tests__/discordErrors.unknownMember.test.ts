@@ -30,7 +30,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { DiscordAPIError } from 'discord.js';
-import { isUnknownDiscordMember } from '../discordErrors';
+import { isUnknownDiscordMember } from '@domain/discordErrors';
 
 const url = 'https://discord.com/api/v10/guilds/1445761601129943222/members/222';
 

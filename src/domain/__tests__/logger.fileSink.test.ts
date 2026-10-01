@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
-import { CustomLogger } from '../logger';
+import { CustomLogger } from '@domain/logger';
 
 /**
  * The on-disk half of the logger: buffering, the flush protocol, and the four

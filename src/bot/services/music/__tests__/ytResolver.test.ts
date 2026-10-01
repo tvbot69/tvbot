@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { resolveViaHome, resolverEnabled, resolverMissed } from '../ytResolver';
+import { resolveViaHome, resolverEnabled, resolverMissed } from '@bot/services/music/ytResolver';
 
 const SAVED_URL = process.env.HOME_RESOLVER_URL;
 const SAVED_TOKEN = process.env.HOME_RESOLVER_TOKEN;
@@ -83,7 +83,7 @@ describe('ytResolver', () => {
 
 describe('chapter cascade (data first, rug fallback)', () => {
   const SAVED_KEY = process.env.YOUTUBE_API_KEY;
-  let mod: typeof import('../ytResolver');
+  let mod: typeof import('@bot/services/music/ytResolver');
 
   beforeEach(async () => {
     // Fresh module state: pausedUntil/cascade caches from earlier tests
@@ -93,7 +93,7 @@ describe('chapter cascade (data first, rug fallback)', () => {
     process.env.HOME_RESOLVER_URL = 'http://127.0.0.1:2335';
     process.env.HOME_RESOLVER_TOKEN = 'tok';
     process.env.YOUTUBE_API_KEY = 'test-key';
-    mod = await import('../ytResolver');
+    mod = await import('@bot/services/music/ytResolver');
   });
 
   afterEach(() => {
@@ -184,7 +184,7 @@ describe('chapter cascade (data first, rug fallback)', () => {
 
 describe('resolver breakage alerts', () => {
   const WEBHOOK = 'https://discord.test/api/webhooks/alerts';
-  let mod: typeof import('../ytResolver');
+  let mod: typeof import('@bot/services/music/ytResolver');
   let posts: string[];
   let route: (id: string) => Promise<Response>;
   let nowMs: number;
@@ -217,7 +217,7 @@ describe('resolver breakage alerts', () => {
       const id = new URL(String(input)).searchParams.get('id') ?? '';
       return route(id);
     }) as any);
-    mod = await import('../ytResolver');
+    mod = await import('@bot/services/music/ytResolver');
   });
 
   afterEach(() => {

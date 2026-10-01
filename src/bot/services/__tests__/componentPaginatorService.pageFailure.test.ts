@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
 import type { ButtonInteraction, ContainerBuilder } from 'discord.js';
-import { ComponentPaginatorService } from '../system/componentPaginatorService';
+import { ComponentPaginatorService } from '@bot/services/system/componentPaginatorService';
 
 /**
  * `handleButton` when the page it is asked to move to cannot be fetched.
