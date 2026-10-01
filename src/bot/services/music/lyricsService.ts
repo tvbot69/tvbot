@@ -317,8 +317,18 @@ export class LyricsService {
 
     let cleanTitle = title
       .replace(new RegExp(`^${cleanArtist.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i'), '')
-      .replace(/\s*[([].*?(official|video|audio|lyrics|remastered|version|hd|4k|visualizer|explicit|prod\.).*?[)\]]/gi, '')
+      // A feature credit is noise in BOTH shapes: bare (`feat. X`) and bracketed
+      // (`(feat. X)`). It was only listed for the bare shape, so the bracketed
+      // one fell through both regexes and left a half-open title — `Airbag (
+      // feat. Someone)` became `Airbag (`, a title no provider has. The bracket
+      // and its contents are one unit, so the whole bracket goes here.
+      .replace(/\s*[([].*?(official|video|audio|lyrics|remastered|version|hd|4k|visualizer|explicit|prod\.|feat\.|ft\.|featuring).*?[)\]]/gi, '')
       .replace(/\s*(?:feat\.|ft\.|featuring)\s+.*$/i, '')
+      // A title YouTube truncated mid-bracket (`Creepin (feat. 21 Savage`) has
+      // no closer for the strips above to consume, so the feature strip would
+      // leave `Creepin (`. A title ending in an UNMATCHED opener matches no
+      // provider; one that ends in a closed bracket is untouched here.
+      .replace(/\s*[([]+$/, '')
       .trim();
 
     if (!cleanTitle) {

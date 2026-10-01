@@ -261,10 +261,11 @@ describe('AlbumBuilders.buildAlbumTracksResponse', () => {
       AlbumBuilders.buildAlbumTracksResponse(makeAlbum({ totalDurationSeconds: 3725 }), targetUser, 'req'),
     );
     // The em dash lives inside the duration string, so a missing length must not
-    // leave "total tracks —" dangling at the end of the line.
-    expect(withoutDuration).toContain('1 total tracks\n');
-    expect(withoutDuration).not.toContain('total tracks —\n');
-    expect(withDuration).toContain('1 total tracks — 1:02:05');
+    // leave "total track —" dangling at the end of the line. The noun agrees with
+    // the count: one track is "1 total track", not "1 total tracks".
+    expect(withoutDuration).toContain('1 total track\n');
+    expect(withoutDuration).not.toContain('total track —\n');
+    expect(withDuration).toContain('1 total track — 1:02:05');
   });
 });
 

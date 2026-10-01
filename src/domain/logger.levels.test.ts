@@ -29,12 +29,15 @@ import { CustomLogger, Logger } from './logger';
  *   errorWithRef(error, context?) -> { referenceId, message }
  *   generateReferenceId() / banner() / flushLogFile()
  *
- * There is NO redaction anywhere in this module. `Loggable` is
- * `string | number | boolean | bigint | symbol | null | undefined | Error |
- * object`, and whatever a caller passes is formatted and printed. If a secret
- * reaches `Logger.error`, it reaches stdout and the log file. That is reported
- * to the lead rather than asserted here, because writing a test that expects a
- * secret to survive would be a test that endorses it.
+ * Every stdout line in the class goes through ONE private `emit`, which redacts
+ * and cannot throw. Every line that reaches the file goes through
+ * `writeLogToFile`, which receives the message already redacted.
+ *
+ * `logger.redaction.test.ts` covers the credentials: a key denylist applied
+ * recursively plus value-shape patterns, on BOTH sinks, with the deliberate
+ * misses asserted as loudly as the catches. This file covers everything else -
+ * which level prints, what shape the line has, and what a log call absorbs
+ * without throwing.
  *
  * WHY `console` IS ASSIGNED RATHER THAN SPYED
  * --------------------------------------------
@@ -77,8 +80,9 @@ const out = (): string => lines.join('\n').replace(ANSI, '');
 /**
  * Just the MESSAGE line, with the colour codes gone.
  *
- * `print` emits the message and then, for ERROR/FATAL, one extra `console.log`
- * per stack line. Those stack lines contain the error message textually, so any
+ * `print` emits the message and then, for ERROR/FATAL, one extra `emit` (i.e.
+ * one more line) per stack line. Those stack lines contain the error message
+ * textually, so any
  * assertion of the form "the message line must not contain X" has to be scoped
  * to line 0 or it will be testing the stack instead of the message.
  */
@@ -176,28 +180,12 @@ describe('CustomLogger: which levels print at all', () => {
 
 describe('CustomLogger: which failures a log line absorbs, and which it does not', () => {
   /*
-   * TWO REAL GAPS, REPORTED NOT PINNED. Both were found by writing the tests
-   * this section originally wanted to write, and both are left unfixed because
-   * this agent owns test files only.
-   *
-   *  GAP 1 - a stdout that throws propagates. `print` calls `console.log` with
-   *  no guard (`logger.ts:450`). An EPIPE on a closed stdout therefore turns
-   *  every later `Logger.warn` in every catch block in the bot into an
-   *  unhandled rejection - which is the exact failure the module's own
-   *  comments say the file-level `catch` exists to prevent. The comments are
-   *  careful to claim only that a FILE failure cannot drop the line, and that
-   *  claim is true; nothing claims stdout is safe.
-   *
-   *  GAP 2 - `util.format` propagates. `print` calls `util.format(msgOrObj,
-   *  ...extraArgs)` unguarded (`logger.ts:417`), and Node's `%s` handling calls
-   *  `String(arg)`, so a value whose `toString` throws escapes the log call.
-   *  Reproduce with:
-   *    npx tsx -e "const u=require('util');try{u.format('x %s',{toString(){throw new Error('boom')}})}catch(e){console.log('THROWS',e.message)}"
-   *
-   *  No test here asserts either throw, because a test that pins a defect is a
-   *  landmine for whoever fixes it. What IS pinned below is the half that does
-   *  hold: the observable line is written before anything else is attempted, so
-   *  a later failure cannot cost the line the user and the log collector see.
+   * The invariant underneath all of these: a log call is the LAST thing between a
+   * failure and a crash. It runs inside catch blocks across the bot, so anything
+   * that throws out of it converts a reported fault into an unhandled rejection
+   * and destroys the very evidence someone needed. That is why every formatting
+   * call here is guarded rather than merely wrapped, and why the fallback keeps
+   * the line rather than dropping it.
    */
   it('writes the line out before it touches anything that can fail', () => {
     // Ordering is the invariant the module's comments actually assert, and it
@@ -216,6 +204,65 @@ describe('CustomLogger: which failures a log line absorbs, and which it does not
     expect(text).toContain('Creep');
     expect(text).toContain('Radiohead');
     expect(text).toContain('4321');
+  });
+
+  it('keeps the line when an extra argument\'s toString throws', () => {
+    // DEFECT 3. Node's `%s` handling calls `String(arg)`, so `util.format` was
+    // unguarded and a hostile value escaped the log call entirely. Reproduce the
+    // raw behaviour with:
+    //   npx tsx -e "const u=require('util');try{u.format('x %s',{toString(){throw new Error('boom')}})}catch(e){console.log('THROWS',e.message)}"
+    // The requirement is narrow and exact: a hostile ARGUMENT costs the argument,
+    // never the line. The message is still printed, and the replacement text says
+    // the value could not be rendered rather than pretending it was empty.
+    const logger = fresh();
+    expect(() => logger.info('resolver said %s for %s', { toString: () => { throw new Error('boom'); } }, 'track-a'))
+      .not.toThrow();
+    expect(firstLine()).toContain('resolver said');
+    expect(firstLine()).toContain('track-a');
+    expect(firstLine()).toContain('could not be stringified');
+  });
+
+  it('survives a hostile toString on the message itself, rather than crashing', () => {
+    // The other String() in `print`, and the same argument: a logger that throws
+    // on a hostile value is a logger that can crash the bot while reporting a
+    // crash.
+    const hostile = { toString: () => { throw new Error('boom'); } } as unknown as object;
+    expect(() => fresh().warn(hostile)).not.toThrow();
+    expect(lines).toHaveLength(1);
+  });
+
+  it('degrades to stderr instead of throwing when stdout itself is broken', () => {
+    // DEFECT 2. `console.log` was unguarded, so an EPIPE - a closed pipe, a full
+    // disk, a container shutting down - turned every LATER `Logger.warn` in every
+    // catch block in the bot into an unhandled rejection. That is precisely the
+    // failure this module's own file-level catch exists to prevent, and it means
+    // the worst time for the logger to break is exactly when things are already
+    // going wrong. So the line is re-offered on stderr, and the log call returns.
+    console.log = () => {
+      throw Object.assign(new Error('EPIPE'), { code: 'EPIPE' });
+    };
+    const logger = fresh();
+
+    expect(() => {
+      logger.warn('a warning while stdout is gone');
+      logger.error(new Error('a fault while stdout is gone'));
+    }).not.toThrow();
+    // Degraded, not dropped: the diagnostic is still emitted, on the other sink.
+    expect(errors.join('\n')).toContain('a warning while stdout is gone');
+  });
+
+  it('still gives up quietly when BOTH sinks are gone, rather than throwing', () => {
+    // The last line of defence. There is nothing left to say, and a throw here
+    // would be the logger failing at the one moment it was least able to.
+    console.log = () => {
+      throw new Error('EPIPE');
+    };
+    console.error = () => {
+      throw new Error('EPIPE');
+    };
+    const logger = fresh();
+
+    expect(() => logger.fatal('nowhere left to write')).not.toThrow();
   });
 });
 
@@ -552,8 +599,12 @@ describe('CustomLogger: withContext', () => {
   });
 
   it('prints the trace id on the line, so one request is greppable end to end', () => {
+    // `[trace:<id>]`, which is the SPELLING THE FILE SINK USES TOO. stdout used to
+    // print `[trace-42]` and the file `[trace:trace-42]`, so a grep for either form
+    // found half the lines and one request read as half-finished in one reader and
+    // complete in the other. One id, one spelling, both sinks.
     fresh().withContext({ traceId: 'trace-42' }).info('a line inside a request');
-    expect(out()).toContain('[trace-42]');
+    expect(out()).toContain('[trace:trace-42]');
   });
 
   it('prints no trace prefix when there is no context, rather than an empty bracket', () => {

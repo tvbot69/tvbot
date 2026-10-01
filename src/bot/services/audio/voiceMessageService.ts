@@ -4,6 +4,7 @@ import path from 'path';
 import { getAudioDurationInSeconds } from 'get-audio-duration';
 import { Logger } from '@domain/logger';
 import { ffprobePath as configuredFfprobePath } from '@config/runtimeEnv';
+import { buildVoiceWaveform } from './audioSignalService';
 
 /**
  * Preview URL hand-off between a command that resolves one and the button
@@ -80,19 +81,31 @@ async function getDuration(oggPath: string): Promise<number> {
  * paths: a multipart webhook followup, and the three-step channel attachment
  * flow.
  *
- * NEITHER PATH SENDS A `waveform` FIELD. This service never decodes the audio,
- * so any 100-byte array it produced was noise dressed as measurement: a loud
- * passage and a silent one drew identically, and the drawing changed on every
- * send — a plausible falsehood rendered as data. Discord draws a flat bar when
- * the field is absent, which is the truthful answer. Deriving real peaks is a
- * separate piece of work (ffmpeg); until one exists the payload carries the
- * duration alone, and that duration is measured, not invented.
+ * BOTH PATHS CARRY A REAL `waveform`, AND BOTH HAVE TO.
+ *
+ * Discord rejects the message outright without it: `400 Voice messages must
+ * have supporting metadata`, code 50161. That was measured against the live
+ * API — the identical payload with the field omitted came back 400/50161,
+ * and the same payload with it came back 200. `duration_secs` alone is not
+ * "supporting metadata" as far as Discord is concerned.
+ *
+ * The waveform used to be 100 bytes of `Math.random()`, which was deleted
+ * because a loud passage and a silent one drew identically and the drawing
+ * changed on every send — a plausible falsehood rendered as data. The
+ * replacement measures the audio: `buildVoiceWaveform` decodes the same OGG
+ * being uploaded and reports its real signed envelope (see
+ * `voiceWaveform.ts`). Same file, same bytes, same waveform, every send.
+ *
+ * Omitting the field was the honest answer to "do not fabricate a waveform".
+ * It was not the honest answer to "make the preview button work", and it
+ * shipped a button that 400s on every press.
  */
 export class VoiceMessageService {
   // Send via interaction webhook (slash) — preferred, shows as followup with flags 8192
   public async sendViaWebhook(appId: string, interactionToken: string, oggPath: string, botToken: string): Promise<void> {
     const duration = await getDuration(oggPath);
     const oggBytes = await fs.readFile(oggPath);
+    const waveform = await buildVoiceWaveform(oggPath);
 
     // Use multipart webhook: payload_json + files[0]
     const form = new FormData();
@@ -100,7 +113,7 @@ export class VoiceMessageService {
     form.append('files[0]', blob, 'voice-message.ogg');
     const payload = {
       flags: 8192,
-      attachments: [{ id: '0', filename: 'voice-message.ogg', duration_secs: duration }],
+      attachments: [{ id: '0', filename: 'voice-message.ogg', duration_secs: duration, waveform }],
     };
     form.append('payload_json', JSON.stringify(payload));
 
@@ -119,6 +132,10 @@ export class VoiceMessageService {
   // Send via channel attachments endpoint (text commands / preview button)
   public async sendViaChannel(channelId: string, oggPath: string, botToken: string, replyToMessageId?: string): Promise<void> {
     const duration = await getDuration(oggPath);
+    // Decoded BEFORE the upload slot is requested, so a file that cannot be
+    // decoded fails here rather than after two round trips to Discord and a
+    // PUT of bytes nothing will reference.
+    const waveform = await buildVoiceWaveform(oggPath);
     const stat = await fs.stat(oggPath);
     const fileName = path.basename(oggPath);
 
@@ -143,7 +160,7 @@ export class VoiceMessageService {
     if (!putRes.ok) throw new Error(`PUT failed ${putRes.status}`);
 
     const payload = {
-      attachments: [{ id: '0', filename: fileName, uploaded_filename: attachment.upload_filename, duration_secs: Number.isFinite(duration) ? duration : 30 }],
+      attachments: [{ id: '0', filename: fileName, uploaded_filename: attachment.upload_filename, duration_secs: Number.isFinite(duration) ? duration : 30, waveform }],
       flags: 8192,
     };
     if (replyToMessageId) (payload as Record<string, unknown>).message_reference = { message_id: replyToMessageId };

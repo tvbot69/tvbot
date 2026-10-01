@@ -750,9 +750,13 @@ describe('ArtistCommands.artistalbums — the album list and its page arithmetic
     const response = await run(built.cmd, 'artistalbums', ['Radiohead']);
 
     // One album, one page. "Page 1/2" with two albums and no next content would
-    // be a page that does not exist.
+    // be a page that does not exist. And the count is one, so the noun is
+    // singular — "1 different albums" was pinned here as if it were correct, and
+    // it is the same fabricated-agreement defect the plural sweep fixed across
+    // fifteen builders.
     expect(textOf(response)).toContain('Page 1/1');
-    expect(textOf(response)).toContain('1 different albums');
+    expect(textOf(response)).toContain('1 different album');
+    expect(textOf(response)).not.toContain('1 different albums');
   });
 
   it('says so plainly when the caller has no albums for this artist', async () => {

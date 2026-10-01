@@ -120,34 +120,4 @@ describe('IntelligenceBuilders', () => {
       expect(response.componentsV2Container).toBeDefined();
     });
   });
-
-  describe('buildLovedTracksResponse', () => {
-    it('builds loved tracks container', () => {
-      const response = IntelligenceBuilders.buildLovedTracksResponse({
-        displayName: 'Moha',
-        userNameLastFm: 'moha_lfm',
-        tracks: [
-          { name: 'Creep', artistName: 'Radiohead', playcount: 1, url: 'https://last.fm/music/Radiohead/_/Creep' },
-        ],
-        total: 1,
-      });
-
-      expect(response.commandResponse).toBe(CommandResponse.Ok);
-      expect(response.componentsV2Container).toBeDefined();
-    });
-  });
-
-  describe('buildLoveSuccessResponse & buildScrobbleSuccessResponse', () => {
-    it('builds love success response', () => {
-      const response = IntelligenceBuilders.buildLoveSuccessResponse('Radiohead', 'Creep', true);
-      expect(response.commandResponse).toBe(CommandResponse.Ok);
-      expect(response.componentsV2Container).toBeDefined();
-    });
-
-    it('builds scrobble success response', () => {
-      const response = IntelligenceBuilders.buildScrobbleSuccessResponse('Radiohead', 'Creep', 'Pablo Honey');
-      expect(response.commandResponse).toBe(CommandResponse.Ok);
-      expect(response.componentsV2Container).toBeDefined();
-    });
-  });
 });

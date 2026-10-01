@@ -16,6 +16,7 @@ import type { User } from '@domain/interfaces/iuserRepository';
 import type { AlbumSearchResult } from '@bot/services/albumService';
 import { PlaycountBuilders } from './playcountBuilders';
 import { EMOJI } from '@bot/resources/emojis';
+import { pluralise } from './pluralise';
 
 const TRACKS_PER_PAGE = 12;
 
@@ -151,7 +152,7 @@ export class AlbumBuilders {
     }
     if (album.globalPlaycount !== undefined && album.globalListeners !== undefined) {
       serverStatsLines.push(
-        `**${album.globalPlaycount}** Last.fm plays by **${album.globalListeners}** listeners`,
+        `**${album.globalPlaycount}** Last.fm plays by **${album.globalListeners}** ${pluralise(album.globalListeners, 'listener')}`,
       );
     }
 
@@ -285,7 +286,7 @@ export class AlbumBuilders {
       ? ` | ${targetUser.userNameLastFm} has ${album.userPlaycount} total album plays`
       : '';
     const footerText =
-      `-# Page ${currentPage}/${totalPages} — ${totalTracks} total tracks${durationStr}\n` +
+      `-# Page ${currentPage}/${totalPages} — ${totalTracks} total ${pluralise(totalTracks, 'track')}${durationStr}\n` +
       `-# Album source: Last.fm${listenerPlaysClause}`;
 
     container.addTextDisplayComponents(

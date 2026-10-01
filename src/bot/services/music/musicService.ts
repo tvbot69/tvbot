@@ -1281,9 +1281,16 @@ export class MusicService {
       const dropped = index > 0 ? player.queue.all.slice(0, index) : [];
       if (index > 0) player.queue.removeRange(0, index - 1);
       if (await player.skip()) return true;
-      for (const track of dropped) {
+      // The restore is a PREPEND, so it walks the dropped block back-to-front
+      // and puts every track at index 0: [a,b,c] drops a,b, and rebuilding
+      // b-then-a lands [a,b,c] again. `add` APPENDED, so the refused jump left
+      // [c,a,b] — the target the user asked for sat AHEAD of the tracks that
+      // were in front of it, a queue nobody chose. `insert` is the same
+      // splice-based call `move()` uses, and 0 is the one index that stays
+      // valid whatever happened to the queue during the awaited skip().
+      for (const track of [...dropped].reverse()) {
         try {
-          player.queue.add(track);
+          player.queue.insert(0, track);
         } catch {
           // CORRECT AS IS: restoring the dropped tracks is best effort on a
           // path that has ALREADY failed (skip() returned false) and already

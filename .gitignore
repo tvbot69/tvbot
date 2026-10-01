@@ -52,3 +52,6 @@ A1-HANDOFF.md
 SESSION-HANDOFF.md
 full*.txt
 Screenshot_*.png
+
+# Local bot credential for the throwaway verification bot. NEVER commit.
+token.txt

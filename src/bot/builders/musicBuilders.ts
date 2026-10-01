@@ -21,6 +21,7 @@ import { ALL_FILTERS, type FilterName, type MusicQueueInfo } from '@domain/model
 import type { LavalinkNodeStats } from '@bot/services/music/moonlinkManager';
 import type { VideoChapter } from '@bot/services/music/videoChapters';
 import { escapeInline, escapeLinkLabel } from '@domain/extensions/markdown';
+import { pluralise } from './pluralise';
 
 export const MUSIC_SOURCE_BADGES = {
   spotify: '<:sp:1496297132381048995>',
@@ -565,9 +566,14 @@ export class MusicBuilders {
         ? `▶ **${title}** \`${stamp}\``
         : `\`${String(idx + 1).padStart(2, '0')}.\` \`${stamp}\` ${title}`;
     });
-    const list = listLines.join('\n') + (hidden > 0 ? `\n-# …and ${hidden} more` : '');
+    // An empty chapter list produced `''`, and `setContent('')` throws, so a
+    // chapter-less track lost the whole card. Every current caller checks
+    // `length < 2` first; the fallback is here so the builder is safe on its own.
+    const list = listLines.length > 0
+      ? listLines.join('\n') + (hidden > 0 ? `\n-# …and ${hidden} more` : '')
+      : '*No chapters were found for this track.*';
 
-    const header = `### [${track.title}](${track.uri})\n-# ${track.author} • ${chapters.length} chapters`;
+    const header = `### [${track.title}](${track.uri})\n-# ${track.author} • ${chapters.length} ${pluralise(chapters.length, 'chapter')}`;
 
     const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
     for (let start = 0; start < shown.length; start += 25) {
@@ -783,14 +789,17 @@ export class MusicBuilders {
   ): ResponseModel {
     const finalColor = color ?? DiscordConstants.LastFmColorRed;
     const response = new ResponseModel(finalColor);
-    response.embed.setTitle(title);
+    // `EmbedBuilder.setTitle('')` and `TextDisplayBuilder.setContent('')` both
+    // throw, so an empty title is an unsendable card rather than a blank one.
+    const safeTitle = title || 'Notice';
+    response.embed.setTitle(safeTitle);
     if (description) {
       response.embed.setDescription(description);
     }
 
     const container = new ContainerBuilder();
     container.setAccentColor(finalColor);
-    const content = description ? `### ${title}\n${description}` : `### ${title}`;
+    const content = description ? `### ${safeTitle}\n${description}` : `### ${safeTitle}`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
     response.setComponentsV2Container(container);
 

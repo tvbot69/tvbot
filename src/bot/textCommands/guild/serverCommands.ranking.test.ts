@@ -50,6 +50,7 @@ vi.mock('@bot/interactions/serverInteractions', () => ({
 
 // Imported after the mock so the binding is the mocked one.
 import { storeServerRankingQuery } from '@bot/interactions/serverInteractions';
+import { DiscordConstants } from '@bot/resources/discordConstants';
 
 /** A rendered claim, from whichever shape the builder chose. */
 const textOf = (response: ResponseModel): string => {
@@ -270,24 +271,71 @@ describe('ServerCommands — the previous window is a SECOND read, and only when
     expect(built.getColorFromImageUrl).toHaveBeenCalledWith('https://cdn.example.test/icon.png');
   });
 
-  it('propagates an accent extraction failure rather than rendering an uncoloured card', async () => {
-    // RECORDED, not asserted-as-intended. `getAccentColor` awaits
-    // `colorService.getColorFromImageUrl` with no guard, so a failure to read
-    // the guild icon's colour takes the whole command down — including the
-    // ranking rows, which are correct and would otherwise have rendered.
+  it('renders the ranking when the accent colour could not be read', async () => {
+    // The accent is DECORATION. A guild icon that will not decode — a corrupt
+    // PNG, a sharp build without the codec, a CDN timeout — must cost the
+    // accent and nothing else. This used to take the whole command down,
+    // including the ranking rows, which were correct and would otherwise have
+    // rendered: the user got an error for a request the database answered.
+    // Root AGENTS.md §3.6 is the same rule as for chapters.
     //
-    // This is a degradation, not a lie: the user gets an error rather than a
-    // card with a wrong accent, so nothing false is claimed. It is pinned so
-    // that anyone adding a fallback here knows the trade they are changing.
+    // The paired test further down is the other half: a RANKING failure must
+    // still propagate, or this guard is a blanket catch and an outage would read
+    // as "this server has no listeners".
     const built = build();
     built.getColorFromImageUrl.mockRejectedValue(new Error('sharp failed on a corrupt icon'));
 
-    // Not awaited in the test body: awaiting would throw before `expect` saw it.
-    const response = built.cmd.commands
+    const response = await built.cmd.commands
       .find((c) => c.name === 'serverartists')!
       .executeAsync(ctxWithIcon(), ['alltime']);
 
-    await expect(response).rejects.toThrow('sharp failed');
+    expect(response.commandResponse).toBe(CommandResponse.Ok);
+    expect(built.getGuildTopArtists).toHaveBeenCalled();
+    expect(textOf(response)).toContain('Radiohead');
+  });
+
+  it('still falls back to the brand red when the accent read fails, rather than dropping the accent', async () => {
+    // `undefined` would drop the container's accent entirely, which is a
+    // different-looking card. Falling back to the Last.fm red is what
+    // `friendsCommands.ts:141-159` does, and this is the same decoration path.
+    const built = build();
+    built.getColorFromImageUrl.mockRejectedValue(new Error('sharp failed on a corrupt icon'));
+
+    const response = await built.cmd.commands
+      .find((c) => c.name === 'serverartists')!
+      .executeAsync(ctxWithIcon(), ['alltime']);
+
+    expect(JSON.stringify(response.componentsV2Container?.toJSON())).toContain(
+      String(DiscordConstants.LastFmColorRed),
+    );
+  });
+
+  it('still refuses in a DM when the accent read would fail, having queried nothing', async () => {
+    // The guard must not turn the DM refusal into an answer. There is no icon
+    // and no accent to read, so the refusal is the whole content of the card.
+    const built = build();
+    built.getColorFromImageUrl.mockRejectedValue(new Error('sharp failed on a corrupt icon'));
+
+    const response = await built.cmd.commands
+      .find((c) => c.name === 'serverartists')!
+      .executeAsync(dmCtx(), []);
+
+    expect(response.commandResponse).toBe(CommandResponse.NotSupportedInDm);
+    expect(built.getGuildTopArtists).not.toHaveBeenCalled();
+    expect(built.getColorFromImageUrl).not.toHaveBeenCalled();
+  });
+
+  it('still propagates a RANKING failure, so the accent guard is not a blanket catch', async () => {
+    // The other half of the pair. If the whole handler had been wrapped in the
+    // try/catch instead of just the decoration read, this would pass and a user
+    // would be told their server has no listeners during a database outage.
+    const built = build();
+    built.getColorFromImageUrl.mockRejectedValue(new Error('sharp failed on a corrupt icon'));
+    vi.mocked(built.getGuildTopArtists).mockRejectedValue(new Error('P1001: Cannot reach database server'));
+
+    await expect(
+      built.cmd.commands.find((c) => c.name === 'serverartists')!.executeAsync(ctxWithIcon(), ['alltime']),
+    ).rejects.toThrow(/Cannot reach database server/);
   });
 
   it('names the guild in every card, so a paginated page two is identifiable', async () => {
@@ -354,44 +402,77 @@ describe('ServerCommands — the previous window is a SECOND read, and only when
     expect(built.getGuildTopAlbums.mock.calls[0]![2]).toBe('Boards of Canada');
   });
 
-  it('records what the parser does to a name that CONTAINS a time keyword', async () => {
-    // THIS IS A REAL BUG, pinned rather than asserted as intended. It is
-    // reported, not fixed, because the defect is in
-    // `parseGuildRankingSettings` (`guildRankingService.ts`, the token loop at
-    // `:88-149`) which is outside this file's tree.
+  it('reads a name that CONTAINS a time keyword as a NAME, because a keyword is a keyword only in POSITION', async () => {
+    // THE BUG THIS INVERTS. The parser used to split on whitespace and consume
+    // any token it recognised, appending the rest to `newSearchValue`. So
+    // `.serveralbums All Together Now` lost `All` to the all-time keyword list
+    // and became an ALL-TIME, WHOLE-SERVER album chart filtered to `Together
+    // Now` — a complete, plausible, confident card for a valid request, with no
+    // error anywhere, and a filter matching no artist.
     //
-    // The parser splits the option string on whitespace and CONSUMES any token
-    // it recognises, appending the rest to `newSearchValue`. So `.serveralbums
-    // All Together Now` loses `All` to the all-time keyword list and becomes an
-    // ALL-TIME, WHOLE-SERVER album chart filtered to `Together Now` — which
-    // matches no artist. The user gets a complete, plausible, confident card
-    // with no error anywhere, for a request that was valid.
-    //
-    // The severity is highest for short names, and single letters are in the
-    // keyword sets: `a`, `o`, `at`, `all`, `m`, `w`, `l`, `p`. `.serveralbums M`
-    // is a monthly chart of the whole server.
-    //
-    // A test asserting the CORRECT behaviour here would fail, and it must not:
-    // what is pinned is today's behaviour, so that whoever fixes the parser sees
-    // this test go red and knows the change was deliberate.
+    // `guildRankingService.parseGuildRankingSettings` is now POSITIONAL: a token
+    // is consumed only at the head or the tail of the argument run, so a word in
+    // the middle belongs to the artist. The knife is cut at ONE leading keyword
+    // — `All Together Now` is a name, not all-time-plus-`Together Now` — because
+    // the wrong string that reaches the card is the one the user can SEE: the
+    // filter is printed on it. That is the whole design rule, and it is the same
+    // one the `.fm <@123> mini` layout token fix used.
     const built = build();
     await built.cmd.commands.find((c) => c.name === 'serveralbums')!.executeAsync(ctx(), [
       'All Together Now',
     ]);
 
     const settings = built.getGuildTopAlbums.mock.calls[0]![1] as GuildRankingSettings;
-    // DEFECT: `All` was eaten, so the period moved to all-time AND the filter
-    // lost the first word of the name the user typed.
-    expect(settings.chartTimePeriod).toBe('alltime');
-    expect(settings.newSearchValue).toBe('Together Now');
-    // And the whole-server read is what reaches the service, so the card's
-    // "no registered top albums for artist X" claim is about the wrong set.
-    expect(built.getGuildTopAlbums.mock.calls[0]![2]).toBe('Together Now');
+    expect(settings.newSearchValue).toBe('All Together Now');
+    expect(built.getGuildTopAlbums.mock.calls[0]![2]).toBe('All Together Now');
+    // And NOT all-time: the keyword was part of the name, so the default period
+    // stands. Asserting this is what stops a "fix" that merely stopped deleting
+    // the word while leaving the period moved.
+    expect(settings.chartTimePeriod).not.toBe('alltime');
   });
 
-  it('records what the parser does to a single-token artist name that is a keyword', async () => {
-    // The worst version of the same defect, and it is a one-character request:
-    // the whole filter disappears and nothing is left to signal that it did.
+  it('still reads a SINGLE leading keyword before a one-word filter as an option', async () => {
+    // The deliberate other side of the cut, and it has to stay or the fix above
+    // is just "never parse an option": `monthly plays Radiohead` is exactly
+    // what `ServerSlashCommands:176-187` composes from its typed options, so
+    // refusing it would drop a period the user picked from a menu.
+    const built = build();
+    await built.cmd.commands.find((c) => c.name === 'serveralbums')!.executeAsync(ctx(), [
+      'monthly',
+      'Radiohead',
+    ]);
+
+    const settings = built.getGuildTopAlbums.mock.calls[0]![1] as GuildRankingSettings;
+    expect(settings.chartTimePeriod).toBe('monthly');
+    expect(settings.newSearchValue).toBe('Radiohead');
+  });
+
+  it('reads a name BEGINNING with a period keyword as a name', async () => {
+    // `M83` — the boundary case the cut was designed around. A rule that ate
+    // leading tokens would turn this into a monthly chart filtered to `83`,
+    // which is a confident wrong answer for a one-token request.
+    const built = build();
+    await built.cmd.commands.find((c) => c.name === 'serveralbums')!.executeAsync(ctx(), ['M83']);
+
+    const settings = built.getGuildTopAlbums.mock.calls[0]![1] as GuildRankingSettings;
+    expect(settings.newSearchValue).toBe('M83');
+    expect(settings.chartTimePeriod).not.toBe('monthly');
+  });
+
+  it('records the irreducible ambiguity: a single-token name that IS a keyword', async () => {
+    // `.serveralbums M` cannot be both "monthly" and "the artist M", and the
+    // two spellings are the same input shape: `parseGuildRankingSettings('M')`
+    // and `('monthly')` see identical structure. So this stays monthly.
+    //
+    // This is a VOCABULARY problem, not a grammar one. The fix is to remove the
+    // single-letter aliases (`m`, `w`, `y`, `d`, `a`, `o`, `l`, `p`) from all
+    // five keyword sets — and `serverBuilders.test.ts:29` pins `'p'` as
+    // Playcount, so that is a decision about the command's vocabulary, not a bug
+    // fix, and it is not this file's to make.
+    //
+    // Pinned in BOTH directions so the ambiguity is visible rather than
+    // discovered: the next person to add a single-letter alias sees here that it
+    // costs a real artist.
     const built = build();
     const response = await built.cmd.commands
       .find((c) => c.name === 'servertracks')!
@@ -400,9 +481,7 @@ describe('ServerCommands — the previous window is a SECOND read, and only when
     const settings = built.getGuildTopTracks.mock.calls[0]![1] as GuildRankingSettings;
     expect(settings.chartTimePeriod).toBe('monthly');
     expect(settings.newSearchValue).toBeNull();
-    expect(built.getGuildTopTracks.mock.calls[0]![2]).toBeNull();
-    // The card therefore describes a chart of EVERY track on the server, and
-    // says so with no hint that a filter was requested and discarded.
+    // The card therefore describes a chart of EVERY track on the server.
     expect(textOf(response)).toContain('monthly tracks in Test Guild');
   });
 

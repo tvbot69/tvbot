@@ -11,6 +11,8 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 import { TopGenreItem, WhoKnowsGenreItem } from '@bot/services/genreService';
+import { pluralise } from './pluralise';
+import { pageSizeOr } from './paging';
 
 function toTitleCase(str: string): string {
   return str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substring(1).toLowerCase());
@@ -58,11 +60,13 @@ export class GenreBuilders {
       genres,
       periodDescription,
       pageIndex,
-      pageSize = 10,
+      pageSize: rawPageSize,
       cacheKey,
       callerDiscordUserId,
       accentColor,
     } = options;
+
+    const pageSize = pageSizeOr(rawPageSize, 10);
 
     if (!genres || genres.length === 0) {
       const container = new ContainerBuilder();
@@ -104,15 +108,15 @@ export class GenreBuilders {
     });
 
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(lines.join('\n')),
+      new TextDisplayBuilder().setContent(lines.join('\n') || '*No entries on this page.*'),
     );
     container.addSeparatorComponents(
       new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
     );
 
     const footerText = totalPages > 1
-      ? `-# Page ${validPageIndex + 1}/${totalPages} · ${genres.length} total genres`
-      : `-# ${genres.length} total genres`;
+      ? `-# Page ${validPageIndex + 1}/${totalPages} · ${genres.length} total ${pluralise(genres.length, 'genre')}`
+      : `-# ${genres.length} total ${pluralise(genres.length, 'genre')}`;
 
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(footerText),
@@ -163,12 +167,14 @@ export class GenreBuilders {
       isServerView,
       targetName,
       pageIndex,
-      pageSize = 10,
+      pageSize: rawPageSize,
       cacheKey,
       callerDiscordUserId,
       accentColor,
       guildId,
     } = options;
+
+    const pageSize = pageSizeOr(rawPageSize, 10);
 
     const titleGenre = toTitleCase(genreName);
     const viewLabel = isServerView ? 'Server view' : 'User view';
@@ -210,14 +216,14 @@ export class GenreBuilders {
     });
 
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(lines.join('\n')),
+      new TextDisplayBuilder().setContent(lines.join('\n') || '*No entries on this page.*'),
     );
     container.addSeparatorComponents(
       new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
     );
 
     const totalPlays = artists.reduce((sum, a) => sum + a.userPlaycount, 0);
-    const footerText = `-# ${viewLabel} · ${artists.length} artists · ${totalPlays.toLocaleString()} total plays` +
+    const footerText = `-# ${viewLabel} · ${artists.length} ${pluralise(artists.length, 'artist')} · ${totalPlays.toLocaleString()} total plays` +
       (totalPages > 1 ? ` · Page ${validPageIndex + 1}/${totalPages}` : '');
 
     container.addTextDisplayComponents(
@@ -331,11 +337,13 @@ export class GenreBuilders {
       serverName,
       items,
       pageIndex,
-      pageSize = 12,
+      pageSize: rawPageSize,
       cacheKey,
       callerDiscordUserId,
       accentColor,
     } = options;
+
+    const pageSize = pageSizeOr(rawPageSize, 12);
 
     const titleGenre = toTitleCase(genreName);
 
@@ -378,7 +386,7 @@ export class GenreBuilders {
     });
 
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(lines.join('\n')),
+      new TextDisplayBuilder().setContent(lines.join('\n') || '*No entries on this page.*'),
     );
     container.addSeparatorComponents(
       new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small),
@@ -388,7 +396,7 @@ export class GenreBuilders {
     const totalPlays = items.reduce((sum, item) => sum + item.playcount, 0);
     const avgPlays = Math.round(totalPlays / Math.max(1, totalListeners));
 
-    const footerText = `-# ${totalListeners} listeners · ${totalPlays.toLocaleString()} total plays · avg ${avgPlays.toLocaleString()} plays` +
+    const footerText = `-# ${totalListeners} ${pluralise(totalListeners, 'listener')} · ${totalPlays.toLocaleString()} total plays · avg ${avgPlays.toLocaleString()} plays` +
       (totalPages > 1 ? `\n-# Page ${validPageIndex + 1}/${totalPages}` : '');
 
     container.addTextDisplayComponents(

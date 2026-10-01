@@ -132,7 +132,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
       expect(lovedRes.componentsV2Container).toBeDefined();
     });
 
-    it('builds lyrics and audio features responses', () => {
+    it('builds lyrics response', () => {
       const lyricsRes = TrackBuilders.buildTrackLyricsResponse(
         'Karma Police',
         'Radiohead',
@@ -140,19 +140,6 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'https://genius.com/Radiohead-karma-police-lyrics',
       );
       expect(lyricsRes.componentsV2Container).toBeDefined();
-
-      const audioRes = TrackBuilders.buildAudioFeaturesResponse(
-        'Karma Police',
-        'Radiohead',
-        {
-          tempo: 75.0,
-          key: 'A minor',
-          danceability: 0.35,
-          energy: 0.52,
-          valence: 0.28,
-        },
-      );
-      expect(audioRes.componentsV2Container).toBeDefined();
     });
 
     it('delegates to specialized builders with ZERO duplicate code', () => {

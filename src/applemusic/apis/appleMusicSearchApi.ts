@@ -14,10 +14,6 @@ export class AppleMusicSearchApi {
     return this.search(term, 'album', limit);
   }
 
-  public async searchArtists(query: string, limit: number = 5): Promise<ITunesSearchResult[]> {
-    return this.search(query, 'musicArtist', limit);
-  }
-
   public async searchSongs(
     songQuery: string,
     artistName?: string,

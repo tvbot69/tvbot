@@ -29,8 +29,6 @@ export enum FmFooterOption {
   LastTrackListen = 1 << 27,
 }
 
-export const DefaultFooterOption = FmFooterOption.TotalScrobbles;
-
 export const FmFooterOptionMeta: Array<{ flag: FmFooterOption; label: string; description: string }> = [
   { flag: FmFooterOption.Loved, label: '❤️ Loved', description: 'Show if loved on Last.fm' },
   { flag: FmFooterOption.ArtistPlays, label: 'Artist Plays', description: 'Your artist playcount' },
@@ -42,14 +40,3 @@ export const FmFooterOptionMeta: Array<{ flag: FmFooterOption; label: string; de
   { flag: FmFooterOption.ServerAlbumListeners, label: 'Server Album Listeners', description: 'Who else has this album' },
   { flag: FmFooterOption.ServerTrackListeners, label: 'Server Track Listeners', description: 'Who else has this track' },
 ];
-
-export function footerOptionsToArray(bitmask: number): FmFooterOption[] {
-  const out: FmFooterOption[] = [];
-  for (const { flag } of FmFooterOptionMeta) {
-    if ((bitmask & flag) !== 0) out.push(flag);
-  }
-  return out;
-}
-export function footerOptionsHas(bitmask: number, flag: FmFooterOption): boolean {
-  return (bitmask & flag) !== 0;
-}

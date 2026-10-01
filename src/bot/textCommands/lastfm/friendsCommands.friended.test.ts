@@ -64,12 +64,17 @@ const textOf = (response: ResponseModel): string =>
  * `userId` is the adder and `lastFmUserName` is the name the adder typed FOR
  * THE CALLER. `counterpartName` and `typedName` differ deliberately: with them
  * equal, the assertion below could not tell which branch produced the output.
+ *
+ * `created` is a parameter because the relative timestamp is the row's only
+ * statement about WHEN, and the tests below pin both directions of it: a real
+ * date renders, a missing or unparseable one is omitted rather than invented.
  */
 const adderRow = (
   friendId: number,
   counterpartName: string,
   typedName: string,
   counterpart: boolean,
+  created: Date | undefined = new Date('2026-02-02T00:00:00Z'),
 ): Friend =>
   ({
     friendId,
@@ -78,7 +83,7 @@ const adderRow = (
     friendUserId: 2,
     lastFmFriend: false,
     friendType: 1,
-    created: new Date('2026-02-02T00:00:00Z'),
+    ...(created === undefined ? {} : { created }),
     friendUser: counterpart
       ? { userId: 99, userNameLastFm: counterpartName, discordUserId: 'adder1' }
       : undefined,
@@ -122,18 +127,18 @@ describe('FriendsCommands.friended: whose name each row shows', () => {
     expect(textOf(response)).toContain('Nobody has added you');
   });
 
-  it('does not render a broken relative time for a row with no created date', async () => {
-    // `f.created ?? new Date()` — the fallback is the LAST second the row could
-    // have been written, so the rendered `<t:…:R>` is "in a moment" rather than
-    // "when this person added you". Recording today's date for a missing
-    // timestamp is a confident claim about a moment nobody recorded.
+  it('OMITS the timestamp entirely for a row with no created date', async () => {
+    // THE FIX. This test used to pass only because a timestamp WAS rendered for
+    // every row: `f.created ?? new Date()` makes the missing value the last
+    // second the row could have been written, so the card said a friendship was
+    // added "in a moment" for a moment nobody recorded. Omitting the clause is
+    // the same approach `updateBuilders:38-44` takes for an unparseable
+    // last-scrobble date — the row still says who added you, and says nothing
+    // about when.
     //
-    // The assertion is on the SHAPE, not the value: whatever instant it falls
-    // back to, the row must carry a well-formed relative timestamp and never the
-    // literal `NaN` an undefined `getTime()` would produce.
+    // `created` genuinely absent, not `undefined` via a spread: the point is the
+    // missing-key arm, so the key must not be there at all.
     const { cmd } = build([
-      // `created` genuinely absent, not `undefined` via a spread — the point is
-      // the `?? new Date()` arm, so the key must not be there at all.
       (() => {
         const row = adderRow(10, 'adderregistered', 'typedonly', true) as unknown as Record<string, unknown>;
         delete row.created;
@@ -142,10 +147,65 @@ describe('FriendsCommands.friended: whose name each row shows', () => {
     ]);
 
     const text = textOf(await friendedOf(cmd).executeAsync(makeContext(), []));
-    const timestamp = text.match(/<t:(\d+):R>/)?.[1];
 
-    expect(timestamp).toMatch(/^\d+$/);
+    // No relative timestamp of any kind, and certainly not one about the future.
+    expect(text).not.toContain('<t:');
     expect(text).not.toContain('NaN');
+    // And the row is still there — omitting the clause is not omitting the
+    // friendship, and a card that quietly dropped it would be its own lie. The
+    // row line is asserted in full, because "no `<t:`" is also what a dropped
+    // row looks like.
+    expect(text).toContain('- **adderregistered**');
+    expect(text).toMatch(/1 user[^\n]*added you as a friend/);
+  });
+
+  it('still renders the real timestamp for a row that HAS one', async () => {
+    // The other half of the pair, and what stops the fix becoming a shredder. A
+    // guard with no positive direction is a `catch { return null }` waiting to
+    // happen, and the relative timestamp is the only thing on the row that tells
+    // a user how long ago somebody added them.
+    const created = new Date('2026-02-02T00:00:00Z');
+    const { cmd } = build([adderRow(10, 'adderregistered', 'typedonly', true, created)]);
+
+    const text = textOf(await friendedOf(cmd).executeAsync(makeContext(), []));
+
+    expect(text).toContain(`<t:${Math.floor(created.getTime() / 1000)}:R>`);
+  });
+
+  it('omits the clause for an UNPARSEABLE created date rather than printing NaN', async () => {
+    // `toDate` accepts a string, and a repository that hands one back is a
+    // different claim from a row with no value at all. `NaN` in a `<t:…:R>` is
+    // the failure this replaces, so it is pinned rather than assumed.
+    const { cmd } = build([
+      adderRow(10, 'adderregistered', 'typedonly', true, 'not-a-date' as unknown as Date),
+    ]);
+
+    const text = textOf(await friendedOf(cmd).executeAsync(makeContext(), []));
+
+    expect(text).not.toContain('<t:');
+    expect(text).not.toContain('NaN');
+    expect(text).toContain('adderregistered');
+  });
+
+  it('mixes dated and undated rows without losing either', async () => {
+    // The shape a real repository produces: one friend row written by an old
+    // migration and one by today's. A fix that keyed off the FIRST row would
+    // render a fabricated time for the rest.
+    const created = new Date('2026-02-02T00:00:00Z');
+    const { cmd } = build([
+      (() => {
+        const row = adderRow(10, 'firstadder', 'typedonly', true) as unknown as Record<string, unknown>;
+        delete row.created;
+        return row;
+      })() as unknown as Friend,
+      adderRow(11, 'secondadder', 'typedonly', true, created),
+    ]);
+
+    const text = textOf(await friendedOf(cmd).executeAsync(makeContext(), []));
+
+    expect(text).toContain('- **firstadder**');
+    expect(text).toContain(`- **secondadder** (<t:${Math.floor(created.getTime() / 1000)}:R>)`);
+    expect(text.match(/<t:/g)).toHaveLength(1);
   });
 
   it('asks the repository for the caller, not for someone else', async () => {

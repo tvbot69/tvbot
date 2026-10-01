@@ -842,55 +842,125 @@ describe('remove() — the two regions, and neither is a guess', () => {
   });
 });
 
-describe('jumpToCombined — a refused skip puts the dropped tracks BACK', () => {
+describe('jumpToCombined — a refused skip puts the dropped tracks BACK, in their own order', () => {
+  /** The queue, by identifier. ORDER IS THE SUBJECT of this block. */
+  const ids = (h: Harness): string[] =>
+    (h.player.queue.all as Array<{ identifier: string }>).map((t) => t.identifier);
+
+  /** The tracks the restore re-inserted, in the order it inserted them. */
+  const restored = (h: Harness): string[] => {
+    const calls = (h.player.queue.insert as ReturnType<typeof vi.fn>).mock.calls as Array<[number, { identifier: string }]>;
+    return calls.map(([, track]) => track.identifier);
+  };
+
+  const queued = (h: Harness, ...list: string[]) => {
+    for (const id of list) h.player.queue.add({ identifier: id });
+  };
+
+  /** A skip the node refuses — the path that owes the listener a restore. */
+  const refuses = (h: Harness) => (h.player.skip as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
   it('restores everything it removed, so "Invalid position" does not cost 11 tracks', async () => {
     // The reported incident: the tracks were destroyed BEFORE skip() was tried,
     // and the user was told the position was invalid.
     const h = build();
-    for (const id of ['a', 'b', 'c']) h.player.queue.add({ identifier: id });
-    (h.player.skip as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    queued(h, 'a', 'b', 'c');
+    refuses(h);
 
     const ok = await h.svc.skipto('g-1', 3);
 
     expect(ok).toBe(false);
-    // All three back — nothing lost, which is the fix this restoration exists for.
+    // All three back, IN ORDER — nothing lost, which is the fix this
+    // restoration exists for, and the order they were in, which is why.
     expect(h.player.queue.all).toHaveLength(3);
-    expect((h.player.queue.all as Array<{ identifier: string }>).map((t) => t.identifier).sort()).toEqual(['a', 'b', 'c']);
+    expect(ids(h)).toEqual(['a', 'b', 'c']);
   });
 
-  /**
-   * PINS THE CURRENT BEHAVIOUR, WHICH IS WRONG.
-   *
-   * The restore loops `player.queue.add(track)`, which APPENDS. The tracks that
-   * were dropped from the front therefore land at the BACK, behind the target
-   * the user asked for. `skipto(3)` on [a, b, c] drops a and b and leaves c,
-   * then a refused skip restores them as [c, a, b] — the queue a listener sees
-   * afterwards is not the queue they had.
-   *
-   * The defect is small (a refused skip on a mid-queue jump is rare) and the
-   * fix is `queue.insert(0, track)` in reverse order. It is reported, not fixed:
-   * `musicService.ts` is production code and this agent writes tests.
-   */
-  it('restores them at the BACK of the queue, behind the target — the order is lost', async () => {
+  it('ONE dropped track: the refused jump puts it back at the FRONT, not the back', async () => {
     const h = build();
-    for (const id of ['a', 'b', 'c']) h.player.queue.add({ identifier: id });
-    (h.player.skip as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    queued(h, 'a', 'b', 'c');
+    refuses(h);
 
+    // skipto(2) is index 1: exactly one track (a) is dropped, b and c stay.
+    const ok = await h.svc.skipto('g-1', 2);
+
+    expect(ok).toBe(false);
+    expect(ids(h)).toEqual(['a', 'b', 'c']);
+    // Re-inserted at 0, which is what puts it ahead of b. `add` would have
+    // appended it behind c, and that is the defect: three fixture adds and no
+    // fourth from the restore.
+    expect(restored(h)).toEqual(['a']);
+    expect(h.player.queue.add).toHaveBeenCalledTimes(3);
+  });
+
+  it('TWO dropped tracks: both come back AHEAD of the target, in their original order', async () => {
+    const h = build();
+    queued(h, 'a', 'b', 'c');
+    refuses(h);
+
+    // skipto(3) is index 2: a and b are dropped, c is the target.
     await h.svc.skipto('g-1', 3);
 
-    expect((h.player.queue.all as Array<{ identifier: string }>).map((t) => t.identifier)).toEqual(['c', 'a', 'b']);
+    // [c, a, b] is what the appending restore produced.
+    expect(ids(h)).toEqual(['a', 'b', 'c']);
+    // Back-to-front, so each 0-insert lands in front of the one before it.
+    expect(restored(h)).toEqual(['b', 'a']);
+  });
+
+  it('THREE dropped tracks: the whole block is rebuilt in front, back-to-front', async () => {
+    const h = build();
+    queued(h, 'a', 'b', 'c', 'd');
+    refuses(h);
+
+    // skipto(4) is index 3: a, b and c are dropped, d is the target.
+    await h.svc.skipto('g-1', 4);
+
+    expect(ids(h)).toEqual(['a', 'b', 'c', 'd']);
+    expect(restored(h)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('NOTHING dropped (index 0): a refused jump does not touch the queue at all', async () => {
+    const h = build();
+    queued(h, 'a', 'b', 'c');
+    refuses(h);
+
+    // skipto(1) is index 0 — the target IS the head, so there is no block to
+    // drop and no block to restore. `removeRange` must not run either: a
+    // restore path that removes on the way in has nothing to undo.
+    const ok = await h.svc.skipto('g-1', 1);
+
+    expect(ok).toBe(false);
+    expect(ids(h)).toEqual(['a', 'b', 'c']);
+    expect(h.player.queue.removeRange).not.toHaveBeenCalled();
+    expect(h.player.queue.insert).not.toHaveBeenCalled();
+  });
+
+  it('a SUCCESSFUL skip destroys the dropped tracks on purpose — no restore at all', async () => {
+    const h = build();
+    queued(h, 'a', 'b', 'c');
+    (h.player.skip as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+
+    const ok = await h.svc.skipto('g-1', 3);
+
+    expect(ok).toBe(true);
+    // Only the target survives: restoring here would put back the very tracks
+    // the listener asked to skip, in front of the track they asked for.
+    expect(ids(h)).toEqual(['c']);
+    expect(h.player.queue.insert).not.toHaveBeenCalled();
   });
 
   it('a restore that THROWS is swallowed, because the answer is already "could not go there"', async () => {
     const h = build();
-    h.player.queue.add({ identifier: 'a' });
-    h.player.queue.add({ identifier: 'b' });
-    (h.player.skip as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (h.player.queue.add as ReturnType<typeof vi.fn>).mockImplementationOnce(() => undefined).mockImplementationOnce(() => {
+    queued(h, 'a', 'b', 'c');
+    refuses(h);
+    (h.player.queue.insert as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
       throw new Error('queue gone');
     });
 
-    await expect(h.svc.skipto('g-1', 2)).resolves.toBe(false);
+    await expect(h.svc.skipto('g-1', 3)).resolves.toBe(false);
+    // The surviving insert still ran: best effort is per track, not all or
+    // nothing. b threw, a is still back in front of c.
+    expect(ids(h)).toEqual(['a', 'c']);
   });
 
   it('a jump into PENDING resolves the target and drops the entries ahead of it', async () => {

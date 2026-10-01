@@ -16,13 +16,16 @@
  *    `countrySlashCommands.lastFmUnavailable.test.ts` documents, one layer up
  *    and in a different command.
  *
- * 2. `/crowns user:@someone` where that someone has NOT registered. There is no
- *    `else` here either: `targetUser` stays the caller while `targetDiscordId`
- *    has already been overwritten with the stranger's id. The card would then be
- *    the CALLER's crowns under the STRANGER's name - a card whose every row is
- *    true and whose heading is a lie. Both halves are asserted here: the
- *    registered case must read the other user's crowns, and the unregistered
- *    case must be visible as itself rather than as the caller's data.
+ * 2. `/crowns user:@someone` where that someone has NOT registered. There used
+ *    to be no `else` here either: `targetUser` stayed the caller while
+ *    `targetDiscordId` had already been overwritten with the stranger's id. The
+ *    card would then be the CALLER's crowns under the caller's own name, with
+ *    the STRANGER's id in every pagination `customId`. Both halves are asserted
+ *    here: the registered case must read the other user's crowns AND its
+ *    buttons must carry that user's id, and the unregistered case must be
+ *    visible as itself rather than as the caller's data with a stranger's
+ *    buttons. `/crown artist:… user:@someone` had the same missing branch for
+ *    the challenger, and is pinned in the same direction.
  *
  * 3. `/crownlb` works for an unregistered caller. The leaderboard is
  *    guild-wide, so requiring a Last.fm account to see it is a gate with no
@@ -142,6 +145,30 @@ const cardText = (response: ResponseModel): string => {
   );
 };
 
+/**
+ * Every `customId` the card carries, at any depth.
+ *
+ * The pagination half of this file's bug is invisible in the rendered text: the
+ * rows were the caller's own and true, and the wrongness lived entirely in
+ * `crowns-page:*:<caller>:<target>:…`. A refusal that still built the card would
+ * therefore pass any assertion on the text, so the ids are read off the
+ * container's JSON and checked directly.
+ */
+const customIdsOf = (response: ResponseModel): string[] => {
+  const found: string[] = [];
+  const walk = (nodes: unknown): void => {
+    if (!Array.isArray(nodes)) return;
+    for (const node of nodes) {
+      if (!node || typeof node !== 'object') continue;
+      const record = node as { custom_id?: unknown; components?: unknown };
+      if (typeof record.custom_id === 'string') found.push(record.custom_id);
+      walk(record.components);
+    }
+  };
+  walk((response.componentsV2Container?.toJSON() as { components?: unknown } | undefined)?.components);
+  return found;
+};
+
 interface Doubles {
   caller?: unknown;
   byDiscordId?: Record<string, unknown>;
@@ -224,26 +251,58 @@ describe('/crowns: the target must be the person whose crowns are shown', () => 
     expect(crownService.getUserCrowns).toHaveBeenCalledWith('222', 9, 'Playcount');
     expect(cardText(response)).toContain('Crowns for OtherNick');
     expect(cardText(response)).toContain('Portishead');
+    // The positive half of the customId contract: the pagination really does
+    // carry the TARGET's id, so the refusal above is a real difference and not
+    // an artefact of the buttons always naming the caller.
+    const pageIds = customIdsOf(response).filter((id) => id.startsWith('crowns-page:'));
+    expect(pageIds.length).toBeGreaterThan(0);
+    expect(pageIds.every((id) => id.includes(':other1:'))).toBe(true);
   });
 
-  it('shows the CALLER\'s crowns when the named user has not registered, rather than an empty stranger', async () => {
-    // Documented, not endorsed. `crownSlashCommands.ts:99-105` has no `else`, so
-    // `targetUser` stays the caller while `targetDiscordId` has already become the
-    // stranger's id. The card is the caller's data under the caller's own name
-    // and a stranger's id in the pagination buttons - so the ROWS are true and
-    // only the buttons are wrong. This test pins the current behaviour so the
-    // day it is fixed, the fix has to be deliberate; the honest version of this
-    // is a refusal, the same as `intelligenceSlashCommands.resolveTarget`.
+  it('refuses an unregistered CHALLENGER on /crown instead of comparing against the caller', async () => {
+    // The third instance of the same defect class, in the same file and the same
+    // shape: `challengerOpt` with a `getUserByDiscordId` miss left
+    // `challengerUser` as the caller, so `/crown artist:Radiohead user:@nobody`
+    // printed the caller's own playcount as the challenger's and a gap nobody
+    // asked about.
+    const { privates, artistsService, crownService } = build({
+      byDiscordId: { other1: null },
+      artistInfo: { name: 'Radiohead', userPlayCount: 4321 },
+    });
+    const response = await privates.crownAsync(
+      makeContext({ strings: { artist: 'Radiohead' }, users: { user: { id: 'other1' } } }),
+    );
+
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    expect(cardText(response)).toContain('hasn\'t connected their Last.fm account yet');
+    expect(artistsService.getArtistInfo).not.toHaveBeenCalled();
+    expect(crownService.getCurrentCrown).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a named user who has not registered, rather than showing the caller\'s crowns', async () => {
+    // THE FIX. `crownSlashCommands.ts:99-105` had no `else`, so `targetUser` stayed
+    // the caller while `targetDiscordId` had already become the stranger's id. The
+    // card was the caller's data under the caller's own name and a stranger's id
+    // in the pagination buttons — the ROWS were true and only the buttons were
+    // wrong, which is why the `customId`s are asserted here and not just the
+    // rows. `intelligenceSlashCommands.resolveTarget` refuses the identical case
+    // in the identical shape, so this uses the same builder and the same
+    // `CommandResponse.NotFound`.
     const { privates, crownService } = build({ byDiscordId: { other1: null } });
     const response = await privates.crownsAsync(
       makeContext({ users: { user: { id: 'other1' } } }),
     );
 
-    // The query really was the caller's, not the stranger's - which is the half
-    // that stays correct and the reason this is a latent bug rather than a data
-    // leak in the other direction.
-    expect(crownService.getUserCrowns).toHaveBeenCalledWith('222', 7, 'Playcount');
-    expect(cardText(response)).toContain('Crowns for DreadRock');
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    expect(cardText(response)).toContain('hasn\'t connected their Last.fm account yet');
+    // No query ran, so none of the caller's crowns are on screen in any form.
+    expect(crownService.getUserCrowns).not.toHaveBeenCalled();
+    expect(cardText(response)).not.toContain('Radiohead');
+    // And the half that was actually wrong: no pagination control carrying the
+    // stranger's id is emitted at all. Asserting the absence of the id rather
+    // than the absence of a word is what makes this the half that matters — a
+    // fix that refused but still ran the builder would carry it.
+    expect(customIdsOf(response).filter((id) => id.includes('other1'))).toEqual([]);
   });
 
   it('refuses an unregistered caller before reading any crown row', async () => {

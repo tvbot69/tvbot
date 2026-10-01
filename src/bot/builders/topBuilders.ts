@@ -10,6 +10,7 @@ import { matchesArtistName, isPlaceholderImageUrl } from '@bot/services/artworkS
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { Logger } from '@domain/logger';
 import { EMOJI } from '@bot/resources/emojis';
+import { pluralise } from './pluralise';
 
 const lastfmArtistUrl = (artist: string) => `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
 const lastfmAlbumUrl = (artist: string, album: string) => `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}/${encodeURIComponent(album).replace(/%20/g, '+')}`;
@@ -18,13 +19,18 @@ const lastfmTrackUrl = (artist: string, track: string) => `https://www.last.fm/m
 function buildPaginatorRow(page: number, totalPages: number, prefix: string, userNameLastFm?: string, timeKey?: string): ActionRowBuilder<ButtonBuilder> {
   const safeUser = userNameLastFm ? encodeURIComponent(userNameLastFm) : 'self';
   const safeTime = timeKey ? encodeURIComponent(timeKey) : 'weekly';
+  // One page is one page: with nothing to move between, the jump goes with the
+  // four directions. `whoKnowsBuilders` sets `isDisabled(isOnePage)` for the same
+  // reason - there is nowhere to jump, and a control that can only do harm is
+  // not a feature. Kept here so the two paginator rows cannot disagree again.
+  const isOnePage = totalPages <= 1;
   const row = new ActionRowBuilder<ButtonBuilder>();
   row.addComponents(
-    new ButtonBuilder().setCustomId(`${prefix}:first:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageFirst).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-    new ButtonBuilder().setCustomId(`${prefix}:prev:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
-    new ButtonBuilder().setCustomId(`${prefix}:next:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-    new ButtonBuilder().setCustomId(`${prefix}:last:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
-    new ButtonBuilder().setCustomId(`${prefix}:jump:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageGoto).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`${prefix}:first:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageFirst).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage || page === 0),
+    new ButtonBuilder().setCustomId(`${prefix}:prev:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage || page === 0),
+    new ButtonBuilder().setCustomId(`${prefix}:next:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage || page >= totalPages - 1),
+    new ButtonBuilder().setCustomId(`${prefix}:last:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage || page >= totalPages - 1),
+    new ButtonBuilder().setCustomId(`${prefix}:jump:${page}:${safeUser}:${safeTime}`).setEmoji(EMOJI.pageGoto).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage),
   );
   return row;
 }
@@ -326,11 +332,18 @@ export class TopBuilders {
 
     const perPage = 10;
     const totalPages = Math.max(1, Math.ceil(topArtists.length / perPage));
-    const slice = topArtists.slice(page * perPage, (page + 1) * perPage);
+    // Clamp from BOTH ends, as `buildManageFriendsResponse`, `overviewBuilders`,
+    // `artistBuilders` and `artistTrackBuilders` all do. Every current caller
+    // happens to clamp first (`topInteractions.ts:47/50/53` and `:152/162/172`),
+    // but "the caller clamps" is the argument that was wrong everywhere else -
+    // one careless call site renders "No artists found." under "Page 10/3", and
+    // a negative index renders "Page 0/3" with every direction live.
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const slice = topArtists.slice(safePage * perPage, (safePage + 1) * perPage);
     const totalAmount = topArtists.length;
 
     const description = slice.map((a, idx) => {
-      const rank = page * perPage + idx + 1;
+      const rank = safePage * perPage + idx + 1;
       return `${rank}. **[${a.name}](${lastfmArtistUrl(a.name)})** - *${a.playcount} ${a.playcount === 1 ? 'play' : 'plays'}*`;
     }).join('\n');
 
@@ -338,12 +351,12 @@ export class TopBuilders {
     response.embed = new EmbedBuilder()
       .setAuthor({ name: `Top ${timeSettings.description.toLowerCase()} artists for ${displayName}`, url: `https://www.last.fm/user/${encodeURIComponent(userNameLastFm)}/library/artists?date_preset=${timeSettings.urlParameter || 'LAST_7_DAYS'}` })
       .setDescription(description || 'No artists found.')
-      .setFooter({ text: `Page ${page + 1}/${totalPages} - ${totalAmount} different artists` });
+      .setFooter({ text: `Page ${safePage + 1}/${totalPages} - ${totalAmount} different ${pluralise(totalAmount, 'artist')}` });
     if (accentColor !== undefined && accentColor !== null) {
       response.embed.setColor(accentColor);
     }
 
-    response.addButtonRow(0, buildPaginatorRow(page, totalPages, 'topartists', userNameLastFm, timeSettings.description));
+    response.addButtonRow(0, buildPaginatorRow(safePage, totalPages, 'topartists', userNameLastFm, timeSettings.description));
     response._paginatorData = { type: 'artists', userNameLastFm, displayName, timeSettings, items: topArtists, accentColor };
     return response;
   }
@@ -426,11 +439,13 @@ export class TopBuilders {
 
     const perPage = 10;
     const totalPages = Math.max(1, Math.ceil(topAlbums.length / perPage));
-    const slice = topAlbums.slice(page * perPage, (page + 1) * perPage);
+    // Same clamp as `buildTopArtistsResponse` above - see the note there.
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const slice = topAlbums.slice(safePage * perPage, (safePage + 1) * perPage);
     const totalAmount = topAlbums.length;
 
     const description = slice.map((a, idx) => {
-      const rank = page * perPage + idx + 1;
+      const rank = safePage * perPage + idx + 1;
       return `${rank}. **${a.artistName}** - **[${a.name}](${lastfmAlbumUrl(a.artistName, a.name)})** - *${a.playcount} ${a.playcount === 1 ? 'play' : 'plays'}*`;
     }).join('\n');
 
@@ -438,12 +453,12 @@ export class TopBuilders {
     response.embed = new EmbedBuilder()
       .setAuthor({ name: `Top ${timeSettings.description.toLowerCase()} albums for ${displayName}`, url: `https://www.last.fm/user/${encodeURIComponent(userNameLastFm)}/library/albums?date_preset=${timeSettings.urlParameter || 'LAST_7_DAYS'}` })
       .setDescription(description || 'No albums found.')
-      .setFooter({ text: `Page ${page + 1}/${totalPages} - ${totalAmount} different albums` });
+      .setFooter({ text: `Page ${safePage + 1}/${totalPages} - ${totalAmount} different ${pluralise(totalAmount, 'album')}` });
     if (accentColor !== undefined && accentColor !== null) {
       response.embed.setColor(accentColor);
     }
 
-    response.addButtonRow(0, buildPaginatorRow(page, totalPages, 'topalbums', userNameLastFm, timeSettings.description));
+    response.addButtonRow(0, buildPaginatorRow(safePage, totalPages, 'topalbums', userNameLastFm, timeSettings.description));
     response._paginatorData = { type: 'albums', userNameLastFm, displayName, timeSettings, items: topAlbums, accentColor };
     return response;
   }
@@ -526,11 +541,13 @@ export class TopBuilders {
 
     const perPage = 10;
     const totalPages = Math.max(1, Math.ceil(topTracks.length / perPage));
-    const slice = topTracks.slice(page * perPage, (page + 1) * perPage);
+    // Same clamp as `buildTopArtistsResponse` above - see the note there.
+    const safePage = Math.max(0, Math.min(page, totalPages - 1));
+    const slice = topTracks.slice(safePage * perPage, (safePage + 1) * perPage);
     const totalAmount = topTracks.length;
 
     const description = slice.map((t, idx) => {
-      const rank = page * perPage + idx + 1;
+      const rank = safePage * perPage + idx + 1;
       return `${rank}. **${t.artistName}** - **[${t.name}](${lastfmTrackUrl(t.artistName, t.name)})** - *${t.playcount} ${t.playcount === 1 ? 'play' : 'plays'}*`;
     }).join('\n');
 
@@ -538,12 +555,12 @@ export class TopBuilders {
     response.embed = new EmbedBuilder()
       .setAuthor({ name: `Top ${timeSettings.description.toLowerCase()} tracks for ${displayName}`, url: `https://www.last.fm/user/${encodeURIComponent(userNameLastFm)}/library/tracks?date_preset=${timeSettings.urlParameter || 'LAST_7_DAYS'}` })
       .setDescription(description || 'No tracks found.')
-      .setFooter({ text: `Page ${page + 1}/${totalPages} - ${totalAmount} different tracks` });
+      .setFooter({ text: `Page ${safePage + 1}/${totalPages} - ${totalAmount} different ${pluralise(totalAmount, 'track')}` });
     if (accentColor !== undefined && accentColor !== null) {
       response.embed.setColor(accentColor);
     }
 
-    response.addButtonRow(0, buildPaginatorRow(page, totalPages, 'toptracks', userNameLastFm, timeSettings.description));
+    response.addButtonRow(0, buildPaginatorRow(safePage, totalPages, 'toptracks', userNameLastFm, timeSettings.description));
     response._paginatorData = { type: 'tracks', userNameLastFm, displayName, timeSettings, items: topTracks, accentColor };
     return response;
   }

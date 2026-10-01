@@ -17,6 +17,7 @@ import type { TrackSearchResult } from '@bot/services/trackService';
 import { PlaycountBuilders } from './playcountBuilders';
 import { TrackDetailsBuilders } from './trackDetailsBuilders';
 import { EMOJI } from '@bot/resources/emojis';
+import { pluralise } from './pluralise';
 
 export interface TrackMediaDetails {
   uniqueId: string;
@@ -25,16 +26,6 @@ export interface TrackMediaDetails {
   spotifyUrl?: string | null;
   source?: 'spotify' | 'deezer' | 'apple';
   durationFormatted?: string;
-}
-
-export interface AudioFeaturesData {
-  danceability?: number;
-  energy?: number;
-  valence?: number;
-  acousticness?: number;
-  instrumentalness?: number;
-  tempo?: number;
-  key?: string;
 }
 
 export interface LovedTrackItem {
@@ -90,7 +81,7 @@ export class TrackBuilders {
     // validates the accessory through a required union, so a section built without
     // one throws at serialisation and the card can never be sent. With a cover the
     // header goes in a section; without one it goes in as a plain text block, the
-    // same shape `buildAudioFeaturesResponse` and the artist cards already use.
+    // same shape the artist cards already use.
     if (track.coverUrl) {
       container.addSectionComponents(
         new SectionBuilder()
@@ -130,7 +121,7 @@ export class TrackBuilders {
     }
     if (track.globalPlaycount !== undefined && track.globalListeners !== undefined) {
       statLines.push(
-        `**${track.globalPlaycount.toLocaleString()}** Last.fm plays by **${track.globalListeners.toLocaleString()}** listeners`,
+        `**${track.globalPlaycount.toLocaleString()}** Last.fm plays by **${track.globalListeners.toLocaleString()}** ${pluralise(track.globalListeners, 'listener')}`,
       );
     }
 
@@ -244,7 +235,15 @@ export class TrackBuilders {
   ): ResponseModel {
     const perPage = 10;
     const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
-    const slice = tracks.slice(page * perPage, (page + 1) * perPage);
+    // Clamp before slicing, same as `artistTrackBuilders` / `artistBuilders` /
+    // `topBuilders`. The next button is disabled at the last page, but the
+    // custom id is the only thing that decides the increment
+    // (`nowPlayingInteractions.ts:213` adds one with no upper bound), and a loved
+    // count that shrank since the card was rendered puts `page` past the end.
+    // Unclamped that rendered an empty list under "Page 10000/5", and
+    // `totalCount: 0` with a non-empty list printed the impossible "Page 2/1".
+    const currentPage = Math.min(Math.max(0, page), totalPages - 1);
+    const slice = tracks.slice(currentPage * perPage, (currentPage + 1) * perPage);
 
     const container = new ContainerBuilder();
     if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
@@ -256,7 +255,7 @@ export class TrackBuilders {
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
     const lines = slice.map((t, idx) => {
-      const rank = page * perPage + idx + 1;
+      const rank = currentPage * perPage + idx + 1;
       const trackUrl = t.url ?? `https://www.last.fm/music/${encodeURIComponent(t.artistName).replace(/%20/g, '+')}/_/${encodeURIComponent(t.name).replace(/%20/g, '+')}`;
       const timeStr = t.dateLoved ? ` — <t:${Math.floor(t.dateLoved.getTime() / 1000)}:R>` : '';
       return `${rank}. ❤️ **[${t.name}](${trackUrl})** by **${t.artistName}**${timeStr}`;
@@ -265,13 +264,13 @@ export class TrackBuilders {
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines));
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-    const footer = `-# Page ${page + 1}/${totalPages} — ${totalCount.toLocaleString()} loved tracks`;
+    const footer = `-# Page ${currentPage + 1}/${totalPages} — ${totalCount.toLocaleString()} loved ${pluralise(totalCount, 'track')}`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
 
     if (totalPages > 1) {
       const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`loved:prev:${page}:${encodeURIComponent(userNameLastFm)}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
-        new ButtonBuilder().setCustomId(`loved:next:${page}:${encodeURIComponent(userNameLastFm)}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(page >= totalPages - 1),
+        new ButtonBuilder().setCustomId(`loved:prev:${currentPage}:${encodeURIComponent(userNameLastFm)}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(currentPage <= 0),
+        new ButtonBuilder().setCustomId(`loved:next:${currentPage}:${encodeURIComponent(userNameLastFm)}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(currentPage >= totalPages - 1),
       );
       container.addActionRowComponents(row);
     }
@@ -299,7 +298,11 @@ export class TrackBuilders {
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
     const snippet = lyrics.length > 2000 ? `${lyrics.slice(0, 1990)}...` : lyrics;
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(snippet));
+    // `TextDisplayBuilder.setContent('')` throws at build time, so a provider that
+    // hands back an empty body costs the whole card. Say what happened instead.
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(snippet || '*No lyrics were returned for this track.*'),
+    );
 
     if (sourceUrl) {
       container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
@@ -325,48 +328,6 @@ export class TrackBuilders {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(`Scrobbled **${trackName}** by **${artistName}** to **${userNameLastFm}**'s Last.fm profile.`),
     );
-    response.setComponentsV2Container(container);
-    return response;
-  }
-
-  public static buildAudioFeaturesResponse(
-    trackName: string,
-    artistName: string,
-    features: AudioFeaturesData,
-    coverUrl?: string | null,
-    accentColor?: number,
-  ): ResponseModel {
-    const container = new ContainerBuilder();
-    if (accentColor !== undefined && accentColor !== null) container.setAccentColor(accentColor);
-
-    const trackUrl = `https://www.last.fm/music/${encodeURIComponent(artistName).replace(/%20/g, '+')}/_/${encodeURIComponent(trackName).replace(/%20/g, '+')}`;
-    const header = `### Audio Features for [${trackName}](${trackUrl})\n**${artistName}**`;
-
-    if (coverUrl) {
-      container.addSectionComponents(
-        new SectionBuilder()
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent(header))
-          .setThumbnailAccessory(new ThumbnailBuilder().setURL(coverUrl)),
-      );
-    } else {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(header));
-    }
-
-    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
-
-    const lines: string[] = [];
-    if (features.tempo !== undefined) lines.push(`**Tempo / BPM:** \`${features.tempo.toFixed(1)}\` bpm`);
-    if (features.key !== undefined) lines.push(`**Musical Key:** \`${features.key}\``);
-    if (features.danceability !== undefined) lines.push(`**Danceability:**  ${renderProgressBar(features.danceability * 100)}`);
-    if (features.energy !== undefined) lines.push(`**Energy:**        ${renderProgressBar(features.energy * 100)}`);
-    if (features.valence !== undefined) lines.push(`**Valence / Mood:** ${renderProgressBar(features.valence * 100)}`);
-    if (features.acousticness !== undefined) lines.push(`**Acousticness:**  ${renderProgressBar(features.acousticness * 100)}`);
-    if (features.instrumentalness !== undefined) lines.push(`**Instrumental:**  ${renderProgressBar(features.instrumentalness * 100)}`);
-
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
-
-    const response = new ResponseModel(accentColor);
-    response.commandResponse = CommandResponse.Ok;
     response.setComponentsV2Container(container);
     return response;
   }

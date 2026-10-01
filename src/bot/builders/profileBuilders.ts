@@ -10,6 +10,7 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import type { LastFmUser } from '@domain/models/lastFmUser';
+import { pluralise } from './pluralise';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { UserType } from '@persistence/domain/models/user';
 
@@ -78,13 +79,13 @@ export class ProfileBuilders {
 
     const varietyLines: string[] = [];
     if (trackCount && trackCount > 0) {
-      varietyLines.push(`**${trackCount.toLocaleString('en-US')}** different tracks`);
+      varietyLines.push(`**${trackCount.toLocaleString('en-US')}** different ${pluralise(trackCount, 'track')}`);
     }
     if (albumCount && albumCount > 0) {
-      varietyLines.push(`**${albumCount.toLocaleString('en-US')}** different albums`);
+      varietyLines.push(`**${albumCount.toLocaleString('en-US')}** different ${pluralise(albumCount, 'album')}`);
     }
     if (artistCount && artistCount > 0) {
-      varietyLines.push(`**${artistCount.toLocaleString('en-US')}** different artists`);
+      varietyLines.push(`**${artistCount.toLocaleString('en-US')}** different ${pluralise(artistCount, 'artist')}`);
     }
 
     // Averages and stats section

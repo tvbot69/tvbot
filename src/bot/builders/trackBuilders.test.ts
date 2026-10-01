@@ -137,8 +137,7 @@ describe('TrackBuilders', () => {
  * it through a required union validator, so a header wrapped in a section with no
  * accessory set throws at the moment the dispatcher hands the card to Discord.
  * The builder therefore puts the header in a section when there is a cover and in
- * a plain text block when there is not — the shape the artist cards and
- * `buildAudioFeaturesResponse` already use.
+ * a plain text block when there is not — the shape the artist cards already use.
  */
 describe('TrackBuilders.buildTrackInfoResponse: the card serialises with and without a cover', () => {
   const user = { userId: 1, discordUserId: '103854464', userNameLastFm: 'Moha504' } as User;

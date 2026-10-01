@@ -16,15 +16,6 @@ export const FmEmbedTypeNames: Record<FmEmbedType, string> = {
   [FmEmbedType.TextOneLine]: 'Text One Line',
 };
 
-export const FmEmbedTypeOptions: Array<{ value: FmEmbedType; label: string; description: string }> = [
-  { value: FmEmbedType.EmbedMini, label: 'Embed Mini', description: 'Single track embed with cover' },
-  { value: FmEmbedType.EmbedFull, label: 'Embed Full', description: 'Current + previous track with cover' },
-  { value: FmEmbedType.EmbedTiny, label: 'Embed Tiny', description: 'Compact no-cover embed' },
-  { value: FmEmbedType.TextFull, label: 'Text Full', description: 'Text with previous track' },
-  { value: FmEmbedType.TextMini, label: 'Text Mini', description: 'Single line text' },
-  { value: FmEmbedType.TextOneLine, label: 'Text One Line', description: 'Artist - Track only' },
-];
-
 export function parseFmEmbedType(value: string | null | undefined): FmEmbedType | null {
   if (!value) return null;
   const v = value.toLowerCase().trim();

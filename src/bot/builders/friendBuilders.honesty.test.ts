@@ -551,26 +551,42 @@ describe('buildRemoveFriendsResultResponse: the two outcomes', () => {
     expect(byId(FriendBuilders.buildRemoveFriendsResultResponse(['alice'], [])).get('friends:overview:0')).toBeDefined();
   });
 
-  /*
-   * LATENT DEFECT, REPORTED NOT PINNED, AND NOT TESTED AT ALL.
+/*
+   * THE EMPTY OUTCOME IS NOT A CRASH.
    *
-   * `buildRemoveFriendsResultResponse` ends with an UNGUARDED
+   * `buildRemoveFriendsResultResponse` used to end with an UNGUARDED
    * `new TextDisplayBuilder().setContent(bodyLines.join('\n'))`. Handed two empty
-   * lists that is `setContent('')`, and discord.js throws "Invalid string length"
-   * - the exact defect `friendBuilders.emptyOutcome.test.ts` fixed on
+   * lists that is `setContent('')`, and discord.js throws "Invalid string
+   * length" - the exact defect `friendBuilders.emptyOutcome.test.ts` fixed on
    * `buildAddFriendsResultResponse` one screen up in this same file, and which
-   * still has no matching guard here.
+   * still had no matching guard here.
    *
-   * It is LATENT, not live. Every production caller files each argument into
+   * It was LATENT, not live. Every production caller files each argument into
    * exactly one of the two buckets: `friendsCommands.ts:315` (every arg becomes
    * either a removed or a notFound) and `friendSlashCommands.ts:233/235` (one
-   * or the other, never neither). So no current code path can produce the input.
-   *
-   * No test asserts the throw: a test that pins a defect makes the fix look like
-   * a regression. The fix, when it happens, is the one-line guard the add
-   * builder already has.
+   * or the other, never neither). "The caller guarantees it" is an argument, not
+   * a guarantee, and it is the argument that was wrong everywhere else today.
    */
-  it('is reached only with at least one of its two lists populated, which is what its two callers guarantee', () => {
+  it('does not throw when neither list has anything in it', () => {
+    expect(() => FriendBuilders.buildRemoveFriendsResultResponse([], [])).not.toThrow();
+  });
+
+  it('produces no text-display body in that case, rather than an empty one', () => {
+    // Asserted on the SERIALISED tree, so it fails both if the raise comes back
+    // and if the card were built but unsendable.
+    expect(body(FriendBuilders.buildRemoveFriendsResultResponse([], []))).toBe('');
+  });
+
+  it('still shows the manage button, because a card with no body is not a card with no way out', () => {
+    // The other repair - skipping the whole response - would produce nothing at
+    // all. The guard on the add builder skips ONE line and keeps the action row.
+    expect(byId(FriendBuilders.buildRemoveFriendsResultResponse([], [])).get('friends:overview:0'))
+      .toBeDefined();
+  });
+
+  it('is reached with at least one populated list in every real outcome', () => {
+    // The counterpart to the two above: the guard must not have swallowed the
+    // directions that have something to report.
     const removed = FriendBuilders.buildRemoveFriendsResultResponse(['alice'], []);
     const notFound = FriendBuilders.buildRemoveFriendsResultResponse([], ['ghost']);
 

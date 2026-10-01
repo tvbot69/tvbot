@@ -284,7 +284,19 @@ export class FriendBuilders {
       }
     }
 
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bodyLines.join('\n')));
+    // Only when there is something to say. `setContent('')` throws "Invalid
+    // string length" inside discord.js, so a caller that can legitimately
+    // produce two empty lists crashes before the user sees anything - the same
+    // defect `buildAddFriendsResultResponse` above already guards, fixed one
+    // screen up in this same file and left unfixed here. That card is a report
+    // of an outcome, and "no outcome was recorded" is not one of the two
+    // outcomes it knows how to print. The action row below still renders, so
+    // the reply is a card with a button on it and no body, which is the same
+    // repair the add builder makes and a different thing from skipping the
+    // whole response.
+    if (bodyLines.length > 0) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(bodyLines.join('\n')));
+    }
 
     container.addActionRowComponents(
       new ActionRowBuilder<ButtonBuilder>().addComponents(

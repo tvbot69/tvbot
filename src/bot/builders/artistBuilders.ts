@@ -15,6 +15,7 @@ import type { MusicBrainzArtistData } from '@bot/services/musicBrainzService';
 import { PlaycountBuilders } from './playcountBuilders';
 import { ArtistTrackBuilders } from './artistTrackBuilders';
 import { EMOJI } from '@bot/resources/emojis';
+import { pluralise } from './pluralise';
 
 const lastfmArtistUrl = (artist: string) =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -206,7 +207,7 @@ export class ArtistBuilders {
     if (serverStats.serverPlays > 0) {
       statsLines.push(`**${serverStats.serverPlays}** plays in this server by **${serverStats.serverListeners}** ${serverStats.serverListeners === 1 ? 'listener' : 'listeners'}`);
     }
-    statsLines.push(`**${globalStats.globalPlays.toLocaleString()}** Last.fm plays by **${globalStats.globalListeners.toLocaleString()}** listeners`);
+    statsLines.push(`**${globalStats.globalPlays.toLocaleString()}** Last.fm plays by **${globalStats.globalListeners.toLocaleString()}** ${pluralise(globalStats.globalListeners, 'listener')}`);
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(statsLines.join('\n')));
 
     // 4) User Stats section
@@ -303,7 +304,7 @@ export class ArtistBuilders {
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines));
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small));
 
-    const footer = `-# Page ${currentPage + 1}/${totalPages} — ${distinctCount} different albums\n-# ${displayName} has ${totalArtistPlays} total artist ${totalArtistPlays === 1 ? 'play' : 'plays'}\n-# Some albums outside of top 6000 might not be visible`;
+    const footer = `-# Page ${currentPage + 1}/${totalPages} — ${distinctCount} different ${pluralise(distinctCount, 'album')}\n-# ${displayName} has ${totalArtistPlays} total artist ${totalArtistPlays === 1 ? 'play' : 'plays'}\n-# Some albums outside of top 6000 might not be visible`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footer));
 
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(

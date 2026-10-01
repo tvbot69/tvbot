@@ -14,6 +14,7 @@ import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { Logger } from '@domain/logger';
+import { toDate } from '@domain/date';
 import { FriendType } from '@domain/enums/friendType';
 
 export class FriendsCommands implements ITextCommandModule {
@@ -346,9 +347,21 @@ export class FriendsCommands implements ITextCommandModule {
       return GenericEmbedService.buildInfoResponse('Nobody has added you to their friends list yet.');
     }
 
-    const lines = friendedBy.map(
-      (f) => `- **${f.friendUser?.userNameLastFm ?? f.lastFmUserName}** (<t:${Math.floor((f.created ?? new Date()).getTime() / 1000)}:R>)`,
-    );
+    // A row with no `created` gets NO timestamp clause at all, rather than one
+    // built from `new Date()`. That fallback is the last second the row could
+    // have been written, so the card said a friendship was added "in a moment"
+    // for a row nobody has a date for — a confident claim about a moment that
+    // was never recorded. The approach is the one `updateBuilders:38-44` already
+    // uses for an unparseable last-scrobble date: parse, and omit the clause
+    // when there is nothing to render.
+    const lines = friendedBy.map((f) => {
+      const adder = f.friendUser?.userNameLastFm ?? f.lastFmUserName;
+      const added = toDate(f.created);
+      if (!added || Number.isNaN(added.getTime())) {
+        return `- **${adder}**`;
+      }
+      return `- **${adder}** (<t:${Math.floor(added.getTime() / 1000)}:R>)`;
+    });
 
     return GenericEmbedService.buildInfoResponse(
       `**${friendedBy.length} user${friendedBy.length !== 1 ? 's' : ''} have added you as a friend:**\n${lines.join('\n')}`,

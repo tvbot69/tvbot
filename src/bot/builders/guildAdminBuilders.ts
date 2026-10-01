@@ -13,6 +13,8 @@ import type {
   RefreshResult,
 } from '@bot/services/guildAdminService';
 import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
+import { pluralise } from './pluralise';
+import { pageSizeOr } from './paging';
 
 export class GuildAdminBuilders {
   public static buildGuildDashboard(params: {
@@ -57,7 +59,10 @@ export class GuildAdminBuilders {
     accentColor?: number | null;
   }): ResponseModel {
     const page = Math.max(1, params.page ?? 1);
-    const pageSize = params.pageSize ?? 12;
+    // A `pageSize` below one is a caller bug, and it used to cost the whole card:
+    // `Math.ceil(n / 0)` is Infinity, the slice is empty, and `setContent('')`
+    // throws. See `pageSizeOr`.
+    const pageSize = pageSizeOr(params.pageSize, 12);
     const totalPages = Math.max(1, Math.ceil(params.members.length / pageSize));
     const startIndex = (page - 1) * pageSize;
     const currentItems = params.members.slice(startIndex, startIndex + pageSize);
@@ -77,21 +82,25 @@ export class GuildAdminBuilders {
         ),
       );
     } else {
-      const lines = currentItems.map((m, idx) => {
+const lines = currentItems.map((m, idx) => {
         const rank = startIndex + idx + 1;
         const userUrl = `https://www.last.fm/user/${encodeURIComponent(m.userNameLastFm)}`;
-        const crownsStr = m.crownsCount > 0 ? ` · 👑 **${m.crownsCount}** crowns` : '';
+        const crownsStr = m.crownsCount > 0 ? ` · 👑 **${m.crownsCount}** ${pluralise(m.crownsCount, 'crown')}` : '';
         const blockedStr = m.whoKnowsBanned ? ' *(🚫 Blocked)*' : '';
         return `${rank}. <@${m.discordUserId}> (**[${m.userNameLastFm}](${userUrl})**) — **${m.totalPlayCount.toLocaleString()}** plays${crownsStr}${blockedStr}`;
       });
 
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+      // `page` is clamped at the low end but NOT against `totalPages`, so a stale
+      // or hand-built index slices to nothing and `lines.join('\n')` is `''` —
+      // which `setContent` rejects. Fall back to the whole list instead of
+      // failing to send.
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(lines.join('\n') || '*No members on this page.*'),
+      );
 
       if (totalPages > 1) {
         container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-        container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`-# Page ${page} of ${totalPages} • Total: ${params.members.length} members`),
-        );
+        container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# Page ${page} of ${totalPages} • Total: ${params.members.length} ${pluralise(params.members.length, 'member')}`));
       }
     }
 

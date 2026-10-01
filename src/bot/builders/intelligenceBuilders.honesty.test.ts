@@ -13,12 +13,12 @@ import type {
 } from '@bot/services/musicIntelligenceService';
 
 /**
- * `IntelligenceBuilders` — the five paginated intelligence cards, and the one
- * place they all share a defect.
+ * `IntelligenceBuilders` — the three paginated intelligence cards, and the one
+ * place they all shared a defect.
  *
- * THE DEFECT THIS FILE EXISTS TO DOCUMENT
- * ---------------------------------------
- * Four of the five builders compute a page slice the same way:
+ * THE DEFECT THIS FILE WAS BUILT AROUND, NOW FIXED
+ * -----------------------------------------------
+ * All three paginated builders computed a page slice the same way:
  *
  *     const page = Math.max(1, params.page ?? 1);
  *     const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
@@ -26,38 +26,61 @@ import type {
  *     ...
  *     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
  *
- * `page` is clamped from BELOW (`Math.max(1, ...)`) and never from above. A page
- * index past the end therefore makes `currentItems` empty, `lines.join('\n')`
- * the EMPTY STRING, and `TextDisplayBuilder.setContent('')` THROW — discord.js
- * validates the length and raises "Invalid string length". Nothing in the
- * builder catches it, so it escapes into `IntelligenceInteractions.handleButton`,
- * which is itself not wrapped, and from there into
- * `interactionHandler.onInteractionCreated`.
+ * `page` was clamped from BELOW (`Math.max(1, ...)`) and never from above. A
+ * page index past the end therefore made `currentItems` empty,
+ * `lines.join('\n')` the EMPTY STRING, and `TextDisplayBuilder.setContent('')`
+ * THREW — discord.js validates the length and raises "Invalid string length".
+ * Nothing in the builder caught it, so it escaped into
+ * `IntelligenceInteractions.handleButton`, which is itself not wrapped, and
+ * from there into `interactionHandler.onInteractionCreated`.
  *
- * THAT REACHES A USER. `intelligenceInteractions.ts` clamps against a
- * `totalPages` PARSED OUT OF THE ORIGINAL CUSTOM ID and then re-reads the data
- * fresh:
+ * THAT REACHES A USER, and it is LIVE rather than latent.
+ * `intelligenceInteractions.ts` clamps against a `totalPages` PARSED OUT OF THE
+ * ORIGINAL CUSTOM ID and only then re-reads the data fresh:
  *
  *     const totalPages = parseInt(parts[6]!, 10) || 1;            // from the card
- *     const items = await this.intelligenceService.getListeningGaps(...);  // FRESH
  *     if (action === 'last') newPage = totalPages;               // from the card
+ *     const items = await this.intelligenceService.getListeningGaps(...);  // FRESH
+ *     IntelligenceBuilders.buildListeningGapsResponse({ items, page: newPage, ... });
  *
  * So pressing "last" on a three-page gaps card re-reads the window and renders
- * page 3 of whatever came back. If that re-read is shorter than the card claimed
- * — the window slid, a gap dropped under the threshold, a row was pruned — the
- * builder receives a page past its own end and throws. The same shape applies to
- * discoveries (a rolling 90-day window, so the likely one) and to affinity (a
- * guild whose indexed members shrank since the card was posted).
+ * page 3 of whatever came back. If that re-read is shorter than the card
+ * claimed — the window slid, a gap dropped under the threshold once the user
+ * scrobbled again, a row was pruned — the builder receives a page past its own
+ * end and threw, to a real user pressing a real button.
  *
- * Compare `whoKnowsBuilders`, whose `buildContainerForPage` checks `if (!page)`
- * and renders "This page of the leaderboard is no longer available.", and
- * `buildManageFriendsResponse`, which clamps. These four do neither.
+ * `whoKnowsBuilders.buildContainerForPage` already handled the identical case
+ * with a real guard at `:179` (`if (!page) { … }`). All three cards here now
+ * share ONE shape for that, `pageIsGone` + `PAGE_IS_GONE`, and the tests below
+ * pin it from both directions: an out-of-range page says the page is gone, and a
+ * NEGATIVE page still clamps to 1. A clamp is asymmetric — it is easy to write
+ * and easy to break on one side only — so both ends are asserted.
  *
- * NOT TESTED HERE, ON PURPOSE: a test asserting the throw pins the defect and
- * turns the fix into a red suite. What is pinned instead is everything the
- * builders get RIGHT, stated so the clamp can be added and this file goes green
- * either way. `buildLovedTracksResponse` is the exception that proves the rule,
- * because it degrades to a LIE instead of a crash.
+ * WHAT WAS DELETED FROM THIS FILE, AND WHY
+ * ---------------------------------------
+ * Three members that used to be tested here were REMOVED from the production
+ * class, so the tests went with them (root `AGENTS.md` §3.8 — a scrapped
+ * approach is deleted completely, no flags and no commented-out remnants):
+ *
+ *   - `buildLovedTracksResponse` — a fourth copy of the page defect, which
+ *     degraded to a LIE rather than a crash: `totalPages` came from
+ *     `params.total` while the empty sentence came from `params.tracks.length`,
+ *     so a page past the end rendered "### Loved tracks … (1,234 total)" directly
+ *     above "No loved tracks found on Last.fm." Fixing its page clamp was
+ *     wasted work, so the builder went instead.
+ *   - `buildLoveSuccessResponse` and `buildScrobbleSuccessResponse`
+ *
+ * None of the three had a caller under ANY dispatch mechanism. `Intelligence-
+ * Builders` is a static-only class that is NOT registered in the tsyringe
+ * container (`startup.ts` registers `IntelligenceInteractions`,
+ * `MusicIntelligenceService`, `IntelligenceCommands` and `IntelligenceSlash-
+ * Commands`, never the builder), is not reached by a modal prefix, a
+ * `ComponentInteractionTracker` key, an event listener or a cron, and no string
+ * in the tree names a member of it. Every production call site that wanted these
+ * three cards already used the live twins in `TrackBuilders`
+ * (`buildLovedTracksResponse` x3, `buildLoveResponse` x2, `buildUnloveResponse`
+ * x2, `buildScrobbleResponse` x3). They rendered correctly, which is exactly
+ * what made them look like features.
  *
  * EMOJI ARE WRITTEN AS \u ESCAPES
  * ------------------------------
@@ -112,7 +135,6 @@ const at = (daysAgo: number): Date => new Date(Date.UTC(2026, 0, 15) - daysAgo *
 type GapsParams = Parameters<typeof IntelligenceBuilders.buildListeningGapsResponse>[0];
 type DiscoveriesParams = Parameters<typeof IntelligenceBuilders.buildDiscoveriesResponse>[0];
 type AffinityParams = Parameters<typeof IntelligenceBuilders.buildAffinityResponse>[0];
-type LovedParams = Parameters<typeof IntelligenceBuilders.buildLovedTracksResponse>[0];
 type IcebergParams = Parameters<typeof IntelligenceBuilders.buildIcebergResponse>[0];
 
 const gap = (i: number, over: Partial<ListeningGapItem> = {}): ListeningGapItem => ({
@@ -175,19 +197,6 @@ const affinityParams = (
     totalGuildUsers: 12,
     neighbors,
   },
-  ...over,
-});
-
-const lovedParams = (rows: number, over: Partial<LovedParams> = {}): LovedParams => ({
-  displayName: 'Moha',
-  userNameLastFm: 'moha_lfm',
-  tracks: Array.from({ length: rows }, (_, i) => ({
-    name: `Track ${i}`,
-    artistName: 'Radiohead',
-    playcount: 1,
-    url: undefined,
-  })),
-  total: 1234,
   ...over,
 });
 
@@ -375,6 +384,65 @@ describe('buildListeningGapsResponse: pagination arithmetic', () => {
       '-# Page 1/3',
     );
   });
+
+  /*
+   * THE REACHABILITY, STATED AS A TEST.
+   *
+   * `IntelligenceInteractions.handleGapsPage` (`intelligenceInteractions.ts:190`)
+   * reads `totalPages` out of the ORIGINAL customId, clamps `last` to it at
+   * `:196`, and only then re-reads the gaps at `:205`. So the builder is handed
+   * `page: 3` alongside a list that is now one page long. Before the guard that
+   * was `setContent('')` and a raise that reached
+   * `interactionHandler.onInteractionCreated` — a user-facing crash from a real
+   * button press, not a latent one.
+   *
+   * `page: 4` on 25 items is the same shape, one page further out, and is what
+   * a card that shrank by more than one page looks like.
+   */
+  it('says the page is gone rather than throwing when it is past the end', () => {
+    expect(() =>
+      IntelligenceBuilders.buildListeningGapsResponse(gapsParams(many(), { page: 4 })),
+    ).not.toThrow();
+
+    const response = IntelligenceBuilders.buildListeningGapsResponse(gapsParams(many(), { page: 4 }));
+    const text = body(response);
+    expect(text).toContain('no longer available');
+    // And it claims nothing about a page of rows it does not have.
+    expect(text).not.toContain('21. ');
+    expect(text).not.toContain('Total: 25 gaps');
+  });
+
+  it('serialises a past-the-end page, because the raise was inside discord.js', () => {
+    // The throw was `setContent('')`, so asserting only on `body()` would pass
+    // on a builder that built fine and serialised badly. `json()` serialises.
+    const response = IntelligenceBuilders.buildListeningGapsResponse(gapsParams(many(), { page: 9 }));
+    expect(() => json(response)).not.toThrow();
+    expect(body(response)).toContain('no longer available');
+  });
+
+  it('still renders a real last page, so the guard did not swallow the happy path', () => {
+    const response = IntelligenceBuilders.buildListeningGapsResponse(gapsParams(many(), { page: 3 }));
+    expect(body(response)).toContain('21. ');
+    expect(body(response)).not.toContain('no longer available');
+  });
+
+  it('clamps a NEGATIVE page to one, which the below-only clamp already did', () => {
+    // The other end. A new guard must not break the one that was already there.
+    for (const page of [-1, -5, 0]) {
+      const response = IntelligenceBuilders.buildListeningGapsResponse(gapsParams(many(), { page }));
+      expect(body(response)).toContain('-# Page 1/3');
+      expect(body(response)).toContain('1. ');
+      expect(body(response)).not.toContain('no longer available');
+    }
+  });
+
+  it('still reports a genuine empty result as empty, not as a vanished page', () => {
+    // The two directions are opposites and a careless guard merges them: an
+    // empty list is an answer about the listening, not a lost page.
+    const text = body(IntelligenceBuilders.buildListeningGapsResponse(gapsParams([])));
+    expect(text).toContain('No artist listening gaps of 90+ days found');
+    expect(text).not.toContain('no longer available');
+  });
 });
 
 describe('buildDiscoveriesResponse: first listens are claims about a date', () => {
@@ -438,6 +506,51 @@ describe('buildDiscoveriesResponse: first listens are claims about a date', () =
   it('shows no paginator on a single page', () => {
     const response = IntelligenceBuilders.buildDiscoveriesResponse(discoveriesParams([discovery(0)]));
     expect(buttons(response)).toHaveLength(0);
+  });
+
+  it('says the page is gone rather than throwing when it is past the end', () => {
+    // Discoveries is the LIKELY live one: the window is a rolling 90 days
+    // (`intelligenceInteractions.ts:142`), so it moves under the card on its own
+    // and `totalPages` at `:127` is the count from when the card was built.
+    const items = Array.from({ length: 25 }, (_, i) => discovery(i));
+    expect(() =>
+      IntelligenceBuilders.buildDiscoveriesResponse(discoveriesParams(items, { page: 4 })),
+    ).not.toThrow();
+
+    const text = body(IntelligenceBuilders.buildDiscoveriesResponse(discoveriesParams(items, { page: 4 })));
+    expect(text).toContain('no longer available');
+    expect(text).not.toContain('21. ');
+    expect(text).not.toContain('Total: 25 discovered artists');
+  });
+
+  it('serialises a past-the-end page, because the raise was inside discord.js', () => {
+    const items = Array.from({ length: 25 }, (_, i) => discovery(i));
+    const response = IntelligenceBuilders.buildDiscoveriesResponse(discoveriesParams(items, { page: 99 }));
+    expect(() => json(response)).not.toThrow();
+    expect(body(response)).toContain('no longer available');
+  });
+
+  it('still renders a real last page, so the guard did not swallow the happy path', () => {
+    const items = Array.from({ length: 25 }, (_, i) => discovery(i));
+    const text = body(IntelligenceBuilders.buildDiscoveriesResponse(discoveriesParams(items, { page: 3 })));
+    expect(text).toContain('21. ');
+    expect(text).not.toContain('no longer available');
+  });
+
+  it('clamps a NEGATIVE page to one, which the below-only clamp already did', () => {
+    const items = Array.from({ length: 25 }, (_, i) => discovery(i));
+    for (const page of [-1, -5, 0]) {
+      const response = IntelligenceBuilders.buildDiscoveriesResponse(discoveriesParams(items, { page }));
+      expect(body(response)).toContain('-# Page 1/3');
+      expect(body(response)).toContain('1. ');
+      expect(body(response)).not.toContain('no longer available');
+    }
+  });
+
+  it('still reports a genuine empty result as empty, not as a vanished page', () => {
+    const text = body(IntelligenceBuilders.buildDiscoveriesResponse(discoveriesParams([])));
+    expect(text).toContain('No newly discovered artists found in the past 90 days.');
+    expect(text).not.toContain('no longer available');
   });
 });
 
@@ -530,6 +643,44 @@ describe('buildAffinityResponse: the percentages are the whole claim', () => {
       affinityParams(neighbors, { page: -5 }),
     );
     expect(body(response)).toContain('-# Page 1/3');
+  });
+
+  it('says the page is gone rather than throwing when it is past the end', () => {
+    // Affinity's list is the guild's indexed members, which shrinks when someone
+    // unlinks Last.fm, leaves, or falls under the activity threshold - and
+    // `totalPages` at `intelligenceInteractions.ts:63` is the count from when
+    // the card was built, before the re-read at `:81`.
+    const neighbors = Array.from({ length: 25 }, (_, i) => neighbor(i));
+    expect(() =>
+      IntelligenceBuilders.buildAffinityResponse(affinityParams(neighbors, { page: 4 })),
+    ).not.toThrow();
+
+    const text = body(IntelligenceBuilders.buildAffinityResponse(affinityParams(neighbors, { page: 4 })));
+    expect(text).toContain('no longer available');
+    // The membership line is a guild fact and is deliberately outside the page,
+    // so it is NOT what makes a page gone - but a gone page claims no page number.
+    expect(text).not.toContain('-# Page 4/3');
+    expect(text).not.toContain('Human 20');
+  });
+
+  it('serialises a past-the-end page, because the raise was inside discord.js', () => {
+    const neighbors = Array.from({ length: 25 }, (_, i) => neighbor(i));
+    const response = IntelligenceBuilders.buildAffinityResponse(affinityParams(neighbors, { page: 99 }));
+    expect(() => json(response)).not.toThrow();
+    expect(body(response)).toContain('no longer available');
+  });
+
+  it('still renders a real last page, so the guard did not swallow the happy path', () => {
+    const neighbors = Array.from({ length: 25 }, (_, i) => neighbor(i));
+    const text = body(IntelligenceBuilders.buildAffinityResponse(affinityParams(neighbors, { page: 3 })));
+    expect(text).toContain('Human 24');
+    expect(text).not.toContain('no longer available');
+  });
+
+  it('still reports a genuine empty result as empty, not as a vanished page', () => {
+    const text = body(IntelligenceBuilders.buildAffinityResponse(affinityParams([])));
+    expect(text).toContain('Could not find indexed users with a similar music taste');
+    expect(text).not.toContain('no longer available');
   });
 });
 
@@ -627,125 +778,5 @@ describe('buildIcebergResponse: tiers are a classification, so an empty tier is 
       icebergParams([tier(1, 'The Tip', MOUNTAIN, ['A'])]),
     );
     expect(body(response)).toContain('top 12 artists');
-  });
-});
-
-describe('buildLovedTracksResponse: the total and the page are two different numbers', () => {
-  it('states the real total in the title, because the page is not the whole list', () => {
-    expect(body(IntelligenceBuilders.buildLovedTracksResponse(lovedParams(2)))).toContain(
-      '1,234 total',
-    );
-  });
-
-  it('numbers rows from the page offset, so page two does not restart at one', () => {
-    const text = body(IntelligenceBuilders.buildLovedTracksResponse(lovedParams(2, { page: 3 })));
-    expect(text).toContain('21. ');
-    expect(text).toContain('22. ');
-  });
-
-  it('claims the real page count from the total, not from the rows it was handed', () => {
-    const text = body(IntelligenceBuilders.buildLovedTracksResponse(lovedParams(2, { page: 2 })));
-    expect(text).toContain('-# Page 2 of 124');
-  });
-
-  it('uses a track url the provider gave, rather than reconstructing one', () => {
-    const response = IntelligenceBuilders.buildLovedTracksResponse(
-      lovedParams(1, {
-        tracks: [
-          { name: 'Creep', artistName: 'Radiohead', playcount: 1, url: 'https://last.fm/track/1' },
-        ],
-      }),
-    );
-    expect(body(response)).toContain('https://last.fm/track/1');
-  });
-
-  it('reconstructs a track url when the row has none', () => {
-    const text = body(IntelligenceBuilders.buildLovedTracksResponse(lovedParams(1)));
-    expect(text).toContain('https://www.last.fm/music/Radiohead/_/Track%200');
-  });
-
-  it('adds no page line for a single page, because there is no second page to go to', () => {
-    const one = body(IntelligenceBuilders.buildLovedTracksResponse(lovedParams(2, { total: 5 })));
-    expect(one).not.toContain('-# Page');
-  });
-
-  it('says no loved tracks only when the total really is zero', () => {
-    const empty = body(IntelligenceBuilders.buildLovedTracksResponse(lovedParams(0, { total: 0 })));
-    expect(empty).toContain('No loved tracks found on Last.fm.');
-    expect(empty).toContain('0 total');
-  });
-
-  /*
-   * THE ONE THAT DEGRADES TO A LIE RATHER THAN A CRASH, AND IS NOT PINNED.
-   *
-   * `totalPages` is computed from `params.total` (the Last.fm loved count) while
-   * `params.tracks.length` decides whether to print "No loved tracks found on
-   * Last.fm." A page past the end therefore renders:
-   *
-   *     ### Loved tracks for [Moha](...) (1,234 total)
-   *     No loved tracks found on Last.fm.
-   *
-   * which contradicts itself in three lines. It cannot be reached through the
-   * route today — nothing passes a page to this builder at all — but the shape
-   * is the same as the three siblings above and one careless caller away.
-   */
-  it('never renders the empty message next to a non-zero total on a page it has rows for', () => {
-    const text = body(IntelligenceBuilders.buildLovedTracksResponse(lovedParams(2, { page: 1 })));
-    expect(text).toContain('1,234 total');
-    expect(text).not.toContain('No loved tracks found');
-  });
-});
-
-describe('buildLoveSuccessResponse and buildScrobbleSuccessResponse', () => {
-  const HEART = '\u2764\uFE0F';
-  const BROKEN = '\u{1F494}';
-
-  it('says Loved with a heart, and names the track and the artist', () => {
-    const text = body(IntelligenceBuilders.buildLoveSuccessResponse('Radiohead', 'Creep', true));
-    expect(text).toContain(HEART);
-    expect(text).toContain('Loved');
-    expect(text).toContain('Creep');
-    expect(text).toContain('Radiohead');
-  });
-
-  it('says Removed, not Loved, when the unlove succeeded', () => {
-    const text = body(IntelligenceBuilders.buildLoveSuccessResponse('Radiohead', 'Creep', false));
-    expect(text).toContain(BROKEN);
-    expect(text).toContain('Removed from loved tracks');
-    expect(text).not.toContain(HEART);
-  });
-
-  it('links the track and the artist to their Last.fm pages', () => {
-    const text = body(IntelligenceBuilders.buildLoveSuccessResponse('Radiohead', 'Creep', true));
-    expect(text).toContain('https://www.last.fm/music/Radiohead/_/Creep');
-    expect(text).toContain('https://www.last.fm/music/Radiohead');
-  });
-
-  it('escapes both names, so a track with an underscore cannot break the link', () => {
-    const text = body(IntelligenceBuilders.buildLoveSuccessResponse('Sigur Ros', 'Hoppipolla', true));
-    expect(text).toContain('Sigur%20Ros');
-    expect(text).toContain('Hoppipolla');
-  });
-
-  it('confirms a scrobble and names the album when there was one', () => {
-    const text = body(IntelligenceBuilders.buildScrobbleSuccessResponse('Radiohead', 'Creep', 'Pablo Honey'));
-    expect(text).toContain('Successfully scrobbled');
-    expect(text).toContain('on album *Pablo Honey*');
-  });
-
-  it('omits the album clause entirely when there was no album', () => {
-    const text = body(IntelligenceBuilders.buildScrobbleSuccessResponse('Radiohead', 'Creep'));
-    expect(text).toContain('Successfully scrobbled');
-    expect(text).not.toContain('on album');
-    expect(text).not.toContain('undefined');
-  });
-
-  it('reports success on both, so the dispatcher does not treat a write as a failure', () => {
-    expect(IntelligenceBuilders.buildLoveSuccessResponse('A', 'B', true).commandResponse).toBe(
-      CommandResponse.Ok,
-    );
-    expect(IntelligenceBuilders.buildScrobbleSuccessResponse('A', 'B').commandResponse).toBe(
-      CommandResponse.Ok,
-    );
   });
 });

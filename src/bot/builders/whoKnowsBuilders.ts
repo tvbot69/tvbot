@@ -301,6 +301,13 @@ export class WhoKnowsBuilders {
     if (footerExtra) {
       description += `\n\n${footerExtra}`;
     }
+    // `EmbedBuilder.setDescription('')` throws, so an empty list would take the
+    // whole card down instead of rendering it. Every current caller supplies a
+    // non-empty list, but the guard is what makes that a fact rather than an
+    // assumption.
+    if (!description) {
+      description = '*Nobody has played this yet.*';
+    }
 
     const embed = new EmbedBuilder()
       .setTitle(title.length > 255 ? `${title.slice(0, 252)}...` : title)

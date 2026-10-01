@@ -1,5 +1,6 @@
 import { fetchWithTimeout } from './fetchWithTimeout';
 import { errorWebhookUrl as configuredErrorWebhookUrl } from '@config/runtimeEnv';
+import { redactSecrets } from './logger';
 
 // Minimum gap between two feed posts with the same signature (spam guard).
 const THROTTLE_MS = 5 * 60 * 1000;
@@ -37,13 +38,18 @@ export const reportFatalToDiscord = (source: string, err: unknown): void => {
   const url = configuredErrorWebhookUrl();
   if (!url) return;
 
-  const message = err instanceof Error ? err.message : String(err);
+  const message = redactSecrets(err instanceof Error ? err.message : String(err));
   const signature = signatureOf(source, message);
   const now = Date.now();
   if ((lastSentBySignature.get(signature) ?? 0) + THROTTLE_MS > now) return;
   lastSentBySignature.set(signature, now);
 
-  const stack = err instanceof Error && err.stack ? err.stack : String(err);
+  // Redacted for the same reason as the stdout line, and it is a DIFFERENT reason:
+  // this one leaves the machine. A Last.fm 401 arrives as
+  // `... 2.0/?method=user.getInfo&api_key=...`, and the stack of the fetch that
+  // made the call carries the same URL, so a crash caused by an auth failure would
+  // post the credential to a channel instead of to a log file.
+  const stack = redactSecrets(err instanceof Error && err.stack ? err.stack : String(err));
   const content =
     `🚨 **tvbot fatal** \`${source}\` — ${new Date(now).toISOString()}\n` +
     '```\n' +

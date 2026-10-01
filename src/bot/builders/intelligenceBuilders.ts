@@ -12,8 +12,8 @@ import {
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import type { TopTrack } from '@domain/models/topLists';
 import { EMOJI } from '@bot/resources/emojis';
+import { pluralise } from './pluralise';
 import type {
   ListeningGapItem,
   GapEntityType,
@@ -21,6 +21,59 @@ import type {
   IcebergData,
   AffinityData,
 } from '@bot/services/musicIntelligenceService';
+
+/**
+ * THE PAGE NO LONGER EXISTS.
+ *
+ * `whoKnowsBuilders.buildContainerForPage` guards its lazy page lookup with
+ * `if (!page)` and prints this. The same condition arrives here by a different
+ * route and ends in the same `TextDisplayBuilder.setContent('')` ->
+ * "Invalid string length" raise:
+ *
+ *   `IntelligenceInteractions` parses `totalPages` out of the ORIGINAL customId
+ *   (`intelligenceInteractions.ts:190` for gaps, `:127` for discoveries, `:63`
+ *   for affinity), clamps `last` to THAT number (`:196`/`:133`/`:69`), and only
+ *   THEN re-reads the data fresh (`:205`/`:144`/`:81`). So pressing "last" hands
+ *   the builder a page index taken from the card while the list is whatever came
+ *   back on the second read. A list that came back shorter — the rolling 90-day
+ *   discovery window slid, a gap dropped under the threshold once the user
+ *   scrobbled again, a guild lost an indexed member — leaves `page` past the end
+ *   of a list the builder is holding, `currentItems` empty and `lines.join('\n')`
+ *   the empty string. Nothing between there and
+ *   `interactionHandler.onInteractionCreated` catches it, so the press crashes.
+ *
+ * A page is a thing that can stop existing between a card being posted and a
+ * button being pressed. The honest answer is that the page is gone.
+ */
+const PAGE_IS_GONE = 'This page of the list is no longer available.';
+
+/**
+ * A page past the end of a NON-EMPTY list.
+ *
+ * `Math.max(1, page)` already rules out a page before the first; what it cannot
+ * rule out is a page after the last. Keyed on the SLICE rather than on
+ * `page > totalPages` so it also holds for a `pageSize` that slices to nothing,
+ * and stated so the genuine-empty direction — an empty list, which has its own
+ * honest sentence at each call site — can never take this branch. Both facts
+ * are load-bearing: without the first the four cards throw, and without the
+ * second a real "nothing found" would be reported as a vanished page.
+ */
+function pageIsGone(listLength: number, sliceLength: number): boolean {
+  return listLength > 0 && sliceLength === 0;
+}
+
+/**
+ * The one card-assembly tail, shared by every paginated builder here.
+ *
+ * Four identical blocks, and the fix needs a second return path in each of the
+ * four, so the two shapes are stated once rather than eight times.
+ */
+function cv2Response(container: ContainerBuilder, accentColor?: number | null): ResponseModel {
+  const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
+  response.commandResponse = CommandResponse.Ok;
+  response.setComponentsV2Container(container);
+  return response;
+}
 
 export class IntelligenceBuilders {
   public static buildListeningGapsResponse(params: {
@@ -56,6 +109,8 @@ export class IntelligenceBuilders {
           `*No ${params.entityType} listening gaps of 90+ days found in your listening history.*`,
         ),
       );
+    } else if (pageIsGone(params.items.length, currentItems.length)) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(PAGE_IS_GONE));
     } else {
       const lines = currentItems.map((item, idx) => {
         const rank = startIndex + idx + 1;
@@ -110,10 +165,7 @@ export class IntelligenceBuilders {
       }
     }
 
-    const response = new ResponseModel(params.accentColor ?? DiscordConstants.LastFmColorRed);
-    response.commandResponse = CommandResponse.Ok;
-    response.setComponentsV2Container(container);
-    return response;
+    return cv2Response(container, params.accentColor);
   }
 
   public static buildDiscoveriesResponse(params: {
@@ -148,6 +200,8 @@ export class IntelligenceBuilders {
           `*No newly discovered artists found in ${params.periodDescription}.*`,
         ),
       );
+    } else if (pageIsGone(params.items.length, currentItems.length)) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(PAGE_IS_GONE));
     } else {
       const lines = currentItems.map((item, idx) => {
         const rank = startIndex + idx + 1;
@@ -163,7 +217,7 @@ export class IntelligenceBuilders {
         container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
         container.addTextDisplayComponents(
           new TextDisplayBuilder().setContent(
-            `-# Page ${page}/${totalPages} • Total: ${params.items.length} discovered artists`,
+            `-# Page ${page}/${totalPages} • Total: ${params.items.length} discovered ${pluralise(params.items.length, 'artist')}`,
           ),
         );
 
@@ -195,10 +249,7 @@ export class IntelligenceBuilders {
       }
     }
 
-    const response = new ResponseModel(params.accentColor ?? DiscordConstants.LastFmColorRed);
-    response.commandResponse = CommandResponse.Ok;
-    response.setComponentsV2Container(container);
-    return response;
+    return cv2Response(container, params.accentColor);
   }
 
   public static buildIcebergResponse(params: {
@@ -280,6 +331,8 @@ export class IntelligenceBuilders {
           '*Could not find indexed users with a similar music taste in this server.*',
         ),
       );
+    } else if (pageIsGone(data.neighbors.length, currentItems.length)) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(PAGE_IS_GONE));
     } else {
       const lines = currentItems.map((n) => {
         const targetUrl = `https://last.fm/user/${encodeURIComponent(n.userNameLastFm)}`;
@@ -329,109 +382,6 @@ export class IntelligenceBuilders {
       }
     }
 
-    const response = new ResponseModel(params.accentColor ?? DiscordConstants.LastFmColorRed);
-    response.commandResponse = CommandResponse.Ok;
-    response.setComponentsV2Container(container);
-    return response;
-  }
-
-  public static buildLovedTracksResponse(params: {
-    displayName: string;
-    userNameLastFm: string;
-    tracks: TopTrack[];
-    total: number;
-    page?: number;
-    pageSize?: number;
-    accentColor?: number | null;
-  }): ResponseModel {
-    const page = Math.max(1, params.page ?? 1);
-    const pageSize = params.pageSize ?? 10;
-    const totalPages = Math.max(1, Math.ceil(params.total / pageSize));
-    const startIndex = (page - 1) * pageSize;
-
-    const container = new ContainerBuilder();
-    container.setAccentColor(params.accentColor ?? DiscordConstants.LastFmColorRed);
-
-    const userUrl = `https://www.last.fm/user/${encodeURIComponent(params.userNameLastFm)}/loved`;
-    const titleText = `### ❤️ Loved tracks for [${params.displayName}](${userUrl}) (${params.total.toLocaleString()} total)`;
-
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
-    container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-
-    if (params.tracks.length === 0) {
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent('*No loved tracks found on Last.fm.*'),
-      );
-    } else {
-      const lines = params.tracks.map((track, idx) => {
-        const rank = startIndex + idx + 1;
-        const trackUrl = track.url || `https://www.last.fm/music/${encodeURIComponent(track.artistName)}/_/${encodeURIComponent(track.name)}`;
-        const artistUrl = `https://www.last.fm/music/${encodeURIComponent(track.artistName)}`;
-        return `${rank}. **[${track.name}](${trackUrl})** by **[${track.artistName}](${artistUrl})**`;
-      });
-
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
-
-      if (totalPages > 1) {
-        container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
-        container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(
-            `-# Page ${page} of ${totalPages} • Total: ${params.total.toLocaleString()} loved tracks`,
-          ),
-        );
-      }
-    }
-
-    const response = new ResponseModel(params.accentColor ?? DiscordConstants.LastFmColorRed);
-    response.commandResponse = CommandResponse.Ok;
-    response.setComponentsV2Container(container);
-    return response;
-  }
-
-  public static buildLoveSuccessResponse(
-    artist: string,
-    track: string,
-    loved: boolean,
-    accentColor?: number | null,
-  ): ResponseModel {
-    const container = new ContainerBuilder();
-    container.setAccentColor(accentColor ?? DiscordConstants.LastFmColorRed);
-
-    const emoji = loved ? '❤️' : '💔';
-    const actionStr = loved ? 'Loved' : 'Removed from loved tracks';
-    const trackUrl = `https://www.last.fm/music/${encodeURIComponent(artist)}/_/${encodeURIComponent(track)}`;
-    const artistUrl = `https://www.last.fm/music/${encodeURIComponent(artist)}`;
-
-    const content = `${emoji} ${actionStr} **[${track}](${trackUrl})** by **[${artist}](${artistUrl})** on Last.fm!`;
-
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
-
-    const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
-    response.commandResponse = CommandResponse.Ok;
-    response.setComponentsV2Container(container);
-    return response;
-  }
-
-  public static buildScrobbleSuccessResponse(
-    artist: string,
-    track: string,
-    album?: string,
-    accentColor?: number | null,
-  ): ResponseModel {
-    const container = new ContainerBuilder();
-    container.setAccentColor(accentColor ?? DiscordConstants.LastFmColorRed);
-
-    const trackUrl = `https://www.last.fm/music/${encodeURIComponent(artist)}/_/${encodeURIComponent(track)}`;
-    const artistUrl = `https://www.last.fm/music/${encodeURIComponent(artist)}`;
-    const albumPart = album ? ` on album *${album}*` : '';
-
-    const content = `🎶 Successfully scrobbled **[${track}](${trackUrl})** by **[${artist}](${artistUrl})**${albumPart} to Last.fm!`;
-
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(content));
-
-    const response = new ResponseModel(accentColor ?? DiscordConstants.LastFmColorRed);
-    response.commandResponse = CommandResponse.Ok;
-    response.setComponentsV2Container(container);
-    return response;
+    return cv2Response(container, params.accentColor);
   }
 }

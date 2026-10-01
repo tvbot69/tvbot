@@ -1,4 +1,5 @@
 import util from 'util';
+import type { InspectOptions } from 'util';
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
@@ -84,6 +85,285 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
+/** The single word that replaces every credential this module finds. */
+const REDACTED = '[REDACTED]';
+
+/**
+ * Key names whose VALUE is a credential, matched against a NORMALISED key
+ * (lowercased, every non-alphanumeric character removed), so `api_key`,
+ * `apiKey`, `API-KEY` and `api key` are one entry rather than four.
+ *
+ * `key` on its own is deliberately NOT here, and neither is it a suffix. A bare
+ * `key` is a dictionary word in this codebase: cache keys, idempotency keys,
+ * Discord component keys, Puppeteer screenshots. Scrubbing those would blank
+ * the structured logs that carry most of the diagnosis, and a redactor that
+ * eats the evidence is one nobody can debug around. The compounds that really
+ * are credentials (`apiKey`, `privateKey`, `encryptionKey`-shaped names) are
+ * listed explicitly, which is a deliberate choice to miss a name nobody has
+ * written yet rather than to blind half the bot.
+ */
+const SECRET_KEY_NAMES: ReadonlySet<string> = new Set([
+  'authorization',
+  'auth',
+  'proxyauthorization',
+  'cookie',
+  'setcookie',
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'idtoken',
+  'bottoken',
+  'apikey',
+  'apisecret',
+  'secret',
+  'clientsecret',
+  'password',
+  'passwd',
+  'pwd',
+  'passphrase',
+  'privatekey',
+  'credential',
+  'credentials',
+  'sessionkey',
+  'signature',
+  'xapikey',
+]);
+
+/**
+ * Suffixes, so a vendor-prefixed name (`spotifyAccessToken`, `discordToken`,
+ * `lastfmApiSecret`) is caught without enumerating every vendor.
+ */
+const SECRET_KEY_SUFFIXES: readonly string[] = [
+  'token',
+  'secret',
+  'password',
+  'passwd',
+  'apikey',
+  'authorization',
+  'credential',
+  'credentials',
+  'cookie',
+  'privatekey',
+  'sessionkey',
+];
+
+/** Normalise a key for the denylist: lowercase, letters and digits only. */
+function normaliseKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** True when a property name says "the value here is a credential". */
+export function isSecretKey(key: string): boolean {
+  const norm = normaliseKey(key);
+  if (!norm) return false;
+  if (SECRET_KEY_NAMES.has(norm)) return true;
+  // `tokenCount` is a number a reader needs; `discordToken` is a credential. The
+  // suffix has to actually reach the end of the name for the second to match.
+  return SECRET_KEY_SUFFIXES.some((suffix) => norm.endsWith(suffix) && norm.length > suffix.length);
+}
+
+/**
+ * Value-shape rules for TEXT, because most callers log a credential inside a
+ * sentence, a URL or a vendor message rather than under a tidy key. Ordered:
+ * the scheme word is consumed with its credential, and the long shapes go
+ * before the general `key=value` rule so a JWT is not left half-scrubbed.
+ *
+ * WHAT THIS DELIBERATELY DOES NOT SCRUB, and why:
+ *   - A bare high-entropy hex or base64 blob. A 32-hex string is a Last.fm API
+ *     key to one caller and a content hash to the next, and the difference is
+ *     invisible in the log. A heuristic that cannot tell them apart eats the
+ *     hashes, which are evidence.
+ *   - Numeric ids, ISO timestamps, durations, scrobble counts, user ids, guild
+ *     ids and Last.fm usernames. None of them is a credential and every one of
+ *     them is something a reader needs.
+ *   - A URL that carries no credential. `https://host/path?a=1` stays legible;
+ *     only a `user:password@` or a credential-shaped query parameter is cut.
+ *   - Env var NAMES. `LASTFM_API_KEY is unset` is the single most useful line a
+ *     boot failure can print, and the name is not the value.
+ */
+const SECRET_VALUE_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  // `Authorization: Bearer <token>` and its cousins. First, so the scheme word
+  // and the credential behind it go as one.
+  [/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi, `$1 ${REDACTED}`],
+  // JWT: three base64url segments, header always starts `eyJ`.
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, REDACTED],
+  // Vendor-shaped keys. The prefix survives so the reader still knows what leaked.
+  [/\b(sk-|ghp_|gho_|ghu_|ghs_|xox[baprs]-|github_pat_)[A-Za-z0-9_-]{8,}/g, `$1${REDACTED}`],
+  [/\bAKIA[0-9A-Z]{16}\b/g, REDACTED],
+  // Discord bot token: three segments with a long tail. A JWT is already gone by
+  // here, so this cannot eat one.
+  [/\b[A-Za-z0-9_-]{23,}\.[A-Za-z0-9_-]{5,7}\.[A-Za-z0-9_-]{20,}\b/g, REDACTED],
+  // `postgres://user:password@host`, `redis://:password@host`. The user stays,
+  // because "who" is a diagnostic; only the password is a credential.
+  [/([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^/\s:@]{1,64}:)([^/\s@]{1,128}@)/g, `$1$2${REDACTED}@`],
+  // `?api_key=`, `api_sig=`, `"client_secret": "`, `token=`, `Authorization:`.
+  // The separator slot allows a quote on either side because a JSON body
+  // embeds the key in quotes (`{"client_secret":"..."}`) and that shape is
+  // exactly what a vendor error message carries. The four-character floor is
+  // what keeps prose out: `Bearer` above was already consumed with its
+  // credential, so anything left that short is more likely a word worth seeing.
+  [
+    /\b(api[_-]?key|api[_-]?secret|api[_-]?sig|apikey|apisecret|secret|client[_-]?secret|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?key|token|password|passwd|passphrase|pwd|auth|authorization|cookie)(["']?\s*[:=]\s*)(?!Bearer\b|Basic\b|Token\b)(["']?)(?!\[REDACTED\])([^\s"',;&)}\]]{4,})\3/gi,
+    `$1$2$3${REDACTED}$3`,
+  ],
+];
+
+/**
+ * Scrub every value-shaped credential out of a string. Pure, allocation-light
+ * enough for the hot path, and total: it cannot throw for any string input.
+ */
+export function redactSecrets(text: string): string {
+  let out = text;
+  for (const [pattern, replacement] of SECRET_VALUE_PATTERNS) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
+/**
+ * How deep the recursive walk goes before it stops descending.
+ *
+ * `util.inspect` already renders at depth 3, so a deeper walk buys nothing a
+ * reader can see while making a hostile value (`{a:{a:{a:...}}}`) expensive.
+ * Beyond the cap a value is NAMED rather than rendered, which is honest: a
+ * redactor that silently returns a partial object is a redactor that invents
+ * evidence.
+ */
+const MAX_REDACT_DEPTH = 4;
+
+/** `String(value)`, guarded: a value whose `toString` throws costs itself only. */
+function describeSafely(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    return '[value could not be stringified]';
+  }
+}
+
+/**
+ * `util.inspect` behind one name, so the depth and colour options this module
+ * uses are stated once instead of at two call sites.
+ *
+ * Deliberately NOT wrapped in its own try/catch. Measured: `util.inspect` is
+ * tolerant of everything thrown at it - a getter that throws renders as
+ * `[Getter]`, and even a Proxy whose `ownKeys` traps renders its target - so a
+ * catch here would be a guard with no reachable failure, which is a guard nobody
+ * has verified. If it ever DOES throw, the net that catches it is the tested one
+ * in `print`, which keeps the line and says the value could not be rendered.
+ */
+function inspectValue(value: unknown, options: InspectOptions): string {
+  return util.inspect(value, options);
+}
+
+/**
+ * A copy of `err` with a scrubbed message and stack, or the ORIGINAL when
+ * nothing matched.
+ *
+ * A vendor message is a real leak path, not a hypothetical one: a Last.fm
+ * 401 arrives as `... 2.0/?method=user.getInfo&api_key=...&api_sig=...`, and
+ * the stack of the fetch that made it carries the same URL. Cloning only on a
+ * match means an ordinary error keeps its identity, its prototype and its own
+ * custom fields; the copy exists solely so a scrubbed credential cannot ride
+ * along inside `err.stack`.
+ */
+function redactError(err: Error): Error {
+  const message = redactSecrets(err.message);
+  const stack = typeof err.stack === 'string' ? redactSecrets(err.stack) : err.stack;
+  if (message === err.message && stack === err.stack) return err;
+  const clone = new Error(message);
+  clone.name = err.name;
+  clone.stack = stack;
+  return clone;
+}
+
+/**
+ * Recursively scrub a value for logging: key names first (a credential under
+ * `access_token` is a credential whatever it looks like), then value shapes for
+ * every string that survives.
+ *
+ * NEVER THROWS. That is the whole design constraint, and it outranks being
+ * thorough: this is reached from inside catch blocks across the bot, and a
+ * redactor that crashes turns a reported fault into a crash on the reporting
+ * path. Three defences, in order of how much they preserve:
+ *
+ *   1. a depth cap, so a self-referential or absurdly nested value costs a
+ *      fixed amount of work;
+ *   2. a `WeakSet` of visited objects, so a cycle terminates;
+ *   3. a per-property try/catch, because `Object.keys` does not invoke a getter
+ *      but READING one does, and a throwing getter is a thing a vendor library
+ *      can hand you.
+ *
+ * If all of that somehow fails, the caller logs the original value. Losing the
+ * line is strictly worse than logging it unscrubbed: the first is a bot with no
+ * diagnosis, the second is a bot with a diagnosis someone has to look twice at.
+ */
+function redactForLog(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (typeof value === 'string') return redactSecrets(value);
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Error) return redactError(value);
+  if (value instanceof Date || value instanceof RegExp || value instanceof Buffer) return value;
+  if (depth >= MAX_REDACT_DEPTH) return '[value nested too deeply to print]';
+  if (seen.has(value)) return '[circular]';
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((entry) => redactForLog(entry, depth + 1, seen));
+    }
+    if (value instanceof Set) {
+      return new Set(Array.from(value, (entry) => redactForLog(entry, depth + 1, seen)));
+    }
+    if (value instanceof Map) {
+      // A credential is as likely to be a map KEY as a map value: `new Map([[
+      // ['access_token', 'abc']])` is the shape a credential arrives in.
+      const scrubbed = new Map<unknown, unknown>();
+      for (const [key, entry] of value) {
+        scrubbed.set(redactForLog(key, depth + 1, seen), redactForLog(entry, depth + 1, seen));
+      }
+      return scrubbed;
+    }
+    const source = value as Record<string, unknown>;
+    const scrubbed: Record<string, unknown> = {};
+    let changed = false;
+    for (const key of Object.keys(source)) {
+      let entry: unknown;
+      try {
+        entry = source[key];
+      } catch {
+        // A getter threw. Naming the key is more useful than dropping it, and it
+        // is a fact about the value rather than a guess about it.
+        entry = '[property could not be read]';
+        changed = true;
+      }
+      const next = isSecretKey(key) ? REDACTED : redactForLog(entry, depth + 1, seen);
+      if (next !== entry) changed = true;
+      scrubbed[key] = next;
+    }
+    // Identity when nothing matched, so an ordinary object keeps its prototype
+    // and `util.inspect` keeps printing its class name.
+    return changed ? scrubbed : value;
+  } catch {
+    return value;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+/**
+ * Public entry point: the value to hand to `util.inspect` when logging.
+ *
+ * There is no try/catch here, and that is deliberate rather than an oversight.
+ * `redactForLog` is already total - it guards each property read, wraps its body,
+ * and the only operations left are `WeakSet` bookkeeping and `instanceof` - so a
+ * catch here could only ever be reached by a bug in code five lines above it. A
+ * guard nobody can exercise is a guard nobody has verified, and this file's
+ * standard is that an untested safety net is worse than none. The real last net
+ * is the one that IS tested: `print` wraps its whole compose-and-redact step, so
+ * a value that defeats the walk costs the line's content and not the log call.
+ */
+export function redactForLogValue(value: unknown): unknown {
+  return redactForLog(value, 0, new WeakSet<object>());
+}
+
 function padBoxLine(content: string, innerWidth: number = 58): string {
   const visibleLen = stripAnsi(content).length;
   const padding = Math.max(0, innerWidth - visibleLen);
@@ -131,18 +411,80 @@ export class CustomLogger {
     // separate flush into the middle of the parent's ordering.
     child.fileBuffer = this.fileBuffer;
     child.logDirReady = this.logDirReady;
+    // AND the file-sink flag, which was the one field left out. It is a private
+    // read once from the environment at construction, so a fresh child re-derives
+    // it - and a child built while `LOG_FILE=false` had every one of its lines
+    // silently dropped on the first line of `writeLogToFile`, while the parent's
+    // landed, in the same buffer, in order. Nothing was lost in production (the
+    // environment has the sink on) and everything was lost the moment anyone
+    // switched the sink off to test something, which is exactly when the file
+    // is the thing being read. `contextModel.ts:37` is the only production
+    // caller, so this is the whole blast radius.
+    child.fileLoggingEnabled = this.fileLoggingEnabled;
     return child;
   }
 
-  private writeLogToFile(level: string, message: string, err?: Error): void {
+  /**
+   * One spelling of the trace id, for both sinks.
+   *
+   * They used to disagree - stdout printed `[trace-9]` and the file printed
+   * `[trace:trace-9]` - so grepping for either form found half the lines and a
+   * request looked half-finished in one reader and complete in the other. The
+   * file form wins because it is the one that was already prefixed with
+   * `[trace:` and a bare `[trace-9]` inside a line of prose is easy to miss.
+   */
+  private tracePrefix(): string {
+    return this.boundContext?.traceId ? `[trace:${this.boundContext.traceId}] ` : '';
+  }
+
+  /**
+   * The ONE place a line reaches stdout, and it cannot throw.
+   *
+   * `console.log` is unguarded everywhere else in the ecosystem, which is fine
+   * everywhere else. Here it is not: an EPIPE (a closed pipe, a full disk, a
+   * container shutting down) throws out of `console.log`, and because this
+   * module is reached from inside the catch block of ~every failure path in the
+   * bot, one broken stdout turns each of those `Logger.warn` calls into an
+   * unhandled rejection. The worst possible time for the logger to break is
+   * exactly when things are already going wrong.
+   *
+   * So: try stdout, and on failure fall back to stderr with the line still
+   * attached, then give up silently if stderr is broken too. The cost is the
+   * colour separation of stdout vs stderr for a line printed during a stdout
+   * failure - which nobody is reading anyway.
+   */
+  private emit(line: string): void {
+    // Redact HERE as well as in `print`, and the duplication is the point: every
+    // stdout line in this class goes through this method, so no reporter added
+    // later can become the one hole in the file's no-credentials guarantee. It is
+    // idempotent, so `print` re-redacting for the file sink costs a scan and
+    // changes nothing.
+    //
+    // No try/catch around `redactSecrets`, for the reason given on
+    // `redactForLogValue`: it is total over string input - `String.replace` with
+    // these patterns cannot throw for any input, and a pattern that COULD is a
+    // module-load failure rather than a logging failure. The catch that matters
+    // is the one below.
+    const safe = redactSecrets(line);
+    try {
+      console.log(safe);
+    } catch {
+      try {
+        console.error(safe);
+      } catch {
+        // Both sinks gone. There is nothing left to say and something else to do.
+      }
+    }
+  }
+
+  private writeLogToFile(level: string, message: string, stack?: string): void {
     if (!this.fileLoggingEnabled) return;
     try {
       const now = new Date();
       const cleanMsg = stripAnsi(message);
-      const ctxPrefix = this.boundContext?.traceId ? `[trace:${this.boundContext.traceId}] ` : '';
-      let logLine = `[${now.toISOString()}] [${level}] ${ctxPrefix}${cleanMsg}\n`;
-      if (err?.stack) {
-        logLine += `${err.stack}\n`;
+      let logLine = `[${now.toISOString()}] [${level}] ${this.tracePrefix()}${cleanMsg}\n`;
+      if (stack) {
+        logLine += `${stack}\n`;
       }
       this.fileBuffer.push(logLine);
       if (this.fileBuffer.length >= CustomLogger.FLUSH_MAX_LINES) {
@@ -234,7 +576,7 @@ export class CustomLogger {
       '',
     ];
 
-    console.log(lines.join('\n'));
+    this.emit(lines.join('\n'));
   }
 
   public info(msgOrObj: Loggable, ...args: unknown[]): void {
@@ -261,7 +603,7 @@ export class CustomLogger {
   public ready(message: string): void {
     const time = formatTimestamp();
     const tag = `${ansi.bgGreen}${ansi.black}${ansi.bold} READY ${ansi.reset}`;
-    console.log(`${time} ${tag} ${ansi.brightGreen}${ansi.bold}${message}${ansi.reset}`);
+    this.emit(`${time} ${tag} ${ansi.brightGreen}${ansi.bold}${message}${ansi.reset}`);
   }
 
   public command(info: {
@@ -282,7 +624,7 @@ export class CustomLogger {
       : `${ansi.dim}(DM)${ansi.reset}`;
     const latency = formatLatency(info.durationMs);
 
-    console.log(`${time} ${tag} ${cmdText} ${ansi.dim}│${ansi.reset} ${userText} ${locationText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
+    this.emit(`${time} ${tag} ${cmdText} ${ansi.dim}│${ansi.reset} ${userText} ${locationText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
   }
 
   public slash(info: {
@@ -304,7 +646,7 @@ export class CustomLogger {
       : `${ansi.dim}(DM)${ansi.reset}`;
     const latency = formatLatency(info.durationMs);
 
-    console.log(`${time} ${tag} ${cmdText} ${ansi.dim}│${ansi.reset} ${userText} ${locationText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
+    this.emit(`${time} ${tag} ${cmdText} ${ansi.dim}│${ansi.reset} ${userText} ${locationText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
   }
 
   public button(info: {
@@ -320,14 +662,14 @@ export class CustomLogger {
     const guildText = info.guildName ? `${ansi.dim}(${info.guildName})${ansi.reset}` : '';
     const latency = formatLatency(info.durationMs);
 
-    console.log(`${time} ${tag} ${idText} ${ansi.dim}│${ansi.reset} ${userText} ${guildText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
+    this.emit(`${time} ${tag} ${idText} ${ansi.dim}│${ansi.reset} ${userText} ${guildText} ${ansi.dim}[${latency}${ansi.dim}]${ansi.reset}`);
   }
 
   public sync(message: string, durationMs?: number): void {
     const time = formatTimestamp();
     const tag = `${ansi.bgYellow}${ansi.black}${ansi.bold} SYNC  ${ansi.reset}`;
     const latencyText = durationMs !== undefined ? ` ${ansi.dim}[${formatLatency(durationMs)}${ansi.dim}]${ansi.reset}` : '';
-    console.log(`${time} ${tag} ${ansi.yellow}${message}${ansi.reset}${latencyText}`);
+    this.emit(`${time} ${tag} ${ansi.yellow}${message}${ansi.reset}${latencyText}`);
   }
 
   public generateReferenceId(): string {
@@ -370,7 +712,7 @@ export class CustomLogger {
     const time = formatTimestamp();
     const tag = `${ansi.bgBlue}${ansi.brightWhite}${ansi.bold} SHARD ${ansi.reset}`;
     const desc = details ? ` - ${details}` : '';
-    console.log(`${time} ${tag} ${ansi.brightBlue}Shard #${shardId} ${event}${desc}${ansi.reset}`);
+    this.emit(`${time} ${tag} ${ansi.brightBlue}Shard #${shardId} ${event}${desc}${ansi.reset}`);
   }
 
   public errorWithRef(
@@ -397,7 +739,7 @@ export class CustomLogger {
     );
     if (err.stack) {
       const stackLines = err.stack.split('\n').map((l: string) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
-      console.log(stackLines.join('\n'));
+      this.emit(stackLines.join('\n'));
     }
 
     return {
@@ -406,61 +748,127 @@ export class CustomLogger {
     };
   }
 
-  private print(level: string, badge: string, textColor: string, msgOrObj: Loggable, extraArgs: unknown[]): void {
+private print(level: string, badge: string, textColor: string, msgOrObj: Loggable, extraArgs: unknown[]): void {
     const time = formatTimestamp();
     let message = '';
-    let errObject: Error | undefined = undefined;
+    let stackText: string | undefined;
+
+    try {
+      const composed = this.compose(msgOrObj, extraArgs);
+      message = composed.message;
+      stackText = composed.stack;
+    } catch {
+      // Even COMPOSING the line failed: a Proxy that traps `ownKeys`, a getter
+      // that throws under the pino branch's rest-destructure, a `Symbol.toPrimitive`
+      // that throws. The redaction layer absorbs the cases it knows about, so this
+      // is the last net - and it is here because the alternative is the logger
+      // throwing out of a catch block, which is the one outcome worse than a
+      // missing diagnosis. The line goes out saying what happened to it rather
+      // than not going out at all.
+      message = '[a value in this log call could not be rendered]';
+    }
+
+    // The message is redacted BEFORE either sink sees it, so "scrubbed on stdout"
+    // cannot become "clear text on disk" the moment someone reads the file. The
+    // file sink applies `stripAnsi` on top; the redaction is upstream of that.
+    message = redactSecrets(message);
+
+    this.emit(`${time} ${badge} ${this.tracePrefix()}${textColor}${message}${ansi.reset}`);
+
+    this.writeLogToFile(level, message, stackText);
+
+    if ((level === 'ERROR' || level === 'FATAL') && stackText) {
+      const stackLines = stackText.split('\n').map((l) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
+      this.emit(stackLines.join('\n'));
+    }
+  }
+
+  /**
+   * Turn whatever the caller passed into message text plus an optional stack.
+   * Every branch is individually guarded, AND `print` wraps this in a try/catch,
+   * so a throw here costs the line's content and never the log call.
+   */
+  private compose(msgOrObj: Loggable, extraArgs: unknown[]): { message: string; stack?: string } {
+    /**
+     * The stack, resolved ONCE and for both sinks.
+     *
+     * They used to read different sources: stdout read `stackLike`, which accepts
+     * any `{ stack: string }`, while the file sink received `errObject`, set only for
+     * `instanceof Error`. So the same event was recorded with frames on stdout and
+     * without them in the file whenever a caller attached a plain object, and "was
+     * there a stack?" had two answers depending on which file you opened. One
+     * resolution, one answer.
+     */
+    let stackText: string | undefined;
+    let message: string;
 
     if (typeof msgOrObj === 'string') {
       message = msgOrObj;
       if (extraArgs.length > 0) {
-        message = util.format(msgOrObj, ...extraArgs);
+        // The arguments are scrubbed too, because `%o` and `%j` INSPECT them: a
+        // token passed as an extra argument is exactly as leaked as one passed as
+        // the message, and the final pass over the formatted string cannot see it
+        // under a denylisted key.
+        const safeArgs = extraArgs.map((arg) => redactForLogValue(arg));
+        // `util.format` was unguarded, and Node's `%s` handling calls
+        // `String(arg)`, so an argument whose `toString` throws escaped the log
+        // call and BECAME the incident. Reproduce the raw behaviour with:
+        //   npx tsx -e "const u=require('util');try{u.format('x %s',{toString(){throw new Error('boom')}})}catch(e){console.log('THROWS',e.message)}"
+        // A hostile argument must cost the ARGUMENT, never the line.
+        try {
+          message = util.format(msgOrObj, ...safeArgs);
+        } catch {
+          message = `${msgOrObj} ${safeArgs.map(describeSafely).join(' ')}`.trim();
+        }
       }
     } else if (msgOrObj instanceof Error) {
-      errObject = msgOrObj;
-      message = msgOrObj.message;
+      const safeErr = redactError(msgOrObj);
+      message = safeErr.message;
+      stackText = safeErr.stack;
     } else if (typeof msgOrObj === 'object' && msgOrObj !== null) {
       // Pino-style (context, message): never drop the context object — its
       // fields (guildId, severity, reason, ...) are the actual diagnostics.
-      const { err: errField, msg: msgField, ...contextRest } = msgOrObj as Record<string, unknown>;
+      // Scrub it FIRST, so neither the message it carries nor the context dump
+      // below can print a credential that arrived under a safe-looking field. The
+      // result is NAMED rather than destructured off the raw value, because the
+      // no-message branch below inspects the object again and must inspect the
+      // scrubbed one: a text pass over the inspected output only catches the key
+      // names the patterns happen to know.
+      const scrubbed = redactForLogValue(msgOrObj) as Record<string, unknown>;
+      const { err: errField, msg: msgField, ...contextRest } = scrubbed;
       if (errField) {
         // `err` is conventionally an Error, but callers sometimes attach a plain
         // object. Accept both and read the two fields this function needs, rather
         // than casting to Error and hoping.
         const errLike = errField as { message?: unknown; stack?: unknown };
-        errObject = errField instanceof Error ? errField : undefined;
+        const errMessage = errLike.message;
+        const errStack = errLike.stack;
         message =
           (typeof extraArgs[0] === 'string' ? extraArgs[0] : undefined) ??
-          ((typeof errLike.message === 'string' && errLike.message) || 'Error occurred');
+          ((typeof errMessage === 'string' && errMessage) || 'Error occurred');
+        if (typeof errStack === 'string' && errStack.length > 0) {
+          stackText = errStack;
+        }
       } else if (msgField) {
-        message = msgField as string;
+        // `as string` was the old cast here, and it lied: `msg` is `unknown`, so a
+        // caller who passed a number or an object got a `message` that was not a
+        // string, and the redaction pass downstream - which is `String.replace` -
+        // would have thrown on it. `describeSafely` renders it the way the
+        // template literal used to, so the visible output does not change.
+        message = typeof msgField === 'string' ? msgField : describeSafely(msgField);
       } else if (extraArgs[0] && typeof extraArgs[0] === 'string') {
         message = extraArgs[0];
       } else {
-        message = util.inspect(msgOrObj, { colors: false, depth: 3 });
+        message = inspectValue(scrubbed, { colors: false, depth: 3 });
       }
       if (Object.keys(contextRest).length > 0) {
-        message += ` ${util.inspect(contextRest, { colors: false, depth: 3, breakLength: 140 })}`;
+        message += ` ${inspectValue(contextRest, { colors: false, depth: 3, breakLength: 140 })}`;
       }
     } else {
-      message = String(msgOrObj);
+      message = describeSafely(msgOrObj);
     }
 
-    const tracePrefix = this.boundContext?.traceId ? `${ansi.dim}[${this.boundContext.traceId}]${ansi.reset} ` : '';
-    console.log(`${time} ${badge} ${tracePrefix}${textColor}${message}${ansi.reset}`);
-
-    this.writeLogToFile(level, message, errObject);
-
-    // A stack may be present even when `err` was a plain object with a `stack`
-    // string, which is why this reads errLike rather than only Error instances.
-    const stackLike = errObject ?? ((msgOrObj as { err?: { stack?: unknown } } | undefined)?.err);
-    if (level === 'ERROR' || level === 'FATAL') {
-      const stack = (stackLike as { stack?: unknown } | undefined)?.stack;
-      if (typeof stack === 'string' && stack.length > 0) {
-        const stackLines = stack.split('\n').map((l) => `    ${ansi.gray}${l.trim()}${ansi.reset}`);
-        console.log(stackLines.join('\n'));
-      }
-    }
+    return { message, stack: stackText };
   }
 }
 

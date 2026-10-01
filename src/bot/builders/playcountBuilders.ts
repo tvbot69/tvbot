@@ -426,7 +426,13 @@ export class PlaycountBuilders {
       );
     } else {
       const pageSize = 10;
-      const start = pageIndex * pageSize;
+      const totalPages = Math.max(1, Math.ceil(entries.length / pageSize));
+      // Clamp before slicing, same as the other paginated cards. An out-of-range
+      // `pageIndex` is not merely a wrong label: the slice comes back empty,
+      // `listText` is `''`, and `TextDisplayBuilder.setContent('')` throws — so
+      // one bad index takes the whole card down instead of showing page one.
+      const safePageIndex = Math.min(Math.max(0, pageIndex), totalPages - 1);
+      const start = safePageIndex * pageSize;
       const pageEntries = entries.slice(start, start + pageSize);
 
       let listText = '';
@@ -437,13 +443,12 @@ export class PlaycountBuilders {
         listText += `${medal} [${display}](https://www.last.fm/user/${encodeURIComponent(entry.userNameLastFm)}) — **${entry.value.toLocaleString()}** ${unit}\n`;
       });
 
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(listText.trim()));
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(listText.trim() || 'No members found with plays in this server yet.'));
 
-      const totalPages = Math.ceil(entries.length / pageSize);
       if (totalPages > 1) {
         container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
         container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`-# Page ${pageIndex + 1} of ${totalPages} · ${entries.length} server members tracked`),
+          new TextDisplayBuilder().setContent(`-# Page ${safePageIndex + 1} of ${totalPages} · ${entries.length} server members tracked`),
         );
       }
     }

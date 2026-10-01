@@ -95,13 +95,26 @@ export class CrownSlashCommands implements ISlashCommandModule {
 
     const userOpt = context.interaction?.options.getUser('user');
     if (userOpt) {
+      const other = await this.userService.getUserByDiscordId(userOpt.id);
+      if (!other) {
+        // There is no `else` here any more. `targetDiscordId` had already been
+        // overwritten with the stranger's id while `targetUser` stayed the
+        // caller, so the card was the caller's crowns under the caller's own
+        // name with a STRANGER's id in every pagination `customId` — rows true,
+        // buttons wrong, and no error anywhere. `intelligenceSlashCommands
+        // .resolveTarget` refuses the identical case in the identical shape,
+        // which is what makes this a defect rather than a policy; the same
+        // builder and the same `CommandResponse.NotFound` are used here so the
+        // two twins cannot drift apart again.
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `<@${userOpt.id}> hasn't connected their Last.fm account yet.`,
+        );
+      }
       targetDiscordId = userOpt.id;
-      const other = await this.userService.getUserByDiscordId(targetDiscordId);
-      if (other) {
-        targetUser = other;
-        if (UpdateService.needsUpdate(other, 2)) {
-          void this.updateService.updateUser(other.userId, { accurateTotal: true });
-        }
+      targetUser = other;
+      if (UpdateService.needsUpdate(other, 2)) {
+        void this.updateService.updateUser(other.userId, { accurateTotal: true });
       }
     }
 
@@ -150,7 +163,18 @@ export class CrownSlashCommands implements ISlashCommandModule {
 
     if (challengerOpt) {
       const other = await this.userService.getUserByDiscordId(challengerOpt.id);
-      if (other) challengerUser = other;
+      // THE SAME DEFECT, the branch the `/crowns` fix above used to share: a
+      // named challenger who has not registered was silently dropped and the
+      // card compared the artist against the CALLER's playcount, printing a gap
+      // nobody asked for. Left in, it is the third instance of a bug class that
+      // is already been fixed twice in this repo, so it goes the same way.
+      if (!other) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `<@${challengerOpt.id}> hasn't connected their Last.fm account yet.`,
+        );
+      }
+      challengerUser = other;
     }
 
     if (!artistName) {

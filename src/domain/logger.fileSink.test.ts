@@ -30,6 +30,12 @@ import { CustomLogger } from './logger';
  * into the workspace. The factory spreads the real module so every OTHER fs
  * function any transitively imported module needs is untouched, and only the
  * three calls the logger makes are replaced.
+ *
+ * WHAT THIS FILE ALSO NOW OWNS, because it is the only place both sinks are
+ * visible at once: that the file copy of a line is the SAME line stdout got -
+ * same trace spelling, same stack, and (in `logger.redaction.test.ts`, which
+ * mocks fs the same way) the same redaction. Three separate defects were
+ * "the two copies disagree", and all three are invisible from one sink alone.
  */
 
 vi.mock('fs', async () => {
@@ -192,12 +198,9 @@ describe('the buffered sink: what reaches the file', () => {
 
   it('prefixes the trace id so one request is greppable in the file too', () => {
     // `boundContext` is a PUBLIC field, so it is set directly rather than via
-    // `withContext`. That is not a convenience: `withContext` builds a brand new
-    // `CustomLogger`, and a new one re-reads `isFileLoggingEnabled()` from the
-    // environment. In production that is TRUE, so a child's lines are fine -
-    // but the child is a different object with its own flag, and the trace
-    // prefix is asserted on THIS instance's own sink. See the withContext
-    // section at the bottom of this file for the part of that which is not fine.
+    // `withContext`, and the test at the bottom of this file covers the
+    // difference: `withContext` builds a brand new `CustomLogger`, so anything a
+    // child needs it must be handed explicitly.
     const logger = withFileLogging();
     logger.boundContext = { traceId: 'trace-7' };
     logger.info('inside a request');
@@ -223,23 +226,21 @@ describe('the buffered sink: what reaches the file', () => {
     expect(written()).toContain('    at ');
   });
 
-  it('prints a stack for an object-shaped err on STDOUT, where the collector reads it', () => {
+  it('records a stack for an object-shaped err the SAME WAY in both sinks', () => {
     // `err` is conventionally an Error and callers sometimes attach a plain
-    // object. `print` reads `stackLike` (which accepts any `{ stack: string }`)
-    // so stdout does carry the frames - and stdout is what Railway and every
-    // other collector reads.
-    //
-    // REPORTED, NOT PINNED: the FILE copy does not. `writeLogToFile` receives
-    // `errObject`, which is only set for `errField instanceof Error`, so the
-    // on-disk line for an object-shaped err has the message and no frames. The
-    // two copies disagree. Not asserted here, because a test that expects a
-    // missing stack pins the defect.
+    // object. Both copies used to disagree: stdout read `stackLike` (any
+    // `{ stack: string }`) while the file sink received `errObject`, set only for
+    // `instanceof Error`, so the on-disk line carried the message and no frames.
+    // One event, two answers to "was there a stack?" depending on the file you
+    // opened. `print` now resolves the stack ONCE and hands the same text to both.
     const logger = withFileLogging();
     logger.error({ err: { message: 'object shaped', stack: 'frame one\nframe two' } });
     logger.flushLogFile();
 
     expect(lines.join('\n')).toContain('frame one');
     expect(lines.join('\n')).toContain('frame two');
+    expect(written()).toContain('frame one');
+    expect(written()).toContain('frame two');
   });
 
   it('writes no stack for a stackless value, rather than writing "undefined"', () => {
@@ -476,27 +477,63 @@ describe('the buffered sink: the four places it fails, and what each costs', () 
   });
 });
 
-describe('withContext and the file sink: one real gap, reported not pinned', () => {
+describe('withContext and the file sink: the child inherits the sink', () => {
   /*
-   * GAP: `withContext` builds a brand new `CustomLogger` and copies FOUR fields
-   * across - `isDebugEnabled`, `boundContext`, `fileBuffer`, `logDirReady` - but
-   * NOT `fileLoggingEnabled`. The new instance re-reads that flag from the
-   * environment, so a child logger's `writeLogToFile` returns at its first line
-   * whenever the environment says the sink is off, and every line it emits is
-   * absent from `logs/tvbot-<date>.log`.
+   * FIXED, and pinned by the test below.
    *
-   * In PRODUCTION the environment has the sink on, so the child is fine and
-   * nothing is lost - which is exactly why this survived. The failure mode is
-   * real the moment anyone switches the sink off to test something, and the
-   * shared buffer is then the more confusing half: the parent's own lines land,
-   * the child's silently do not, and the two interleave in the file as if
-   * nothing were wrong.
+   * `withContext` used to copy FOUR fields across - `isDebugEnabled`,
+   * `boundContext`, `fileBuffer`, `logDirReady` - and NOT `fileLoggingEnabled`.
+   * The child is a fresh `CustomLogger` that re-read that flag from the
+   * environment, so a child's `writeLogToFile` returned at its first line
+   * whenever the environment said the sink was off, and every line it emitted was
+   * absent from `logs/tvbot-<date>.log` while the parent's landed in the same
+   * shared buffer, in order, as if nothing were wrong.
    *
-   * `contextModel.ts:37` is the only production caller, so this is one line
-   * (`child.fileLoggingEnabled = this.fileLoggingEnabled`) away from fixed. Not
-   * fixed here: this agent owns test files only. Not asserted either - a test
-   * that expects a child's line to be missing pins the defect.
+   * In PRODUCTION the environment has the sink on, so nothing was lost - which is
+   * exactly why it survived. It bites the moment anyone sets `LOG_FILE=false` to
+   * test something, and the file is the thing being read at that moment.
+   * `contextModel.ts:37` is the only production caller.
    */
+  it('writes the CHILD\'s line to the file, because it inherits the parent\'s flag', () => {
+    // This is the test the defect was found with: it was written, it failed, and
+    // it had to be un-written because the behaviour was wrong. The behaviour is
+    // now right, so the test is back - and it is the one that would catch the flag
+    // being dropped again.
+    const parent = withFileLogging();
+    const child = parent.withContext({ traceId: 'trace-9' });
+
+    child.info('from the child');
+    parent.info('from the parent');
+    parent.flushLogFile();
+
+    const text = written();
+    expect(text).toContain('from the child');
+    expect(text).toContain('from the parent');
+    // The child's line carries the trace prefix in the FILE too, so one request
+    // is greppable in one place rather than two.
+    expect(text).toContain('[trace:trace-9] from the child');
+  });
+
+  it('inherits the flag, structurally, because the value is what is load-bearing', () => {
+    // Asserted on the private as well as on the behaviour above: the flag is the
+    // one piece of state `withContext` has to carry, and a test that only watched
+    // the output would still pass if the child wrote through some other route.
+    const parent = withFileLogging();
+    const child = parent.withContext({ traceId: 't' });
+    expect((child as unknown as { fileLoggingEnabled: boolean }).fileLoggingEnabled).toBe(true);
+  });
+
+  it('does not switch the file sink ON for a child of a logger that has it off', () => {
+    // The other direction, because a fix that hard-coded `true` would pass the
+    // test above. The parent's flag is the whole contract, in both directions.
+    const parent = new CustomLogger();
+    const child = parent.withContext({ traceId: 't' });
+
+    child.info('nothing should reach disk');
+    expect((child as unknown as { fileLoggingEnabled: boolean }).fileLoggingEnabled).toBe(false);
+    expect(bufferOf(child)).toHaveLength(0);
+  });
+
   it('gives the child its own trace prefix on the line it prints', () => {
     const parent = withFileLogging();
     const child = parent.withContext({ traceId: 'trace-9' });
@@ -504,18 +541,17 @@ describe('withContext and the file sink: one real gap, reported not pinned', () 
     child.info('from the child');
     parent.info('from the parent');
 
-    // Note the two formats, which differ deliberately and are worth not
-    // confusing: STDOUT prints `[trace-9]` (`print`), the FILE prints
-    // `[trace:trace-9]` (`writeLogToFile`). Two greppable spellings of one id.
-    expect(lines[0]).toContain('[trace-9]');
+    // One spelling for both sinks, so this and the assertion above are the same
+    // string. They used to be `[trace-9]` here and `[trace:trace-9]` on disk.
+    expect(lines[0]).toContain('[trace:trace-9]');
     // The parent's line has no trace, which is the visible difference between
     // the two and the reason a child is worth having at all.
     expect(lines[1]).not.toContain('trace-9');
   });
 
   it('writes the parent\'s own line to the file, so the sink is demonstrably live', () => {
-    // The half that works, pinned so the gap above is provably about the CHILD
-    // and not about a dead sink.
+    // The half that always worked, pinned so the tests above are provably about
+    // the CHILD and not about a dead sink.
     const parent = withFileLogging();
     parent.info('from the parent');
     parent.flushLogFile();
@@ -524,9 +560,8 @@ describe('withContext and the file sink: one real gap, reported not pinned', () 
   });
 
   it('queues child lines into the very same buffer as the parent', () => {
-    // Structural, and true today: `child.fileBuffer = this.fileBuffer` is a
-    // reference assignment, not a copy. What it does not fix is the flag, so
-    // this asserts the sharing and nothing about the child's file output.
+    // Structural: `child.fileBuffer = this.fileBuffer` is a reference assignment,
+    // not a copy, which is what keeps two flushes from interleaving.
     const parent = withFileLogging();
     const child = parent.withContext({ traceId: 'trace-9' });
 

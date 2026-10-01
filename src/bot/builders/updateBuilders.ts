@@ -1,21 +1,9 @@
 import { EmbedBuilder } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { UpdateType } from '@domain/enums/updateType';
 import { toDate } from '@domain/date';
 
 export class UpdateBuilders {
-  public static buildDeltaInit(userNameLastFm: string, accentColor?: number): ResponseModel {
-    const response = new ResponseModel(accentColor);
-    const embed = new EmbedBuilder()
-      .setDescription(`⏳ Fetching recent scrobbles for **${userNameLastFm}**...`);
-    if (accentColor !== undefined && accentColor !== null) {
-      embed.setColor(accentColor);
-    }
-    response.embed = embed;
-    return response;
-  }
-
   public static buildDeltaResult(
     userNameLastFm: string,
     result: {
@@ -53,32 +41,6 @@ export class UpdateBuilders {
     response.embed = new EmbedBuilder()
       .setColor(color)
       .setDescription(description);
-    return response;
-  }
-
-  public static buildModularInit(userNameLastFm: string, updateType: UpdateType, accentColor?: number): ResponseModel {
-    const response = new ResponseModel(accentColor);
-    const lines = [
-      `⏳ Fetching playcounts for **${userNameLastFm}**...`,
-      '',
-      'Caches are being rebuilt:',
-    ];
-
-    if ((updateType & UpdateType.Full) === UpdateType.Full) {
-      lines.push('- Full library update (Artists, Albums, Tracks & Scrobbles)');
-    } else {
-      if ((updateType & UpdateType.AllPlays) === UpdateType.AllPlays) lines.push('- All historical scrobbles');
-      if ((updateType & UpdateType.Artists) === UpdateType.Artists) lines.push('- Top Artists');
-      if ((updateType & UpdateType.Albums) === UpdateType.Albums) lines.push('- Top Albums');
-      if ((updateType & UpdateType.Tracks) === UpdateType.Tracks) lines.push('- Top Tracks');
-    }
-
-    const embed = new EmbedBuilder()
-      .setDescription(lines.join('\n'));
-    if (accentColor !== undefined && accentColor !== null) {
-      embed.setColor(accentColor);
-    }
-    response.embed = embed;
     return response;
   }
 

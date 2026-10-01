@@ -17,6 +17,8 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CountryInfo, TopCountryItem, WhoKnowsCountryItem } from '@bot/services/countryService';
 import { CountryChartTheme } from '@images/generators/worldMapGenerator';
+import { pluralise } from './pluralise';
+import { pageSizeOr } from './paging';
 
 export interface BuildTopCountriesOptions {
   displayName: string;
@@ -134,13 +136,15 @@ export class CountryBuilders {
       countries,
       periodDescription,
       pageIndex,
-      pageSize = 10,
+      pageSize: rawPageSize,
       cacheKey,
       callerDiscordUserId,
       accentColor,
       isServerView = false,
       guildId,
     } = options;
+
+    const pageSize = pageSizeOr(rawPageSize, 10);
 
     if (!countries || countries.length === 0) {
       const container = new ContainerBuilder();
@@ -180,14 +184,14 @@ export class CountryBuilders {
       const playsFormatted = c.playcount.toLocaleString();
       const playLabel = c.playcount === 1 ? 'play' : 'plays';
       const artistPart = c.artists && c.artists.length > 0
-        ? ` · \`${c.artists.length} artists\``
+        ? ` · \`${c.artists.length} ${pluralise(c.artists.length, 'artist')}\``
         : c.artistCount
-        ? ` · \`${c.artistCount} artists\``
+        ? ` · \`${c.artistCount} ${pluralise(c.artistCount, 'artist')}\``
         : '';
       return `${rank}. ${flag} **${c.countryName}** · *${playsFormatted} ${playLabel}*${artistPart}`;
     });
 
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n') || '*No countries on this page.*'));
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
     const totalPlays = countries.reduce((sum, c) => sum + c.playcount, 0);
@@ -246,12 +250,14 @@ export class CountryBuilders {
       isServerView,
       targetName,
       pageIndex,
-      pageSize = 10,
+      pageSize: rawPageSize,
       cacheKey,
       callerDiscordUserId,
       accentColor,
       guildId,
     } = options;
+
+    const pageSize = pageSizeOr(rawPageSize, 10);
 
     const flag = `:flag_${country.Code.toLowerCase()}:`;
 
@@ -293,7 +299,7 @@ export class CountryBuilders {
       return `${rank}. **${a.name}** · *${playsFormatted} ${playLabel}*`;
     });
 
-    let contentString = lines.join('\n');
+    let contentString = lines.join('\n') || '*No artists on this page.*';
     if (country.Code.toUpperCase() === 'UA') {
       contentString += '\n\n:flag_ua: [Stand For Ukraine](https://standforukraine.com/)';
     }
@@ -304,7 +310,7 @@ export class CountryBuilders {
     const totalPlays = artists.reduce((sum, a) => sum + a.playcount, 0);
     const viewLabel = isServerView ? 'Server overview' : 'User overview';
     const footerText =
-      `-# ${viewLabel} · ${artists.length} artists · ${totalPlays.toLocaleString()} total plays` +
+      `-# ${viewLabel} · ${artists.length} ${pluralise(artists.length, 'artist')} · ${totalPlays.toLocaleString()} total plays` +
       (totalPages > 1 ? ` · Page ${validPageIndex + 1}/${totalPages}` : '');
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footerText));
@@ -410,11 +416,13 @@ export class CountryBuilders {
       serverName,
       items,
       pageIndex,
-      pageSize = 10,
+      pageSize: rawPageSize,
       cacheKey,
       callerDiscordUserId,
       accentColor,
     } = options;
+
+    const pageSize = pageSizeOr(rawPageSize, 10);
 
     const flag = `:flag_${country.Code.toLowerCase()}:`;
 
@@ -456,15 +464,20 @@ export class CountryBuilders {
       return `${rank}. <@${item.discordUserId}> (**${item.userNameLastFm}**) · *${playsFormatted} ${playLabel}*`;
     });
 
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
+    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n') || '*No listeners on this page.*'));
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
     const totalPlays = items.reduce((sum, item) => sum + item.playcount, 0);
+    // A guild with exactly one listener was being told "1 listeners". The
+    // singular/plural decision is already made two lines up for the per-row
+    // playcount and is made the same way by `whoKnowsBuilders`, which prints
+    // "1 listener" for one and "2 listeners" for two.
+    const listenerLabel = items.length === 1 ? 'listener' : 'listeners';
     const footerText =
       (totalPages > 1
         ? `-# Page ${validPageIndex + 1}/${totalPages} · `
         : '-# ') +
-      `${items.length} listeners · ${totalPlays.toLocaleString()} total scrobbles`;
+      `${items.length} ${listenerLabel} · ${totalPlays.toLocaleString()} total scrobbles`;
 
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(footerText));
 

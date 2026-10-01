@@ -6,6 +6,7 @@ import cp from 'child_process';
 import { Logger } from '@domain/logger';
 import { ffmpegPath, ffprobePath, setFfmpegPath, setFfprobePath, currentEnv } from '@config/runtimeEnv';
 
+import { encodeVoiceWaveform } from './voiceWaveform';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 import ffmpegFluent from 'fluent-ffmpeg';
@@ -298,6 +299,45 @@ export async function getAudioSignalAndSr(trackId: string, url: string): Promise
     // error, which is what leaves bpm/key null in trackDetailsService.
     await fsp.unlink(mp3Path).catch(() => undefined);
     if (rawPath) await fsp.unlink(rawPath).catch(() => undefined);
+  }
+}
+
+/**
+ * Decode an already-encoded audio FILE to PCM and build its base64 waveform.
+ *
+ * Separate from {@link getAudioSignalAndSr} on purpose: that one takes a
+ * preview URL and resamples to the analysis rate for BPM/key, this one reads
+ * a local file (the transcode `downloadAndConvert` just wrote) and returns the
+ * waveform Discord requires alongside flag 8192.
+ *
+ * Throws rather than returning a placeholder when the file cannot be decoded.
+ * The caller has no honest way to render a voice message without the field —
+ * Discord answers 400/50161 — so a decode failure has to reach the user as a
+ * failed preview rather than be papered over with a drawn array.
+ */
+export async function buildVoiceWaveform(filePath: string): Promise<string> {
+  const rawPath = path.join(tempDir, `waveform-${path.basename(filePath)}.raw`);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg(filePath)
+        .audioChannels(1)
+        .audioFrequency(SIGNAL_SAMPLE_RATE)
+        .audioCodec('pcm_f32le')
+        .format('f32le')
+        .output(rawPath)
+        .on('end', () => resolve())
+        .on('error', (err: Error) => reject(err))
+        .run();
+    });
+    const buffer = await fsp.readFile(rawPath);
+    const signal = new Float32Array(buffer.buffer, buffer.byteOffset, Math.floor(buffer.length / 4));
+    if (signal.length === 0) throw new Error('Decoded no frames, so there is no waveform to report');
+    return encodeVoiceWaveform(signal, SIGNAL_SAMPLE_RATE);
+  } finally {
+    // CORRECT AS IS: cleanup only. The waveform is computed into a local
+    // before this runs, and a failed unlink must not turn a real waveform
+    // into a thrown error the caller renders as "no preview".
+    await fsp.unlink(rawPath).catch(() => undefined);
   }
 }
 

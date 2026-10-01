@@ -317,12 +317,15 @@ describe('whoknowscountry — a claim about every member of the guild', () => {
 
   it('counts one listener as one, not as a plural', async () => {
     const built = build({ guildUsers: [listener('solo', 5)] });
-    // DEFECT, recorded not asserted-as-intended: `buildWhoKnowsCountryResponse`
-    // renders `${items.length} listeners` with the plural HARDCODED
-    // (`countryBuilders.ts:467`), so a guild with exactly one listener is told
-    // "1 listeners". Cosmetic, and it is a builder outside this file's tree, so
-    // it is pinned as it renders today.
-    expect(textOf(await run(built.cmd, 'whoknowscountry', ['Japan']))).toContain('1 listeners ·');
+    // `buildWhoKnowsCountryResponse` used to render `${items.length} listeners`
+    // with the plural HARDCODED, so a guild with exactly one listener was told
+    // "1 listeners" while the row two lines above it correctly said "1 play".
+    // The card contradicted itself about the same list. Fixed in
+    // `countryBuilders.ts` — `whoKnowsBuilders` already had the same rule for
+    // the same quantity.
+    const text = textOf(await run(built.cmd, 'whoknowscountry', ['Japan']));
+    expect(text).toContain('1 listener ·');
+    expect(text).not.toContain('1 listeners');
   });
 
   it('stores the country so page two renders the same one', async () => {

@@ -1,5 +1,5 @@
 /**
- * `UpdateBuilders` — the four cards the update pipeline answers with.
+ * `UpdateBuilders` — the two cards the update pipeline answers with.
  *
  * These are the cards where a *fabricated* number is most tempting and most
  * damaging, because they are literally the report of what the indexer read:
@@ -19,27 +19,9 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { UpdateBuilders } from './updateBuilders';
-import { UpdateType } from '@domain/enums/updateType';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 const desc = (r: { embed: { data: { description?: string } } }): string => r.embed.data.description ?? '';
-
-describe('UpdateBuilders.buildDeltaInit', () => {
-  it('says what it is fetching and for whom', () => {
-    expect(desc(UpdateBuilders.buildDeltaInit('listener'))).toBe('⏳ Fetching recent scrobbles for **listener**...');
-  });
-
-  it('colours the card only when a colour was supplied', () => {
-    expect(UpdateBuilders.buildDeltaInit('listener').embed.toJSON().color).toBeUndefined();
-    expect(UpdateBuilders.buildDeltaInit('listener', 0x123456).embed.toJSON().color).toBe(0x123456);
-  });
-
-  it('is a Components-V2-free embed, so the dispatcher sends it as a normal embed', () => {
-    const response = UpdateBuilders.buildDeltaInit('listener');
-    expect(response.isComponentsV2).toBe(false);
-    expect(response.hasEmbed()).toBe(true);
-  });
-});
 
 describe('UpdateBuilders.buildDeltaResult', () => {
   it('reports a real change as a change, singularising a single scrobble', () => {
@@ -107,45 +89,6 @@ describe('UpdateBuilders.buildDeltaResult', () => {
     expect(UpdateBuilders.buildDeltaResult('l', { newPlays: 1, removedPlays: 0 }, 0x999999).embed.toJSON().color).toBe(
       0x999999,
     );
-  });
-});
-
-describe('UpdateBuilders.buildModularInit', () => {
-  it('names the full rebuild as one line rather than four partial ones', () => {
-    const text = desc(UpdateBuilders.buildModularInit('listener', UpdateType.Full));
-    expect(text).toContain('- Full library update (Artists, Albums, Tracks & Scrobbles)');
-    expect(text).not.toContain('- Top Artists');
-    expect(text).not.toContain('- All historical scrobbles');
-  });
-
-  it('lists only the caches a partial rebuild actually touches', () => {
-    const text = desc(UpdateBuilders.buildModularInit('listener', UpdateType.Artists | UpdateType.Albums));
-    expect(text).toContain('- Top Artists');
-    expect(text).toContain('- Top Albums');
-    expect(text).not.toContain('- Top Tracks');
-    expect(text).not.toContain('- All historical scrobbles');
-  });
-
-  it('lists every requested cache, in the order the indexer works in', () => {
-    const text = desc(
-      UpdateBuilders.buildModularInit('listener', UpdateType.AllPlays | UpdateType.Tracks | UpdateType.Artists),
-    );
-    expect(text).toContain('- All historical scrobbles');
-    expect(text).toContain('- Top Artists');
-    expect(text).toContain('- Top Tracks');
-  });
-
-  it('still names the user and the fact that caches are being rebuilt for a flag-only update', () => {
-    // `RecentPlays` and `Automatic` contribute no cache lines. The card must
-    // not pretend the rebuild is scoped when the caller did not scope it.
-    const text = desc(UpdateBuilders.buildModularInit('listener', UpdateType.RecentPlays));
-    expect(text).toContain('⏳ Fetching playcounts for **listener**...');
-    expect(text).toContain('Caches are being rebuilt:');
-  });
-
-  it('colours the card only when a colour was supplied', () => {
-    expect(UpdateBuilders.buildModularInit('l', UpdateType.Full).embed.toJSON().color).toBeUndefined();
-    expect(UpdateBuilders.buildModularInit('l', UpdateType.Full, 0x654321).embed.toJSON().color).toBe(0x654321);
   });
 });
 

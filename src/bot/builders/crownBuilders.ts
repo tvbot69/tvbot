@@ -15,6 +15,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 
 import type { UserCrownDto, CrownViewType, CrownLeaderboardEntry } from '@domain/models/crownModels';
 import { EMOJI } from '@bot/resources/emojis';
+import { pluralise } from './pluralise';
 
 const lastfmArtistUrl = (artist: string): string =>
   `https://last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -84,7 +85,7 @@ export class CrownBuilders {
     // 3. Footer
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `-# Page ${clampedPage}/${totalPages} - ${totalCount} total crowns`,
+        `-# Page ${clampedPage}/${totalPages} - ${totalCount} total ${pluralise(totalCount, 'crown')}`,
       ),
     );
 

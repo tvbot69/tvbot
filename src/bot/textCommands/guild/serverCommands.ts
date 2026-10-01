@@ -11,6 +11,7 @@ import { storeServerRankingQuery } from '@bot/interactions/serverInteractions';
 import { ColorService } from '@bot/services/colorService';
 import { GenericEmbedService } from '@bot/services/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { Logger } from '@domain/logger';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 @injectable()
@@ -45,12 +46,39 @@ export class ServerCommands implements ITextCommandModule {
     ];
   }
 
+  /**
+   * The guild icon's colour, or the brand red. NEVER a reason the command
+   * fails.
+   *
+   * This awaited `colorService.getColorFromImageUrl` with no guard, so a single
+   * failed colour read took down all four rankings — including the rows, which
+   * are correct, and including the honest "this server has nothing in the
+   * window" card for a server that genuinely has nothing in the window. An
+   * accent is decoration, and `AGENTS.md` §3.6 says the same about chapter and
+   * artwork state: it must never break the answer.
+   *
+   * `await` is INSIDE the try, deliberately. `return promise` inside a try block
+   * hands a rejected promise straight to the caller, which is the failure mode
+   * `artistsService.test.ts:491` documents. The fallback is the Last.fm red
+   * rather than `undefined`, because `ServerBuilders` only sets a container
+   * accent when one was supplied and dropping it would be a second, quieter
+   * change to the card.
+   */
   private async getAccentColor(context: ContextModel): Promise<number> {
     const iconUrl = context.guild?.iconURL();
-    if (iconUrl) {
-      return this.colorService.getColorFromImageUrl(iconUrl);
+    if (!iconUrl) {
+      return DiscordConstants.LastFmColorRed;
     }
-    return DiscordConstants.LastFmColorRed;
+
+    try {
+      return await this.colorService.getColorFromImageUrl(iconUrl);
+    } catch (err) {
+      // Expected-but-notable, so DEBUG rather than WARN: the ranking that this
+      // decoration was refining is still on its way, and an unreadable guild
+      // icon is not a lost capability worth waking the operator for.
+      Logger.debug({ err, iconUrl }, 'serverCommands: guild icon accent lookup failed');
+      return DiscordConstants.LastFmColorRed;
+    }
   }
 
   private async serverArtistsAsync(context: ContextModel, extraOptions: string): Promise<ResponseModel> {

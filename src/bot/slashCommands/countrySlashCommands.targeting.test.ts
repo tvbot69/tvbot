@@ -11,11 +11,11 @@
  *
  * WHAT IS LEFT, and it is the part that decides whose data the user gets.
  *
- * `resolveUser` has FOUR ways to name somebody and they do not agree on what
+ * `resolveUser` has FOUR ways to name somebody and they did not agree on what
  * happens when the name is unknown. A Discord mention refuses, because a
  * mention is a specific person and silently answering with somebody else is
  * indefensible. An `lfm:` name does not - it is a public Last.fm account, not a
- * bot row, so having no `userId` is legitimate. A BARE name, though, takes the
+ * bot row, so having no `userId` is legitimate. A BARE name used to take the
  * mention path's lookup and then the `lfm:` path's forgiveness:
  *
  *     const u = await this.userService.getUserByLastFmName(rawUser.trim());
@@ -23,14 +23,14 @@
  *     // ...falls through to the caller
  *
  * So `/country top user:Stranger`, for a Stranger who has never registered with
- * the bot, answers with the CALLER's own top countries, under the caller's own
+ * the bot, answered with the CALLER's own top countries, under the caller's own
  * display name, with no indication that the named person was dropped. Every
- * number printed is true; it is simply an answer to a different question. The
- * contrast with `intelligenceSlashCommands.resolveTarget` - which refuses the
- * same case, in the same shape, with the same reasoning - is what makes it a bug
- * rather than a policy. It is pinned here as CURRENT behaviour so the fix has to
- * be deliberate; the registered and mention cases are pinned beside it so a fix
- * cannot be made by refusing everything.
+ * number printed is true; it is simply an answer to a different question. It now
+ * refuses, in the same shape and with the same `CommandResponse.NotFound` as
+ * `intelligenceSlashCommands.resolveTarget`, which is the comparison that makes
+ * it a defect rather than a policy. The registered bare name, the `lfm:`
+ * stranger and the mention cases are pinned beside it so a fix cannot be made by
+ * refusing everybody.
  *
  * `/country whoknows` is the other half of the file's theme. It is the one
  * command here whose answer is "nobody in this server listens to that country",
@@ -182,6 +182,7 @@ const build = (over: Doubles = {}) => {
   );
   const privates = cmd as unknown as {
     handleCountrySlash(c: ContextModel): Promise<ResponseModel>;
+    handleCountryChartSlash(c: ContextModel): Promise<ResponseModel>;
     handleTopCountriesSlash(c: ContextModel): Promise<ResponseModel>;
     handleCountryInfoSlash(c: ContextModel, search: string): Promise<ResponseModel>;
     handleWhoKnowsCountrySlash(c: ContextModel, country: string): Promise<ResponseModel>;
@@ -267,26 +268,62 @@ describe('who a country query is performed FOR', () => {
     expect(askedForWhom(lastfmRepository)).toBe('SomeUser');
   });
 
-  it('CURRENTLY answers with the CALLER for a bare UNREGISTERED name - pinned, not endorsed', async () => {
-    // THE REAL BUG. `resolveUser` tries the mention path's lookup at :214 and then
-    // takes the `lfm:` path's forgiveness, falling through to the caller. So
-    // `/country top user:Stranger` returns the caller's own top countries, headed
-    // with the caller's own name, with nothing to say the named person was
-    // dropped. `intelligenceSlashCommands.resolveTarget` refuses the identical
-    // case in the identical shape, which is what makes this a defect rather than
-    // a choice.
+  it('REFUSES a bare UNREGISTERED name instead of answering with the CALLER', async () => {
+    // THE FIX. This test used to pin the opposite and is named after it.
+    // `resolveUser` did the mention path's lookup at :214 and then took the
+    // `lfm:` path's forgiveness, falling through to the caller. So
+    // `/country top user:Stranger` returned the caller's own top countries,
+    // headed with the caller's own name, with nothing to say the named person
+    // had been dropped. `intelligenceSlashCommands.resolveTarget` refuses the
+    // identical case in the identical shape, which is what made this a defect
+    // rather than a choice — and which is why the refusal here uses the same
+    // `buildCommandErrorResponse` + `CommandResponse.NotFound` pair.
     //
-    // Pinned as it stands so that fixing it is a deliberate, visible change -
-    // and the two tests above are the guard against "fixing" it by refusing
-    // everybody.
+    // The registered bare name and the `lfm:` stranger are pinned either side of
+    // it, so a fix cannot be made by refusing everybody.
     const { privates, lastfmRepository } = build({ byLastFmName: { Stranger: null } });
     const response = await privates.handleTopCountriesSlash(
       makeContext({ strings: { user: 'Stranger' } }),
     );
 
-    expect(askedForWhom(lastfmRepository)).toBe('DreadRock');
-    expect(cardText(response)).toContain('DreadRock');
-    expect(cardText(response)).not.toContain('Stranger');
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    expect(cardText(response)).toContain('Stranger');
+    // Not one query ran against the caller's data, so nothing of theirs can be
+    // what the user is shown.
+    expect(lastfmRepository.getTopArtists).not.toHaveBeenCalled();
+    expect(cardText(response)).not.toContain('DreadRock');
+  });
+
+  it('names the `lfm:` escape hatch, so the refusal is not a dead end', async () => {
+    // The refusal is only fair if the working alternative is named. `/country
+    // top user:lfm:Stranger` answers for an account that has never linked, and
+    // that asymmetry is deliberate — so the card has to say so, or "this person
+    // is unknown" reads as "this person does not exist".
+    const { privates } = build({ byLastFmName: { Stranger: null } });
+    const response = await privates.handleTopCountriesSlash(
+      makeContext({ strings: { user: 'Stranger' } }),
+    );
+
+    expect(cardText(response)).toContain('lfm:Stranger');
+    expect(cardText(response)).toContain('/register');
+  });
+
+  it('refuses on the CHART twin too, which shares this resolver', async () => {
+    // `handleCountryChartSlash` calls the same `resolveUser`. A fix applied to
+    // one handler only would leave `/countrychart user:Stranger` answering with
+    // the caller's map — and a wrong map is harder to spot than a wrong list,
+    // because the title carries the display name.
+    const { privates, lastfmRepository, countryService } = build({
+      byLastFmName: { Stranger: null },
+      allTimeCountries: [{ countryName: 'United Kingdom', countryCode: 'GB', playcount: 40 }],
+    });
+    const response = await privates.handleCountryChartSlash(
+      makeContext({ strings: { user: 'Stranger', period: 'overall' } }),
+    );
+
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    expect(countryService.getUserTopCountriesAllTime).not.toHaveBeenCalled();
+    expect(lastfmRepository.getTopArtists).not.toHaveBeenCalled();
   });
 
   it('refuses an unregistered caller who named nobody, and names the command to fix it', async () => {
@@ -392,7 +429,10 @@ describe('/country whoknows: "nobody listens to that" is an answer that must be 
     expect(countryService.getGuildUsersForCountry).toHaveBeenCalledWith('222', 'GB');
     expect(cardText(response)).toContain('Holder');
     expect(cardText(response)).toContain('12');
-    expect(cardText(response)).toContain('1 listeners');
+    // One guild member, one listener - singular. The footer used to hardcode the
+    // plural and print "1 listeners" while the row above it said "12 plays".
+    expect(cardText(response)).toContain('1 listener ·');
+    expect(cardText(response)).not.toContain('1 listeners');
   });
 
   it('renders the honest empty for a server with nobody from that country', async () => {

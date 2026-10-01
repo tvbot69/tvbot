@@ -14,6 +14,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { PlayingVoiceTrack } from '@bot/services/music/botScrobblingService';
 import type { FeaturedEntry } from '@bot/services/featuredService';
+import { pluralise } from './pluralise';
 
 export class UserHubBuilders {
   public static buildBotScrobblingResponse(params: {
@@ -143,7 +144,7 @@ export class UserHubBuilders {
     const container = new ContainerBuilder();
     container.setAccentColor(params.accentColor ?? DiscordConstants.LastFmColorRed);
 
-    const titleText = `### 📜 Featured History Log (${params.log.length} entries)\n-# Recently featured active community listeners`;
+    const titleText = `### 📜 Featured History Log (${params.log.length} ${pluralise(params.log.length, 'entry', 'entries')})\n-# Recently featured active community listeners`;
     container.addTextDisplayComponents(new TextDisplayBuilder().setContent(titleText));
     container.addSeparatorComponents(new SeparatorBuilder().setSpacing(SeparatorSpacingSize.Small));
 
@@ -156,7 +157,7 @@ export class UserHubBuilders {
         const userUrl = `https://www.last.fm/user/${encodeURIComponent(entry.userNameLastFm)}`;
         const ts = Math.floor(entry.featuredAt.getTime() / 1000);
         const item = entry.albumName ?? entry.trackName ?? 'Top Release';
-        return `${idx + 1}. <t:${ts}:R> — <@${entry.discordUserId}> (**[${entry.userNameLastFm}](${userUrl})**): **${entry.artistName}** - *${item}* (${entry.playcount} plays)`;
+        return `${idx + 1}. <t:${ts}:R> — <@${entry.discordUserId}> (**[${entry.userNameLastFm}](${userUrl})**): **${entry.artistName}** - *${item}* (${entry.playcount} ${pluralise(entry.playcount, 'play')})`;
       });
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(lines.join('\n')));
     }

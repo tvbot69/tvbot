@@ -344,7 +344,7 @@ describe('/featuredlog: history is allowed to be empty, and says so in its own w
     const { privates } = build({ featuredLog: [FEATURED] });
     const text = cardText(await privates.featuredLogSlashAsync(makeContext()));
 
-    expect(text).toContain('1 entries');
+    expect(text).toContain('1 entry');
     expect(text).toContain('SomeUser');
     expect(text).toMatch(/<t:\d+:R>/);
   });

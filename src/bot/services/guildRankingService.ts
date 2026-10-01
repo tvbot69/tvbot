@@ -52,6 +52,109 @@ const MONTH_DISPLAY = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
+const PLAY_KEYWORDS = new Set(['p', 'pc', 'playcount', 'plays', 'scrobbles']);
+const LISTENER_KEYWORDS = new Set(['l', 'lc', 'listenercount', 'listeners']);
+const ALL_TIME_KEYWORDS = new Set(['overall', 'alltime', 'all-time', 'all', 'a', 'o', 'at']);
+const MONTHLY_KEYWORDS = new Set(['monthly', 'month', 'm', '1m', '30d']);
+const WEEKLY_KEYWORDS = new Set(['weekly', 'week', 'w', '7d']);
+
+/**
+ * What a whitespace-delimited token IS, before any decision is made about
+ * whether the bot is allowed to consume it.
+ *
+ * `'name'` is the absence of a keyword: everything the bot did not recognise.
+ */
+type GuildRankingTokenKind =
+  | 'play'
+  | 'listener'
+  | 'alltime'
+  | 'monthly'
+  | 'weekly'
+  | 'month'
+  | 'year'
+  | 'name';
+
+/**
+ * THE GRAMMAR IS POSITIONAL, AND THAT IS THE WHOLE FIX.
+ *
+ * The keyword sets contain `a`, `o`, `at`, `all`, `m`, `w`, `l`, `p` — words
+ * that are also the first word of real artist names. So a token is not a
+ * keyword by being spelled like one; it is a keyword by being in an OPTION
+ * POSITION, which is what the two edge scans below decide. This is the same
+ * rule the `.fm` layout token settled on (`parseFmEmbedType` matches bare
+ * tokens only, and `.fm` reads it from the TAIL): the tail is a keyword
+ * position because that is where the canonical spelling puts a modifier, and
+ * the head is a keyword position only while the run of words there is
+ * unambiguously an option run rather than a name that begins with a common
+ * word.
+ *
+ * The order of the checks is load-bearing and unchanged from the loop it
+ * replaced: play, listener, all-time, monthly, weekly, month, year.
+ */
+function classifyGuildRankingToken(token: string): GuildRankingTokenKind {
+  const lower = token.toLowerCase();
+
+  if (PLAY_KEYWORDS.has(lower)) return 'play';
+  if (LISTENER_KEYWORDS.has(lower)) return 'listener';
+  if (ALL_TIME_KEYWORDS.has(lower)) return 'alltime';
+  if (MONTHLY_KEYWORDS.has(lower)) return 'monthly';
+  if (WEEKLY_KEYWORDS.has(lower)) return 'weekly';
+  if (MONTH_NAMES[lower] !== undefined) return 'month';
+
+  const year = Number.parseInt(token, 10);
+  if (!Number.isNaN(year) && year >= 1970 && year <= 2100) return 'year';
+
+  return 'name';
+}
+
+const isOptionKind = (kind: GuildRankingTokenKind): boolean => kind !== 'name';
+
+/**
+ * Where the two option runs are.
+ *
+ * Returns `[headEnd, tailStart)` as the token indices the option runs occupy:
+ * a run at the head, a run at the tail, and the name in between. The runs can
+ * never overlap — the head scan stops where the tail scan would begin — so an
+ * argument made entirely of keywords has an empty name rather than a token
+ * counted twice.
+ */
+function optionRunBounds(kinds: GuildRankingTokenKind[]): [number, number] {
+  const length = kinds.length;
+
+  let headEnd = 0;
+  while (headEnd < length && isOptionKind(kinds[headEnd]!)) headEnd++;
+
+  let tailStart = length;
+  while (tailStart > headEnd && isOptionKind(kinds[tailStart - 1]!)) tailStart--;
+
+// A LONE leading keyword in front of a multi-word remainder is the first
+  // word of a NAME, not an option. `.serveralbums All Together Now` is a
+  // band, and reading `All` as the all-time keyword made it a whole-server
+  // all-time chart filtered to an artist called `Together Now` — a complete,
+  // confident card for a perfectly valid request, with no error anywhere.
+  //
+  // The cut is drawn at ONE leading keyword, and that is deliberate in both
+  // directions:
+  //
+  //  - Two or more (`monthly plays Boards of Canada`, which is exactly what
+  //    `ServerSlashCommands` composes from its typed options) is an option
+  //    run — two unrelated option words back to back is not a coincidence of
+  //    vocabulary, and dropping the period there would break the slash twin.
+  //  - One (`monthly Boards of Canada`, `M Together Now`) is a name. Which way
+  //    the knife falls on a genuinely ambiguous input is a choice, and it is
+  //    chosen so the WRONG string is the one that reaches the card: read as a
+  //    name, the user sees the artist they are being searched for and knows
+  //    they were misread; read as options, they see a whole-server chart and
+  //    no hint at all that a filter they typed was discarded.
+  if (headEnd === 1 && length > 2) {
+    headEnd = 0;
+    tailStart = length;
+    while (tailStart > headEnd && isOptionKind(kinds[tailStart - 1]!)) tailStart--;
+  }
+
+  return [headEnd, tailStart];
+}
+
 export function parseGuildRankingSettings(
   optionsStr?: string | null,
   defaultOrder: OrderType = OrderType.Listeners,
@@ -83,30 +186,38 @@ export function parseGuildRankingSettings(
   }
 
   const rawTokens = optionsStr.trim().split(/\s+/);
-  const remainingTokens: string[] = [];
+  const kinds = rawTokens.map(classifyGuildRankingToken);
+  const [headEnd, tailStart] = optionRunBounds(kinds);
 
-  const playKeywords = new Set(['p', 'pc', 'playcount', 'plays', 'scrobbles']);
-  const listenerKeywords = new Set(['l', 'lc', 'listenercount', 'listeners']);
-  const allTimeKeywords = new Set(['overall', 'alltime', 'all-time', 'all', 'a', 'o', 'at']);
-  const monthlyKeywords = new Set(['monthly', 'month', 'm', '1m', '30d']);
-  const weeklyKeywords = new Set(['weekly', 'week', 'w', '7d']);
+  // A token is CONSUMED as an option only where an option can legitimately
+  // appear — the head run or the tail run. Everything between them is the
+  // artist filter, whatever it is spelled like, and a token the keyword
+  // cascade rejects (a second month, a second year) falls back into it rather
+  // than being deleted.
+  const consumed: boolean[] = rawTokens.map(() => false);
+  const isOptionPosition = (index: number): boolean => index < headEnd || index >= tailStart;
 
   let monthFound: number | null = null;
   let yearFound: number | null = null;
 
-  for (const token of rawTokens) {
-    const lower = token.toLowerCase();
+  for (let index = 0; index < rawTokens.length; index++) {
+    if (!isOptionPosition(index)) continue;
 
-    if (playKeywords.has(lower)) {
+    const token = rawTokens[index]!;
+    const kind = kinds[index]!;
+
+    if (kind === 'play') {
       orderType = OrderType.Playcount;
+      consumed[index] = true;
       continue;
     }
-    if (listenerKeywords.has(lower)) {
+    if (kind === 'listener') {
       orderType = OrderType.Listeners;
+      consumed[index] = true;
       continue;
     }
 
-    if (allTimeKeywords.has(lower)) {
+    if (kind === 'alltime') {
       chartTimePeriod = 'alltime';
       timeDescription = 'all-time';
       amountOfDays = 0;
@@ -115,10 +226,11 @@ export function parseGuildRankingSettings(
       billboardStartDateTime = null;
       billboardEndDateTime = null;
       billboardTimeDescription = null;
+      consumed[index] = true;
       continue;
     }
 
-    if (monthlyKeywords.has(lower)) {
+    if (kind === 'monthly') {
       chartTimePeriod = 'monthly';
       timeDescription = 'monthly';
       amountOfDays = 30;
@@ -127,10 +239,11 @@ export function parseGuildRankingSettings(
       billboardStartDateTime = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
       billboardEndDateTime = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       billboardTimeDescription = 'last month';
+      consumed[index] = true;
       continue;
     }
 
-    if (weeklyKeywords.has(lower)) {
+    if (kind === 'weekly') {
       chartTimePeriod = 'weekly';
       timeDescription = 'weekly';
       amountOfDays = 7;
@@ -139,22 +252,27 @@ export function parseGuildRankingSettings(
       billboardStartDateTime = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
       billboardEndDateTime = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       billboardTimeDescription = 'last week';
+      consumed[index] = true;
       continue;
     }
 
-    if (MONTH_NAMES[lower] !== undefined && monthFound === null) {
-      monthFound = MONTH_NAMES[lower]!;
+    if (kind === 'month' && monthFound === null) {
+      monthFound = MONTH_NAMES[token.toLowerCase()]!;
+      consumed[index] = true;
       continue;
     }
 
-    const yr = parseInt(token, 10);
-    if (!isNaN(yr) && yr >= 1970 && yr <= 2100 && yearFound === null) {
-      yearFound = yr;
+    // A SECOND month or year is not an option, and it is not a deletion
+    // either: it falls through to the name, which is what the loop it replaced
+    // did.
+    if (kind === 'year' && yearFound === null) {
+      yearFound = Number.parseInt(token, 10);
+      consumed[index] = true;
       continue;
     }
-
-    remainingTokens.push(token);
   }
+
+  const remainingTokens = rawTokens.filter((_, index) => !consumed[index]);
 
   // Handle month/year customization
   if (monthFound !== null || yearFound !== null) {

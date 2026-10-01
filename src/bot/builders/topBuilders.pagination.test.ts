@@ -27,31 +27,31 @@ import type { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
  * `TopBuilders` — the three top-list cards, their page arithmetic, and the
  * cover ladder that decides what a mosaic is made of.
  *
- * THE PAGINATION DEFECT THIS FILE EXISTS TO DOCUMENT
- * -------------------------------------------------
+ * THE PAGINATION BOUNDS, AND WHY THEY ARE IN THE BUILDER
+ * ------------------------------------------------------
  * `buildTopArtistsResponse` / `buildTopAlbumsResponse` / `buildTopTracksResponse`
- * compute `totalPages` and then slice with the RAW `page`:
+ * used to compute `totalPages` and then slice with the RAW `page`:
  *
  *     const totalPages = Math.max(1, Math.ceil(items.length / perPage));
  *     const slice = items.slice(page * perPage, (page + 1) * perPage);
  *     ... .setFooter({ text: `Page ${page + 1}/${totalPages} - ...` })
  *
- * No clamp. `buildManageFriendsResponse` and the three builders fixed earlier
- * this session all clamp (`safePage = max(0, min(page, totalPages - 1))`); these
- * three do not, so an out-of-range index renders an EMPTY card whose footer
- * still claims the page it was asked for - "No artists found." under
- * "Page 5/2 - 10 different artists", and a paginator row with first/previous
- * both LIVE on page -1.
+ * so an out-of-range index rendered an EMPTY card whose footer still claimed the
+ * page it was asked for - "No artists found." under "Page 10/3", and a paginator
+ * row with first/previous both LIVE on page -1. `buildManageFriendsResponse`,
+ * `overviewBuilders`, `artistBuilders` and `artistTrackBuilders` all clamp
+ * (`safePage = max(0, min(page, totalPages - 1))`); these three now do too.
  *
  * Every production caller currently clamps before calling - `topInteractions.ts`
  * does `Math.min(targetPage, Math.max(0, ceil(len/10) - 1))` for all six sites,
- * and the two command modules pass a literal `0` - so it is LATENT, not live.
- * That is exactly the shape football had: a rung nobody reaches with a bad
- * argument, sitting one careless call site away from a card that lies.
+ * and the two command modules pass a literal `0` - so the defect was LATENT, not
+ * live. That is exactly the shape football had: a rung nobody reaches with a bad
+ * argument, sitting one careless call site away from a card that lies. "The
+ * caller clamps" is the argument that was wrong everywhere else, and it is not
+ * an argument.
  *
- * No test here asserts the unclamped output. What is pinned is the arithmetic
- * that must hold for every page index, expressed so that the clamp is what makes
- * it true, plus the honest-empty and the real-zero directions on the footer.
+ * Both ends of the clamp are pinned, because a clamp is asymmetric: it is easy
+ * to write and easy to break on one side only.
  *
  * THE COVER LADDER
  * ----------------
@@ -137,9 +137,9 @@ describe('TopBuilders: the footer is a claim about how many pages exist', () => 
   });
 
   it('uses the noun the list actually holds', async () => {
-    expect(footer(await artistCard(many(artist, 1)))).toContain('different artists');
-    expect(footer(await albumCard(many(album, 1)))).toContain('different albums');
-    expect(footer(await trackCard(many(track, 1)))).toContain('different tracks');
+    expect(footer(await artistCard(many(artist, 1)))).toContain('different artist');
+    expect(footer(await albumCard(many(album, 1)))).toContain('different album');
+    expect(footer(await trackCard(many(track, 1)))).toContain('different track');
   });
 
   it('renders an empty list as one page of one, never zero pages', async () => {
@@ -158,18 +158,31 @@ describe('TopBuilders: the footer is a claim about how many pages exist', () => 
     }
   });
 
-  it('leaves the JUMP button live on a one-page list, which `whoKnowsBuilders` does not', async () => {
-    // `whoKnowsBuilders` sets `isDisabled(isOnePage)` on its jump button, with a
-    // comment saying "a live jump button on a one-page card is a control that
-    // can only do harm". `buildPaginatorRow` never disables jump. The modal it
-    // opens is bounded at 1-31 and the handler clamps, so pressing it is merely
-    // useless rather than wrong - but the two builders disagree, and the
-    // disagreement is recorded here rather than papered over.
+  it('disables all five buttons on a one-page list, the jump included', async () => {
+    // `whoKnowsBuilders` says why, and the two now agree: "a live jump button
+    // on a one-page card is a control that can only do harm". There is nowhere
+    // to jump, so the jump goes with the four directions.
+    //
+    // `whoKnowsBuilders.pagination.test.ts` pins the same five ids all-disabled
+    // on its own one-page card, so the rule is one rule and not two.
+    const row = paginator(await artistCard(many(artist, 3)));
+    expect([...row.entries()].filter(([, b]) => b.disabled).map(([id]) => id)).toEqual([
+      'topartists:first:0:moha:Weekly',
+      'topartists:prev:0:moha:Weekly',
+      'topartists:next:0:moha:Weekly',
+      'topartists:last:0:moha:Weekly',
+      'topartists:jump:0:moha:Weekly',
+    ]);
+  });
+
+  it('leaves the JUMP button live once there IS somewhere to jump', async () => {
+    // The other direction. Disabling jump on a one-page card must not have
+    // disabled it everywhere.
     //
     // The button's `disabled` is ABSENT from the serialised JSON when false, so
     // this asserts the button exists and is not disabled, rather than on a
     // literal `false` that a missing key would also satisfy.
-    const row = paginator(await artistCard(many(artist, 3)));
+    const row = paginator(await artistCard(many(artist, 25)));
     const jump = row.get('topartists:jump:0:moha:Weekly');
     expect(jump).toBeDefined();
     expect(jump?.disabled).toBeFalsy();
@@ -210,32 +223,48 @@ describe('TopBuilders: the footer is a claim about how many pages exist', () => 
   });
 });
 
-describe('TopBuilders: page bounds are the caller\'s job today, and the builder does not help', () => {
+describe('TopBuilders: the builder clamps the page itself, from both ends', () => {
   /*
-   * These four are the evidence for the finding above, stated as facts about the
-   * CURRENT code so the clamp can be added with a test that then flips. Read
-   * them as a specification of the defect, not as desired behaviour.
+   * These four are the invariant, stated as what must be true for every index
+   * however the caller got it. Before the clamp they asserted the opposite —
+   * `page: 9` on a 3-page list rendering "No artists found." under "Page 10/3" —
+   * which pinned the defect and made the fix look like a regression.
    */
-  it('an index past the end renders an empty card whose footer still claims the page', async () => {
+  it('clamps an index past the end to the last page, and says so', async () => {
+    // THE invariant. `slice(9*10, 10*10)` on a 25-item list is empty, and the
+    // naive rendering is "No artists found." under "Page 10/3 - 25 different
+    // artists" — a card that contradicts itself about what it has.
     const response = await artistCard(many(artist, 25), 9);
-    expect(description(response)).toBe('No artists found.');
-    // The lie: the card says page 5 of 2 and names all 25 artists.
-    expect(footer(response)).toContain('Page 10/3');
+
+    expect(description(response)).toContain('Artist 20');
+    expect(description(response)).not.toContain('No artists found.');
+    expect(footer(response)).toContain('Page 3/3');
+    expect(footer(response)).not.toContain('Page 10/3');
   });
 
-  it('a negative index renders an empty card numbered from zero', async () => {
+  it('clamps a negative index to the first page, and says so', async () => {
     const response = await artistCard(many(artist, 25), -1);
-    expect(description(response)).toBe('No artists found.');
-    expect(footer(response)).toContain('Page 0/3');
+
+    expect(description(response)).toContain('Artist 0');
+    expect(description(response)).not.toContain('No artists found.');
+    expect(footer(response)).toContain('Page 1/3');
+    expect(footer(response)).not.toContain('Page 0/3');
   });
 
-  it('leaves both directions live on a negative page, because neither bound is crossed', async () => {
-    // page === 0 is false, so `disabled` is false on first and previous; and
-    // page >= totalPages - 1 is false, so it is false on next and last too. A
-    // control that can only navigate further into nothing.
-    const row = paginator(await artistCard(many(artist, 25), -1));
-    for (const id of ['topartists:first:-1:moha:Weekly', 'topartists:prev:-1:moha:Weekly']) {
-      expect(row.get(id)?.disabled).toBe(false);
+  it('never leaves a live button pointing at a page outside the list', async () => {
+    // On a negative page the naive row had `page === 0` false, so first and
+    // previous were LIVE, and `page >= totalPages - 1` false, so next and last
+    // were live too: a control set that can only navigate further into nothing.
+    // The customId carries the page, so the clamp is visible in the ids.
+    for (const page of [-4, -1, 0, 1, 2, 9, 42]) {
+      const row = paginator(await artistCard(many(artist, 25), page));
+      const live = [...row.entries()]
+        .filter(([, b]) => b.disabled !== true)
+        .map(([id]) => Number(id.split(':')[2]));
+      for (const target of live) {
+        expect(target, `page ${page}`).toBeGreaterThanOrEqual(0);
+        expect(target, `page ${page}`).toBeLessThan(3);
+      }
     }
   });
 
@@ -243,6 +272,28 @@ describe('TopBuilders: page bounds are the caller\'s job today, and the builder 
     const response = await artistCard(many(artist, 25), 1);
     expect(description(response)).toContain('Artist 10');
     expect(description(response)).not.toContain('No artists found.');
+  });
+
+  it('clamps the album and track cards the same way, not just the artist one', async () => {
+    // Three copies of the same three lines, and a fix applied to only the first
+    // would leave two cards lying. Asserted per builder, not in a loop over a
+    // shared helper, so a failure names which one regressed.
+    const albums = await albumCard(many(album, 25), 9);
+    expect(description(albums)).toContain('Album 20');
+    expect(footer(albums)).toContain('Page 3/3');
+
+    const tracks = await trackCard(many(track, 25), -1);
+    expect(description(tracks)).toContain('Track 0');
+    expect(footer(tracks)).toContain('Page 1/3');
+  });
+
+  it('clamps to page one for an empty list, where there is no last page to fall to', async () => {
+    // `totalPages` is `Math.max(1, ...)` so `totalPages - 1` is 0 and the clamp
+    // cannot go below it. Without that, `Math.min(9, -1)` would be -1 and the
+    // footer would read "Page 0/1".
+    for (const page of [-3, 0, 7]) {
+      expect(footer(await artistCard([], page))).toMatch(/Page 1\/1/);
+    }
   });
 });
 

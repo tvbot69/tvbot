@@ -7,25 +7,26 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
  * flow) plus the duration derivation they send alongside the audio.
  *
  * No real ffmpeg, no real Discord, no real audio. The probe layer is behind
- * `get-audio-duration` and the file reads are behind `fs/promises`, so both are
- * faked and every assertion is about WHAT THE SERVICE HANDS TO DISCORD — the
- * payload, the flags, the duration it claims, and the waveform it does NOT
- * claim.
+ * `get-audio-duration`, the file reads are behind `fs/promises` and the
+ * waveform decode is behind `buildVoiceWaveform`, so all three are faked and
+ * every assertion is about WHAT THE SERVICE HANDS TO DISCORD — the payload,
+ * the flags, the duration it claims, and the waveform it derived.
  *
- * The claim that matters most is the last one: this service cannot report a
- * waveform it could not produce, because it never produces one. See the
- * `the waveform it does not send` describe.
+ * The claim that matters most is the last one: the waveform in the payload is
+ * the one the decoder returned for the file being sent, and no send path
+ * invents one. See the `the waveform it measures` describe.
  */
 
 const { getAudioDurationInSeconds } = vi.hoisted(() => ({
   getAudioDurationInSeconds: vi.fn(async (..._args: unknown[]): Promise<number> => 12.5),
 }));
 
-const { readFile, stat, existsSync, ffprobePath, logger } = vi.hoisted(() => ({
+const { readFile, stat, existsSync, ffprobePath, buildVoiceWaveform, logger } = vi.hoisted(() => ({
   readFile: vi.fn(async (..._args: unknown[]): Promise<Buffer> => Buffer.from('ogg-bytes')),
   stat: vi.fn(async (..._args: unknown[]): Promise<{ size: number }> => ({ size: 4096 })),
   existsSync: vi.fn((..._args: unknown[]): boolean => false),
   ffprobePath: vi.fn((..._args: unknown[]): string | undefined => '/configured/ffprobe'),
+  buildVoiceWaveform: vi.fn(async (..._args: unknown[]): Promise<string> => 'bWVhc3VyZWQ='),
   logger: {
     debug: vi.fn((..._args: unknown[]) => undefined),
     info: vi.fn((..._args: unknown[]) => undefined),
@@ -39,6 +40,10 @@ vi.mock('fs/promises', () => ({ default: { readFile, stat } }));
 vi.mock('fs', () => ({ default: { existsSync } }));
 vi.mock('@config/runtimeEnv', () => ({ ffprobePath }));
 vi.mock('@domain/logger', () => ({ Logger: logger }));
+// Only the decoder is doubled. The waveform ENCODER is pure and is tested
+// against real signals in voiceWaveform.test.ts, so there is no reason to
+// pretend the bytes here came from a decoder that never ran.
+vi.mock('./audioSignalService', () => ({ buildVoiceWaveform }));
 
 /** Fresh module per test, so the fs/runtimeEnv mocks attach to the instance
  *  under test rather than to a module graph cached by an earlier file. */
@@ -131,6 +136,10 @@ const forbidRandom = (): void => {
   };
 };
 
+/** A waveform a real decode would produce, distinct per call so a test can tell
+ *  two decodes apart. 200 datapoints is a 20s preview. */
+const decode = (tag: string): string => Buffer.alloc(200, tag.charCodeAt(0)).toString('base64');
+
 beforeEach(() => {
   vi.clearAllMocks();
   getAudioDurationInSeconds.mockResolvedValue(12.5);
@@ -138,6 +147,7 @@ beforeEach(() => {
   stat.mockResolvedValue({ size: 4096 });
   existsSync.mockReturnValue(false);
   ffprobePath.mockReturnValue('/configured/ffprobe');
+  buildVoiceWaveform.mockImplementation(async () => decode('a'));
 });
 
 afterEach(() => {
@@ -312,8 +322,9 @@ describe('VoiceMessageService.sendViaChannel — the three-step attachment flow'
     expect((f.init(1).headers as Record<string, string>)['Content-Type']).toBe('audio/ogg');
   });
 
-  it('the final message carries flags 8192, the measured duration, and no waveform', async () => {
+  it('the final message carries flags 8192, the measured duration, and the measured waveform', async () => {
     getAudioDurationInSeconds.mockResolvedValue(18.25);
+    buildVoiceWaveform.mockImplementation(async () => decode('w'));
     const f = installFetch(happyRoutes());
     const { VoiceMessageService } = await load();
 
@@ -325,10 +336,12 @@ describe('VoiceMessageService.sendViaChannel — the three-step attachment flow'
     expect(att.uploaded_filename).toBe('42_voice.ogg');
     // The message references the upload slot by the same id the slot used.
     expect(att.id).toBe('0');
-    // Flagged as a voice message, so Discord WILL draw a bar — a flat one,
-    // because nothing here knows the audio's shape. Saying so beats sending a
-    // random 100-byte array that looks measured.
-    expect(att).not.toHaveProperty('waveform');
+    // Discord refuses the whole message with 400/50161 ("Voice messages must
+    // have supporting metadata") when this field is absent. Verified against
+    // the live API, not inferred: the same payload without it was refused,
+    // and with it returned 200.
+    expect(att.waveform).toBe(decode('w'));
+    expect(Buffer.from(String(att.waveform), 'base64')).toHaveLength(200);
   });
 
   it('a reply target becomes a message_reference, and its absence leaves the key out', async () => {
@@ -438,17 +451,24 @@ describe('VoiceMessageService — where the ffprobe binary comes from', () => {
   });
 });
 
-describe('VoiceMessageService — the waveform it does NOT send', () => {
+describe('VoiceMessageService — the waveform it measures', () => {
   /**
-   * The service never decodes the audio, so it cannot report a waveform. It
-   * used to fill 100 bytes with `Math.floor(20 + Math.random() * 130)` and send
-   * that under flag 8192 — a rendered value that looked measured and was not: a
-   * loud passage and a silent one drew identically, and the drawing changed on
-   * every send. That is exactly the "plausible falsehood" the bar forbids.
+   * Discord REQUIRES this field. `flags: 8192` + a real Opus OGG +
+   * `duration_secs`, and no `waveform`, comes back `400 Voice messages must
+   * have supporting metadata` (code 50161) from the live API. The payload that
+   * omitted it did not render a flat bar; it did not send.
    *
-   * The honest payload omits the field; Discord then draws a flat bar. So the
-   * assertions below are about ABSENCE, locked from both sides: the key is not
-   * in the payload, and no send path can call `Math.random` at all.
+   * It used to send 100 bytes of `Math.floor(20 + Math.random() * 130)`, which
+   * was deleted because a loud passage and a silent one drew identically and
+   * the drawing changed on every send. The field was then left out entirely on
+   * the grounds that omitting it was honest — and that shipped a preview
+   * button that 400s on every press. Honest and broken are not the same thing.
+   *
+   * So the waveform is now MEASURED: `buildVoiceWaveform` decodes the same
+   * file being uploaded and returns its real envelope. The assertions below
+   * lock in that it is the decoder's output for THIS file (not a constant),
+   * that it is deterministic, and that no send path can draw one — from
+   * either end, by asserting the payload and by making `Math.random` throw.
    */
 
   /** One channel send, returning the attachment actually posted. */
@@ -469,27 +489,78 @@ describe('VoiceMessageService — the waveform it does NOT send', () => {
     return f.hookAttachment(0);
   };
 
-  it('the channel path posts no waveform field at all', async () => {
+  it('the channel path sends the waveform the decoder produced for that file', async () => {
+    buildVoiceWaveform.mockImplementation(async () => decode('c'));
     const att = await sendViaChannelOnce('/tmp/v.ogg');
-    expect(att).not.toHaveProperty('waveform');
-    // The field that IS honest survives, so this is a deletion and not a gutted
-    // attachment.
+    expect(att.waveform).toBe(decode('c'));
+    // The honest fields survive alongside it, so this is an addition and not a
+    // replacement of everything measured with something drawn.
     expect(att.duration_secs).toBe(12.5);
     expect(att.uploaded_filename).toBe('42_voice.ogg');
   });
 
-  it('the webhook path posts no waveform field either', async () => {
+  it('the webhook path sends one too, because Discord refuses it there as well', async () => {
+    buildVoiceWaveform.mockImplementation(async () => decode('h'));
     const att = await sendViaWebhookOnce('/tmp/v.ogg');
-    expect(att).not.toHaveProperty('waveform');
+    expect(att.waveform).toBe(decode('h'));
     expect(att.duration_secs).toBe(12.5);
     expect(att.filename).toBe('voice-message.ogg');
+  });
+
+  it('the decoder is asked about the exact file being uploaded', async () => {
+    await sendViaChannelOnce('/tmp/nested/dir/voice clip.ogg');
+    expect(buildVoiceWaveform).toHaveBeenCalledTimes(1);
+    expect(buildVoiceWaveform).toHaveBeenCalledWith('/tmp/nested/dir/voice clip.ogg');
+  });
+
+  it('a file that cannot be decoded fails the send instead of posting a drawn waveform', async () => {
+    // The honest shape of this failure. There is no valid voice message
+    // without the field, so a decode failure must surface as a refused
+    // preview rather than be papered over.
+    buildVoiceWaveform.mockRejectedValue(new Error('ffmpeg exited with code 1'));
+    const f = installFetch(happyRoutes());
+    const { VoiceMessageService } = await load();
+
+    await expect(new VoiceMessageService().sendViaChannel('chan-1', '/tmp/v.ogg', 'bot-token'))
+      .rejects.toThrow(/ffmpeg exited with code 1/);
+    // The message-create leg must not be reached: nothing was posted.
+    expect(f.count()).toBe(0);
+  });
+
+  it('the channel path decodes BEFORE asking Discord for an upload slot', async () => {
+    // Ordering is the cheap version of the test above: two wasted round trips
+    // and a PUT of bytes no message will reference is worse than failing fast.
+    const order: string[] = [];
+    buildVoiceWaveform.mockImplementation(async () => {
+      order.push('decode');
+      return decode('o');
+    });
+    const f = installFetch([
+      { match: (u, i) => u.endsWith('/attachments') && i.method === 'POST', reply: () => {
+        order.push('slot');
+        return OK(ATTACH_OK);
+      } },
+      { match: (u) => u === 'https://cdn.discordapp.com/attachments/v2', reply: () => {
+        order.push('put');
+        return OK();
+      } },
+      { match: () => true, reply: () => {
+        order.push('message');
+        return OK({ id: 'm-1' });
+      } },
+    ]);
+    const { VoiceMessageService } = await load();
+    await new VoiceMessageService().sendViaChannel('chan-1', '/tmp/v.ogg', 'bot-token');
+    expect(order).toEqual(['decode', 'slot', 'put', 'message']);
+    expect(f.attachment(f.count() - 1).waveform).toBe(decode('o'));
   });
 
   it('neither send path can draw a waveform, because neither may call Math.random', async () => {
     // The direct form of the same claim: a fabrication attempt calls
     // `Math.random`, so with it throwing, a reintroduced generator fails the
     // send loudly instead of quietly producing plausible noise again. Both
-    // payloads still have to come out the far side.
+    // payloads still have to come out the far side, carrying what the decoder
+    // returned.
     forbidRandom();
 
     const f = installFetch([
@@ -500,10 +571,10 @@ describe('VoiceMessageService — the waveform it does NOT send', () => {
     const svc = new VoiceMessageService();
 
     await svc.sendViaWebhook('app-1', 'tok-1', '/tmp/v.ogg', 'bot-token');
-    expect(f.hookAttachment(0)).not.toHaveProperty('waveform');
+    expect(f.hookAttachment(0).waveform).toBe(decode('a'));
 
     await svc.sendViaChannel('chan-1', '/tmp/v.ogg', 'bot-token');
-    expect(f.lastJsonAttachment()).not.toHaveProperty('waveform');
+    expect(f.lastJsonAttachment().waveform).toBe(decode('a'));
   });
 
   it('the file extension cannot change the payload: there is no isAac branch left', async () => {
@@ -512,17 +583,22 @@ describe('VoiceMessageService — the waveform it does NOT send', () => {
     // gone, so an AAC preview and an Opus one describe themselves identically and
     // nothing about the extension reaches Discord. Comparing the key SETS (not
     // values) is what makes this fail if a per-format field is ever added back.
+    buildVoiceWaveform.mockImplementation(async () => decode('same'));
     const m4a = await sendViaWebhookOnce('/tmp/preview.m4a');
     const ogg = await sendViaWebhookOnce('/tmp/preview.ogg');
     expect(Object.keys(m4a).sort()).toEqual(Object.keys(ogg).sort());
-    expect(m4a).not.toHaveProperty('waveform');
+    expect(m4a).toEqual(ogg);
   });
 
   it('two sends of the same audio produce the same payload, because none of it is drawn', async () => {
     // The property the fabrication destroyed. Same file, same bytes, same
-    // answer — which is what "measured" looks like.
+    // answer — which is what "measured" looks like. Note the decoder is
+    // stubbed to return the same thing both times because a real decode of the
+    // same file is deterministic; voiceWaveform.test.ts proves that directly.
+    buildVoiceWaveform.mockImplementation(async () => decode('d'));
     const first = await sendViaChannelOnce('/tmp/v.ogg');
     const second = await sendViaChannelOnce('/tmp/v.ogg');
     expect(first).toEqual(second);
+    expect(first.waveform).toBe(decode('d'));
   });
 });

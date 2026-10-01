@@ -212,9 +212,28 @@ export class CountrySlashCommands implements ISlashCommandModule {
         return { userNameLastFm: lfm, displayName: lfm, userId: u?.userId };
       }
       const u = await this.userService.getUserByLastFmName(rawUser.trim());
-      if (u) {
-        return { userNameLastFm: u.userNameLastFm, displayName: u.userNameLastFm, userId: u.userId };
+      if (!u) {
+        // A BARE NAME is not a public Last.fm account the way `lfm:` is — this
+        // branch looks the name up in our own tables, so a miss means the
+        // person has not registered with the bot. Falling through to the caller
+        // here made `/country top user:Stranger` answer with the CALLER's top
+        // countries, headed with the CALLER's own display name and every number
+        // in it true: an answer to a completely different question, with no
+        // indication the named person had been dropped.
+        //
+        // `intelligenceSlashCommands.resolveTarget` refuses the identical case
+        // in the identical shape, and the `lfm:` prefix below is the escape
+        // hatch for an account that exists on Last.fm but has not linked here —
+        // which is why the refusal names it instead of reading as "no such
+        // person".
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `**${rawUser.trim()}** has not connected their Last.fm account with the bot. ` +
+            `They can do that with \`/register\`. If you meant a Last.fm account that has not registered here, ` +
+            `use \`user:lfm:${rawUser.trim()}\` instead.`,
+        );
       }
+      return { userNameLastFm: u.userNameLastFm, displayName: u.userNameLastFm, userId: u.userId };
     }
 
     const caller = await this.userService.getUserByDiscordId(context.discordUserId);

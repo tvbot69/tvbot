@@ -438,24 +438,83 @@ describe('cleanSearchQuery — the cruft stripper the search is built on', () =>
     expect(s.cleanSearchQuery('Airbag feat. Someone', 'Radiohead').cleanTitle).toBe('Airbag');
   });
 
-  /**
-   * PINS THE CURRENT BEHAVIOUR, WHICH IS WRONG.
-   *
-   * A feature credit inside brackets leaves a DANGLING `(`: the bracketed-noise
-   * regex needs one of its noise words, `feat.` is not in that list, and the
-   * feature regex then strips `feat. Someone` without touching the `(`. The
-   * search is issued for `Airbag (` — a title no provider has — so a bracketed
-   * feature credit is a guaranteed miss.
-   *
-   * Reported, not fixed: `lyricsService.ts` is production code and this agent
-   * writes tests. The fix is to add `feat\.` to the noise-word alternation, or
-   * to drop stray `(`/`[` after the feature strip.
-   */
-  it('leaves a DANGLING "(" when the feature credit is inside brackets — the query is then unmatchable', () => {
+  it('strips a bracketed feature credit WHOLE, so no dangling "(" survives into the query', () => {
+    // `feat.` was missing from the bracketed-noise list, so `(feat. Someone)`
+    // matched nothing there. The bare-feature strip then ran and removed
+    // everything from `feat.` to the end of the string — closer and all — and
+    // left the opener behind, so the search went out for `Radiohead Airbag (`,
+    // a title no provider has. The bracket and its contents are one unit.
     const res = s.cleanSearchQuery('Airbag (feat. Someone)', 'Radiohead');
-    expect(res.cleanTitle).toBe('Airbag (');
+    expect(res.cleanTitle).toBe('Airbag');
     // Stated as the consequence, because that is what the user experiences.
-    expect(s.cleanSearchQuery(res.cleanTitle, res.cleanArtist).combined).toBe('Radiohead Airbag (');
+    expect(res.combined).toBe('Radiohead Airbag');
+  });
+
+  it('strips every credit word in brackets, not just the "feat." spelling', () => {
+    // The three spellings are one rule. Fixing only `feat.` would leave
+    // `(ft. X)` and `(featuring X)` producing the same unmatchable query.
+    for (const title of ['Airbag (feat. Someone)', 'Airbag (ft. Someone)', 'Airbag (featuring Someone)', 'Airbag [feat. Someone]']) {
+      expect(s.cleanSearchQuery(title, 'Radiohead').cleanTitle).toBe('Airbag');
+    }
+  });
+
+  it('a credit and a bracketed noise tag together still leave a clean title', () => {
+    // Both strips have to survive each other, in either order. The bare
+    // credit comes first in one and second in another, and the bracketed credit
+    // is removed by the SAME global pass as the noise tag beside it — which is
+    // why this is a `g` regex and not a single-tag strip.
+    expect(s.cleanSearchQuery('Creepin ft. 21 Savage (Remastered 4K)', 'Metro Boomin').cleanTitle).toBe('Creepin');
+    expect(s.cleanSearchQuery('Airbag (Official Video) feat. Someone', 'Radiohead').cleanTitle).toBe('Airbag');
+    expect(s.cleanSearchQuery('Airbag (Official Video) (feat. Someone)', 'Radiohead').cleanTitle).toBe('Airbag');
+  });
+
+  it('removes the CREDIT bracket only, leaving a qualifier that follows it intact', () => {
+    // This is the test that says WHERE the credit is removed. Scrubbing a
+    // dangling trailing bracket instead gives `Airbag` here, which silently
+    // throws away `(Remix)` — a different recording, and one whose words are
+    // not the original's. A credit is noise; a remix qualifier is the name.
+    expect(s.cleanSearchQuery('Airbag (feat. Someone) (Remix)', 'Radiohead').cleanTitle).toBe('Airbag (Remix)');
+    expect(s.cleanSearchQuery('Airbag (feat. Someone) (Live)', 'Radiohead').cleanTitle).toBe('Airbag (Live)');
+  });
+
+  it('removes an UNMATCHED trailing bracket left by a truncated upload title', () => {
+    // YouTube truncates titles at 100 characters, which routinely cuts the
+    // closer off: `Creepin (feat. 21 Savage`. Neither strip can consume a
+    // bracket with no end, so the feature strip leaves `Creepin (` — the same
+    // guaranteed miss, from a shape that also occurs in the wild.
+    expect(s.cleanSearchQuery('Creepin (feat. 21 Savage', 'Metro Boomin').cleanTitle).toBe('Creepin');
+    expect(s.cleanSearchQuery('Airbag [ft. Someone', 'Radiohead').cleanTitle).toBe('Airbag');
+  });
+
+  it('keeps a bracket that GENUINELY closes the title, because that is part of the name', () => {
+    // The counterpart of the case above. A cleaner that deletes any trailing
+    // bracket group mangles a real title, which is as bad as one that leaves
+    // noise: `Exit Music (For a Film)` is not `Exit Music`.
+    expect(s.cleanSearchQuery('Exit Music (For a Film)', 'Radiohead').cleanTitle).toBe('Exit Music (For a Film)');
+    expect(s.cleanSearchQuery('Sparks (2017)', 'Coldplay').cleanTitle).toBe('Sparks (2017)');
+    // A remix is a different recording, often with different words — the
+    // qualifier stays in the query, like `(Live)` or `(Acoustic)` would.
+    expect(s.cleanSearchQuery('Airbag (Remix)', 'Radiohead').cleanTitle).toBe('Airbag (Remix)');
+  });
+
+  it('never ends a cleaned title on an unmatched bracket, for any of those shapes', () => {
+    const titles = [
+      'Airbag',
+      'Airbag (feat. Someone)',
+      'Airbag (ft. Someone)',
+      'Airbag (featuring Someone)',
+      'Airbag (feat. Someone',
+      'Airbag [Remastered 2016]',
+      'Airbag (Remastered)',
+      'Airbag (Official Video)',
+      'Airbag feat. Someone',
+      'Airbag (Remix)',
+      'Exit Music (For a Film)',
+      'Sparks (2017)',
+    ];
+    for (const title of titles) {
+      expect(s.cleanSearchQuery(title, 'Radiohead').cleanTitle).not.toMatch(/[([]$/);
+    }
   });
 
   it('treats a title with regex metacharacters in the artist as literal, not as a pattern', () => {

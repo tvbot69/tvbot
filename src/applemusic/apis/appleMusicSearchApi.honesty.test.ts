@@ -75,16 +75,6 @@ describe('AppleMusicSearchApi: the request it builds', () => {
     expect(url.searchParams.get('limit')).toBe('5');
   });
 
-  it('asks for a musicArtist search, not a plain artist one', async () => {
-    // iTunes has two artist entities; `artist` returns albums, `musicArtist`
-    // returns people. The wrong one silently changes what the card means.
-    await call(() => new AppleMusicSearchApi().searchArtists('Radiohead'));
-
-    const url = new URL(String(fetchMock.mock.calls[0]![0]));
-    expect(url.searchParams.get('entity')).toBe('musicArtist');
-    expect(url.searchParams.get('term')).toBe('Radiohead');
-  });
-
   it('asks for a song search', async () => {
     await call(() => new AppleMusicSearchApi().searchSongs('Creep'));
     expect(new URL(String(fetchMock.mock.calls[0]![0])).searchParams.get('entity')).toBe('song');
@@ -167,12 +157,11 @@ describe('AppleMusicSearchApi: what a failed read must not become', () => {
     await expect(new AppleMusicSearchApi().searchSongs('Creep')).rejects.toThrow(/404/);
   });
 
-  it('raises for every entity type, not only albums', async () => {
+  it('raises for a song search too, not only albums', async () => {
     fetchMock.mockResolvedValue(errorResponse(500));
 
     const api = new AppleMusicSearchApi();
     await expect(api.searchAlbums('a')).rejects.toThrow('iTunes HTTP 500');
-    await expect(api.searchArtists('a')).rejects.toThrow('iTunes HTTP 500');
     await expect(api.searchSongs('a')).rejects.toThrow('iTunes HTTP 500');
   });
 

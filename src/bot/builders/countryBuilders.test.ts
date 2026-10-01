@@ -1,8 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
+import { ComponentType } from 'discord.js';
 import { CountryBuilders } from './countryBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { CountryChartTheme } from '@images/generators/worldMapGenerator';
+import type { WhoKnowsCountryItem } from '@bot/services/countryService';
 
 describe('CountryBuilders', () => {
   describe('buildTopCountriesResponse', () => {
@@ -182,6 +184,80 @@ describe('CountryBuilders', () => {
       expect(response.commandResponse).toBe(CommandResponse.Ok);
       expect(response.isComponentsV2).toBe(true);
       expect(response.componentsV2Container).toBeDefined();
+    });
+
+    /*
+     * The footer is the only place the card counts people, and it counted them
+     * with a hardcoded plural: a guild with exactly one listener was told
+     * "1 listeners". `whoKnowsBuilders` gets this right on the same quantity
+     * ("1 listener - 263 plays" against "2 listeners - 273 plays"), and the
+     * per-row playcount two lines above this footer already made the
+     * singular/plural decision - so the card contradicted itself about the same
+     * list. Asserted from both ends, because the two directions are opposites
+     * and a fix that broke the plural would be a new bug of its own.
+     */
+    describe('the listener count in the footer', () => {
+      interface Cv2Component {
+        type: number;
+        content?: string;
+      }
+
+      /** The serialised tree. Serialising is part of what is under test. */
+      const texts = (response: ReturnType<typeof CountryBuilders.buildWhoKnowsCountryResponse>): string[] => {
+        const json = response.componentsV2Container?.toJSON() as
+          | { components?: Cv2Component[] }
+          | undefined;
+        return (json?.components ?? [])
+          .filter((c) => c.type === ComponentType.TextDisplay)
+          .map((c) => c.content ?? '');
+      };
+
+      const footer = (rows: WhoKnowsCountryItem[]) =>
+        texts(
+          CountryBuilders.buildWhoKnowsCountryResponse({
+            country: { Name: 'Iceland', Code: 'IS', Emoji: '🇮🇸' },
+            serverName: 'Music Hub',
+            items: rows,
+            pageIndex: 0,
+            cacheKey: 'wkc_is',
+            callerDiscordUserId: '555',
+          }),
+        ).slice(-1)[0] ?? '';
+
+      const listener = (i: number, playcount = 10): WhoKnowsCountryItem => ({
+        userId: i,
+        discordUserId: `100${i}`,
+        userNameLastFm: `user_${i}`,
+        playcount,
+      });
+
+      it('says "1 listener" for a guild with exactly one', () => {
+        expect(footer([listener(1)])).toContain('1 listener ·');
+        expect(footer([listener(1)])).not.toContain('1 listeners');
+      });
+
+      it('still says "listeners" for two or more', () => {
+        expect(footer([listener(1), listener(2)])).toContain('2 listeners ·');
+      });
+
+      it('pluralises the singular for the row too, so the card agrees with itself', () => {
+        // The row label is decided two lines above the footer and was already
+        // correct; asserting both together is what stops them drifting again.
+        expect(texts(
+          CountryBuilders.buildWhoKnowsCountryResponse({
+            country: { Name: 'Iceland', Code: 'IS', Emoji: '🇮🇸' },
+            serverName: 'Music Hub',
+            items: [listener(1, 1)],
+            pageIndex: 0,
+            cacheKey: 'wkc_is',
+            callerDiscordUserId: '555',
+          }),
+        ).join('\n')).toContain('1 play*');
+      });
+
+      it('says the scrobble total beside it, which was never the broken half', () => {
+        expect(footer([listener(1), listener(2)])).toContain('20 total scrobbles');
+      });
     });
   });
 
