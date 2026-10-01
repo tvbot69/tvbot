@@ -7,7 +7,7 @@ import { healthFor, YoutubeHealth } from '@bot/services/music/youtubeHealth';
 import { isLiveVideo } from '@bot/services/music/videoChapters';
 import type { QueueService } from '@bot/services/music/queueService';
 import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
-import type { ColorService } from '@bot/services/colorService';
+import type { ColorService } from '@bot/services/system/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import { chapterKeyFor, clientFailuresText, fingerprintFor } from './cardFingerprint';

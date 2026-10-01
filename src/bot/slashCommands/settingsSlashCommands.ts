@@ -9,9 +9,9 @@ import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { buildSettingsPage } from '@bot/interactions/settingsInteractions';
 import { UserSettingsBuilders } from '@bot/builders/userSettingsBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { PrefixService } from '@bot/services/prefixService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { UserService } from '@bot/services/userService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 

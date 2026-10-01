@@ -6,7 +6,7 @@ import {
 } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
 import { UserService } from '@bot/services/userService';
-import { FmSettingService } from '@bot/services/fmSettingService';
+import { FmSettingService } from '@bot/services/system/fmSettingService';
 import { UserSettingsBuilders } from '@bot/builders/userSettingsBuilders';
 import { PlayBuilders } from '@bot/builders/playBuilders';
 import { ContextModel } from '@bot/models/contextModel';

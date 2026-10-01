@@ -3,15 +3,15 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { SettingService } from '@bot/services/settingService';
+import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { TopBuilders } from '@bot/builders/topBuilders';
 import { resolveTopBuildersDeps } from '@bot/builders/topBuildersDeps';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { UpdateService } from '@bot/services/updateService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
 
 export class TopCommands implements ITextCommandModule {

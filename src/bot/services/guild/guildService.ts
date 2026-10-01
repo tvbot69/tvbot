@@ -1,7 +1,7 @@
 import type { Guild as DiscordGuild } from 'discord.js';
 import type { IGuildRepository } from '@domain/interfaces/iguildRepository';
 import type { Guild } from '@persistence/domain/models/guild';
-import { CacheService } from '../cacheService';
+import { CacheService } from '../system/cacheService';
 import { prisma } from '@persistence/prismaClient';
 
 const GUILD_CACHE_TTL_SECONDS = 300;

@@ -2,11 +2,11 @@ import { GuildMember } from 'discord.js';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { MusicService } from '@bot/services/music/musicService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 import type { FilterName, LoopMode } from '@domain/models/music/musicQueue';
 import { ALL_FILTERS } from '@domain/models/music/musicQueue';

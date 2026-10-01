@@ -9,8 +9,8 @@ import {
 } from '@bot/services/guildRankingService';
 import { ServerBuilders } from '@bot/builders/serverBuilders';
 import { storeServerRankingQuery } from '@bot/interactions/serverInteractions';
-import { ColorService } from '@bot/services/colorService';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { ColorService } from '@bot/services/system/colorService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 

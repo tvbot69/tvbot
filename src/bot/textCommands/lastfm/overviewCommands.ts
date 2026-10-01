@@ -5,13 +5,13 @@ import { UserService } from '@bot/services/userService';
 import { OverviewService } from '@bot/services/overviewService';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { OverviewBuilders } from '@bot/builders/overviewBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { UpdateService } from '@bot/services/updateService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/artworkService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 export class OverviewCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];

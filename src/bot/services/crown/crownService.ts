@@ -11,7 +11,7 @@ import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { Logger } from '@domain/logger';
-import { AbuseFilterService } from '@bot/services/abuseFilterService';
+import { AbuseFilterService } from '@bot/services/system/abuseFilterService';
 
 @injectable()
 export class CrownService {

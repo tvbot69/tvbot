@@ -1,5 +1,5 @@
 import { ConfigData } from '@bot/configurations/configData';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { Logger } from '@domain/logger';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';

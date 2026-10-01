@@ -5,7 +5,7 @@ import { UpdateType } from '@domain/enums/updateType';
 import type { Prisma, data_source, privacy_level } from '@prisma/client';
 import type { ReferencedMusic } from '@domain/models/referencedMusic';
 import { CommandDispatcher } from '@bot/handlers/commandDispatcher';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import { Logger } from '@domain/logger';

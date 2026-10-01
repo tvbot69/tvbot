@@ -2,7 +2,7 @@ import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
 import { GameService } from '@bot/services/gameService';
 import { GameBuilders } from '@bot/builders/gameBuilders';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { deferUpdateSafe } from './interactionAck';
 
 @injectable()

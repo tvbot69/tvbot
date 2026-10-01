@@ -3,15 +3,15 @@ import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/comm
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/userService';
-import { SettingService } from '@bot/services/settingService';
+import { SettingService } from '@bot/services/system/settingService';
 import { PlayHistoryService } from '@bot/services/playHistoryService';
 import { ArtistsService } from '@bot/services/artistsService';
 import { AlbumService } from '@bot/services/albumService';
 import { TrackService } from '@bot/services/trackService';
 import { ArtworkService } from '@bot/services/artworkService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { ReceiptGenerator } from '@images/generators/receiptGenerator';
 import { ReceiptBuilders } from '@bot/builders/receiptBuilders';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';

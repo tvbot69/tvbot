@@ -2,7 +2,7 @@ import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
 import { UserService } from '@bot/services/userService';
 import { ProfileService } from '@bot/services/profileService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { ProfileBuilders } from '@bot/builders/profileBuilders';
 import type { User } from '@domain/interfaces/iuserRepository';
 

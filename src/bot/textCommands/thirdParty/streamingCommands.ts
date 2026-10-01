@@ -4,12 +4,12 @@ import type { ContextModel } from '@bot/models/contextModel';
 import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import { PrefixService } from '@bot/services/prefixService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { AppleMusicService } from '@bot/services/appleMusicService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { errorMessage } from '@domain/discordErrors';
 
 @injectable()

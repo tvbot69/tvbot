@@ -4,7 +4,7 @@ import { CountryService, CountryInfo, TopCountryItem, WhoKnowsCountryItem } from
 import { CountryBuilders } from '@bot/builders/countryBuilders';
 import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
 import { UserService } from '@bot/services/userService';
-import { TtlStore } from '@bot/services/ttlStore';
+import { TtlStore } from '@bot/services/system/ttlStore';
 import { deferUpdateSafe } from './interactionAck';
 
 export type CountryInteractionType = 'top' | 'info' | 'wkc' | 'chart';

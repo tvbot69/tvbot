@@ -11,13 +11,13 @@ import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { ArtistBuilders } from '@bot/builders/artistBuilders';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { UpdateService } from '@bot/services/updateService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 import { prisma } from '@persistence/prismaClient';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { container } from 'tsyringe';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 export class ArtistSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];

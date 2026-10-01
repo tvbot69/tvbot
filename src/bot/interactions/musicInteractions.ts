@@ -9,10 +9,10 @@ import {
 import { MusicService } from '@bot/services/music/musicService';
 import { LyricsService } from '@bot/services/music/lyricsService';
 import { MusicBuilders } from '@bot/builders/musicBuilders';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import type { FilterName } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
-import { TtlStore } from '@bot/services/ttlStore';
+import { TtlStore } from '@bot/services/system/ttlStore';
 import { chapterIndexAt, resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
 import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { lyricWindowAt, type SyncedLine } from '@bot/services/music/syncedLyrics';

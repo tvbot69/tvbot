@@ -2,7 +2,7 @@ import type {
   IUserUpdateQueue,
   UserUpdateQueueItem,
 } from '@domain/interfaces/iuserUpdateQueue';
-import type { UpdateService } from '@bot/services/updateService';
+import type { UpdateService } from '@bot/services/lastfm/updateService';
 import { Logger } from '@domain/logger';
 
 export class UpdateQueueHandler {

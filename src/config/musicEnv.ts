@@ -7,7 +7,7 @@
  * fits: `configData` is a boot-time singleton whose lazy `Data` getter runs
  * `assertValidEnvironment()` and throws on a missing token, so importing it
  * from a leaf music module would make every music unit test depend on
- * developer secrets (the exact trap `src/tests/setupEnv.ts` documents).
+ * developer secrets (the exact trap `src/testSupport/setupEnv.ts` documents).
  * `lavalink.ts` owns the NODE POOL, not the playback knobs. So the eight
  * keys below live here.
  *

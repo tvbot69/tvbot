@@ -3,14 +3,14 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { AlbumBuilders } from '@bot/builders/albumBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/userService';
 import { AlbumService } from '@bot/services/albumService';
-import { UpdateService } from '@bot/services/updateService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 export class AlbumSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];

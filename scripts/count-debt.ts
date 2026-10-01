@@ -51,6 +51,19 @@ const record = (file: string, line: number, note?: string): void => {
 
 type KindFn = (program: ts.Program) => number;
 
+/**
+ * Shared test-support tree: `setupEnv.ts`, the db harness and the player
+ * doubles are not named `*.test.ts`, so `isProduction` counts them as product
+ * code. Two of the kinds below skip them explicitly, because a test helper
+ * swallowing an error so a test can assert the degraded path is legitimate.
+ *
+ * This was spelled `/src/tests/` before the tree cleanup moved the tree to
+ * `src/testSupport/`, and a stale path here is invisible: the exclusion simply
+ * stops matching, the count climbs, and the ratchet reports a regression that
+ * nobody made.
+ */
+const isTestSupport = (absPath: string): boolean => absPath.includes('/src/testSupport/');
+
 const KINDS: Record<string, KindFn> = {
   /**
    * `: any` / `<any>` / `as any` in production code.
@@ -256,7 +269,7 @@ const KINDS: Record<string, KindFn> = {
       if (!isProduction(sf)) continue;
       const p = path.resolve(sf.fileName).replace(/\\/g, '/');
       if (p.includes('/src/config/')) continue;
-      if (p.includes('/src/tests/')) continue;
+      if (isTestSupport(p)) continue;
       if (p.endsWith('/bot/configurations/envValidator.ts')) continue;
       const rel = (p.split('/src/')[1] ?? p);
       const visit = (node: ts.Node): void => {
@@ -357,12 +370,33 @@ const KINDS: Record<string, KindFn> = {
       return found;
     };
 
-    let baseline: Record<string, number> = {};
+let baseline: Record<string, number> = {};
     try {
       baseline = JSON.parse(fsmod.readFileSync('scripts/raw-query-baseline.json', 'utf8'));
     } catch {
       throw new Error(
         'cannot read scripts/raw-query-baseline.json - it records the per-file query allowance',
+      );
+    }
+
+    // A baseline key that names no file is not neutral, and this check exists
+    // because a bulk tree move produced one without anyone noticing until CI.
+    //
+    // `baseline[rel] ?? 0` means renaming a file silently drops its allowance to
+    // zero, and the ratchet then reports the file as new raw-query debt - which
+    // reads like someone wrote a `$queryRawUnsafe` when in fact nothing about the
+    // query changed. The count is right; the diagnosis is wrong, and the obvious
+    // "fix" is to edit the ratchet instead of the key.
+    //
+    // So every key is resolved against the tree, and an orphan is named out loud.
+    const orphans = Object.keys(baseline)
+      .filter((key) => !fsmod.existsSync(pathmod.join('src', key)))
+      .sort();
+    if (orphans.length) {
+      throw new Error(
+        `scripts/raw-query-baseline.json has ${orphans.length} key(s) naming no file, so their ` +
+          `allowance is silently lost and each is reported as new debt:\n  ${orphans.join('\n  ')}\n` +
+          `Rename the key to the file's current path, or delete it if the file is gone.`,
       );
     }
 
@@ -449,11 +483,11 @@ const KINDS: Record<string, KindFn> = {
       const p = path.resolve(sf.fileName).replace(/\\/g, '/');
       // `isProduction` drops `*.test.ts` and `*.spec.ts` and anything outside
       // `/src/`, which covers `scripts/`. It does NOT drop the shared test tree
-      // `src/tests/**` - `setupEnv.ts` and the player doubles are not named
+      // `src/testSupport/**` - `setupEnv.ts` and the player doubles are not named
       // `*.test.ts` - and a test helper swallowing an error so a test can
       // assert the degraded path is legitimate. Scoped here rather than in
       // `isProduction` so the other seven kinds keep their exact numbers.
-      if (p.includes('/src/tests/')) continue;
+      if (isTestSupport(p)) continue;
       const rel = p.split('/src/')[1] ?? p;
 
       const hit = (node: ts.Node, shape: string): void => {

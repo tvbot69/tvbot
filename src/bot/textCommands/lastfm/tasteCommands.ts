@@ -5,15 +5,15 @@ import { UserService } from '@bot/services/userService';
 import { TasteService } from '@bot/services/tasteService';
 import type { TasteData } from '@bot/services/tasteService';
 import { TasteBuilders } from '@bot/builders/tasteBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
-import { UpdateService } from '@bot/services/updateService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/artworkService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 export class TasteCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];

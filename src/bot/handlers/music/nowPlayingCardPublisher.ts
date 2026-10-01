@@ -41,7 +41,7 @@ export interface CardPublisherHost {
   readonly client: Client;
   readonly queueService: import('@bot/services/music/queueService').QueueService;
   /** Read live, never captured: tests reassign it after construction. */
-  readonly colorService?: import('@bot/services/colorService').ColorService;
+  readonly colorService?: import('@bot/services/system/colorService').ColorService;
   lyricWindowFor(player: Player, positionMs: number): LyricWindow | null;
   chapterCardFor(player: Player, positionMs: number): { title: string; artworkUrl?: string | null } | null;
   updateChapterStatus(player: Player): void;

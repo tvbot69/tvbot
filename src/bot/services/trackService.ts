@@ -6,7 +6,7 @@ import type { User } from '@domain/interfaces/iuserRepository';
 import type { TrackInfo } from '@domain/models/musicInfo';
 import type { TopTrack } from '@domain/models/topLists';
 import { ArtworkService, isPlaceholderImageUrl } from './artworkService';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import { Logger } from '@domain/logger';
 import type { PrismaClient } from '@prisma/client';

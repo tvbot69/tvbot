@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import { Logger } from '@domain/logger';
 import { PlayRepository } from '@persistence/repositories/playRepository';
-import { IndexService } from './indexService';
+import { IndexService } from './lastfm/indexService';
 import type { PlayInsert } from '@domain/interfaces/iplayRepository';
 
 export type ImportPlaySource = 'SpotifyImport' | 'AppleMusicImport';

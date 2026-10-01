@@ -11,7 +11,7 @@ import {
   type VideoChapter,
 } from '@bot/services/music/videoChapters';
 import type { ArtworkService } from '@bot/services/artworkService';
-import type { ColorService } from '@bot/services/colorService';
+import type { ColorService } from '@bot/services/system/colorService';
 
 /**
  * Chapter artwork: the per-chapter cover lookup, the upcoming-chapter cache

@@ -4,22 +4,22 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { PlayBuilders } from '@bot/builders/playBuilders';
 import { RecentBuilders } from '@bot/builders/recentBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/userService';
-import { UpdateService } from '@bot/services/updateService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { container } from 'tsyringe';
-import { FmSettingService } from '@bot/services/fmSettingService';
+import { FmSettingService } from '@bot/services/system/fmSettingService';
 import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { ChannelRepository } from '@persistence/repositories/channelRepository';
 import { FmEmbedType } from '@domain/enums/fmEmbedType';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
-import { FmFooterResolver } from '@bot/services/fmFooterResolver';
+import { FmFooterResolver } from '@bot/services/system/fmFooterResolver';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import type { UserFmSetting } from '@domain/interfaces/iuserFmSettingRepository';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 async function enrichFmTracks(tracks: RecentTrack[]): Promise<void> {
   if (!tracks[0]) return;

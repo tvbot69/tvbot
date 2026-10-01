@@ -22,7 +22,7 @@ export default defineConfig({
     // works: `configData`'s lazy `Data` getter calls assertValidEnvironment()
     // and `prismaClient` touches it at module scope, so the check fires during
     // the import graph rather than when a test runs.
-    setupFiles: ['./src/tests/setupEnv.ts'],
+    setupFiles: ['./src/testSupport/setupEnv.ts'],
 
     // Coverage is a RATCHET, not a report: CI fails if any of these drop, and
     // they only ever go up.
@@ -67,11 +67,17 @@ export default defineConfig({
       // counted as untested product code, which deflated the baseline by
       // several points and would have made the ratchet both wrong and unfair.
       // A second Windows-only contributor is worth a real number.
-      exclude: [
+exclude: [
         '**/*.{test,spec}.{ts,tsx,js,jsx}',
-        '**\\\\*.{test,spec}.{ts,tsx,js,jsx}',
-        'src/tests/**',
-        'src\\tests\\**',
+        '**\\*.{test,spec}.{ts,tsx,js,jsx}',
+        // Shared harness code, not product: dbHarness, the setup file and the
+        // uncooperative player double. It was `src/tests/**` before the tree
+        // cleanup moved it to `src/testSupport/`; leaving the old path would
+        // have silently put four test-infrastructure files into the coverage
+        // denominator at 0%, which is the same class of mistake as counting
+        // the 141 test files that this list exists to exclude.
+        'src/testSupport/**',
+        'src\\testSupport\\**',
         '**/*.d.ts',
         '**\\*.d.ts',
         'coverage/**',

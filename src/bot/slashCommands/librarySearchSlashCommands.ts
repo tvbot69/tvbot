@@ -7,8 +7,8 @@ import { UserService } from '@bot/services/userService';
 import { LibrarySearchService, SearchTab } from '@bot/services/librarySearchService';
 import { LibrarySearchBuilders } from '@bot/builders/librarySearchBuilders';
 import { storeSearchQuery } from '@bot/interactions/librarySearchInteractions';
-import { ColorService } from '@bot/services/colorService';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { ColorService } from '@bot/services/system/colorService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 
 @injectable()

@@ -3,7 +3,7 @@ import { injectable, inject } from 'tsyringe';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { UserService } from '@bot/services/userService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { RecentBuilders } from '@bot/builders/recentBuilders';
 
 @injectable()

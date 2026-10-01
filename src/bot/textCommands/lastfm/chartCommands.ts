@@ -8,11 +8,11 @@ import { ChartService, TooManyImagesError } from '@bot/services/chartService';
 import { NotEnoughAlbumsError } from '@bot/services/chartService';
 import { ChartBuilders } from '@bot/builders/chartBuilders';
 import { UserService } from '@bot/services/userService';
-import { SettingService } from '@bot/services/settingService';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
-import { UpdateService } from '@bot/services/updateService';
+import { SettingService } from '@bot/services/system/settingService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 const CHART_COOLDOWN_MS = 40000;
 

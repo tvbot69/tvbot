@@ -2,7 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { GenreService } from './genreService';
 import { CountryService } from './countryService';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { Logger } from '@domain/logger';
 import type { TopArtist } from '@domain/models/topLists';

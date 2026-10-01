@@ -8,7 +8,7 @@ import { MusicBrainzService } from '@bot/services/musicBrainzService';
 import { GenreService } from '@bot/services/genreService';
 import { UserService } from '@bot/services/userService';
 import type { User } from '@domain/interfaces/iuserRepository';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { prisma } from '@persistence/prismaClient';

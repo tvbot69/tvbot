@@ -3,7 +3,7 @@ import { injectable, inject } from 'tsyringe';
 import { GenreService, TopGenreItem, WhoKnowsGenreItem } from '@bot/services/genreService';
 import { GenreBuilders } from '@bot/builders/genreBuilders';
 import { UserService } from '@bot/services/userService';
-import { TtlStore } from '@bot/services/ttlStore';
+import { TtlStore } from '@bot/services/system/ttlStore';
 
 export type GenreInteractionType = 'top' | 'info' | 'whoknows';
 

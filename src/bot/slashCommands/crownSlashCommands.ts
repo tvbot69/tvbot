@@ -5,14 +5,14 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
 import { CrownService } from '@bot/services/crown/crownService';
 import { CrownBuilders } from '@bot/builders/crownBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
-import { UpdateService } from '@bot/services/updateService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import { ArtistsService } from '@bot/services/artistsService';
 
 import { container } from 'tsyringe';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService } from '@bot/services/artworkService';
 
 export class CrownSlashCommands implements ISlashCommandModule {

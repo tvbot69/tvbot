@@ -4,7 +4,7 @@ import type {
 import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
 import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { DeezerApi } from '@deezer/apis/deezerApi';
 import {

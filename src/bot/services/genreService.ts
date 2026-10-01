@@ -1,6 +1,6 @@
 import { injectable, inject, container } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { ArtistGenreRepository } from '@persistence/repositories/artistGenreRepository';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';

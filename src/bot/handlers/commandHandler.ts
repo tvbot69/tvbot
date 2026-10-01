@@ -13,12 +13,12 @@ import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCo
 import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
 import { UserService } from '@bot/services/userService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { getTextCommand } from '@bot/textCommands';
 import { GameService } from '@bot/services/gameService';
 import { GameBuilders } from '@bot/builders/gameBuilders';
 
-import { RateLimitService } from '@bot/services/rateLimitService';
+import { RateLimitService } from '@bot/services/system/rateLimitService';
 import { CommandDispatcher } from './commandDispatcher';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { EmbedBuilder } from 'discord.js';

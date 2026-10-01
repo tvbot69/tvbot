@@ -2,7 +2,7 @@ import type { TopAlbum } from '@domain/models/topLists';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { AlbumRepository } from '@persistence/repositories/albumRepository';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 
 const ENRICH_CONCURRENCY = 6;
 

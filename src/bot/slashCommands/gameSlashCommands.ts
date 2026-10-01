@@ -7,9 +7,9 @@ import { UserService } from '@bot/services/userService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { GameService, JumbleSession } from '@bot/services/gameService';
 import { GameBuilders } from '@bot/builders/gameBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/artworkService';
 import { Logger } from '@domain/logger';
 

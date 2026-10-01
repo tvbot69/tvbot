@@ -1,7 +1,7 @@
 import { singleton, inject } from 'tsyringe';
 import type { Client, TextChannel } from 'discord.js';
 import { Logger } from '@domain/logger';
-import { TelemetryService } from './telemetryService';
+import { TelemetryService } from './system/telemetryService';
 
 
 import { ArtistsService } from './artistsService';

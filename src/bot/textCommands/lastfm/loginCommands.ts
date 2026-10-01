@@ -10,8 +10,8 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { LoginService, LoginStatus } from '@bot/services/loginService';
 import { UserService } from '@bot/services/userService';
-import { ComponentInteractionTracker } from '@bot/services/componentInteractionTracker';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { isUnknownInteraction } from '@domain/discordErrors';
 

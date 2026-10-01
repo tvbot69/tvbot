@@ -18,7 +18,7 @@ import { FriendType, FriendTypeDescriptions, FriendTypeNames } from '@domain/enu
 import { Logger } from '@domain/logger';
 import { ContextModel } from '@bot/models/contextModel';
 
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 export const FRIEND_BUTTON_PREFIXES = ['friends:overview', 'friends:manage', 'friends:settype', 'friends:delete'];
 

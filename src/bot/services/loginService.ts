@@ -1,8 +1,8 @@
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { IUserRepository } from '@domain/interfaces/iuserRepository';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { UserService } from './userService';
-import { IndexService } from './indexService';
+import { IndexService } from './lastfm/indexService';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logger';
 

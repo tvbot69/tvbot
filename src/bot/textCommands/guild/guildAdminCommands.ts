@@ -6,8 +6,8 @@ import { GuildService } from '@bot/services/guild/guildService';
 import { GuildAdminService } from '@bot/services/guildAdminService';
 import { UserService } from '@bot/services/userService';
 import { PrefixService } from '@bot/services/prefixService';
-import { ColorService } from '@bot/services/colorService';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { ColorService } from '@bot/services/system/colorService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
 

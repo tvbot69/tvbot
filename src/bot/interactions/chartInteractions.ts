@@ -16,7 +16,7 @@ import { NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/chartSer
 import { ChartBuilders } from '@bot/builders/chartBuilders';
 import { ChartSettings, TitleSetting } from '@bot/models/chartModels';
 import { UserService } from '@bot/services/userService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { registerModalHandler } from './index';
 import { Logger } from '@domain/logger';
 import { deferUpdateSafe } from './interactionAck';
@@ -213,7 +213,7 @@ export class ChartInteractions {
       const artistChart = chartType === 'r';
       const periodInput = periodValue || (artistChart ? 'weekly' : 'weekly');
 
-      const { SettingService } = await import('@bot/services/settingService');
+      const { SettingService } = await import('@bot/services/system/settingService');
       const settingService = new SettingService();
       const timeSettings = settingService.getTimePeriod(periodInput);
 

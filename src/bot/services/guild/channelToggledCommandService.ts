@@ -1,4 +1,4 @@
-import { CacheService } from '../cacheService';
+import { CacheService } from '../system/cacheService';
 import { ChannelRepository } from '@persistence/repositories/channelRepository';
 
 const CACHE_TTL_SECONDS = 300;

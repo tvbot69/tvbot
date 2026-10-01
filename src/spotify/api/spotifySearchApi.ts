@@ -1,7 +1,7 @@
 import { container } from 'tsyringe';
 import { fetchWithTimeout } from '@domain/fetchWithTimeout';
 import { SpotifyTokenManager } from './spotifyTokenManager';
-import { TelemetryService } from '@bot/services/telemetryService';
+import { TelemetryService } from '@bot/services/system/telemetryService';
 import { Logger } from '@domain/logger';
 import {
   SPOTIFY_SEARCH_QUERY_MAX,

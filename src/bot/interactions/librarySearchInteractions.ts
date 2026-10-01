@@ -2,8 +2,8 @@ import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { injectable, inject } from 'tsyringe';
 import { LibrarySearchService, SearchTab } from '@bot/services/librarySearchService';
 import { LibrarySearchBuilders } from '@bot/builders/librarySearchBuilders';
-import { ColorService } from '@bot/services/colorService';
-import { TtlStore } from '@bot/services/ttlStore';
+import { ColorService } from '@bot/services/system/colorService';
+import { TtlStore } from '@bot/services/system/ttlStore';
 
 interface CachedSearch {
   query: string;

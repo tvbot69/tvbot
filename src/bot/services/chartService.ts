@@ -8,9 +8,9 @@ import type {
 import { DefaultChartSize, ChartSettings, TitleSetting } from '@bot/models/chartModels';
 import { ArtworkService, isPlaceholderImageUrl } from './artworkService';
 import { UserService } from './userService';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { AlbumEnrichmentService } from './albumEnrichmentService';
-import { ImageUploadService } from './imageUploadService';
+import { ImageUploadService } from './system/imageUploadService';
 import { ChartService as ImageChartService } from '@images/generators/chartService';
 import type { ChartItem } from '@images/models/chartModels';
 

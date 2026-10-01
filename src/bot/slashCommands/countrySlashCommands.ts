@@ -5,14 +5,14 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/userService';
-import { SettingService } from '@bot/services/settingService';
+import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { CountryService, TopCountryItem } from '@bot/services/countryService';
 import { CountryBuilders } from '@bot/builders/countryBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { storeCountryQuery } from '@bot/interactions/countryInteractions';
 import { WorldMapGenerator } from '@images/generators/worldMapGenerator';
 

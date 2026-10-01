@@ -16,7 +16,7 @@ const hasPaginatorSession = (v: unknown): v is { _paginatorSession: ComponentPag
   typeof v === 'object' && v !== null && '_paginatorSession' in v &&
   (v as { _paginatorSession?: unknown })._paginatorSession !== undefined;
 import { container } from 'tsyringe';
-import type { ComponentPaginatorSession } from '@bot/services/componentPaginatorService';
+import type { ComponentPaginatorSession } from '@bot/services/system/componentPaginatorService';
 import { Logger } from '@domain/logger';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import { isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
@@ -24,7 +24,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { ResponseModel } from '@bot/models/responseModel';
 import type { UserService } from '@bot/services/userService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { TelemetryService } from '@bot/services/telemetryService';
+import { TelemetryService } from '@bot/services/system/telemetryService';
 
 export class CommandDispatcher {
   // Map of context message ID -> bot response message ID for in-place edit updates
@@ -218,7 +218,7 @@ export class CommandDispatcher {
 
         if (hasPaginatorSession(response)) {
           try {
-            const { ComponentPaginatorService } = await import('@bot/services/componentPaginatorService');
+            const { ComponentPaginatorService } = await import('@bot/services/system/componentPaginatorService');
             if (container.isRegistered(ComponentPaginatorService)) {
               container.resolve(ComponentPaginatorService).registerSession(sentMessage.id, response._paginatorSession);
             }

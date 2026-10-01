@@ -5,7 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
 import { Logger } from '@domain/logger';
 import { MusicBrainzService } from './musicBrainzService';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 
 /**
  * The single place a raw-query failure becomes a caller-visible result.

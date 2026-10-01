@@ -1,9 +1,9 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/userService';
-import { SettingService } from '@bot/services/settingService';
+import { SettingService } from '@bot/services/system/settingService';
 import { ArtworkService } from '@bot/services/artworkService';
 import { ArtistsService } from '@bot/services/artistsService';
 import { AlbumService } from '@bot/services/albumService';
@@ -15,7 +15,7 @@ import { WhoKnowsAlbumService } from '@bot/services/whoKnows/whoKnowsAlbumServic
 import { WhoKnowsPlayService } from '@bot/services/whoKnows/whoKnowsPlayService';
 import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
 import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
-import { UpdateService } from '@bot/services/updateService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
 import type { User } from '@domain/interfaces/iuserRepository';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';

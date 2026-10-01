@@ -9,13 +9,13 @@ import { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
 import { setPreview } from '@bot/services/audio/voiceMessageService';
 import { TrackBuilders } from '@bot/builders/trackBuilders';
 import { TrackDetailsBuilders } from '@bot/builders/trackDetailsBuilders';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
-import { UpdateService } from '@bot/services/updateService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { LyricsService } from '@bot/services/music/lyricsService';
 
 @injectable()

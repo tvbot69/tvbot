@@ -14,7 +14,7 @@ import { TimePeriod } from '@domain/enums/timePeriod';
 import type { User } from '@domain/interfaces/iuserRepository';
 import type { ChartSettings } from '@bot/models/chartModels';
 import type { ChartResult } from '@bot/services/chartService';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { NotEnoughAlbumsError } from '@bot/services/chartService';
 
 const PERIOD_TOKENS: Partial<Record<TimePeriod, string>> = {

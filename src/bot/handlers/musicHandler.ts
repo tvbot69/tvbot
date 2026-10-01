@@ -13,7 +13,7 @@ import { MusicEventListeners, type EventListenerHost } from './music/musicEventL
 import { buildFallbackQuery, chapterKeyFor, clientFailuresText, fingerprintFor } from './music/cardFingerprint';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { QueueService } from '@bot/services/music/queueService';
-import type { ColorService } from '@bot/services/colorService';
+import type { ColorService } from '@bot/services/system/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import type { LyricsService } from '@bot/services/music/lyricsService';

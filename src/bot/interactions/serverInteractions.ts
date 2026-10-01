@@ -9,8 +9,8 @@ import {
   ServerBuilders,
   ServerRankingType,
 } from '@bot/builders/serverBuilders';
-import { ColorService } from '@bot/services/colorService';
-import { TtlStore } from '@bot/services/ttlStore';
+import { ColorService } from '@bot/services/system/colorService';
+import { TtlStore } from '@bot/services/system/ttlStore';
 
 export interface CachedServerRanking {
   type: ServerRankingType;

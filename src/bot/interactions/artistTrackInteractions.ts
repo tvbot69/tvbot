@@ -3,7 +3,7 @@ import { inject, injectable , container} from 'tsyringe';
 import { ButtonInteraction, MessageFlags } from 'discord.js';
 import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
 import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/artistTrackService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 
 @injectable()
 export class ArtistTrackInteractions {

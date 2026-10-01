@@ -155,7 +155,7 @@ export const buildSettingsPage = async (
   try {
     const di = (await import('tsyringe')).container;
     const UserRepository = (await import('@persistence/repositories/userRepository')).UserRepository;
-    const FmSettingService = (await import('@bot/services/fmSettingService')).FmSettingService;
+    const FmSettingService = (await import('@bot/services/system/fmSettingService')).FmSettingService;
     const userRepo = di.resolve(UserRepository as Parameters<typeof di.resolve>[0]) as InstanceType<typeof UserRepository>;
     const fmService = di.resolve(FmSettingService as Parameters<typeof di.resolve>[0]) as InstanceType<typeof FmSettingService>;
     const u = await userRepo.getUserByDiscordUserId(context.discordUserId);

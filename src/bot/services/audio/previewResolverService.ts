@@ -1,7 +1,7 @@
 import { AppleMusicSearchApi } from '@applemusic/apis/appleMusicSearchApi';
 import { DeezerApi } from '@deezer/apis/deezerApi';
 import { SpotifyScraperService } from '../music/spotifyScraperService';
-import { CacheService } from '../cacheService';
+import { CacheService } from '../system/cacheService';
 import { matchesTrackTitle } from '../artworkService';
 import { Logger } from '@domain/logger';
 import type { ITunesSearchResult } from '@applemusic/models/itunesModels';

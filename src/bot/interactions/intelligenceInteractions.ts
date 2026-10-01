@@ -3,7 +3,7 @@ import { injectable, inject, container } from 'tsyringe';
 import { MusicIntelligenceService, type GapEntityType } from '@bot/services/musicIntelligenceService';
 import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
 import { UserService } from '@bot/services/userService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService } from '@bot/services/artworkService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 

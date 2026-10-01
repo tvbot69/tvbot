@@ -8,8 +8,8 @@ import { StreakService } from '@bot/services/streakService';
 import { StreakBuilders } from '@bot/builders/streakBuilders';
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/artworkService';
-import { ColorService } from '@bot/services/colorService';
-import { GenericEmbedService } from '@bot/services/genericEmbedService';
+import { ColorService } from '@bot/services/system/colorService';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { User } from '@domain/interfaces/iuserRepository';
 

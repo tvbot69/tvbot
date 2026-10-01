@@ -1,5 +1,5 @@
 import { injectable, inject } from 'tsyringe';
-import { CacheService } from './cacheService';
+import { CacheService } from './system/cacheService';
 import { Logger } from '@domain/logger';
 
 export interface MusicBrainzArtistData {

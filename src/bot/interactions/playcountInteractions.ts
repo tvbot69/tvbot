@@ -3,7 +3,7 @@ import { injectable, inject } from 'tsyringe';
 import { UserService } from '@bot/services/userService';
 import { PlayHistoryService } from '@bot/services/playHistoryService';
 import { ArtworkService } from '@bot/services/artworkService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
 import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
 import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';

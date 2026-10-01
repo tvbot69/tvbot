@@ -10,7 +10,7 @@ import { injectable, inject, container } from 'tsyringe';
 import { CrownService } from '@bot/services/crown/crownService';
 import { CrownBuilders } from '@bot/builders/crownBuilders';
 import { UserService } from '@bot/services/userService';
-import { ColorService } from '@bot/services/colorService';
+import { ColorService } from '@bot/services/system/colorService';
 import { ContextModel } from '@bot/models/contextModel';
 import { WhoKnowsCommands } from '@bot/textCommands/guild/whoKnowsCommands';
 import { CrownCommands } from '@bot/textCommands/guild/crownCommands';
