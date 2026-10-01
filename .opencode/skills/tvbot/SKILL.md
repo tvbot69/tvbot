@@ -51,8 +51,8 @@ Commit style: `feat(music): …`, `fix(music): …`, `refactor(music): …`, `te
 The tree was reorganised in `941ed51` (461 files moved). **Every test lives in a `__tests__/` folder next to the code it tests. Zero test files sit beside production code.**
 
 ```
-src/bot/builders/albumBuilders.ts
-src/bot/builders/__tests__/albumBuilders.pagination.test.ts   <- the only shape
+src/bot/builders/library/albumBuilders.ts
+src/bot/builders/library/__tests__/albumBuilders.pagination.test.ts   <- the only shape
 ```
 
 - **`src/tests/` no longer exists.** Its harness modules are in **`src/testSupport/`**: `dbHarness.ts`, `dbRawQueryObserver.ts`, `setupEnv.ts`, `uncooperativePlayer.ts`, and `repoRoot.ts` (exports `REPO_ROOT`, `SRC_ROOT`, `SCRIPTS_ROOT`, `DEBT_BUDGET_FILE`, `TSX_CLI`). Import from there.
@@ -203,7 +203,7 @@ It did not catch the date-prefix artwork bug, the seek-position bug, or the chap
 3. Response in `src/bot/builders/*Builders.ts` returning `ResponseModel`.
 4. Slash command in `src/bot/slashCommands/` **and** text command in `src/bot/textCommands/<area>/` (both registered in that folder's `index.ts`). Both delegate to the same builder.
 5. Check the name is **unique across both families** — the registry silently lets the later registration win and the other becomes unreachable. It logs `Text command name collision` at startup; check it every time. This has bitten `.remove` and `.lyrics`.
-6. Interactive pieces → `src/bot/interactions/` + a route in `src/bot/handlers/interactionHandler.ts`.
+6. Interactive pieces → `src/bot/interactions/` + a route in `src/bot/handlers/interactions/interactionHandler.ts`.
 7. Wire singletons in `src/bot/startup.ts:configureContainer()`. Positional constructor calls there are load-bearing.
 8. **Tests in the area's `__tests__/` folder** — `src/bot/builders/__tests__/`, `src/bot/services/<subsystem>/__tests__/`, etc. Never beside the source.
 9. `npm run build && npm test && npm run lint && npm run debt`.

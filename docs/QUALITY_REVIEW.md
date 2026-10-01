@@ -150,7 +150,7 @@ behaviour.** Two of the three were harmless. Always read the surrounding code be
 reporting a linter hit as a bug.
 
 ### 3. Builders reach into the DI container - 45 call sites, PARTIALLY DONE
-`src/bot/builders/topBuilders.ts` (13), `src/bot/builders/whoKnowsImageBuilder.ts` (11)
+`src/bot/builders/library/topBuilders.ts` (13), `src/bot/builders/whoknows/whoKnowsImageBuilder.ts` (11)
 
 A builder that calls `container.resolve` is doing service-locator work inside what should be
 a pure formatting function. This is why `whoKnowsImageBuilder` is still 387 lines and still

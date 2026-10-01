@@ -808,7 +808,7 @@ removed, and the text command still answers to `.librarysearch`. **Do not restor
 used to have no caller and was the **only writer of `'*'`** into `channel.toggledCommands`, while
 `isChannelDisabled` was live and gates every command — so the per-channel disable gate was
 enforced on every single message and could never return true. A member could not mute a command in
-one channel. **That is fixed**: `src/bot/slashCommands/guildAdminSlashCommands.ts:429` now calls
+one channel. **That is fixed**: `src/bot/slashCommands/guild/guildAdminSlashCommands.ts:429` now calls
 `setChannelDisabled` (verified 2026-09-30), so the two halves are joined.
 
 **`LocalizationService`** was constructed at boot, registered, and injected by nothing, with both

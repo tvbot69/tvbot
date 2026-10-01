@@ -60,9 +60,9 @@
 import 'reflect-metadata';
 import { LastfmApi } from '../src/lastfm/api/lastfmApi';
 import { LastFmRepository } from '../src/lastfm/repositories/lastFmRepository';
-import { LastfmErrorRateTracker } from '../src/domain/lastfmErrorRateTracker';
-import { Logger } from '../src/domain/logger';
-import { isPlaceholderImageUrl } from '../src/domain/lastfmPlaceholder';
+import { LastfmErrorRateTracker } from '../src/domain/lastfm/lastfmErrorRateTracker';
+import { Logger } from '../src/domain/logging/logger';
+import { isPlaceholderImageUrl } from '../src/domain/lastfm/lastfmPlaceholder';
 import { SpotifyTokenManager } from '../src/spotify/api/spotifyTokenManager';
 import { SpotifySearchApi, SpotifyUnavailableError } from '../src/spotify/api/spotifySearchApi';
 import * as SPOTIFY_LIMITS_MODULE from '../src/spotify/api/spotifyApiLimits';

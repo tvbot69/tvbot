@@ -518,7 +518,7 @@ before starting work. **Update this file at the end of every task**, before the 
     check uses `ts.SyntaxKind.AnyKeyword` after that threw.
 - **3.2 (plan's 3.2) — lower layers must not import `@bot/*`** ✅ **Value imports 4 → 0.**
   Type-only imports remain (4, below) and are enforced by test.
-  - ✅ `isPlaceholderImageUrl` → `src/domain/lastfmPlaceholder.ts`. `recentTrackConverter` was
+  - ✅ `isPlaceholderImageUrl` → `src/domain/lastfm/lastfmPlaceholder.ts`. `recentTrackConverter` was
     pulling in the whole artwork cascade — Spotify, Deezer, Apple, Prisma, cache — to ask
     whether a string was a known hash. `artworkService` re-exports it, so **20 call sites
     changed zero lines** (the §6 facade pattern). A test asserts **identity**, not behaviour:
@@ -571,7 +571,7 @@ before starting work. **Update this file at the end of every task**, before the 
   (plan's baseline was ~302, target < 80).
   - ✅ `as unknown as` is a first-class debt kind, not a grep. AST-based, so a cast inside a
     string or comment does not count.
-  - ✅ `src/domain/interfaces/discordChannel.ts` — one checked narrowing boundary
+  - ✅ `src/domain/interfaces/discord/discordChannel.ts` — one checked narrowing boundary
     (`replyChannel` / `typingChannel` / `fetchableChannel`) replacing **11** inline casts in
     `commandHandler` + `commandDispatcher`. Those casts existed so tests could pass `{ send: vi.fn() }`
     instead of a channel — production code contorted to suit the double, AGENTS.md §11. Downstream
@@ -630,7 +630,7 @@ before starting work. **Update this file at the end of every task**, before the 
     any URL containing whitespace. Mutation-checked — removing the guard fails the test.
 - **Phase 4 — `explicit-any` 109 → **0** and `as unknown as` 101 → **75**. DONE.**
   - ✅ Regenerated Prisma client — `fmEmbedType` was in the schema but missing from the generated types. 6 casts removed across `channelRepository`, `guildRepository`, `userSlashCommands`, `playCommands`.
-  - ✅ `src/domain/date.ts` — `toDate()` helper for the Date|string cache serialization pattern. 3 casts removed from `updateService` and `updateBuilders`.
+  - ✅ `src/domain/text/date.ts` — `toDate()` helper for the Date|string cache serialization pattern. 3 casts removed from `updateService` and `updateBuilders`.
   - ✅ `RecentTrack.loved?: boolean` added — 1 cast removed from `footerBuilder`.
   - ✅ `ArtistInfo.userPlayCount` already existed — 1 cast removed from `crownService`.
   - ✅ Single casts replace double casts in `librarySearchBuilders`, `chartInteractions`, `serverInteractions`, `interactionHandler`, `audioSignalService`, `puppeteerService`, `settingsInteractions`, `playBuilders`, `playRepository`, `prismaClient`, `userSlashCommands`.
@@ -647,7 +647,7 @@ before starting work. **Update this file at the end of every task**, before the 
   - ✅ `SpotifySearchResponse`, `SpotifyEntity`, `EssentiaInstance` interfaces extracted — 11 casts removed.
   - ✅ All `as any` on `SlashCommandBuilder` chains replaced with `as SlashCommandBuilder` — 28 casts removed.
   - ✅ Regenerated Prisma client: `fmEmbedType` was in the schema but absent from the generated types, which was the cause of 6 casts.
-  - ✅ `src/domain/date.ts` `toDate()` — 3 casts for the Date|string cache-serialization pattern.
+  - ✅ `src/domain/text/date.ts` `toDate()` — 3 casts for the Date|string cache-serialization pattern.
   - ⚠️ Making `discordUserId` optional in `User` caused 10+ cascading errors. Reverted; used single `as User` casts instead, which the ratchet does not count. This is a known blind spot: a single cast is still an escape, just an unmeasured one.
   - ⬜ Remaining: 75 `as unknown as` casts, all under `services/music` and `handlers/music` (permitted by the plan).
 - **Phase 4 — `as unknown as` 106 → **101**, first tranche of the moonlink adapter.**
@@ -711,7 +711,7 @@ before starting work. **Update this file at the end of every task**, before the 
     typo in `HEALTH_PORT` took the health endpoint down at boot.
   - New ratchet `process-env-outside-config`, budget **0**; `envValidator.ts` exempt because
     validating env is its job.
-- **5.3** ✅ `src/domain/memoryReport.ts` — rss, heapTotal/Used, external, arrayBuffers,
+- **5.3** ✅ `src/domain/diagnostics/memoryReport.ts` — rss, heapTotal/Used, external, arrayBuffers,
   heapUsed as a pct of the 384MB cap, uptime. INFO hourly on a new `'0 * * * *'` job: there was
   no existing hourly sweep to hook, and piggybacking on `statistics-log` would have produced 6
   lines an hour. Deliberately **not** `onlyOwner` — each shard's heap is only visible to that
@@ -1080,7 +1080,7 @@ before starting work. **Update this file at the end of every task**, before the 
     `DisabledChannelService.setChannelDisabled` used to have no caller and to be the only writer
     of `'*'`, while `isChannelDisabled` was live and gated every command — so the per-channel
     disable gate was enforced on every message and could never return true. It is now called from
-    `src/bot/slashCommands/guildAdminSlashCommands.ts:429`.
+    `src/bot/slashCommands/guild/guildAdminSlashCommands.ts:429`.
   - **`LocalizationService`** was registered at boot, injected by nothing, both methods at zero
     callers, and hardcoded `'en'` — a localization service that could not localize. **Now
     deleted**; there is no `LocalizationService` in `src/` as of 2026-09-30.
