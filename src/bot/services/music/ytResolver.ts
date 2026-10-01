@@ -1,4 +1,4 @@
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { homeResolverToken, homeResolverUrl, resolverAlertWebhookUrl } from '@config/musicEnv';
 import { fetchDescriptionChapters } from '@bot/services/music/descriptionChapters';
 

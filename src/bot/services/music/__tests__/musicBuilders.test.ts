@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { MusicBuilders } from '@bot/builders/music/musicBuilders';
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 import type { MusicTrack } from '@domain/models/music/musicTrack';
 
@@ -152,7 +152,7 @@ describe('MusicBuilders', () => {
 
   describe('getSourceBadge', () => {
     it('returns custom emojis for spotify, youtube, and soundcloud', async () => {
-      const { getSourceBadge } = await import('@bot/builders/musicBuilders');
+      const { getSourceBadge } = await import('@bot/builders/music/musicBuilders');
       expect(getSourceBadge('spotify')).toBe('<:sp:1496297132381048995>');
       expect(getSourceBadge('youtube')).toBe('<:yt:1496297072201040094>');
       expect(getSourceBadge('soundcloud')).toBe('<:sound:1545234670239879282>');

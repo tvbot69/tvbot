@@ -66,9 +66,9 @@ beforeAll(() => {
 
 describe('boot smoke: container wiring', () => {
   it('registers and resolves the critical playback and command graph', async () => {
-    const { MusicHandler } = await import('@bot/handlers/musicHandler');
-    const { CommandHandler } = await import('@bot/handlers/commandHandler');
-    const { InteractionHandler } = await import('@bot/handlers/interactionHandler');
+    const { MusicHandler } = await import('@bot/handlers/music/musicHandler');
+    const { CommandHandler } = await import('@bot/handlers/commands/commandHandler');
+    const { InteractionHandler } = await import('@bot/handlers/interactions/interactionHandler');
     const { ArtworkService } = await import('@bot/services/media/artworkService');
     const { MusicService } = await import('@bot/services/music/musicService');
     const { MoonlinkManager } = await import('@bot/services/music/moonlinkManager');

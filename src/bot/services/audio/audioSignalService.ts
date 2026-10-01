@@ -3,7 +3,7 @@ import fsp from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import cp from 'child_process';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { ffmpegPath, ffprobePath, setFfmpegPath, setFfprobePath, currentEnv } from '@config/runtimeEnv';
 
 import { encodeVoiceWaveform } from '@bot/services/audio/voiceWaveform';

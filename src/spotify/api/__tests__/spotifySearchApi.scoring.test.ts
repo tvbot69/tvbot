@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import type { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * `getSpotifyTrackUrl` — the matcher that decides which search result is "the"

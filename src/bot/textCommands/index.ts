@@ -1,5 +1,5 @@
 import { container } from 'tsyringe';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import type { TextCommandDefinition } from '@bot/models/commandModels';
 import { PlayCommands } from '@bot/textCommands/lastfm/playCommands';
 import { StaticCommands } from '@bot/textCommands/meta/staticCommands';

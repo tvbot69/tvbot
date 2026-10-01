@@ -1,0 +1,278 @@
+import {
+  type ButtonInteraction,
+  type StringSelectMenuInteraction,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ContainerBuilder,
+  MessageFlags,
+  StringSelectMenuBuilder,
+  TextDisplayBuilder,
+} from 'discord.js';
+import { inject, injectable } from 'tsyringe';
+import { FriendsService } from '@bot/services/social/friendsService';
+import { UserService } from '@bot/services/user/userService';
+import { FriendBuilders } from '@bot/builders/social/friendBuilders';
+import { FriendType, FriendTypeDescriptions, FriendTypeNames } from '@domain/enums/friendType';
+
+import { Logger } from '@domain/logging/logger';
+import { ContextModel } from '@bot/models/contextModel';
+
+import { ColorService } from '@bot/services/system/colorService';
+
+export const FRIEND_BUTTON_PREFIXES = ['friends:overview', 'friends:manage', 'friends:settype', 'friends:delete'];
+
+/**
+ * Ephemeral note that leaves the card the user is looking at alone.
+ *
+ * The `!interaction.replied && !interaction.deferred` gate this used to carry
+ * is the regression `interactionHandler.onInteractionCreated` documents: every
+ * handler below calls `deferUpdate()` BEFORE it reads or writes, so the failure
+ * that most needed an answer was the only one that got none. Here that failure
+ * was a WRITE - `setFriendType` at `handleSelectType` and `removeFriend` at
+ * `handleDelete` - so a database blip in the middle of a write was a silent
+ * no-op, and `handleDelete` already knew the difference: a `false` return
+ * reports "Could not remove that friend", while a throw reported nothing.
+ *
+ * `followUp` is the right verb once deferred and `reply` before it; neither
+ * rewrites the components, so the friends card survives.
+ */
+const respondEphemeral = async (
+  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  content: string,
+): Promise<void> => {
+  if (!interaction.isRepliable()) {
+    return;
+  }
+  if (interaction.deferred || interaction.replied) {
+    await interaction.followUp({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+  } else {
+    await interaction.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
+  }
+};
+
+@injectable()
+export class FriendInteractions {
+  private readonly friendsService: FriendsService;
+  private readonly userService: UserService;
+  private readonly colorService: ColorService;
+
+  constructor(
+    @inject(FriendsService) friendsService: FriendsService,
+    @inject(UserService) userService: UserService,
+    @inject(ColorService) colorService: ColorService,
+  ) {
+    this.friendsService = friendsService;
+    this.userService = userService;
+    this.colorService = colorService;
+  }
+
+  private async buildContext(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<ContextModel> {
+    const context = new ContextModel();
+    context.discordUserId = interaction.user.id;
+    context.guildId = interaction.guildId ?? undefined;
+    context.prefix = '.';
+    const avatarUrl = interaction.user.displayAvatarURL({ size: 256 });
+    context.accentColor = avatarUrl ? await this.colorService.getColorFromImageUrl(avatarUrl) : undefined;
+    return context;
+  }
+
+  public async handleButton(interaction: ButtonInteraction): Promise<void> {
+    const customId = interaction.customId;
+
+    try {
+      if (customId.startsWith('friends:overview')) {
+        await this.handleOverview(interaction);
+      } else if (customId.startsWith('friends:manage:')) {
+        await this.handleManageMenu(interaction);
+      } else if (customId.startsWith('friends:delete:')) {
+        await this.handleDelete(interaction);
+      }
+    } catch (err) {
+      Logger.error({ err }, `Error handling friend button interaction: ${customId}`);
+      await respondEphemeral(interaction, 'Something went wrong processing this interaction.');
+    }
+  }
+
+  public async handleSelectMenu(interaction: StringSelectMenuInteraction): Promise<void> {
+    const customId = interaction.customId;
+
+    try {
+      if (customId.startsWith('friends:selecttype:')) {
+        await this.handleSelectType(interaction);
+      }
+    } catch (err) {
+      Logger.error({ err }, `Error handling friend select interaction: ${customId}`);
+      await respondEphemeral(interaction, 'Something went wrong processing this interaction.');
+    }
+  }
+
+  private async handleOverview(interaction: ButtonInteraction): Promise<void> {
+    // friends:overview:<page>
+    const parts = interaction.customId.split(':');
+    const pageIndex = Number(parts[2]) || 0;
+
+    const user = await this.userService.getUserByDiscordId(interaction.user.id);
+    if (!user) {
+      await interaction.reply({ content: 'You have not registered your Last.fm username yet.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    await interaction.deferUpdate().catch(() => undefined);
+
+    const friends = await this.friendsService.getFriendsByUserId(user.userId);
+    const context = await this.buildContext(interaction);
+    const response = FriendBuilders.buildManageFriendsResponse(context, friends, pageIndex);
+
+    if (response.componentsV2Container) {
+      await interaction.editReply({
+        components: [response.componentsV2Container],
+        flags: MessageFlags.IsComponentsV2,
+      });
+    }
+  }
+
+  private async handleManageMenu(interaction: ButtonInteraction): Promise<void> {
+    // friends:manage:<friendId>:<page>
+    const parts = interaction.customId.split(':');
+    const friendId = Number(parts[2]);
+    const pageIndex = Number(parts[3]) || 0;
+
+    const user = await this.userService.getUserByDiscordId(interaction.user.id);
+    if (!user) {
+      await interaction.reply({ content: 'You have not registered your Last.fm username yet.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    const friend = await this.friendsService.getFriend(friendId);
+    if (!friend || friend.userId !== user.userId) {
+      await interaction.reply({ content: 'Friend record not found or you do not have permission.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    await interaction.deferUpdate().catch(() => undefined);
+
+    const username = friend.friendUser?.userNameLastFm ?? friend.lastFmUserName;
+    const accentColor = await this.colorService.getAccentColorAsync(interaction.user.id);
+    const container = new ContainerBuilder();
+    if (accentColor !== undefined && accentColor !== null) {
+      container.setAccentColor(accentColor);
+    }
+
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `### Edit Friend: **${username}**\nCurrent type: **${FriendTypeNames[friend.friendType]}**\nSelect a new type or remove this friend:`,
+      ),
+    );
+
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`friends:selecttype:${friendId}:${pageIndex}`)
+      .setPlaceholder('Choose friend type')
+      .addOptions([
+        {
+          label: '👥 Normal',
+          description: FriendTypeDescriptions[FriendType.Normal],
+          value: String(FriendType.Normal),
+          default: friend.friendType === FriendType.Normal,
+        },
+        {
+          label: '👁️ Visible everywhere',
+          description: FriendTypeDescriptions[FriendType.VisibleInNowPlaying],
+          value: String(FriendType.VisibleInNowPlaying),
+          default: friend.friendType === FriendType.VisibleInNowPlaying,
+        },
+        {
+          label: '⭐ Close friend',
+          description: FriendTypeDescriptions[FriendType.CloseFriend],
+          value: String(FriendType.CloseFriend),
+          default: friend.friendType === FriendType.CloseFriend,
+        },
+      ]);
+
+    const buttonRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`friends:overview:${pageIndex}`)
+        .setLabel('Back')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`friends:delete:${friendId}:${pageIndex}`)
+        .setLabel('Remove friend')
+        .setStyle(ButtonStyle.Danger),
+    );
+
+    container.addActionRowComponents(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu));
+    container.addActionRowComponents(buttonRow);
+
+    await interaction.editReply({
+      components: [container],
+      flags: MessageFlags.IsComponentsV2,
+    });
+  }
+
+  private async handleSelectType(interaction: StringSelectMenuInteraction): Promise<void> {
+    // friends:selecttype:<friendId>:<page>
+    const parts = interaction.customId.split(':');
+    const friendId = Number(parts[2]);
+    const pageIndex = Number(parts[3]) || 0;
+    const selectedType = Number(interaction.values[0]) as FriendType;
+
+    const user = await this.userService.getUserByDiscordId(interaction.user.id);
+    if (!user) {
+      await interaction.reply({ content: 'You have not registered your Last.fm username yet.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    await interaction.deferUpdate().catch(() => undefined);
+
+    await this.friendsService.setFriendType(friendId, selectedType);
+
+    const friends = await this.friendsService.getFriendsByUserId(user.userId);
+    const context = await this.buildContext(interaction);
+    const response = FriendBuilders.buildManageFriendsResponse(context, friends, pageIndex);
+
+    if (response.componentsV2Container) {
+      await interaction.editReply({
+        components: [response.componentsV2Container],
+        flags: MessageFlags.IsComponentsV2,
+      });
+    }
+  }
+
+  private async handleDelete(interaction: ButtonInteraction): Promise<void> {
+    // friends:delete:<friendId>:<page>
+    const parts = interaction.customId.split(':');
+    const friendId = Number(parts[2]);
+    const pageIndex = Number(parts[3]) || 0;
+
+    const user = await this.userService.getUserByDiscordId(interaction.user.id);
+    if (!user) {
+      await interaction.reply({ content: 'You have not registered your Last.fm username yet.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    await interaction.deferUpdate().catch(() => undefined);
+
+    // A failed delete must not look like a successful one: the row is still
+    // there, so re-rendering the list alone would show the user no evidence
+    // that anything went wrong.
+    const removed = await this.friendsService.removeFriend(friendId);
+    if (!removed) {
+      await interaction.followUp({
+        content: 'Could not remove that friend. Please try again.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const friends = await this.friendsService.getFriendsByUserId(user.userId);
+    const context = await this.buildContext(interaction);
+    const response = FriendBuilders.buildManageFriendsResponse(context, friends, pageIndex);
+
+    if (response.componentsV2Container) {
+      await interaction.editReply({
+        components: [response.componentsV2Container],
+        flags: MessageFlags.IsComponentsV2,
+      });
+    }
+  }
+}

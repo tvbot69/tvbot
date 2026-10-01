@@ -1,6 +1,6 @@
 import { Events, StageChannel, VoiceChannel, type Client } from 'discord.js';
 
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { mapMoonlinkTrack } from '@domain/models/music/musicTrack';
 import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import type { QueueService } from '@bot/services/music/queueService';

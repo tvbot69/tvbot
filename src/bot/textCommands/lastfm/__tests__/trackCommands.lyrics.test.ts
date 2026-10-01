@@ -4,7 +4,7 @@ import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import type { LyricsResult } from '@bot/services/music/lyricsService';
 

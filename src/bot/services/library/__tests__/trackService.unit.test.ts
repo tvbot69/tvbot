@@ -1,7 +1,7 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TrackService } from '@bot/services/library/trackService';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * trackService was 14.95% with 364 uncovered lines - the same shape of gap as

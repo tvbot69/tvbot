@@ -5,13 +5,13 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { MusicService } from '@bot/services/music/musicService';
-import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { MusicBuilders } from '@bot/builders/music/musicBuilders';
 import { ColorService } from '@bot/services/system/colorService';
 
 import type { FilterName, LoopMode } from '@domain/models/music/musicQueue';
 import { ALL_FILTERS } from '@domain/models/music/musicQueue';
 import type { LyricsService } from '@bot/services/music/lyricsService';
-import type { MusicInteractions } from '@bot/interactions/musicInteractions';
+import type { MusicInteractions } from '@bot/interactions/music/musicInteractions';
 import { chapterIndexAt, type VideoChapter } from '@bot/services/music/videoChapters';
 import { formatDuration } from '@domain/models/music/musicTrack';
 

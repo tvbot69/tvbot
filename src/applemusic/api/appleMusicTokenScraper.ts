@@ -1,5 +1,5 @@
-import { Logger } from '@domain/logger';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { Logger } from '@domain/logging/logger';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 
 export interface ExtractedToken {
   token: string;

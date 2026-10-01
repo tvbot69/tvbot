@@ -1,4 +1,4 @@
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import type {
   TopAlbum,

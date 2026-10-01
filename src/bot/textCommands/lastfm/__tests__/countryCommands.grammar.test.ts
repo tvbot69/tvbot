@@ -43,10 +43,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { CountryCommands } from '@bot/textCommands/lastfm/countryCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { UserService } from '@bot/services/user/userService';
 import type { SettingService } from '@bot/services/system/settingService';
 import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
@@ -54,11 +54,11 @@ import type { CountryService, CountryInfo, TopCountryItem } from '@bot/services/
 import type { ColorService } from '@bot/services/system/colorService';
 import type { WorldMapGenerator } from '@images/generators/worldMapGenerator';
 
-vi.mock('@bot/interactions/countryInteractions', () => ({
+vi.mock('@bot/interactions/library/countryInteractions', () => ({
   storeCountryQuery: vi.fn(),
 }));
 
-import { storeCountryQuery } from '@bot/interactions/countryInteractions';
+import { storeCountryQuery } from '@bot/interactions/library/countryInteractions';
 
 /** Every claim the card makes, from whichever shape the builder chose. */
 const textOf = (response: ResponseModel): string => {

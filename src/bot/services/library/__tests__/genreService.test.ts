@@ -4,9 +4,9 @@ import { container } from 'tsyringe';
 import { GenreService } from '@bot/services/library/genreService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
-import { Logger } from '@domain/logger';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { Logger } from '@domain/logging/logger';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 
 /**
  * GenreService is the join between three sources that routinely disagree:

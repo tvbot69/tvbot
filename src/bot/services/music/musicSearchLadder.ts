@@ -1,6 +1,6 @@
 import type { Player, Track } from 'moonlink.js';
 import { Track as MoonlinkTrack } from 'moonlink.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { ladderFor, HOME_NODE, type Rung } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome, type ResolverMeta } from '@bot/services/music/ytResolver';
 import { LOAD_TRACKS_TIMEOUT_MS } from '@bot/services/music/musicConstants';

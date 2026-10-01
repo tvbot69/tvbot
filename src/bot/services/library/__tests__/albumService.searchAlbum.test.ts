@@ -1,7 +1,7 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { AlbumService } from '@bot/services/library/albumService';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * The album search grammar and the Spotify-supplement path.

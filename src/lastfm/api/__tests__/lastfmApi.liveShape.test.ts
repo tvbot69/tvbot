@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
-import { LastfmApiError } from '@domain/models/lastfmError';
-import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { LastfmApiError } from '@domain/models/errors/lastfmError';
+import { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import { TimePeriod } from '@domain/enums/timePeriod';
 
 /**

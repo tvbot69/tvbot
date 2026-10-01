@@ -1,6 +1,6 @@
 import { singleton, inject } from 'tsyringe';
 import type { Client, TextChannel } from 'discord.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { TelemetryService } from '@bot/services/system/telemetryService';
 
 
@@ -8,13 +8,13 @@ import { ArtistsService } from '@bot/services/library/artistsService';
 import { AlbumService } from '@bot/services/library/albumService';
 import { TrackService } from '@bot/services/library/trackService';
 import { CrownService } from '@bot/services/crown/crownService';
-import { CrownBuilders } from '@bot/builders/crownBuilders';
-import { IGuildRepository } from '@domain/interfaces/iguildRepository';
+import { CrownBuilders } from '@bot/builders/crown/crownBuilders';
+import { IGuildRepository } from '@domain/interfaces/ports/iguildRepository';
 import { AutopostRepository } from '@persistence/repositories/autopostRepository';
 import { EmbedBuilder } from 'discord.js';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { errorMessage } from '@domain/discordErrors';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { errorMessage } from '@domain/errors/discordErrors';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 
 export type AutopostSchedule = 'Daily' | 'Weekly' | 'Monthly';
 export type AutopostContentType = 'TopArtists' | 'TopAlbums' | 'TopTracks' | 'ServerCrowns';

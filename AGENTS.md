@@ -112,7 +112,7 @@ exists because breaking it shipped a real bug.
 
 1. **Dependency injection is manual.** Every service, repository, command handler and interaction listener is constructed by hand and registered in `src/bot/startup.ts`. Never rely on reflection or implicit bindings. Positional constructor calls in `startup.ts` are load-bearing — reordering a constructor is a breaking change.
 
-2. **Never trust Last.fm's `imageUrl`.** It frequently returns the placeholder `2a96cbd8b46e442fc41c2b86b821562f`. All artwork goes through `ArtworkService` (Spotify → Deezer → Apple → Last.fm). The placeholder check lives in exactly one predicate, `isPlaceholderImageUrl`, in `src/domain/lastfmPlaceholder.ts` (re-exported from `artworkService` for the ~20 existing call sites) — call it, never re-inline the hash. It lives in `domain`, not `bot/services`, so lower layers can ask the question without importing the artwork cascade.
+2. **Never trust Last.fm's `imageUrl`.** It frequently returns the placeholder `2a96cbd8b46e442fc41c2b86b821562f`. All artwork goes through `ArtworkService` (Spotify → Deezer → Apple → Last.fm). The placeholder check lives in exactly one predicate, `isPlaceholderImageUrl`, in `src/domain/lastfm/lastfmPlaceholder.ts` (re-exported from `artworkService` for the ~20 existing call sites) — call it, never re-inline the hash. It lives in `domain`, not `bot/services`, so lower layers can ask the question without importing the artwork cascade.
 
 3. **Artwork title matching must survive real catalogue shapes.** Matching is deliberately strict (never substring — `"Song"` must not match `"Song 2"`), and it must tolerate a **leading date prefix**, because DJ-pool and compilation rips are often the *only* thing a provider returns: Mac DeMarco's "I Like Her" comes back as `20191009 I Like Her` on "Cottage Core"-style albums. Without the prefix strip, correct-artist/right-recording rows get rejected and the card holds the previous cover forever. See `matchesTrackTitle` in `artworkService.ts` and `artworkService.datePrefix.test.ts` in `src/bot/services/media/__tests__/`.
 
@@ -128,7 +128,7 @@ exists because breaking it shipped a real bug.
 10. **`Logger.debug` for internal degradation paths.** The user reads Railway logs, and INFO-level noise hides the lines that matter. An expected-but-notable outcome is DEBUG; a lost capability is WARN.
 11. **There IS dynamic dispatch in this bot.** Modal handlers dispatch by string prefix (`registerModalHandler`), `ComponentInteractionTracker` is keyed by exact `customId`, `interactionHandler` routes on a literal table, and `container.resolve` builds a graph at runtime. **A method reached by any of those has no static caller.** Never call code dead on a grep alone — check startup registration, `container.resolve`, string-keyed lookups, event-listener and cron registration, and then say which mechanism reaches it, or say you found none.
 
-12. **One test convention: `__tests__/`, never colocated.** Every test file sits in a `__tests__/` folder inside the area it covers (`src/bot/builders/__tests__/albumBuilders.pagination.test.ts`). Zero test files sit beside their source, and the old `src/tests/` tree is gone — do not recreate it. Shared harness code (`dbHarness.ts`, `setupEnv.ts`, `dbRawQueryObserver.ts`, `uncooperativePlayer.ts`, `repoRoot.ts`) lives in `src/testSupport/`; repo-wide invariant tests live in `src/__tests__/`. New subsystem folder names come from the existing vocabulary in the tree map (§7) — do not invent a synonym for a folder that already exists. **Moving a production file means moving its tests with it**, and if the file is named in `scripts/raw-query-baseline.json` you must retarget that key: an orphan key naming no file on disk is a **hard error** in `scripts/count-debt.ts`, not a warning.
+12. **One test convention: `__tests__/`, never colocated.** Every test file sits in a `__tests__/` folder inside the area it covers (`src/bot/builders/library/__tests__/albumBuilders.pagination.test.ts`). Zero test files sit beside their source, and the old `src/tests/` tree is gone — do not recreate it. Shared harness code (`dbHarness.ts`, `setupEnv.ts`, `dbRawQueryObserver.ts`, `uncooperativePlayer.ts`, `repoRoot.ts`) lives in `src/testSupport/`; repo-wide invariant tests live in `src/__tests__/`. New subsystem folder names come from the existing vocabulary in the tree map (§7) — do not invent a synonym for a folder that already exists. **Moving a production file means moving its tests with it**, and if the file is named in `scripts/raw-query-baseline.json` you must retarget that key: an orphan key naming no file on disk is a **hard error** in `scripts/count-debt.ts`, not a warning.
 
 ---
 
@@ -210,8 +210,13 @@ src/
 │                         uncooperativePlayer, repoRoot
 ├── bot/
 │   ├── startup.ts        the dependency graph — read first when tracing wiring
-│   ├── handlers/         event dispatch: interactionHandler, commandHandler,
-│   │   └── music/        musicHandler, AGENTS.md
+│   ├── handlers/         event dispatch, sorted by concern; no loose files
+│   │   ├── commands/      commandHandler, commandDispatcher
+│   │   ├── interactions/  interactionHandler
+│   │   ├── music/         musicHandler + the 9 playback collaborators, AGENTS.md
+│   │   ├── logs/          clientLogHandler
+│   │   ├── queues/        updateQueueHandler
+│   │   └── users/         userEventHandler
 │   ├── services/           EVERY service is in a subsystem folder; there are no
 │   │                       loose files. `startup.ts` is the index.
 │   │   ├── music/          playback DAG (§4)
@@ -242,9 +247,40 @@ src/
 │                         user) — NOT a second `domain/`
 ├── lastfm/               api/, converters/, models/, repositories/
 ├── spotify/  applemusic/  deezer/   images/ (generators, pages, models)
-├── domain/               enums, extensions, interfaces, models
+├── domain/               the shared kernel; nothing here imports upward
+│   ├── logging/          logger, errorFeed, adminAudit
+│   ├── text/             textNormalize, date, statistics, markdown, stringExtensions
+│   ├── http/             fetchWithTimeout
+│   ├── lastfm/           lastfmErrorRateTracker, lastfmPlaceholder
+│   ├── errors/           discordErrors
+│   ├── diagnostics/      memoryReport
+│   ├── enums/            14, all command/response enums
+│   ├── interfaces/       ports/ (repository + queue contracts), discord/ (shapes)
+│   └── models/           shared DTOs, plus models/errors/ and models/music/
 └── config/  types/       lavalink, runtimeEnv, musicEnv; ambient.d.ts
 ```
+
+**One domain vocabulary, applied to every command family.** `builders/`,
+`slashCommands/` and `interactions/` each used to be a flat alphabetical list of
+41 / 33 / 28 files, so one feature's three files were scattered across three
+directories. They are now sorted by the SAME domain nouns — `library/`, `user/`,
+`social/`, `music/`, `guild/`, `charts/`, `crown/`, `whoknows/`,
+`intelligence/`, `common/`, `meta/` — so a domain is a column you can read down
+instead of three rows you have to join. `index.ts` stays in each root: it is a
+barrel, not a loose module.
+
+**`domain/` must not import upward.** It is the layer every other folder imports,
+so a `domain/` file reaching into `bot/`, `persistence/` or a provider package
+turns the kernel into a cycle. Six `interfaces/ports/*` files `import type`
+row shapes from `@persistence/models/`; that predates the re-sort and is a type
+only, but it is the shape to watch for.
+
+**A test that walks a folder must walk it RECURSIVELY.** Three repo-invariant
+tests scan `builders/` or `interactions/` from disk, and a non-recursive
+`readdirSync` after the re-sort sees only the barrel — which turns a real scan
+into a vacuous pass. `customIdParity.test.ts` and `componentsV2Guard.test.ts`
+both use `{ recursive: true, encoding: 'utf8' }` now. Check this before adding
+another folder-wide invariant.
 
 **Provider folders share one shape.** `spotify/`, `applemusic/`, `deezer/` and
 `lastfm/` are `api/`, `models/`, plus whatever else that provider needs

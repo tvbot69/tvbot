@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { TelemetryService } from '@bot/services/system/telemetryService';
-import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
+import { NowPlayingInteractions } from '@bot/interactions/music/nowPlayingInteractions';
 import { AutopostService, type AutopostConfig } from '@bot/services/charts/autopostService';
 import type { ButtonInteraction, Client } from 'discord.js';
 

@@ -1,6 +1,6 @@
 import { ConfigData } from '@config/configData';
-import { Logger } from '@domain/logger';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { Logger } from '@domain/logging/logger';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 
 interface CachedToken {
   accessToken: string;

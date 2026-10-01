@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import crypto from 'crypto';
 import { CacheService } from '@bot/services/system/cacheService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 
 const COLOR_CACHE_TTL_SECONDS = 86400; // 24 hours

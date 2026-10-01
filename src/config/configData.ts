@@ -2,7 +2,7 @@ import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import type { BotSettings } from '@domain/models/botSettings';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { assertValidEnvironment } from '@bot/configurations/envValidator';
 
 const required = (name: string): string => {

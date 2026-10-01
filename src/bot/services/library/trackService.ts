@@ -1,14 +1,14 @@
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
-import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
-import type { IWhoKnowsRepository } from '@domain/interfaces/iwhoKnowsRepository';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { IArtistRepository } from '@domain/interfaces/ports/iartistRepository';
+import type { ITrackRepository } from '@domain/interfaces/ports/itrackRepository';
+import type { IWhoKnowsRepository } from '@domain/interfaces/ports/iwhoKnowsRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { TrackInfo } from '@domain/models/musicInfo';
 import type { TopTrack } from '@domain/models/topLists';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 import { CacheService } from '@bot/services/system/cacheService';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 import type { PrismaClient } from '@prisma/client';
 
 const CACHE_TTL_SECONDS = 1800;

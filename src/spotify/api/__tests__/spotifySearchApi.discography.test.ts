@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpotifySearchApi, SpotifyUnavailableError } from '@spotify/api/spotifySearchApi';
 import type { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * `getArtistDiscographyCovers` and `getArtistIdViaTrackSample` — the two rungs

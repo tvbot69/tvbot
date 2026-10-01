@@ -1,7 +1,7 @@
 import type { Client } from 'discord.js';
 import type { Player } from 'moonlink.js';
-import { Logger } from '@domain/logger';
-import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { Logger } from '@domain/logging/logger';
+import { MusicBuilders } from '@bot/builders/music/musicBuilders';
 import { resolveDisplayedChapter } from '@bot/services/music/videoChapters';
 import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { chapterKeyFor, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
@@ -12,7 +12,7 @@ import {
   errorMessage,
   isTerminalDiscordError,
   isUnrecoverableMessageFetch,
-} from '@domain/discordErrors';
+} from '@domain/errors/discordErrors';
 
 /** A hung edit settles nothing and would wedge the in-flight guard. */
 const EDIT_TIMEOUT_MS = 10000;

@@ -1,7 +1,7 @@
-import type { IGuildUserRepository } from '@domain/interfaces/iguildUserRepository';
-import type { IUserRepository } from '@domain/interfaces/iuserRepository';
+import type { IGuildUserRepository } from '@domain/interfaces/ports/iguildUserRepository';
+import type { IUserRepository } from '@domain/interfaces/ports/iuserRepository';
 import type { Guild as DiscordGuild } from 'discord.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export class GuildUserService {
   private readonly guildUserRepository: IGuildUserRepository;

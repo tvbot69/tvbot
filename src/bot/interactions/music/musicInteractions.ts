@@ -1,0 +1,746 @@
+import {
+  type ButtonInteraction,
+  type StringSelectMenuInteraction,
+  type InteractionUpdateOptions,
+  GuildMember,
+  MessageFlags,
+  PermissionFlagsBits,
+} from 'discord.js';
+import { MusicService } from '@bot/services/music/musicService';
+import { LyricsService } from '@bot/services/music/lyricsService';
+import { MusicBuilders } from '@bot/builders/music/musicBuilders';
+import { ColorService } from '@bot/services/system/colorService';
+import type { FilterName } from '@domain/models/music/musicQueue';
+import type { MusicTrack } from '@domain/models/music/musicTrack';
+import { TtlStore } from '@bot/services/system/ttlStore';
+import { chapterIndexAt, resolveDisplayedChapter, type VideoChapter } from '@bot/services/music/videoChapters';
+import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
+import { lyricWindowAt, type SyncedLine } from '@bot/services/music/syncedLyrics';
+import { deferUpdateSafe, respondSafe } from '@bot/interactions/common/interactionAck';
+
+export const MUSIC_INTERACTION_PREFIXES = [
+  'music:queue:',
+  'music:control:',
+  'music:filter:',
+  'music:search:',
+];
+
+export class MusicInteractions {
+  private readonly musicService: MusicService;
+  private readonly colorService: ColorService;
+  private readonly lyricsService: LyricsService;
+
+  /**
+   * True when the source message is already Components V2 (safe to update
+   * with a V2 card). Legacy messages must never be morphed into V2 via
+   * update — Discord rejects the mixed format (50035). Unknown shape reads
+   * as legacy (delete + followUp path) rather than risking the error.
+   */
+  private static isV2Message(message: ButtonInteraction['message']): boolean {
+    try {
+      return message.flags.has(MessageFlags.IsComponentsV2);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Stored chapter card for Now Playing rebuilds (pause/skip/views). Button
+   * presses rebuild synchronously; interactions reuse the last published
+   * card so chapter context survives them. Applies the same hold-last-cover
+   * rule as the event-driven publisher: a pending chapter keeps the
+   * previous cover instead of flashing generic track art.
+   */
+  private chapterCardFor(guildId: string): { title: string; artworkUrl?: string | null } | null {
+    try {
+      const player = this.musicService.getPlayer(guildId);
+      const queue = player ? this.musicService.getQueueInfo(guildId) : null;
+      // Re-derive from the CURRENT position instead of trusting whatever
+      // chapterCard happens to be stored. This is a pure reader, so a button
+      // press repainted the last chapter the publisher committed — which, right
+      // after a boundary or a seek, is the one the card has already moved on
+      // from. The publisher's own derivation (and its art resolve) is not
+      // reachable from here, so this at least never renders a chapter the
+      // position has already passed.
+      const chapters = player?.get('chapters') as { title: string; startMs: number }[] | null;
+      let card = (player?.get('chapterCard') as { title: string; artworkUrl?: string | null } | null) ?? null;
+      if (chapters && chapters.length >= 2 && queue) {
+        const idx = chapterIndexAt(chapters, Math.max(0, queue.position));
+        const current = chapters[idx];
+        if (current && current && current.title !== card?.title) {
+          card = { title: current.title, artworkUrl: null };
+        }
+      }
+      if (!card) return null;
+      let holdCover = (player?.get('lastCoverUrl') as string | null) ?? null;
+      if (!card.artworkUrl) {
+        const startedAt = player?.get('chapterStartedAt') as number | null;
+        // Mirrors the publisher's borrowed-cover window: a chapter that never
+        // resolves must stop showing the previous song's cover.
+        if (typeof startedAt === 'number' && Date.now() - startedAt > BORROWED_COVER_MS) {
+          holdCover = null;
+        }
+      }
+      return resolveDisplayedChapter(
+        card,
+        holdCover,
+        queue?.current?.artworkUrl,
+      ).card;
+    } catch {
+      // CORRECT AS IS: no chapter card means the card is rebuilt WITHOUT a
+      // chapter block. A failed read drops decoration — the safe direction,
+      // since a stale card here would name a chapter the position has already
+      // passed (the reason this method re-derives rather than reads a store).
+      return null;
+    }
+  }
+
+  /**
+   * Current lyric window for Now Playing rebuilds. Button presses rebuild
+   * synchronously at the frozen position, so the window must be computed
+   * here — passing nothing blanks the lyrics until the next line boundary.
+   * Mirrors the handler's window (same toggle, lines, real clock).
+   */
+  private lyricWindowFor(guildId: string): { current: string | null; next: string | null } | null {
+    try {
+      if (!this.musicService.isKaraokeEnabled(guildId)) return null;
+      const queue = this.musicService.getQueueInfo(guildId);
+      const player = this.musicService.getPlayer(guildId);
+      const lines = player?.get<SyncedLine[] | null>('karaokeLines');
+      if (!queue || !lines || lines.length === 0) return null;
+      return lyricWindowAt(lines, Math.max(0, queue.position));
+    } catch {
+      // CORRECT AS IS: null renders the card with no lyric window. A failed
+      // read must not print a wrong line, and karaoke is decoration — it never
+      // gates playback or the pause/alert machinery.
+      return null;
+    }
+  }
+
+  // Active search results per message/user (memory + Redis mirror so search
+  // picks survive restarts; 2-minute life like before).
+  private readonly activeSearches = new TtlStore<MusicTrack[]>('session:music-search:', 120);
+
+  /** Buttons that mutate shared playback — requester-only + double-press locked. */
+  private static readonly CONTROL_ACTIONS = new Set([
+    'music:control:pause_resume',
+    'music:control:skip',
+    'music:control:previous',
+    'music:control:shuffle',
+    'music:control:clear',
+    'music:control:loop',
+    'music:control:stop',
+    'music:filter:reset',
+  ]);
+  private static readonly DOUBLE_PRESS_MS = 700;
+  private readonly lastControlPress = new Map<string, number>();
+
+  /**
+   * Tracks without a requester (autoplay/24/7) stay controllable by anyone
+   * present. Server admins can always recover the bot — the same policy the
+   * slash and text commands use via MusicService.canControlPlayback, so the
+   * three surfaces cannot disagree about who is allowed to do what.
+   */
+  private isRequesterAllowed(guildId: string, userId: string, isAdmin = false): boolean {
+    try {
+      return this.musicService.canControlPlayback(guildId, userId, isAdmin);
+    } catch {
+      return true;
+    }
+  }
+
+  /** True when this member may bypass the requester-only rule. */
+  private memberIsAdmin(interaction: ButtonInteraction | StringSelectMenuInteraction): boolean {
+    const perms = interaction.memberPermissions;
+    if (!perms) return false;
+    return (
+      perms.has(PermissionFlagsBits.Administrator) || perms.has(PermissionFlagsBits.ManageGuild)
+    );
+  }
+
+  /** Claims the per-guild+button control slot; false = a press already landed inside the lock window. */
+  private claimControlPress(guildId: string, customId: string): boolean {
+    const key = `${guildId}:${customId}`;
+    const now = Date.now();
+    if (now - (this.lastControlPress.get(key) ?? 0) < MusicInteractions.DOUBLE_PRESS_MS) {
+      return false;
+    }
+    this.lastControlPress.set(key, now);
+    if (this.lastControlPress.size > 500) {
+      for (const [k, at] of this.lastControlPress) {
+        if (now - at > 60000) this.lastControlPress.delete(k);
+      }
+    }
+    return true;
+  }
+
+  private async denyControl(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<void> {
+    // respondSafe, not reply: if the ack guard already deferred this press, a
+    // plain reply() throws and the user gets NO explanation at all — which is
+    // exactly when the answer matters most.
+    await respondSafe(interaction, {
+      content: 'Only the requester of the current track can control playback.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  constructor(
+    musicService: MusicService,
+    colorService: ColorService,
+    // Required on purpose. It used to be optional, and the production
+    // construction site silently omitted it: the lyrics button answered
+    // "service unavailable" forever and every button-driven card rebuild
+    // rendered without lyrics while the event-driven card had them — two
+    // screens disagreeing, with a green test suite. A required parameter
+    // turns that silent no-op into a compile error at the call site.
+    lyricsService: LyricsService,
+  ) {
+    this.musicService = musicService;
+    this.colorService = colorService;
+    this.lyricsService = lyricsService;
+  }
+
+  public storeSearchResults(key: string, tracks: MusicTrack[]): void {
+    this.activeSearches.set(key, tracks);
+  }
+
+  /**
+   * Edit the card a button press belongs to, tolerating a card the handler has
+   * already replaced.
+   *
+   * A skip deletes the outgoing now-playing card and posts a new one, so a
+   * button press racing that teardown used to throw
+   * `DiscordAPIError[10008] Unknown Message` straight out of handleButton —
+   * logged as an unhandled exception and the user got NO response at all,
+   * which reads as "the buttons stopped working". Local test 2026-09-27 caught
+   * three of these in a minute of skipping.
+   *
+   * 10008 is unrecoverable for the edit, so fall through to a defer (still
+   * acknowledging the interaction within the 3s window) and let the fresh card
+   * carry the new state.
+   */
+  private async updateCardOrDefer(
+    interaction: ButtonInteraction | StringSelectMenuInteraction,
+    payload: unknown,
+  ): Promise<void> {
+    try {
+      await interaction.update(payload as InteractionUpdateOptions);
+    } catch (err) {
+      const code = (err as { code?: number }).code;
+      if (code !== 10008) throw err;
+      await deferUpdateSafe(interaction);
+    }
+  }
+
+  /**
+   * Rebuild the response for a card after a playback control changed
+   * (pause/skip/shuffle/volume/loop).
+   *
+   * This block was copy-pasted into six button branches, which meant one
+   * card-rebuild bug had six fix sites and they had already started to differ
+   * in their else-branch handling. The "is the user looking at the queue?"
+   * decision now exists exactly once.
+   */
+  private rebuildAfterControl(
+    interaction: ButtonInteraction,
+    updatedQueue: NonNullable<ReturnType<MusicService['getQueueInfo']>>,
+    accentColor: number | undefined,
+  ) {
+    const isQueueView = interaction.message.embeds.some((e) => e.title?.includes('Queue'));
+    return isQueueView
+      ? MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor)
+      : MusicBuilders.buildNowPlayingResponse(
+          updatedQueue,
+          accentColor,
+          this.lyricWindowFor(interaction.guildId ?? ''),
+          this.chapterCardFor(interaction.guildId ?? ''),
+        );
+  }
+
+  public async handleButton(interaction: ButtonInteraction): Promise<void> {
+    const customId = interaction.customId;
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
+      return;
+    }
+
+    const member = interaction.member instanceof GuildMember ? interaction.member : null;
+    const voiceChannel = member?.voice?.channel;
+    if (!voiceChannel) {
+      await respondSafe(interaction, {
+        content: 'You must be in a voice channel to use music controls.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    // Playback controls are requester-only and double-press locked: two
+    // near-simultaneous presses must never double-skip or toggle pause twice.
+    if (MusicInteractions.CONTROL_ACTIONS.has(customId)) {
+      if (!this.isRequesterAllowed(guildId, interaction.user.id, this.memberIsAdmin(interaction))) {
+        await this.denyControl(interaction);
+        return;
+      }
+      if (!this.claimControlPress(guildId, customId)) {
+        // CORRECT AS IS: the first press already did the work; this one only
+        // has to be ACKNOWLEDGED so Discord does not show "interaction
+        // failed". A failed ack changes no playback state and no number the
+        // user reads.
+        await interaction.deferUpdate().catch(() => undefined);
+        return;
+      }
+    }
+
+    // Accent is warm-fast (chapter prefetch pre-warms; failed lookups are
+    // negative-cached), so this stays well inside the 2.5s global ack guard.
+    const currentTrackArtwork = this.musicService.getQueueInfo(guildId)?.current?.artworkUrl;
+    const accentColor = await this.colorService.getAccentColorAsync(guildId, currentTrackArtwork);
+
+    // Cancel search menu
+    if (customId === 'music:search:cancel') {
+      this.activeSearches.delete(interaction.message.id);
+      this.activeSearches.delete(interaction.user.id);
+      // CORRECT AS IS: both calls are acknowledgement/teardown only. The
+      // search results are already dropped above, so the user gets no stale
+      // menu either way — at worst the click is unacked and the message stays
+      // as an inert embed.
+      await interaction.deferUpdate().catch(() => undefined);
+      await interaction.message.delete().catch(() => undefined);
+      return;
+    }
+
+    // View: Switch to Now Playing Card
+    if (customId === 'music:control:view_nowplaying') {
+      const queue = this.musicService.getQueueInfo(guildId);
+      if (!queue) {
+        await interaction.reply({ content: 'No music is currently playing.', ephemeral: true });
+        return;
+      }
+      const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
+      if (MusicInteractions.isV2Message(interaction.message)) {
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
+      } else {
+        // Legacy message (filters panel, queue view) cannot morph into a
+        // Components V2 card via update — Discord rejects the mixed format.
+        // Swap the message instead: same card, no error, no clutter.
+        // CORRECT AS IS: the followUp is NOT swallowed — if the swap fails
+        // the user sees the error instead of a silently unacknowledged click.
+        await interaction.deferUpdate().catch(() => undefined);
+        await interaction.message.delete().catch(() => undefined);
+        await interaction.followUp(response.toMessagePayload() as unknown as Parameters<ButtonInteraction['followUp']>[0]);
+      }
+      return;
+    }
+
+    // Filter: Reset All Filters — refresh the panel in place (same legacy
+    // format, never morphs into a V2 card, so update always succeeds).
+    if (customId === 'music:filter:reset') {
+      await this.musicService.clearFilters(guildId);
+      const queue = this.musicService.getQueueInfo(guildId);
+      if (queue) {
+        const response = MusicBuilders.buildFiltersResponse(queue.activeFilters, accentColor);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
+      } else {
+        await deferUpdateSafe(interaction);
+      }
+      return;
+    }
+
+    // Queue pagination
+    if (customId.startsWith('music:queue:')) {
+      const parts = customId.split(':');
+      const action = parts[2];
+      const targetPage = Number(parts[3] || 1);
+
+      const queue = this.musicService.getQueueInfo(guildId);
+      if (!queue) {
+        await interaction.reply({ content: 'No music is currently playing.', ephemeral: true });
+        return;
+      }
+
+      let page = targetPage;
+      const totalPages = Math.max(1, Math.ceil(queue.tracks.length / 10));
+
+      if (action === 'first') page = 1;
+      else if (action === 'last') page = totalPages;
+
+      const response = MusicBuilders.buildQueueResponse(queue, page, 10, accentColor);
+      await this.updateCardOrDefer(interaction, response.toMessagePayload());
+      return;
+    }
+
+    // Playback control: Pause / Resume
+    if (customId === 'music:control:pause_resume') {
+      const queue = this.musicService.getQueueInfo(guildId);
+      if (!queue) {
+        await interaction.reply({ content: 'No music is currently playing.', ephemeral: true });
+        return;
+      }
+
+      if (queue.isPaused) {
+        await this.musicService.resume(guildId);
+      } else {
+        await this.musicService.pause(guildId);
+      }
+
+      const updatedQueue = this.musicService.getQueueInfo(guildId);
+      if (updatedQueue) {
+        const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
+      } else {
+        await deferUpdateSafe(interaction);
+      }
+      return;
+    }
+
+    // Playback control: Skip
+    if (customId === 'music:control:skip') {
+      const success = await this.musicService.skip(guildId);
+      if (success) {
+        const updatedQueue = this.musicService.getQueueInfo(guildId);
+        if (updatedQueue) {
+          const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
+          await this.updateCardOrDefer(interaction, response.toMessagePayload());
+        } else {
+          // CORRECT AS IS: the skip already happened and its own trackStart
+          // posts a fresh card, so this only has to stop the dead card
+          // responding. A failed delete leaves the old card on screen, which
+          // is stale but not a wrong number — and the message stays
+          // unclickable rather than acting on a dead queue.
+          await interaction.deferUpdate().catch(() => undefined);
+          await interaction.message.delete().catch(() => undefined);
+        }
+      } else {
+        await interaction.reply({ content: 'Nothing to skip.', ephemeral: true });
+      }
+      return;
+    }
+
+    // Playback control: Previous Track
+    if (customId === 'music:control:previous') {
+      const success = await this.musicService.previous(guildId);
+      if (success) {
+        const updatedQueue = this.musicService.getQueueInfo(guildId);
+        if (updatedQueue) {
+          const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
+          await this.updateCardOrDefer(interaction, response.toMessagePayload());
+        } else {
+          await deferUpdateSafe(interaction);
+        }
+      } else {
+        await interaction.reply({ content: 'No previous track in history to replay.', ephemeral: true });
+      }
+      return;
+    }
+
+    // Playback control: Shuffle
+    if (customId === 'music:control:shuffle') {
+      const success = await this.musicService.shuffle(guildId);
+      if (success) {
+        const updatedQueue = this.musicService.getQueueInfo(guildId);
+        if (updatedQueue) {
+          const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
+          await this.updateCardOrDefer(interaction, response.toMessagePayload());
+        } else {
+          await deferUpdateSafe(interaction);
+        }
+      } else {
+        await interaction.reply({ content: 'Queue is too small to shuffle.', ephemeral: true });
+      }
+      return;
+    }
+
+    // Playback control: Clear Queue
+    if (customId === 'music:control:clear') {
+      this.musicService.clear(guildId);
+      const updatedQueue = this.musicService.getQueueInfo(guildId);
+      if (updatedQueue) {
+        const response = this.rebuildAfterControl(interaction, updatedQueue, accentColor);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
+      } else {
+        await deferUpdateSafe(interaction);
+      }
+      return;
+    }
+
+    // Playback control: Cycle Loop Mode
+    if (customId === 'music:control:loop') {
+      this.musicService.cycleLoop(guildId);
+      const updatedQueue = this.musicService.getQueueInfo(guildId);
+      if (updatedQueue) {
+        const response = MusicBuilders.buildNowPlayingResponse(updatedQueue, accentColor, this.lyricWindowFor(guildId), this.chapterCardFor(guildId));
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
+      } else {
+        await deferUpdateSafe(interaction);
+      }
+      return;
+    }
+
+    // Playback control: Stop
+    if (customId === 'music:control:stop') {
+      await this.musicService.stop(guildId);
+      // CORRECT AS IS: stop() already ran and is not in doubt here — the two
+      // calls are acknowledgement and card teardown for a card whose player is
+      // gone. Worst case an empty card survives, which is stale, not wrong.
+      await interaction.deferUpdate().catch(() => undefined);
+      await interaction.message.delete().catch(() => undefined);
+      return;
+    }
+  }
+
+  public async handleSelectMenu(interaction: StringSelectMenuInteraction): Promise<void> {
+    const customId = interaction.customId;
+    const guildId = interaction.guildId;
+    if (!guildId) {
+      await interaction.reply({ content: 'This command can only be used in a server.', ephemeral: true });
+      return;
+    }
+
+    const member = interaction.member instanceof GuildMember ? interaction.member : null;
+    const voiceChannel = member?.voice?.channel;
+    if (!voiceChannel) {
+      await respondSafe(interaction, {
+        content: 'You must be in a voice channel to use music controls.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (customId === 'music:filter:select' || customId.startsWith('music:chapters:seek:')) {
+      if (!this.isRequesterAllowed(guildId, interaction.user.id, this.memberIsAdmin(interaction))) {
+        await this.denyControl(interaction);
+        return;
+      }
+      if (!this.claimControlPress(guildId, customId)) {
+        // CORRECT AS IS: as in handleButton — acknowledgement only, the
+        // duplicate press is dropped on purpose (double-seek, double-filter).
+        await interaction.deferUpdate().catch(() => undefined);
+        return;
+      }
+    }
+
+    const accentColor = await this.colorService.getAccentColorAsync(guildId);
+
+    // Audio Filter Toggle
+    if (customId === 'music:filter:select') {
+      const selectedFilter = interaction.values[0] as FilterName;
+      if (!selectedFilter) {
+        await deferUpdateSafe(interaction);
+        return;
+      }
+
+      const queue = this.musicService.getQueueInfo(guildId);
+      if (!queue) {
+        await interaction.reply({ content: 'No music is currently playing.', ephemeral: true });
+        return;
+      }
+
+      const isCurrentlyEnabled = queue.activeFilters.includes(selectedFilter);
+      const result = await this.musicService.setFilter(guildId, selectedFilter, !isCurrentlyEnabled);
+      // CORRECT AS IS: these two notices are best-effort by design, and the
+      // PANEL below is rebuilt from `updatedQueue.activeFilters` — the live
+      // player state — so what the user reads about which filters are on is
+      // re-derived after the call, never carried over from `queue` above.
+      if (!result.applied) {
+        await interaction.followUp({
+          content: `Couldn't apply **${selectedFilter}** on the audio node. Try again in a few seconds.`,
+          ephemeral: true,
+        }).catch(() => undefined);
+      } else if (result.replaced.length > 0) {
+        await interaction.followUp({
+          content: `**${selectedFilter}** on, ${result.replaced.map((f) => `**${f}**`).join(', ')} off (EQ presets don't stack).`,
+          ephemeral: true,
+        }).catch(() => undefined);
+      }
+
+      const updatedQueue = this.musicService.getQueueInfo(guildId);
+      const activeFilters = updatedQueue?.activeFilters ?? [];
+      const response = MusicBuilders.buildFiltersResponse(activeFilters, accentColor);
+
+      await this.updateCardOrDefer(interaction, response.toMessagePayload());
+      return;
+    }
+
+    // Chapter jump: seek the player to the selected chapter's start. The
+    // menu re-renders with the moved marker and stays reusable; the live
+    // card + cover swap happens via the seek path. Deferred FIRST: seeks
+    // take ~1s and the router auto-defers slow components at 2.5s — an
+    // update after that auto-defer throws InteractionAlreadyReplied.
+    if (customId.startsWith('music:chapters:seek:')) {
+      const idxStr = interaction.values[0];
+      const idx = idxStr !== undefined ? Number(idxStr) : NaN;
+      const chapters = (this.musicService.getPlayer(guildId)?.get('chapters') as VideoChapter[] | null) ?? null;
+      if (!chapters || Number.isNaN(idx) || idx < 0 || !chapters[idx]) {
+        await interaction.reply({
+          content: 'Chapters are no longer available for this track. Run the chapters command again.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const chapter = chapters[idx]!;
+      // CORRECT AS IS: acknowledged before the (slow) seek so the router's
+      // 2.5s auto-defer cannot make the edit below throw. A failed ack here
+      // changes nothing about the seek, which is driven from the chapter list
+      // already validated above.
+      await interaction.deferUpdate().catch(() => undefined);
+      const appliedMs = await this.musicService.seek(guildId, Math.floor(chapter.startMs / 1000));
+      if (appliedMs === null) {
+        // seek() answers null for FOUR different reasons (no player, no
+        // track, live stream, unknown duration) and only one of them means
+        // "nothing is playing". Telling a listener whose chapter jump was
+        // refused that nothing is playing is a false statement about playback
+        // state — the track is right there. Only claim silence when there is
+        // genuinely no current track.
+        const stillPlaying = this.musicService.getQueueInfo(guildId)?.current;
+        await interaction
+          .followUp({
+            content: stillPlaying
+              ? `Could not seek to that chapter on **${stillPlaying.title}** — live streams and tracks with no known length cannot be seeked.`
+              : 'No track is currently playing.',
+            ephemeral: true,
+          })
+          .catch(() => undefined);
+        return;
+      }
+
+      const queue = this.musicService.getQueueInfo(guildId);
+      if (!queue?.current) return;
+      // Mark the chapter the player is ACTUALLY at, not the one that was
+      // clicked. A seek can be clamped (or refused on a stream), and the menu
+      // then claimed a position the player never reached.
+      const landed = chapterIndexAt(chapters, Math.max(0, queue.position));
+      const response = MusicBuilders.buildChaptersResponse(
+        queue.current,
+        chapters,
+        landed >= 0 ? landed : idx,
+        accentColor,
+      );
+      await interaction
+        .editReply(response.toMessagePayload() as unknown as Parameters<ButtonInteraction['editReply']>[0])
+        // CORRECT AS IS: the seek already happened and the live card swapped
+        // through the seek path; this only re-renders the select menu. A failed
+        // edit leaves the menu showing the OLD marker — stale, and it does not
+        // claim a position the player never reached (that is what `landed`
+        // above protects).
+        .catch(() => undefined);
+      return;
+    }
+
+    // Queue Quick Remove Track
+    if (customId === 'music:queue:quick_remove') {
+      // Deleting other members' queued tracks is playback control: this path
+      // checked only voice presence, so any member in any voice channel could
+      // clear the queue.
+      if (!this.isRequesterAllowed(guildId, interaction.user.id, this.memberIsAdmin(interaction))) {
+        await this.denyControl(interaction);
+        return;
+      }
+      const indexStr = interaction.values[0];
+      const indexNumber = indexStr ? Number(indexStr) : NaN;
+      if (Number.isNaN(indexNumber)) {
+        await deferUpdateSafe(interaction);
+        return;
+      }
+
+      // 1-based index in queue
+      const removed = this.musicService.remove(guildId, indexNumber - 1);
+      const updatedQueue = this.musicService.getQueueInfo(guildId);
+      if (updatedQueue) {
+        const response = MusicBuilders.buildQueueResponse(updatedQueue, 1, 10, accentColor);
+        await this.updateCardOrDefer(interaction, response.toMessagePayload());
+      } else {
+        await deferUpdateSafe(interaction);
+      }
+
+      if (removed) {
+        await interaction.followUp({
+          content: `🗑️ Removed **${removed.title}** from the queue.`,
+          ephemeral: true,
+        });
+      }
+      return;
+    }
+
+    // Search Result Selection
+    if (customId === 'music:search:select') {
+      const selectedIndexStr = interaction.values[0];
+      const selectedIndex = selectedIndexStr ? Number(selectedIndexStr) : NaN;
+
+      const cachedTracks =
+        (await this.activeSearches.get(interaction.message.id)) ??
+        (await this.activeSearches.get(interaction.user.id));
+
+      if (!cachedTracks || Number.isNaN(selectedIndex) || !cachedTracks[selectedIndex]) {
+        await interaction.reply({
+          content: 'Search results expired. Please run the search command again.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const chosenTrack = cachedTracks[selectedIndex]!;
+      await deferUpdateSafe(interaction);
+
+      const requester = {
+        id: interaction.user.id,
+        tag: interaction.user.tag ?? interaction.user.username,
+        avatarUrl: interaction.user.displayAvatarURL(),
+      };
+
+      const result = await this.musicService.play(
+        guildId,
+        voiceChannel.id,
+        interaction.channelId,
+        chosenTrack.uri,
+        requester,
+        {
+          title: chosenTrack.title,
+          author: chosenTrack.author,
+          artworkUrl: chosenTrack.artworkUrl,
+          source: chosenTrack.source,
+        },
+      );
+
+      this.activeSearches.delete(interaction.message.id);
+      this.activeSearches.delete(interaction.user.id);
+
+      // Delete the search embed message
+      // CORRECT AS IS: the play below already ran, so the result reply below
+      // is what the user reads. A surviving menu is inert — its entries were
+      // deleted from the store above, so a re-click answers "Search results
+      // expired" rather than queueing something twice.
+      await interaction.message.delete().catch(() => undefined);
+
+      if (result.loadType === 'error') {
+        // The BOUND form, which carries this service's node manager. The free
+        // function has no manager to ask, so a pick from a search menu could only
+        // ever be answered with the generic rate-limit sentence — the same lie
+        // `.play` used to tell, for a bot that is switched off rather than busy.
+        if (interaction.channel && 'send' in interaction.channel) {
+          await (interaction.channel as { send: (opts: { content: string }) => Promise<unknown> }).send({
+            content: `❌ ${this.musicService.playErrorMessage(result.errorReason)}`,
+          });
+        }
+        return;
+      }
+
+      const queue = this.musicService.getQueueInfo(guildId);
+      const trackToDisplay = result.track ?? chosenTrack;
+      const addedResponse = MusicBuilders.buildTrackAddedResponse(
+        trackToDisplay,
+        result.positionInQueue,
+        queue?.totalTracks ?? result.totalTracksAdded,
+        accentColor,
+      );
+
+      if (interaction.channel && 'send' in interaction.channel) {
+        await (interaction.channel as { send: (opts: { content?: string; embeds?: unknown[]; components?: unknown[] }) => Promise<unknown> }).send(
+          addedResponse.toMessagePayload() as { content?: string; embeds?: unknown[]; components?: unknown[] }
+        );
+      }
+      return;
+    }
+  }
+}

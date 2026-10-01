@@ -1,11 +1,11 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { PlaycountCommands } from '@bot/textCommands/lastfm/playcountCommands';
-import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { PlaycountBuilders } from '@bot/builders/library/playcountBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * `.artistplays` / `.albumplays` / `.trackplays` — the playcount reconciliation

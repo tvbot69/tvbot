@@ -1,5 +1,5 @@
 import type { Player, Track } from 'moonlink.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import type { FilterName, LoopMode, MusicQueueInfo } from '@domain/models/music/musicQueue';
 import { cleanTrackTitle, isSpotifyMatchValid, mapMoonlinkTrack, spotifyUriToUrl, type MirrorResolution, type MirrorTrack, type MusicTrack, type MusicTrackRequester } from '@domain/models/music/musicTrack';
 import { MoonlinkManager, type LavalinkNodeStats } from '@bot/services/music/moonlinkManager';

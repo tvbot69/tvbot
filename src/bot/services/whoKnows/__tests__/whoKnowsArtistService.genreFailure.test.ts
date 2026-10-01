@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { WhoKnowsArtistService } from '@bot/services/whoKnows/whoKnowsArtistService';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import type { IWhoKnowsRepository } from '@domain/interfaces/iwhoKnowsRepository';
-import type { IGuildUserRepository } from '@domain/interfaces/iguildUserRepository';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import type { IWhoKnowsRepository } from '@domain/interfaces/ports/iwhoKnowsRepository';
+import type { IGuildUserRepository } from '@domain/interfaces/ports/iguildUserRepository';
 import type { GuildService } from '@bot/services/guild/guildService';
 import type { GenreService } from '@bot/services/library/genreService';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * The `getGenresForArtist` swallow in `whoKnowsArtistService`, pinned as a

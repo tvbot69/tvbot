@@ -1,8 +1,8 @@
 import { container } from 'tsyringe';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 import { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
 import { TelemetryService } from '@bot/services/system/telemetryService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import {
   SPOTIFY_SEARCH_QUERY_MAX,
   clampSpotifyAlbumTracksLimit,

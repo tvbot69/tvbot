@@ -1,5 +1,5 @@
 import type { Track } from 'moonlink.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { isYoutubeThumbUrl } from '@domain/models/music/musicTrack';
 import type { ArtworkService } from '@bot/services/media/artworkService';
 import { extractArtistFromTitle } from '@bot/services/music/videoChapters';

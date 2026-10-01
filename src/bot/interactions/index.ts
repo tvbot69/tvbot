@@ -1,7 +1,7 @@
 import type {
   ModalSubmitInteraction,
 } from 'discord.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export type ModalHandler = (interaction: ModalSubmitInteraction) => Promise<void>;
 

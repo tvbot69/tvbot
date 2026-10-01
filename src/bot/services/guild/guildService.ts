@@ -1,5 +1,5 @@
 import type { Guild as DiscordGuild } from 'discord.js';
-import type { IGuildRepository } from '@domain/interfaces/iguildRepository';
+import type { IGuildRepository } from '@domain/interfaces/ports/iguildRepository';
 import type { Guild } from '@persistence/models/guild';
 import { CacheService } from '@bot/services/system/cacheService';
 import { prisma } from '@persistence/prismaClient';

@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { Client, type Channel, TextChannel } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 @injectable()
 export class ImageUploadService {

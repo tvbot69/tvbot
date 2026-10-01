@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import { getAudioDurationInSeconds } from 'get-audio-duration';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { ffprobePath as configuredFfprobePath } from '@config/runtimeEnv';
 import { buildVoiceWaveform } from '@bot/services/audio/audioSignalService';
 

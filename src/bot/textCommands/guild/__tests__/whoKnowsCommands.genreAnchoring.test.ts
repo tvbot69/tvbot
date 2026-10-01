@@ -5,10 +5,10 @@ import { WhoKnowsCommands } from '@bot/textCommands/guild/whoKnowsCommands';
 import { SettingService } from '@bot/services/system/settingService';
 import { ArtistTrackService } from '@bot/services/library/artistTrackService';
 import { GenreService } from '@bot/services/library/genreService';
-import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { WhoKnowsBuilders } from '@bot/builders/whoknows/whoKnowsBuilders';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * The "anchored genres" read in `whoKnowsCommands`, pinned as a deliberate

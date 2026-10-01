@@ -18,7 +18,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { CountryCommands } from '@bot/textCommands/lastfm/countryCommands';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';

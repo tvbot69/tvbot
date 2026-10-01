@@ -1,10 +1,10 @@
-import type { IWhoKnowsRepository } from '@domain/interfaces/iwhoKnowsRepository';
-import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
+import type { IWhoKnowsRepository } from '@domain/interfaces/ports/iwhoKnowsRepository';
+import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
 import type { GuildService } from '@bot/services/guild/guildService';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import type { WhoKnowsArtistContext, WhoKnowsRoleRead, WhoKnowsUser } from '@bot/models/whoKnowsModels';
-import { isUnknownDiscordMember } from '@domain/discordErrors';
+import { isUnknownDiscordMember } from '@domain/errors/discordErrors';
 import type { Guild as DiscordGuild } from 'discord.js';
 import type { GenreService } from '@bot/services/library/genreService';
 import type { CrownService } from '@bot/services/crown/crownService';
@@ -94,7 +94,7 @@ export class WhoKnowsArtistService {
           // overloaded, a socket error - which becomes `unknown` and blocks the
           // crown write. Verified against Discord's JSON Error Codes table and
           // the `DiscordAPIError` shape in `@discordjs/rest`; see
-          // `isUnknownDiscordMember` in `domain/discordErrors.ts`.
+          // `isUnknownDiscordMember` in `domain/errors/discordErrors.ts`.
           try {
             member = await discordGuild.members.fetch(gu.discordUserId);
             memberRoles = { read: true, roles: Array.from(member.roles.cache.keys()) };

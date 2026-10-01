@@ -5,7 +5,7 @@ import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from 'vites
 import type { PrismaClient } from '@prisma/client';
 import { ProfileService } from '@bot/services/user/profileService';
 import { connect, resetTables, seedUser, skipReason, useScratchSchema } from '../../../../testSupport/dbHarness';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import type { LastFmUser } from '@domain/models/lastFmUser';
 import type { User } from '@persistence/models/user';
 import { DataSource, UserType } from '@persistence/models/user';

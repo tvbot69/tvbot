@@ -1,6 +1,6 @@
 import { Manager, Connectors, type Node, type Player } from 'moonlink.js';
 import type { Client } from 'discord.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { getLavalinkNodes, type LavalinkNodeConfig } from '@config/lavalink';
 import { lavalinkEnableFlag, runtimeEnvironment } from '@config/musicEnv';
 import type { CacheService } from '@bot/services/system/cacheService';

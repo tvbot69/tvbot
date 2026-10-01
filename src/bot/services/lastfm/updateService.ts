@@ -1,17 +1,17 @@
-import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
-import type { IPlayRepository, PlayInsert } from '@domain/interfaces/iplayRepository';
+import type { IUserRepository, User } from '@domain/interfaces/ports/iuserRepository';
+import type { IPlayRepository, PlayInsert } from '@domain/interfaces/ports/iplayRepository';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { container } from 'tsyringe';
 import { IndexService } from '@bot/services/lastfm/indexService';
-import { normalizeStoredName } from '@domain/textNormalize';
-import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
-import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
-import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { toDate } from '@domain/date';
+import { normalizeStoredName } from '@domain/text/textNormalize';
+import type { IArtistRepository } from '@domain/interfaces/ports/iartistRepository';
+import type { IAlbumRepository } from '@domain/interfaces/ports/ialbumRepository';
+import type { ITrackRepository } from '@domain/interfaces/ports/itrackRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import { toDate } from '@domain/text/date';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import { CacheService } from '@bot/services/system/cacheService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import type { GenreService } from '@bot/services/library/genreService';
 
 const UPDATE_DEDUP_TTL_SECONDS = 2;

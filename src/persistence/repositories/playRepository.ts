@@ -1,12 +1,12 @@
 import { Prisma, PrismaClient } from '@prisma/client';
-import { normalizeStoredName } from '@domain/textNormalize';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { normalizeStoredName } from '@domain/text/textNormalize';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 import type {
   IPlayRepository,
   PlayInsert,
   TopEntityResult,
-} from '@domain/interfaces/iplayRepository';
+} from '@domain/interfaces/ports/iplayRepository';
 
 const INSERT_CHUNK_SIZE = 500;
 const CHUNK_RETRY_DELAYS_MS = [1000, 2500, 5000, 10000];

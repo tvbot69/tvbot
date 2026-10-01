@@ -47,7 +47,7 @@ const hoisted = vi.hoisted(() => ({
 vi.mock('dns', () => ({ default: { setDefaultResultOrder: vi.fn() } }));
 
 
-vi.mock('@domain/logger', () => ({
+vi.mock('@domain/logging/logger', () => ({
   Logger: {
     error: vi.fn(),
     fatal: vi.fn(),
@@ -56,11 +56,11 @@ vi.mock('@domain/logger', () => ({
   },
 }));
 
-vi.mock('@domain/errorFeed', () => ({ reportFatalToDiscord: vi.fn() }));
+vi.mock('@domain/logging/errorFeed', () => ({ reportFatalToDiscord: vi.fn() }));
 
 import dns from 'dns';
-import { Logger } from '@domain/logger';
-import { reportFatalToDiscord } from '@domain/errorFeed';
+import { Logger } from '@domain/logging/logger';
+import { reportFatalToDiscord } from '@domain/logging/errorFeed';
 
 type Listener = (...args: unknown[]) => void;
 

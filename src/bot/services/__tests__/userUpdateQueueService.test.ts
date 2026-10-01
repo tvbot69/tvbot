@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
-import type { UserUpdateQueueItem } from '@domain/interfaces/iuserUpdateQueue';
+import type { UserUpdateQueueItem } from '@domain/interfaces/ports/iuserUpdateQueue';
 
 describe('UserUpdateQueueService', () => {
   it('enqueues items and reports correct size', () => {

@@ -45,7 +45,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
  */
 
 type TokenManagerModule = typeof import('@spotify/api/spotifyTokenManager');
-type LoggerModule = typeof import('@domain/logger');
+type LoggerModule = typeof import('@domain/logging/logger');
 
 const CREDS = {
   one: { ids: 'fake-id-1', secrets: 'fake-secret-1' },
@@ -78,7 +78,7 @@ const load = async (pool: { ids: string; secrets: string }): Promise<TokenManage
   // declared return type is the intersection with the module's own type, and
   // `LoggerModule` is every export of that file. Spreading only `Logger` left
   // the intersection unsatisfied.
-  const loggerModule: LoggerModule = await import('@domain/logger');
+  const loggerModule: LoggerModule = await import('@domain/logging/logger');
   const { Logger } = loggerModule;
   vi.spyOn(Logger, 'info').mockImplementation(() => undefined);
   vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);

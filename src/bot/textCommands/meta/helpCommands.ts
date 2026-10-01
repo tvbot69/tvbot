@@ -2,7 +2,7 @@ import { injectable } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { HelpBuilders } from '@bot/builders/helpBuilders';
+import { HelpBuilders } from '@bot/builders/meta/helpBuilders';
 
 @injectable()
 export class HelpCommands implements ITextCommandModule {

@@ -1,6 +1,6 @@
 import { container } from 'tsyringe';
 import { Client } from 'discord.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { prisma } from '@persistence/prismaClient';
 import { TimerService } from '@bot/services/lastfm/timerService';
 import { CacheService } from '@bot/services/system/cacheService';

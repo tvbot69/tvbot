@@ -73,7 +73,7 @@ const errorResponse = (status: number) => {
 
 /**
  * Typed as the spy over the GLOBAL `fetch`, because the global `fetch` is what
- * `fetchWithTimeout` calls (`@domain/fetchWithTimeout.ts:16`), which is now the
+ * `fetchWithTimeout` calls (`@domain/http/fetchWithTimeout.ts:16`), which is now the
  * only HTTP path in this service. `MockInstance<typeof fetch>` is exactly the
  * type the spy is returned as, so `mock.calls[0][0]` is the real input.
  */

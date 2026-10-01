@@ -4,8 +4,8 @@ import type {
   DeezerPlaylist,
   DeezerTrack,
 } from '@deezer/models/deezerModels';
-import { Logger } from '@domain/logger';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { Logger } from '@domain/logging/logger';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 
 const API_BASE = 'https://api.deezer.com';
 const DEEZER_TIMEOUT_MS = 8000;

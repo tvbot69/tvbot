@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, expect, it, beforeAll, afterAll, beforeEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MusicIntelligenceService } from '@bot/services/library/musicIntelligenceService';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 import {
   connect,
   databaseUrl,

@@ -1,12 +1,12 @@
 import { inject, injectable } from 'tsyringe';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { IFriendsRepository } from '@domain/interfaces/ifriendsRepository';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { IFriendsRepository } from '@domain/interfaces/ports/ifriendsRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import type { ProfileStats, ProfileHistoryStats, MonthHistoryEntry, YearHistoryEntry } from '@bot/builders/profileBuilders';
+import type { ProfileStats, ProfileHistoryStats, MonthHistoryEntry, YearHistoryEntry } from '@bot/builders/user/profileBuilders';
 import { prisma } from '@persistence/prismaClient';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 
 function formatLongListeningTime(seconds: number): string {
   const days = Math.floor(seconds / 86400);

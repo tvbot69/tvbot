@@ -1,5 +1,5 @@
-import { Logger } from '@domain/logger';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { Logger } from '@domain/logging/logger';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 import { DeezerApi } from '@deezer/api/deezerApi';
 import type { DeezerTrack } from '@deezer/models/deezerModels';
 import type { MirrorProvider, MirrorResolution, MirrorTrack } from '@domain/models/music/musicTrack';

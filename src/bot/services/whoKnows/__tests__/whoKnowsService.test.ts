@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
-import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { UserType, DataSource } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 import type { Guild } from '@persistence/models/guild';

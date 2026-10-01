@@ -2,9 +2,9 @@ import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { AutopostCommands } from '@bot/textCommands/guild/autopostCommands';
-import { AutopostBuilders } from '@bot/builders/autopostBuilders';
+import { AutopostBuilders } from '@bot/builders/guild/autopostBuilders';
 import { AutopostService } from '@bot/services/charts/autopostService';
-import { auditAdminAction } from '@domain/adminAudit';
+import { auditAdminAction } from '@domain/logging/adminAudit';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { AutopostConfig } from '@bot/services/charts/autopostService';
@@ -27,7 +27,7 @@ import type { AutopostConfig } from '@bot/services/charts/autopostService';
  * — otherwise a typo would burn one of the ten slots.
  */
 
-vi.mock('@domain/adminAudit', () => ({ auditAdminAction: vi.fn() }));
+vi.mock('@domain/logging/adminAudit', () => ({ auditAdminAction: vi.fn() }));
 
 const config = (over: Partial<AutopostConfig> = {}): AutopostConfig => ({
   id: '7',

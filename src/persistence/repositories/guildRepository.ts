@@ -1,5 +1,5 @@
 import { PrismaClient, Guild as GuildEntity } from '@prisma/client';
-import type { IGuildRepository } from '@domain/interfaces/iguildRepository';
+import type { IGuildRepository } from '@domain/interfaces/ports/iguildRepository';
 import type { Guild } from '@persistence/models/guild';
 
 /**

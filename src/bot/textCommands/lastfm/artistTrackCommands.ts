@@ -3,7 +3,7 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/library/artistTrackService';
-import { ArtistTrackBuilders } from '@bot/builders/artistTrackBuilders';
+import { ArtistTrackBuilders } from '@bot/builders/library/artistTrackBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';

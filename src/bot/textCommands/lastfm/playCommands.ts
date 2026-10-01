@@ -1,12 +1,12 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { PlayBuilders } from '@bot/builders/playBuilders';
-import { RecentBuilders } from '@bot/builders/recentBuilders';
+import { PlayBuilders } from '@bot/builders/library/playBuilders';
+import { RecentBuilders } from '@bot/builders/library/recentBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { container } from 'tsyringe';
 import { FmSettingService } from '@bot/services/system/fmSettingService';

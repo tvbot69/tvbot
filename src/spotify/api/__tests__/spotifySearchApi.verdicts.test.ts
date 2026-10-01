@@ -9,11 +9,11 @@ import type { CacheService } from '@bot/services/system/cacheService';
 import type { DeezerApi } from '@deezer/api/deezerApi';
 import type { AppleMusicWebApi } from '@applemusic/api/appleMusicWebApi';
 import type { AppleMusicSearchApi } from '@applemusic/api/appleMusicSearchApi';
-import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
-import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
-import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { Logger } from '@domain/logger';
+import type { IArtistRepository } from '@domain/interfaces/ports/iartistRepository';
+import type { IAlbumRepository } from '@domain/interfaces/ports/ialbumRepository';
+import type { ITrackRepository } from '@domain/interfaces/ports/itrackRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * Which failures are MISSES and which are INCONCLUSIVE.

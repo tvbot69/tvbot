@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { IUserRepository, User } from '@domain/interfaces/ports/iuserRepository';
 import type { Client } from 'discord.js';
 
 describe('BotScrobblingService', () => {

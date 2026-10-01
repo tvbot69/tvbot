@@ -1,11 +1,11 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GuildAdminService } from '@bot/services/guild/guildAdminService';
-import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
-import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
+import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
+import type { IUserRepository, User } from '@domain/interfaces/ports/iuserRepository';
 import type { GuildService } from '@bot/services/guild/guildService';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 import type { PrismaClient } from '@prisma/client';
 
 describe('GuildAdminService', () => {

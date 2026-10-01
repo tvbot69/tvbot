@@ -33,7 +33,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { UserService } from '@bot/services/user/userService';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 
 /** Prisma 5xx / driver-level connectivity failure, the realistic shape. */
 const DB_DOWN = () => new Error("Can't reach database server at `host.docker.internal:5432`");

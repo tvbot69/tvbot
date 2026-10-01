@@ -1,5 +1,5 @@
 import { PrismaClient, Album } from '@prisma/client';
-import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
+import type { IAlbumRepository } from '@domain/interfaces/ports/ialbumRepository';
 
 export class AlbumRepository implements IAlbumRepository {
   private readonly prisma: PrismaClient;

@@ -1,7 +1,7 @@
 import { GenreService } from '@bot/services/library/genreService';
 import { prisma } from '@persistence/prismaClient';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * A failed read is not "no genres".

@@ -7,12 +7,12 @@ import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { CountryService, TopCountryItem } from '@bot/services/library/countryService';
-import { CountryBuilders } from '@bot/builders/countryBuilders';
+import { CountryBuilders } from '@bot/builders/library/countryBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 import { ColorService } from '@bot/services/system/colorService';
-import { storeCountryQuery } from '@bot/interactions/countryInteractions';
+import { storeCountryQuery } from '@bot/interactions/library/countryInteractions';
 import { CountryChartTheme, WorldMapGenerator } from '@images/generators/worldMapGenerator';
 
 @injectable()

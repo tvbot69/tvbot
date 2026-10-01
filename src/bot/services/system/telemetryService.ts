@@ -1,5 +1,5 @@
 import { singleton } from 'tsyringe';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export interface CommandMetric {
   commandName: string;

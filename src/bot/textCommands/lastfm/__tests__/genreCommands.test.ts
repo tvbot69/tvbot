@@ -2,11 +2,11 @@ import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { GenreCommands } from '@bot/textCommands/lastfm/genreCommands';
-import { GenreBuilders } from '@bot/builders/genreBuilders';
-import { storeGenreQuery } from '@bot/interactions/genreInteractions';
+import { GenreBuilders } from '@bot/builders/library/genreBuilders';
+import { storeGenreQuery } from '@bot/interactions/library/genreInteractions';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 
 /**
@@ -26,7 +26,7 @@ import type { TimeSettingsModel } from '@domain/models/timeSettings';
  * because it is a guess the user never made.
  */
 
-vi.mock('@bot/interactions/genreInteractions', () => ({
+vi.mock('@bot/interactions/library/genreInteractions', () => ({
   storeGenreQuery: vi.fn(),
 }));
 

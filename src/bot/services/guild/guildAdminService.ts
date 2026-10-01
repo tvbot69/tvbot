@@ -1,10 +1,10 @@
 import { inject, injectable } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
-import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
-import type { IUserRepository } from '@domain/interfaces/iuserRepository';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
+import type { IUserRepository } from '@domain/interfaces/ports/iuserRepository';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 import { GuildService } from '@bot/services/guild/guildService';
 
 /**

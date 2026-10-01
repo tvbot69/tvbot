@@ -3,8 +3,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TasteService, formatTasteTable } from '@bot/services/library/tasteService';
 import type { TasteComparisonItem, TasteData } from '@bot/services/library/tasteService';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import { LastFmUnavailableError, isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { LastFmUnavailableError, isLastFmUnavailable } from '@domain/models/errors/lastfmUnavailableError';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 import type { TopArtist } from '@domain/models/topLists';
 import type { TopCountryItem } from '@bot/services/library/countryService';
 

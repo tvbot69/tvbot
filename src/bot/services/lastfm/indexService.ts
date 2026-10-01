@@ -1,19 +1,19 @@
-import type { IUserIndexQueue, IndexUserQueueItem } from '@domain/interfaces/iuserIndexQueue';
-import type { IPlayRepository } from '@domain/interfaces/iplayRepository';
+import type { IUserIndexQueue, IndexUserQueueItem } from '@domain/interfaces/ports/iuserIndexQueue';
+import type { IPlayRepository } from '@domain/interfaces/ports/iplayRepository';
 import { PlayRepository, sumEntriesById } from '@persistence/repositories/playRepository';
-import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
-import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
-import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
+import type { IArtistRepository } from '@domain/interfaces/ports/iartistRepository';
+import type { IAlbumRepository } from '@domain/interfaces/ports/ialbumRepository';
+import type { ITrackRepository } from '@domain/interfaces/ports/itrackRepository';
 import type {
   IUserRepository,
-} from '@domain/interfaces/iuserRepository';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+} from '@domain/interfaces/ports/iuserRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { CacheService } from '@bot/services/system/cacheService';
 import { UpdateType } from '@domain/enums/updateType';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { prisma } from '@persistence/prismaClient';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import { normalizeStoredName } from '@domain/textNormalize';
+import { normalizeStoredName } from '@domain/text/textNormalize';
 
 const RECENT_TRACKS_PAGE_SIZE = 1000;
 const RECENT_TRACKS_ERROR_RETRIES = 5;

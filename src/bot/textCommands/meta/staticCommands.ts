@@ -1,7 +1,7 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { StaticBuilders } from '@bot/builders/staticBuilders';
+import { StaticBuilders } from '@bot/builders/meta/staticBuilders';
 
 export class StaticCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];

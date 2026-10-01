@@ -2,16 +2,16 @@ import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { GuildAdminCommands } from '@bot/textCommands/guild/guildAdminCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
+import { GuildAdminBuilders } from '@bot/builders/guild/guildAdminBuilders';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { Guild } from '@persistence/models/guild';
 import type {
   GuildMemberOverviewItem,
   RefreshResult,
 } from '@bot/services/guild/guildAdminService';
-import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
+import type { FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
 
 /**
  * Branch coverage for the guild admin text commands: the dashboard, member

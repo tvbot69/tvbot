@@ -1,10 +1,14 @@
 # src/bot/handlers/music — operating manual
 
-This subtree is the **presentation and lifecycle half** of playback. The eight modules
-in this directory are collaborators; the host that owns them is one level up, in
-`../musicHandler.ts`, and it constructs all eight in its own constructor. The other half
+This subtree is the **presentation and lifecycle half** of playback. The nine modules
+in this directory are collaborators; the host that owns them is their sibling,
+`musicHandler.ts`, and it constructs them in its own constructor. The other half
 — the search ladder, node health, queue math and the just-in-time pending store — lives
 in `src/bot/services/music/`, and several rules below point there.
+
+`musicHandler.ts` used to sit one level up, loose in `src/bot/handlers/`. The tree
+re-sort moved it in here, so this subtree is now self-contained and `eslint.config.mjs`'s
+`no-restricted-imports` override for the music half covers one directory instead of two.
 
 Read the root `AGENTS.md` §4 for the DAG and §2 for the gates. The A-tier definitions
 (§0, §2.1) are not repeated here.
@@ -35,7 +39,7 @@ Read it back through the Map, never through a rebuild, and mutate the array you 
 entry it captured (`musicService.ts:1277-1285`) precisely because the array can be
 swapped underneath it.
 
-Locked by `src/bot/services/music/pendingStoreIdentity.test.ts` — the identity cases
+Locked by `src/bot/services/music/__tests__/pendingStoreIdentity.test.ts` — the identity cases
 are at lines 102, 168 and 181.
 
 ### 2. A position that moves BACKWARDS is stale data, not a rewind
@@ -55,7 +59,7 @@ cannot lose it. The intent stays authoritative for `USER_SEEK_INTENT_WINDOW_MS`
 (`musicConstants.ts:37`, 30s). The position read itself consumes the same markers at
 `queueService.ts:127-141` and `:173-182`.
 
-Tests: `src/bot/handlers/musicChapterRewind.test.ts:84, 100, 115, 129, 140` and
+Tests: `src/bot/handlers/music/__tests__/musicChapterRewind.test.ts:84, 100, 115, 129, 140` and
 `src/bot/services/music/queuePositionSeek.test.ts:76, 84`.
 
 ### 3. A deliberate seek must not pay the settle window
@@ -104,7 +108,7 @@ uplink-stall incident.
 `moonlinkManager.ts:217-218`. A **genuine miss** — an answered search with zero tracks
 — must NOT cool anything; an empty result is a success, not a failure.
 
-Pinned both ways: `src/bot/handlers/musicFallback.test.ts:2212` ("treats a hung node
+Pinned both ways: `src/bot/handlers/music/__tests__/musicFallback.test.ts:2212` ("treats a hung node
 (timeout-null) like a throw — the incident shape") and `:2223` ("never cools a node for
 a genuine miss"). Only the **migration** half is gated: one sighting cools the node, a
 second inside the window is what migrates players, because migrating re-seeks every

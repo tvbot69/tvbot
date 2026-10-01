@@ -3,8 +3,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
 
 import { PlayCommands } from '@bot/textCommands/lastfm/playCommands';
-import { PlayBuilders } from '@bot/builders/playBuilders';
-import { RecentBuilders } from '@bot/builders/recentBuilders';
+import { PlayBuilders } from '@bot/builders/library/playBuilders';
+import { RecentBuilders } from '@bot/builders/library/recentBuilders';
 import { FmSettingService } from '@bot/services/system/fmSettingService';
 import { GuildRepository } from '@persistence/repositories/guildRepository';
 import { ChannelRepository } from '@persistence/repositories/channelRepository';
@@ -17,7 +17,7 @@ import { UpdateService } from '@bot/services/lastfm/updateService';
 import { FmEmbedType } from '@domain/enums/fmEmbedType';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack, RecentTrackList } from '@domain/models/recentTrack';
 
 /**

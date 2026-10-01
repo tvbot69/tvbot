@@ -1,14 +1,14 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { IntelligenceCommands } from '@bot/textCommands/lastfm/intelligenceCommands';
-import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
+import { IntelligenceBuilders } from '@bot/builders/intelligence/intelligenceBuilders';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { AffinityData } from '@bot/services/library/musicIntelligenceService';
 
 /**

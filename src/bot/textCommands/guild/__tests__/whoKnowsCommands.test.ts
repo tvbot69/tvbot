@@ -7,10 +7,10 @@ import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { SettingService } from '@bot/services/system/settingService';
 import { ArtistTrackService } from '@bot/services/library/artistTrackService';
 import { GenreService } from '@bot/services/library/genreService';
-import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
+import { WhoKnowsBuilders } from '@bot/builders/whoknows/whoKnowsBuilders';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * Main-path coverage for the who-knows text commands: the track, album and

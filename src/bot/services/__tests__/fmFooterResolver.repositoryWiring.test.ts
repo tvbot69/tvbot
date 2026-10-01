@@ -4,7 +4,7 @@ import { container } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { FmFooterResolver } from '@bot/services/system/fmFooterResolver';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import { ArtistsService } from '@bot/services/library/artistsService';
 import { AlbumService } from '@bot/services/library/albumService';

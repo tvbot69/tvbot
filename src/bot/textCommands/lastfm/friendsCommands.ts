@@ -6,15 +6,15 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { FriendsService } from '@bot/services/social/friendsService';
-import { FriendBuilders, type FriendNowPlayingItem } from '@bot/builders/friendBuilders';
+import { FriendBuilders, type FriendNowPlayingItem } from '@bot/builders/social/friendBuilders';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { Logger } from '@domain/logger';
-import { toDate } from '@domain/date';
+import { Logger } from '@domain/logging/logger';
+import { toDate } from '@domain/text/date';
 import { FriendType } from '@domain/enums/friendType';
 
 export class FriendsCommands implements ITextCommandModule {

@@ -3,7 +3,7 @@ import { Client, ActivityType } from 'discord.js';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import { LyricsService } from '@bot/services/music/lyricsService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export interface CandidateTrack {
   artist: string;

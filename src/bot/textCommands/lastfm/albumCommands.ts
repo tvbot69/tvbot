@@ -1,7 +1,7 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { AlbumBuilders } from '@bot/builders/albumBuilders';
+import { AlbumBuilders } from '@bot/builders/library/albumBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { AlbumService } from '@bot/services/library/albumService';

@@ -1,9 +1,9 @@
 import type {
   IUserUpdateQueue,
   UserUpdateQueueItem,
-} from '@domain/interfaces/iuserUpdateQueue';
+} from '@domain/interfaces/ports/iuserUpdateQueue';
 import type { CacheService } from '@bot/services/system/cacheService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 const BATCH_SIZE = 25;
 const REDIS_LIST_KEY = 'queue:user-updates';

@@ -1,10 +1,10 @@
 import { inject } from 'tsyringe';
 import { ConfigData } from '@config/configData';
-import { Logger } from '@domain/logger';
-import type { ITelemetry } from '@domain/interfaces/telemetry';
-import { ITELEMETRY } from '@domain/interfaces/telemetry';
-import { LastfmApiError } from '@domain/models/lastfmError';
-import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { Logger } from '@domain/logging/logger';
+import type { ITelemetry } from '@domain/interfaces/ports/telemetry';
+import { ITELEMETRY } from '@domain/interfaces/ports/telemetry';
+import { LastfmApiError } from '@domain/models/errors/lastfmError';
+import { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 import { createLastfmSignature } from '@lastfm/api/lastfmSignature';
 
 const LASTFM_API_URL = 'https://ws.audioscrobbler.com/2.0/';

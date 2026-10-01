@@ -2,11 +2,11 @@ import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/comm
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import { TopBuilders } from '@bot/builders/topBuilders';
-import { resolveTopBuildersDeps } from '@bot/builders/topBuildersDeps';
+import { TopBuilders } from '@bot/builders/library/topBuilders';
+import { resolveTopBuildersDeps } from '@bot/builders/library/topBuildersDeps';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/lastfm/updateService';

@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { prisma } from '@persistence/prismaClient';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export interface StreakModel {
   artistName: string;

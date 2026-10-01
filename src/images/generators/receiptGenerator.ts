@@ -2,7 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import fs from 'fs';
 import path from 'path';
 import { PuppeteerService } from '@images/generators/puppeteerService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export interface ReceiptTrackItem {
   artistName: string;

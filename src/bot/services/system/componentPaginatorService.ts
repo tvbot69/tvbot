@@ -10,7 +10,7 @@ import {
   type APIMessageTopLevelComponent,
 } from 'discord.js';
 import { singleton } from 'tsyringe';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { registerModalHandler } from '@bot/interactions';
 
 export interface ComponentPaginatorSession {

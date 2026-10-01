@@ -2,7 +2,7 @@ import http from 'http';
 import type { ServerResponse } from 'http';
 import { container } from 'tsyringe';
 import { Client } from 'discord.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { checkDatabaseHealth } from '@persistence/prismaClient';
 import { PuppeteerService } from '@images/generators/puppeteerService';
 import { healthPort } from '@config/runtimeEnv';

@@ -1,5 +1,5 @@
-import { Logger } from '@domain/logger';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { Logger } from '@domain/logging/logger';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 import { AppleMusicTokenScraper } from '@applemusic/api/appleMusicTokenScraper';
 import type { MirrorProvider, MirrorResolution, MirrorTrack } from '@domain/models/music/musicTrack';
 

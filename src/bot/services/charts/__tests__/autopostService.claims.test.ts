@@ -2,8 +2,8 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AutopostService } from '@bot/services/charts/autopostService';
 import type { AutopostConfig } from '@bot/services/charts/autopostService';
-import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * A scheduled post is a claim the user never asked for, and it outlives the

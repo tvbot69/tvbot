@@ -1,5 +1,5 @@
 import { PrismaClient, Channel as ChannelEntity } from '@prisma/client';
-import type { IChannelRepository } from '@domain/interfaces/ichannelRepository';
+import type { IChannelRepository } from '@domain/interfaces/ports/ichannelRepository';
 import type { Channel } from '@persistence/models/channel';
 
 export class ChannelRepository implements IChannelRepository {

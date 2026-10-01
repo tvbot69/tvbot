@@ -50,9 +50,9 @@ import { container } from 'tsyringe';
 
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { ArtistInfo } from '@domain/models/musicInfo';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 
 /**
  * `vi.mock` is hoisted above every other statement, so a factory that closes

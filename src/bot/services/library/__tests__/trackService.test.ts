@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { TrackService } from '@bot/services/library/trackService';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 
 
 /**

@@ -1,9 +1,9 @@
 import Redis from 'ioredis';
 import { ConfigData } from '@bot/configurations/configData';
 import { redisUrl } from '@config/runtimeEnv';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
-import type { ICache } from '@domain/interfaces/icache';
+import type { ICache } from '@domain/interfaces/ports/icache';
 interface MemoryEntry {
   value: unknown;
   expiresAt: number | null;

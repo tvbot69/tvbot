@@ -22,7 +22,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { CountryCommands } from '@bot/textCommands/lastfm/countryCommands';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { UserService } from '@bot/services/user/userService';
 import type { SettingService } from '@bot/services/system/settingService';

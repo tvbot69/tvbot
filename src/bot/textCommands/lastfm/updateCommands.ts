@@ -4,7 +4,7 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { IndexService } from '@bot/services/lastfm/indexService';
-import { UpdateBuilders } from '@bot/builders/updateBuilders';
+import { UpdateBuilders } from '@bot/builders/meta/updateBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateType, parseUpdateType } from '@domain/enums/updateType';

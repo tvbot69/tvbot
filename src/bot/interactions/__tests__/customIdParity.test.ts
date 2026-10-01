@@ -56,12 +56,12 @@ import { REPO_ROOT } from '../../../testSupport/repoRoot';
 const REPO = REPO_ROOT;
 const BUILDERS = path.join(REPO, 'src/bot/builders');
 const INTERACTIONS = path.join(REPO, 'src/bot/interactions');
-const ROUTER = path.join(REPO, 'src/bot/handlers/interactionHandler.ts');
+const ROUTER = path.join(REPO, 'src/bot/handlers/interactions/interactionHandler.ts');
 const PAGINATOR = path.join(REPO, 'src/bot/services/system/componentPaginatorService.ts');
 
 const listSources = (dir: string): string[] =>
   fs
-    .readdirSync(dir)
+    .readdirSync(dir, { recursive: true, encoding: 'utf8' })
     .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
     .map((f) => path.join(dir, f));
 
@@ -238,7 +238,7 @@ describe('A2 customId two-way match — no emitted id is unroutable', () => {
     // from the scan, so the exemption would otherwise be unfalsifiable.
     const exactKeySources = [
       path.join(REPO, 'src/bot/services/system/paginationService.ts'),
-      path.join(REPO, 'src/bot/slashCommands/loginSlashCommands.ts'),
+      path.join(REPO, 'src/bot/slashCommands/user/loginSlashCommands.ts'),
       path.join(REPO, 'src/bot/textCommands/lastfm/loginCommands.ts'),
     ];
     for (const file of exactKeySources) {
@@ -313,8 +313,8 @@ describe('A2 customId two-way match — the removed dead handlers stay removed',
 
 describe('A2 customId two-way match — the settings alias removal did not open a hole', () => {
   it('user-settings: still claims every settings id the builders emit', () => {
-    const handler = read(path.join(INTERACTIONS, 'userSettingsInteractions.ts'));
-    const builder = read(path.join(INTERACTIONS, '..', 'builders', 'userSettingsBuilders.ts'));
+    const handler = read(path.join(INTERACTIONS, 'user', 'userSettingsInteractions.ts'));
+    const builder = read(path.join(INTERACTIONS, '..', 'builders', 'user', 'userSettingsBuilders.ts'));
 
     // Dropping the two bare aliases is only safe while the prefix keeps
     // claiming the real ids, so the two facts are asserted together.

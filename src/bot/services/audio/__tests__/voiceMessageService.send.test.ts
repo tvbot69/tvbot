@@ -39,7 +39,7 @@ vi.mock('get-audio-duration', () => ({ getAudioDurationInSeconds }));
 vi.mock('fs/promises', () => ({ default: { readFile, stat } }));
 vi.mock('fs', () => ({ default: { existsSync } }));
 vi.mock('@config/runtimeEnv', () => ({ ffprobePath }));
-vi.mock('@domain/logger', () => ({ Logger: logger }));
+vi.mock('@domain/logging/logger', () => ({ Logger: logger }));
 // Only the decoder is doubled. The waveform ENCODER is pure and is tested
 // against real signals in voiceWaveform.test.ts, so there is no reason to
 // pretend the bytes here came from a decoder that never ran.

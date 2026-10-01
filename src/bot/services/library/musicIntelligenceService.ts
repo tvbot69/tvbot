@@ -2,8 +2,8 @@ import { inject, injectable } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import { CountryService } from '@bot/services/library/countryService';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * A query that could not run is not a query that found nothing.

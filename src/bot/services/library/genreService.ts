@@ -3,12 +3,12 @@ import { PrismaClient } from '@prisma/client';
 import { CacheService } from '@bot/services/system/cacheService';
 import { ArtistGenreRepository } from '@persistence/repositories/artistGenreRepository';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * A failed read is not a zero.

@@ -3,9 +3,9 @@ import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import { GenreService } from '@bot/services/library/genreService';
 import { PlayRepository } from '@persistence/repositories/playRepository';
-import { Logger } from '@domain/logger';
-import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import type { User } from '@domain/interfaces/iuserRepository';
+import { Logger } from '@domain/logging/logger';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 export interface GuiltyPleasureItem {
   artistName: string;

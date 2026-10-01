@@ -1,7 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import crypto from 'crypto';
 import { PuppeteerService } from '@images/generators/puppeteerService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export type JumbleType = 'artist' | 'pixel';
 

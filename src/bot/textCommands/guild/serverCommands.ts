@@ -6,12 +6,12 @@ import {
   GuildRankingService,
   parseGuildRankingSettings,
 } from '@bot/services/guild/guildRankingService';
-import { ServerBuilders } from '@bot/builders/serverBuilders';
-import { storeServerRankingQuery } from '@bot/interactions/serverInteractions';
+import { ServerBuilders } from '@bot/builders/guild/serverBuilders';
+import { storeServerRankingQuery } from '@bot/interactions/guild/serverInteractions';
 import { ColorService } from '@bot/services/system/colorService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 @injectable()

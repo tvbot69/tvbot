@@ -1,4 +1,4 @@
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 // Pool management notes (verified live 2026-09-19):
 // - Only the two defaults below completed websocket + search handshakes.

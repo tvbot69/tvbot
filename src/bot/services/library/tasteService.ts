@@ -1,10 +1,10 @@
 import { injectable, inject } from 'tsyringe';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { GenreService } from '@bot/services/library/genreService';
 import { CountryService } from '@bot/services/library/countryService';
 import { CacheService } from '@bot/services/system/cacheService';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import type { TopArtist } from '@domain/models/topLists';
 
 export interface TasteItem {

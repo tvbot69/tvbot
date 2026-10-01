@@ -4,7 +4,7 @@ import 'reflect-metadata';
 import path from 'path';
 import { ShardingManager } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { shardCount, shardingEnabledFlag } from '@config/runtimeEnv';
 
 /**

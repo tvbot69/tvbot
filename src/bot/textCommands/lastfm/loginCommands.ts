@@ -13,7 +13,7 @@ import { UserService } from '@bot/services/user/userService';
 import { ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { isUnknownInteraction } from '@domain/discordErrors';
+import { isUnknownInteraction } from '@domain/errors/discordErrors';
 
 const linkRow = (
   url: string,

@@ -1,14 +1,14 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
-import { TrackBuilders } from '@bot/builders/trackBuilders';
-import { TrackDetailsBuilders } from '@bot/builders/trackDetailsBuilders';
+import { TrackBuilders } from '@bot/builders/library/trackBuilders';
+import { TrackDetailsBuilders } from '@bot/builders/library/trackDetailsBuilders';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { previewMap } from '@bot/services/audio/voiceMessageService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
 /**

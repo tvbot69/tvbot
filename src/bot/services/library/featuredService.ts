@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
 
 export interface FeaturedEntry {

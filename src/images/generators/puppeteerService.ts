@@ -3,7 +3,7 @@ import type { ChildProcess } from 'child_process';
 import { createHash } from 'crypto';
 import { mkdirSync, rmSync } from 'fs';
 import path from 'path';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { isProduction, puppeteerExecutablePath } from '@config/runtimeEnv';
 import { installBrowserRequestPolicy, type DenyLogger, type InterceptablePage } from '@images/browserRequestPolicy';
 

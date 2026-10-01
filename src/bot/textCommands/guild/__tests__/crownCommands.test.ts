@@ -2,16 +2,16 @@ import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { CrownCommands } from '@bot/textCommands/guild/crownCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { CrownBuilders } from '@bot/builders/crownBuilders';
+import { CrownBuilders } from '@bot/builders/crown/crownBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { UserCrownDto, CrownLeaderboardEntry } from '@domain/models/crownModels';
 
 const auditAdminAction = vi.fn();
-vi.mock('@domain/adminAudit', () => ({ auditAdminAction: (...args: unknown[]) => auditAdminAction(...args) }));
+vi.mock('@domain/logging/adminAudit', () => ({ auditAdminAction: (...args: unknown[]) => auditAdminAction(...args) }));
 
 const user = (over: Partial<User> = {}): User =>
   ({

@@ -55,7 +55,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ComponentInteraction, ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { UserService } from '@bot/services/user/userService';
 
 const textOf = (response: ResponseModel): string => {

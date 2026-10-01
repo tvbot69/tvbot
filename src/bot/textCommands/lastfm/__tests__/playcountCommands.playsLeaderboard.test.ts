@@ -1,13 +1,13 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { PlaycountCommands } from '@bot/textCommands/lastfm/playcountCommands';
-import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { PlaycountBuilders } from '@bot/builders/library/playcountBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { GuildLeaderboardEntry } from '@bot/services/library/playHistoryService';
 
 /**

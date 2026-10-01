@@ -1,5 +1,5 @@
 import type { ITunesSearchResult } from '@applemusic/models/itunesModels';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 
 const SEARCH_ENDPOINT = 'https://itunes.apple.com/search';
 const ITUNES_TIMEOUT_MS = 8000;

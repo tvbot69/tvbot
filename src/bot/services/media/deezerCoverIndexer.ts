@@ -1,4 +1,4 @@
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { AlbumRepository } from '@persistence/repositories/albumRepository';
 import type { DeezerAlbum } from '@deezer/models/deezerModels';

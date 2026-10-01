@@ -5,7 +5,7 @@ import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { ChartCommands } from '@bot/textCommands/lastfm/chartCommands';
-import { ChartBuilders } from '@bot/builders/chartBuilders';
+import { ChartBuilders } from '@bot/builders/charts/chartBuilders';
 import { ChartService, NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/charts/chartService';
 import { TitleSetting, ChartSettings } from '@bot/models/chartModels';
 import { UpdateService } from '@bot/services/lastfm/updateService';

@@ -1,9 +1,9 @@
 import { container, inject, injectable } from 'tsyringe';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
-import type { IAlbumRepository } from '@domain/interfaces/ialbumRepository';
-import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
-import type { IGuildUserRepository } from '@domain/interfaces/iguildUserRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { IArtistRepository } from '@domain/interfaces/ports/iartistRepository';
+import type { IAlbumRepository } from '@domain/interfaces/ports/ialbumRepository';
+import type { IUserRepository, User } from '@domain/interfaces/ports/iuserRepository';
+import type { IGuildUserRepository } from '@domain/interfaces/ports/iguildUserRepository';
 import type { AlbumInfo } from '@domain/models/musicInfo';
 import type { TopAlbum } from '@domain/models/topLists';
 import { CacheService } from '@bot/services/system/cacheService';
@@ -12,10 +12,10 @@ import { ColorService } from '@bot/services/system/colorService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { parseSpotifyReleaseDate } from '@bot/services/library/albumEnrichmentService';
 import { PrismaClient } from '@prisma/client';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { isPlaceholderImageUrl } from '@bot/services/media/artworkService';
-import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 
 const CACHE_TTL_SECONDS = 3600;
 

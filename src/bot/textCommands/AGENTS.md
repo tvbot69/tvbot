@@ -35,7 +35,7 @@ files. Shapes you will meet:
 string (`lastfm/playCommands.ts`), so `.fm <@123> mini` parsed to `null`, the branch was
 skipped, and the token was neither stripped nor applied: the user asked for a mini embed
 and silently received the default. `lfm:name tiny` had the same shape. The slash twin was
-never affected — it reads a typed choice (`../../slashCommands/userSlashCommands.ts:62-69`),
+never affected — it reads a typed choice (`../../slashCommands/user/userSlashCommands.ts:62-69`),
 so there is no position for a token to be misplaced in.
 
 Both the fix and the trap it had to avoid are in the code at
@@ -75,7 +75,7 @@ Three facts the gate pins, each of which is a live behaviour rather than an acci
   Last.fm ones (`:218-228`). Do not reintroduce the old spellings.
 
 A name or alias containing a dot or whitespace can never match, because the prefix is
-added by the dispatcher (`src/bot/handlers/commandHandler.ts:197-203`).
+added by the dispatcher (`src/bot/handlers/commands/commandHandler.ts:197-203`).
 
 ## Registration is `container.resolve`, not the constructor
 

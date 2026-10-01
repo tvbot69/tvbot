@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { SRC_ROOT } from '../testSupport/repoRoot';
-import { HelpBuilders } from '@bot/builders/helpBuilders';
+import { HelpBuilders } from '@bot/builders/meta/helpBuilders';
 
 /**
  * /help is the bot's credibility. Every name it advertises must actually
@@ -39,7 +39,8 @@ describe('/help only advertises commands that exist', () => {
 
   const advertisedNames = (): string[] => {
     // The help copy is built from `${prefix}name` fragments across every page.
-    const src = fs.readFileSync(path.join(SRC_ROOT, 'bot', 'builders', 'helpBuilders.ts'), 'utf8');
+    // `meta/` is where the help and static builders live after the tree re-sort.
+    const src = fs.readFileSync(path.join(SRC_ROOT, 'bot', 'builders', 'meta', 'helpBuilders.ts'), 'utf8');
     const found = new Set<string>();
     for (const m of src.matchAll(/\$\{prefix\}([a-zA-Z0-9_]+)/g)) found.add(m[1]!.toLowerCase());
     return [...found].sort();

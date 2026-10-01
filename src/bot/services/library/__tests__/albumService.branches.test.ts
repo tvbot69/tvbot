@@ -4,10 +4,10 @@ import { container } from 'tsyringe';
 import { AlbumService } from '@bot/services/library/albumService';
 import { ColorService } from '@bot/services/system/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { Logger } from '@domain/logger';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
-import type { User } from '@domain/interfaces/iuserRepository';
+import { Logger } from '@domain/logging/logger';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * The remaining AlbumService branches: caching, the DB-backed reads, the

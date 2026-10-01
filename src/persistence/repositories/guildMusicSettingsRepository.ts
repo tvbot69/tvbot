@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export interface GuildMusicPrefs {
   stay247: boolean;

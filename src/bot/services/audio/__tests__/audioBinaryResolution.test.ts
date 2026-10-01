@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import { resolveBinary, SIGNAL_SAMPLE_RATE } from '@bot/services/audio/audioSignalService';
 import { EssentiaService, ESSENTIA_SAMPLE_RATE } from '@bot/services/audio/essentiaService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * The audio pipeline's honesty contract, and the binary resolution that decides

@@ -1,5 +1,5 @@
 import { PrismaClient, Artist } from '@prisma/client';
-import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
+import type { IArtistRepository } from '@domain/interfaces/ports/iartistRepository';
 
 export class ArtistRepository implements IArtistRepository {
   private readonly prisma: PrismaClient;

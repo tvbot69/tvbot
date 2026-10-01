@@ -1,6 +1,6 @@
 import type { PrivacyLevel } from '@domain/enums/privacyLevel';
 import type { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
-import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
+import type { FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
 import type { Guild } from '@persistence/models/guild';
 
 /**

@@ -1,7 +1,7 @@
 import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
 import 'reflect-metadata';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { Startup } from '@bot/startup';
 
 // Single shard worker process. Spawned once per shard by shardManager.ts, or

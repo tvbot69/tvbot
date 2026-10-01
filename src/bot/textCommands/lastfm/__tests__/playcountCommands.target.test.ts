@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PlaycountCommands } from '@bot/textCommands/lastfm/playcountCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * The text-command target grammar, which has no equivalent in the slash layer.

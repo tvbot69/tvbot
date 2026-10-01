@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import type { CacheService } from '@bot/services/system/cacheService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * The node-event handlers — the layer that decides what a dead Lavalink node

@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { CountryService } from '@bot/services/library/countryService';
-import { Logger } from '@domain/logger';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 
 /**
  * CountryService resolves an artist's country from a four-step ladder:

@@ -1,4 +1,4 @@
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 interface EssentiaInstance {
   arrayToVector(arr: Float32Array): unknown;

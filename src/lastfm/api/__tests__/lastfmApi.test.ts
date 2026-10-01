@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { container } from 'tsyringe';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
-import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 
 describe('LastfmApi', () => {
   beforeEach(() => {

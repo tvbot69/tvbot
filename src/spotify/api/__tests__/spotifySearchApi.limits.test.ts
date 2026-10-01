@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpotifySearchApi, SpotifyUnavailableError } from '@spotify/api/spotifySearchApi';
 import type { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * B1 — the limit ceiling on `/v1/artists/{id}/albums`, and B1b on `/v1/search`.

@@ -40,10 +40,10 @@ hand-written string grammars:
 
 - `seek 1:30` / `seek 1:01:01` — `textCommands/music/musicCommands.ts:530-538` splits
   on `:` and accepts 2 or 3 parts. The slash twin is an integer option
-  (`slashCommands/musicSlashCommands.ts:128-130`).
+  (`slashCommands/music/musicSlashCommands.ts:128-130`).
 - `lfm:username` — `textCommands/lastfm/playCommands.ts:151-152` branches on a
   `startsWith('lfm:')` prefix. The slash twin declares a separate `lfm` **string
-  option** (`slashCommands/userSlashCommands.ts:61`) and coerces it (`:96`).
+  option** (`slashCommands/user/userSlashCommands.ts:61`) and coerces it (`:96`).
 - `filters clear` / `reset` / `echo` — `musicCommands.ts:628-635` dispatches on a bare
   verb. There is no slash `filters` command at all.
 - `<@123>` / `<@!123>` mentions — `playCommands.ts:138`.
@@ -62,7 +62,7 @@ was found, and is now fixed — it is the worked example, in the form that is st
 string, so `.fm <@123> mini` parsed to `null`: the branch was skipped, the token was
 neither applied nor stripped, and the user asked for a mini embed and got the default.
 `lfm:name tiny` had the same shape. The slash twin never had it — it reads a typed
-choice (`slashCommands/userSlashCommands.ts:62-69`), so there is no position for the
+choice (`slashCommands/user/userSlashCommands.ts:62-69`), so there is no position for the
 token to be in the wrong place.
 
 The fix, and the two things it had to be careful about
@@ -134,7 +134,7 @@ Read the constructor before you write a test or add a parameter. A `new` of a co
 class inside a test is positional, so a new required parameter breaks every call site
 at build time — and `npm test` alone will not tell you.
 
-- `MusicSlashCommands` — `slashCommands/musicSlashCommands.test.ts:9-12` passes **2**
+- `MusicSlashCommands` — `slashCommands/music/__tests__/musicSlashCommands.test.ts:9-12` passes **2**
   args; production passes 4 (`startup.ts`, the `new MusicSlashCommands(...)` line). The
   trailing params are optional.
 - `PlayCommands` — `textCommands/lastfm/playCommands.test.ts:221-225` passes **3**
@@ -170,5 +170,5 @@ Two positional traps worth knowing:
   `getTextCommands()` exists: a single-name lookup cannot express "no two of these
   collide" (`textCommands/index.ts:125-136`).
 - The dispatcher adds the prefix and splits on whitespace
-  (`src/bot/handlers/commandHandler.ts:197-203`), so a registered name or alias
+  (`src/bot/handlers/commands/commandHandler.ts:197-203`), so a registered name or alias
   containing a dot or a space can never match anything.

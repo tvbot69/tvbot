@@ -7,7 +7,7 @@ import type { QueueService } from '@bot/services/music/queueService';
 import type { PlaylistChunkManager } from '@bot/services/music/playlistChunkManager';
 import type { DeezerResolver } from '@bot/services/music/deezerResolver';
 import type { AppleMusicResolver } from '@bot/services/music/appleMusicResolver';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import type { Track } from 'moonlink.js';
 
 /**

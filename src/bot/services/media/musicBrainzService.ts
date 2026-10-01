@@ -1,6 +1,6 @@
 import { injectable, inject } from 'tsyringe';
 import { CacheService } from '@bot/services/system/cacheService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export interface MusicBrainzArtistData {
   mbid?: string;

@@ -1,5 +1,5 @@
 import { Track, type Manager } from 'moonlink.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { HOME_NODE, YoutubeHealth, ladderFor } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome } from '@bot/services/music/ytResolver';
 import { getSourceVideoId, getVideoTitle } from '@bot/services/music/videoChapters';

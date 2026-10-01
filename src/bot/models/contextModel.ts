@@ -11,7 +11,7 @@ import {
   type BaseInteraction,
 } from 'discord.js';
 
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export enum ContextType {
   Interaction,

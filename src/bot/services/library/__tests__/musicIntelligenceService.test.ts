@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MusicIntelligenceService } from '@bot/services/library/musicIntelligenceService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import type { PrismaClient } from '@prisma/client';
-import { Logger } from '@domain/logger';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 
 describe('MusicIntelligenceService', () => {
   let service: MusicIntelligenceService;

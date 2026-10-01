@@ -1,5 +1,5 @@
 import type { Player } from 'moonlink.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { CHAPTER_ART_RETRY_MS } from '@bot/services/music/musicConstants';
 import {
   extractArtistFromTitle,

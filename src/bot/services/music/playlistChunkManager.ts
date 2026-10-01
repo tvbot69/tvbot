@@ -1,4 +1,4 @@
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { spotifyUriToUrl } from '@domain/models/music/musicTrack';
 import type { Manager, Player, Track } from 'moonlink.js';
 import { MAX_QUEUE_TRACKS } from '@bot/services/music/musicConstants';

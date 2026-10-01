@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { OverviewService } from '@bot/services/library/overviewService';
-import { Logger } from '@domain/logger';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 import type { GenreService } from '@bot/services/library/genreService';
 
 /**

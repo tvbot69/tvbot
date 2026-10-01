@@ -2,7 +2,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { connect, resetTables, seedUser, skipReason, useScratchSchema } from '../../../testSupport/dbHarness';
-import type { PlayInsert } from '@domain/interfaces/iplayRepository';
+import type { PlayInsert } from '@domain/interfaces/ports/iplayRepository';
 
 /**
  * The real-Postgres proof for playRepository's write path.

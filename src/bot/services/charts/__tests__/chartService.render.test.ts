@@ -18,7 +18,7 @@ import { PuppeteerService } from '@images/generators/puppeteerService';
 import { ChartService as ImageChartService } from '@images/generators/chartService';
 import { assertRenderedInk } from '../../../../testSupport/renderPixelAssert';
 
-import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 const cache = new CacheService();
 const lastFm = new LastFmRepository(new LastfmApi(new LastfmErrorRateTracker()));
 lastFm.getTopAlbums = async () => [

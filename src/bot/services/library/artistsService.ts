@@ -1,8 +1,8 @@
 import { container } from 'tsyringe';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import type { ArtistInfo } from '@domain/models/musicInfo';
 import type { TopArtist } from '@domain/models/topLists';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { ReferencedMusic } from '@domain/models/referencedMusic';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
@@ -10,10 +10,10 @@ import { CacheService } from '@bot/services/system/cacheService';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import type { PrismaClient } from '@prisma/client';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import type { TasteItem } from '@bot/services/library/tasteService';
 import { isPlaceholderImageUrl } from '@bot/services/media/artworkService';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 
 /**
  * A query that could not run is not a query that found nothing.

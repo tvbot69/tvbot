@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ArtworkService, matchesArtistName, matchesTrackTitle, sanitizeMusicName, stripChannelSuffix } from '@bot/services/media/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 
 describe('matcher name normalization', () => {
   it('folds diacritics in stylized artist and title names', () => {

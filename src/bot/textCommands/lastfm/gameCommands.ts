@@ -6,12 +6,12 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { GameService, JumbleSession } from '@bot/services/guild/gameService';
-import { GameBuilders } from '@bot/builders/gameBuilders';
+import { GameBuilders } from '@bot/builders/guild/gameBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 @injectable()
 export class GameCommands implements ITextCommandModule {

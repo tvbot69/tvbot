@@ -1,4 +1,4 @@
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { youtubeDataApiKey } from '@config/musicEnv';
 import type { VideoChapterDto } from '@bot/services/music/ytResolver';
 

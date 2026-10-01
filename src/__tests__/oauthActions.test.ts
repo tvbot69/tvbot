@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
-import { TrackSlashCommands } from '@bot/slashCommands/trackSlashCommands';
-import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
+import { TrackSlashCommands } from '@bot/slashCommands/library/trackSlashCommands';
+import { NowPlayingInteractions } from '@bot/interactions/music/nowPlayingInteractions';
 import { ContextModel } from '@bot/models/contextModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 

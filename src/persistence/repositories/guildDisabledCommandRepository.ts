@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import type { IGuildDisabledCommandRepository } from '@domain/interfaces/iguildDisabledCommandRepository';
+import type { IGuildDisabledCommandRepository } from '@domain/interfaces/ports/iguildDisabledCommandRepository';
 import type { GuildDisabledCommand } from '@persistence/models/guildDisabledCommand';
 
 export class GuildDisabledCommandRepository implements IGuildDisabledCommandRepository {

@@ -4,12 +4,12 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { ProfileService } from '@bot/services/user/profileService';
-import { ProfileBuilders } from '@bot/builders/profileBuilders';
+import { ProfileBuilders } from '@bot/builders/user/profileBuilders';
 import { ColorService } from '@bot/services/system/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 @injectable()
 export class ProfileCommands implements ITextCommandModule {

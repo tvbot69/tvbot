@@ -1,8 +1,8 @@
 import { ConfigData } from '@bot/configurations/configData';
 import { CacheService } from '@bot/services/system/cacheService';
 import { GuildRepository } from '@persistence/repositories/guildRepository';
-import { Logger } from '@domain/logger';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 
 const PREFIX_CACHE_TTL_SECONDS = 300;
 

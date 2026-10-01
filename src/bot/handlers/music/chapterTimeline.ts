@@ -1,5 +1,5 @@
 import type { Player, Track } from 'moonlink.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import {
   chapterIndexAt,
   isGenericChapterTitle,

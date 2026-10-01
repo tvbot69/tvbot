@@ -1,4 +1,4 @@
-import type { IUserFmSettingRepository, UserFmSetting } from '@domain/interfaces/iuserFmSettingRepository';
+import type { IUserFmSettingRepository, UserFmSetting } from '@domain/interfaces/ports/iuserFmSettingRepository';
 import { CacheService } from '@bot/services/system/cacheService';
 
 export class FmSettingService {

@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ChartService, NotEnoughAlbumsError, TooManyImagesError } from '@bot/services/charts/chartService';
-import { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
+import { isPlaceholderImageUrl } from '@domain/lastfm/lastfmPlaceholder';
 import type { ChartSettings } from '@bot/models/chartModels';
 import { TimePeriod } from '@domain/enums/timePeriod';
 

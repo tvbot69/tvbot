@@ -2,9 +2,9 @@ import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
 /**

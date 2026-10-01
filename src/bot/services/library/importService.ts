@@ -1,10 +1,10 @@
 import { container, inject, injectable } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { IndexService } from '@bot/services/lastfm/indexService';
-import type { PlayInsert } from '@domain/interfaces/iplayRepository';
+import type { PlayInsert } from '@domain/interfaces/ports/iplayRepository';
 
 export type ImportPlaySource = 'SpotifyImport' | 'AppleMusicImport';
 

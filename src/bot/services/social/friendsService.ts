@@ -1,5 +1,5 @@
-import type { IFriendsRepository } from '@domain/interfaces/ifriendsRepository';
-import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
+import type { IFriendsRepository } from '@domain/interfaces/ports/ifriendsRepository';
+import type { IUserRepository, User } from '@domain/interfaces/ports/iuserRepository';
 import type { Friend } from '@persistence/models/user';
 import { FriendType } from '@domain/enums/friendType';
 

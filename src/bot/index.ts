@@ -1,9 +1,9 @@
 import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
 import 'reflect-metadata';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { shouldShard } from '@bot/shardManager';
-import { reportFatalToDiscord } from '@domain/errorFeed';
+import { reportFatalToDiscord } from '@domain/logging/errorFeed';
 
 process.on('unhandledRejection', (reason) => {
   Logger.error({ err: reason }, 'Unhandled promise rejection intercepted in process');

@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
-import { TrackBuilders } from '@bot/builders/trackBuilders';
+import { TrackBuilders } from '@bot/builders/library/trackBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
 /**

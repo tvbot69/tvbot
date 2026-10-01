@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
-import { LastfmApiError } from '@domain/models/lastfmError';
+import { LastfmApiError } from '@domain/models/errors/lastfmError';
 
-import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 /**
  * The error contract at the Last.fm boundary.
  *

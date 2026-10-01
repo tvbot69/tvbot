@@ -13,11 +13,11 @@ import { WhoKnowsArtistService } from '@bot/services/whoKnows/whoKnowsArtistServ
 import { WhoKnowsTrackService } from '@bot/services/whoKnows/whoKnowsTrackService';
 import { WhoKnowsAlbumService } from '@bot/services/whoKnows/whoKnowsAlbumService';
 import { WhoKnowsPlayService } from '@bot/services/whoKnows/whoKnowsPlayService';
-import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
+import { WhoKnowsBuilders } from '@bot/builders/whoknows/whoKnowsBuilders';
 import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { container } from 'tsyringe';
 import { ArtistTrackService } from '@bot/services/library/artistTrackService';

@@ -1,9 +1,9 @@
 import { PrismaClient, User as UserEntity } from '@prisma/client';
-import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
+import type { IUserRepository, User } from '@domain/interfaces/ports/iuserRepository';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 import type { Friend } from '@persistence/models/user';
 import { UserType, DataSource } from '@persistence/models/user';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 function userTypeFromEntity(value: string): UserType {
   if (value === 'Contributor') return UserType.Contributor;

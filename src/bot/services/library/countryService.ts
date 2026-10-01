@@ -2,8 +2,8 @@ import { injectable, inject } from 'tsyringe';
 import fs from 'fs';
 import path from 'path';
 import { PrismaClient } from '@prisma/client';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 import { MusicBrainzService } from '@bot/services/media/musicBrainzService';
 import { CacheService } from '@bot/services/system/cacheService';
 

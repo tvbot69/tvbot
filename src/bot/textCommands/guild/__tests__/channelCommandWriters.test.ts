@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { GuildAdminCommands } from '@bot/textCommands/guild/guildAdminCommands';
-import { GuildAdminSlashCommands } from '@bot/slashCommands/guildAdminSlashCommands';
-import { CommandHandler } from '@bot/handlers/commandHandler';
+import { GuildAdminSlashCommands } from '@bot/slashCommands/guild/guildAdminSlashCommands';
+import { CommandHandler } from '@bot/handlers/commands/commandHandler';
 import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';
 import { DisabledChannelService } from '@bot/services/guild/disabledChannelService';
 import { PROTECTED_COMMAND_NAMES } from '@bot/services/guild/protectedCommandNames';
@@ -785,7 +785,7 @@ describe('an unwired writer refuses instead of lying', () => {
     // CommonJS, so a test is invoked from the repo root. A wrong root makes
     // `readFileSync` throw, which is a loud failure rather than a silent pass.
     const source = readFileSync(
-      join(process.cwd(), 'src/bot/slashCommands/guildAdminSlashCommands.ts'),
+      join(process.cwd(), 'src/bot/slashCommands/guild/guildAdminSlashCommands.ts'),
       'utf8',
     );
     expect(source).not.toContain('is not available right now');

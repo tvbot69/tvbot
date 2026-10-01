@@ -8,8 +8,8 @@ import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { AutopostBuilders } from '@bot/builders/autopostBuilders';
-import { auditAdminAction } from '@domain/adminAudit';
+import { AutopostBuilders } from '@bot/builders/guild/autopostBuilders';
+import { auditAdminAction } from '@domain/logging/adminAudit';
 
 @injectable()
 export class AutopostCommands implements ITextCommandModule {

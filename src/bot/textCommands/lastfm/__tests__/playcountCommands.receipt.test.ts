@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { PlaycountCommands } from '@bot/textCommands/lastfm/playcountCommands';
-import { ReceiptBuilders } from '@bot/builders/receiptBuilders';
+import { ReceiptBuilders } from '@bot/builders/common/receiptBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * `.receipt` / `.rcpt` — the one command in this family that renders a

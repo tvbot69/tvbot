@@ -29,7 +29,7 @@ import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { UserService } from '@bot/services/user/userService';
 import type { FriendsService } from '@bot/services/social/friendsService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 
 const CALLER = { userId: 2, userNameLastFm: 'DreadRock', discordUserId: 'caller1' };
 

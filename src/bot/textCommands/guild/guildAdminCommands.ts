@@ -9,7 +9,7 @@ import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { GuildAdminBuilders } from '@bot/builders/guildAdminBuilders';
+import { GuildAdminBuilders } from '@bot/builders/guild/guildAdminBuilders';
 
 import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
 import { ChannelToggledCommandService } from '@bot/services/guild/channelToggledCommandService';

@@ -28,8 +28,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { PrefixService } from '@bot/services/user/prefixService';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import type { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import type { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
 import type { CacheService } from '@bot/services/system/cacheService';
 import type { GuildRepository } from '@persistence/repositories/guildRepository';
 

@@ -31,11 +31,11 @@ import { WhoKnowsArtistService } from '@bot/services/whoKnows/whoKnowsArtistServ
 import { CrownService } from '@bot/services/crown/crownService';
 import type { CrownRepository } from '@persistence/repositories/crownRepository';
 import type { UserService } from '@bot/services/user/userService';
-import type { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
-import type { IWhoKnowsRepository } from '@domain/interfaces/iwhoKnowsRepository';
-import type { IGuildUserRepository } from '@domain/interfaces/iguildUserRepository';
+import type { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
+import type { IWhoKnowsRepository } from '@domain/interfaces/ports/iwhoKnowsRepository';
+import type { IGuildUserRepository } from '@domain/interfaces/ports/iguildUserRepository';
 import type { GuildService } from '@bot/services/guild/guildService';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 const GUILD_ID = '1445761601129943222';
 const CROWN_ROLE = '555';

@@ -37,11 +37,11 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { CrownService } from '@bot/services/crown/crownService';
 import { WhoKnowsArtistService } from '@bot/services/whoKnows/whoKnowsArtistService';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import type { CrownRepository } from '@persistence/repositories/crownRepository';
 import type { UserService } from '@bot/services/user/userService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 
 const LFM_DOWN = () =>
   new LastFmUnavailableError('artist.getinfo', new Error('Last.fm returned HTTP 500'));

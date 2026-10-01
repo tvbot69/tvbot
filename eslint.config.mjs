@@ -75,7 +75,7 @@ export default tseslint.config(
    * constraint is the zero-runtime-cycle budget in scripts/check-import-cycles.ts.
    */
   {
-    files: ['src/bot/services/music/**/*.ts', 'src/bot/handlers/musicHandler.ts'],
+    files: ['src/bot/services/music/**/*.ts', 'src/bot/handlers/music/musicHandler.ts'],
     // Test files legitimately import the module under test, and musicTypes is
     // the leaf that everything is allowed to depend on.
     ignores: [

@@ -20,7 +20,7 @@ import type { PrismaClient } from '@prisma/client';
 import { ImportService } from '@bot/services/library/importService';
 import { LoginService, LoginStatus } from '@bot/services/user/loginService';
 import { PlayRepository } from '@persistence/repositories/playRepository';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 const SAMPLE = [
   {

@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { ConfigData } from '@config/configData';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export const isTransientDbError = (err: unknown): boolean => {
   if (!err) return false;

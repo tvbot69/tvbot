@@ -1,5 +1,5 @@
 import { AppleMusicTokenScraper } from '@applemusic/api/appleMusicTokenScraper';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 import type {
   AmAlbumAttributes,
   AmArtistAttributes,

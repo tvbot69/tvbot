@@ -2,7 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
-import { PlaycountBuilders } from '@bot/builders/playcountBuilders';
+import { PlaycountBuilders } from '@bot/builders/library/playcountBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
@@ -13,12 +13,12 @@ import { TrackService } from '@bot/services/library/trackService';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import { ReceiptGenerator } from '@images/generators/receiptGenerator';
-import { ReceiptBuilders } from '@bot/builders/receiptBuilders';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { User } from '@domain/interfaces/iuserRepository';
+import { ReceiptBuilders } from '@bot/builders/common/receiptBuilders';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 
 interface TargetResolution {
   targetUser: User;

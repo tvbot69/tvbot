@@ -1,6 +1,6 @@
 import { inject } from 'tsyringe';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { Logger } from '@domain/logger';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import { Logger } from '@domain/logging/logger';
 import type { LastFmUser } from '@domain/models/lastFmUser';
 import type {
   RecentTrack,
@@ -18,8 +18,8 @@ import type {
   TrackInfo,
 } from '@domain/models/musicInfo';
 import { LastfmApi } from '@lastfm/api/lastfmApi';
-import { LastfmApiError } from '@domain/models/lastfmError';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastfmApiError } from '@domain/models/errors/lastfmError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import type {
   RecentTracksResponseLfm,
 } from '@lastfm/models/recentTracksLfm';
@@ -46,8 +46,8 @@ import { TrackConverter } from '@lastfm/converters/recentTrackConverter';
 import { UserConverter } from '@lastfm/converters/userConverter';
 import { TopListConverter } from '@lastfm/converters/topListConverter';
 import { InfoConverter } from '@lastfm/converters/infoConverter';
-import type { ICache } from '@domain/interfaces/icache';
-import { ICACHE } from '@domain/interfaces/icache';
+import type { ICache } from '@domain/interfaces/ports/icache';
+import { ICACHE } from '@domain/interfaces/ports/icache';
 
 const FAILURE_DELAY_MS = [500, 2500, 5000, 10000, 25000];
 

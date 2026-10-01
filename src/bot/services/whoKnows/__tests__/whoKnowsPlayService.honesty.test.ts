@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { WhoKnowsPlayService } from '@bot/services/whoKnows/whoKnowsPlayService';
 import type { CacheService } from '@bot/services/system/cacheService';
-import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
+import type { FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
 
 /**
  * `WhoKnowsPlayService` — the "Also playing: X and Y" footer line.

@@ -41,7 +41,7 @@ vi.mock('@persistence/prismaClient', () => ({
 import { container } from 'tsyringe';
 import { Client } from 'discord.js';
 import { TimerService } from '@bot/services/lastfm/timerService';
-import { UpdateQueueHandler } from '@bot/handlers/updateQueueHandler';
+import { UpdateQueueHandler } from '@bot/handlers/queues/updateQueueHandler';
 import { UserIndexQueueService } from '@bot/services/lastfm/userIndexQueueService';
 import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
 import { UserRepository } from '@persistence/repositories/userRepository';
@@ -49,7 +49,7 @@ import { PlayRepository } from '@persistence/repositories/playRepository';
 import { CrownRepository } from '@persistence/repositories/crownRepository';
 import { AutopostService } from '@bot/services/charts/autopostService';
 import { LyricStatusService } from '@bot/services/music/lyricStatusService';
-import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 import { AbuseFilterService } from '@bot/services/system/abuseFilterService';
 import { ReconcileService } from '@bot/services/lastfm/reconcileService';
 import { CacheService } from '@bot/services/system/cacheService';

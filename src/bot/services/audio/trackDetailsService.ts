@@ -1,4 +1,4 @@
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { EssentiaService } from '@bot/services/audio/essentiaService';
 import { getAudioSignalAndSr } from '@bot/services/audio/audioSignalService';
 import { PreviewResolverService, type ResolvedPreview } from '@bot/services/audio/previewResolverService';

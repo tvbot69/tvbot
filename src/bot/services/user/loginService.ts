@@ -1,10 +1,10 @@
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { IUserRepository } from '@domain/interfaces/iuserRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { IUserRepository } from '@domain/interfaces/ports/iuserRepository';
 import { CacheService } from '@bot/services/system/cacheService';
 import { UserService } from '@bot/services/user/userService';
 import { IndexService } from '@bot/services/lastfm/indexService';
 import { ConfigData } from '@bot/configurations/configData';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export enum LoginStatus {
   Success = 'Success',

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { describe, it, expect, vi } from 'vitest';
 import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
-import { WhoKnowsBuilders } from '@bot/builders/whoKnowsBuilders';
+import { WhoKnowsBuilders } from '@bot/builders/whoknows/whoKnowsBuilders';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { ContextModel } from '@bot/models/contextModel';
 import { ComponentPaginatorService } from '@bot/services/system/componentPaginatorService';

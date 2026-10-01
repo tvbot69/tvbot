@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { WhoKnowsTrackService } from '@bot/services/whoKnows/whoKnowsTrackService';
-import type { IWhoKnowsRepository, WhoKnowsDbRow } from '@domain/interfaces/iwhoKnowsRepository';
-import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
+import type { IWhoKnowsRepository, WhoKnowsDbRow } from '@domain/interfaces/ports/iwhoKnowsRepository';
+import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
 import type { GuildService } from '@bot/services/guild/guildService';
-import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
-import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { ITrackRepository } from '@domain/interfaces/ports/itrackRepository';
+import type { IArtistRepository } from '@domain/interfaces/ports/iartistRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { Guild } from '@persistence/models/guild';
 import type { Guild as DiscordGuild } from 'discord.js';
 

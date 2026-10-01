@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { PlayRepository } from '@persistence/repositories/playRepository';
-import type { PlayInsert } from '@domain/interfaces/iplayRepository';
+import type { PlayInsert } from '@domain/interfaces/ports/iplayRepository';
 
 /**
  * playRepository's insert path, which is where duplicate plays come from.

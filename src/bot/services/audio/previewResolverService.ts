@@ -3,7 +3,7 @@ import { DeezerApi } from '@deezer/api/deezerApi';
 import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
 import { CacheService } from '@bot/services/system/cacheService';
 import { matchesTrackTitle } from '@bot/services/media/artworkService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import type { ITunesSearchResult } from '@applemusic/models/itunesModels';
 import type { DeezerTrack } from '@deezer/models/deezerModels';
 

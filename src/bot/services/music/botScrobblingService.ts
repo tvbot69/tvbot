@@ -1,9 +1,9 @@
 import { inject, injectable } from 'tsyringe';
 import type { Client, VoiceBasedChannel } from 'discord.js';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import type { IUserRepository } from '@domain/interfaces/iuserRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import type { IUserRepository } from '@domain/interfaces/ports/iuserRepository';
 import { GuildMusicSettingsRepository } from '@persistence/repositories/guildMusicSettingsRepository';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export interface PlayingVoiceTrack {
   guildId: string;

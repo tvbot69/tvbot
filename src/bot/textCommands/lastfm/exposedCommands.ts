@@ -6,7 +6,7 @@ import { UserService } from '@bot/services/user/userService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ExposedService } from '@bot/services/social/exposedService';
-import { ExposedBuilders } from '@bot/builders/exposedBuilders';
+import { ExposedBuilders } from '@bot/builders/social/exposedBuilders';
 
 @injectable()
 export class ExposedCommands implements ITextCommandModule {

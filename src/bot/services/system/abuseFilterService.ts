@@ -1,4 +1,4 @@
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { AbuseFlagRepository } from '@persistence/repositories/abuseFlagRepository';
 
 // fmbot parity (WhoKnowsFilterService): loop-scrobbling trips at ~650 plays

@@ -1,10 +1,10 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
-import { LastfmApiError } from '@domain/models/lastfmError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
+import { LastfmApiError } from '@domain/models/errors/lastfmError';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import type { ICache } from '@domain/interfaces/icache';
+import type { ICache } from '@domain/interfaces/ports/icache';
 
 /**
  * Contract tests for the repository half of the Last.fm read path.

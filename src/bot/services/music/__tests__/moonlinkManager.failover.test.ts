@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * `handleNodeFailover` — the one place in the bot that moves live playback

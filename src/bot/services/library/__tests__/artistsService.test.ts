@@ -5,9 +5,9 @@ import { ArtistsService } from '@bot/services/library/artistsService';
 import { ColorService } from '@bot/services/system/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { TopArtist } from '@domain/models/topLists';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { ArtistInfo } from '@domain/models/musicInfo';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 
 /**
  * artistsService is at 11.9% of 419 lines. `resolveArtistFromLink` is the

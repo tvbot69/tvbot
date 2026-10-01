@@ -1,14 +1,14 @@
-import type { IUserRepository, User } from '@domain/interfaces/iuserRepository';
-import type { IUserUpdateQueue } from '@domain/interfaces/iuserUpdateQueue';
+import type { IUserRepository, User } from '@domain/interfaces/ports/iuserRepository';
+import type { IUserUpdateQueue } from '@domain/interfaces/ports/iuserUpdateQueue';
 import { UpdateType } from '@domain/enums/updateType';
 // The Prisma enum types, so writing these columns is checked rather than cast.
 import type { Prisma, data_source, privacy_level } from '@prisma/client';
 import type { ReferencedMusic } from '@domain/models/referencedMusic';
-import { CommandDispatcher } from '@bot/handlers/commandDispatcher';
+import { CommandDispatcher } from '@bot/handlers/commands/commandDispatcher';
 import { CacheService } from '@bot/services/system/cacheService';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 import type { PrismaClient } from '@prisma/client';
 
 const USER_CACHE_TTL_SECONDS = 300;

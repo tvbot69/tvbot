@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import type { IUserFmSettingRepository, UserFmSetting } from '@domain/interfaces/iuserFmSettingRepository';
+import type { IUserFmSettingRepository, UserFmSetting } from '@domain/interfaces/ports/iuserFmSettingRepository';
 
 export class UserFmSettingRepository implements IUserFmSettingRepository {
   private readonly prisma: PrismaClient;

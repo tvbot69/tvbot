@@ -1,5 +1,5 @@
 import { CacheService } from '@bot/services/system/cacheService';
-import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
+import type { FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
 
 export class WhoKnowsPlayService {
   private readonly cache: CacheService;

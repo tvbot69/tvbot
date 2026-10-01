@@ -1,6 +1,6 @@
-import { Logger } from '@domain/logger';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
-import { errorMessage } from '@domain/discordErrors';
+import { Logger } from '@domain/logging/logger';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
+import { errorMessage } from '@domain/errors/discordErrors';
 
 interface SpotifyEntity {
   audioPreview?: { url?: string };

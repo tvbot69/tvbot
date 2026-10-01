@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import type { IWhoKnowsRepository, WhoKnowsDbRow } from '@domain/interfaces/iwhoKnowsRepository';
+import type { IWhoKnowsRepository, WhoKnowsDbRow } from '@domain/interfaces/ports/iwhoKnowsRepository';
 
 interface RawWhoKnowsRow {
   userId: number;

@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MusicEventListeners } from '@bot/handlers/music/musicEventListeners';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * `onTrackException` — the path that turns a failed track into an ADVANCE, not

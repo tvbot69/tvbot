@@ -7,15 +7,15 @@ import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { AppleMusicService } from '@bot/services/media/appleMusicService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { errorMessage } from '@domain/discordErrors';
+import { errorMessage } from '@domain/errors/discordErrors';
 import {
   appleSearchAlbum,
   appleSearchArtist,
   appleSearchTrack,
-} from '@bot/builders/appleLookupBuilders';
+} from '@bot/builders/apple/appleLookupBuilders';
 
 @injectable()
 export class StreamingCommands implements ITextCommandModule {

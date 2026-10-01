@@ -156,7 +156,7 @@ migration creates, behind a `.catch(() => [])`, and so returned **all zeros** fo
 life of the feature — total failure rendering as success, with a green suite approving
 of it (`scripts/count-debt.ts:409-419`).
 
-Raise `SourceUnavailableError` (`src/domain/models/sourceUnavailableError.ts:21-33`) —
+Raise `SourceUnavailableError` (`src/domain/models/errors/sourceUnavailableError.ts:21-33`) —
 or, on a path where raising is wrong, log at WARN with a message that names the shape.
 `albumService.filterAlbumsToReleasePeriod` (`:835-847`) is the worked counter-example: it
 still returns the input **unfiltered**, keeps the WARN, and is only acceptable because it
@@ -287,7 +287,7 @@ either.
 - **Prisma codes.** `P2022` — a column that does not exist (§3). `P2025` — an
   `update` against a missing primary key; swallowing it tells the caller the crown is
   deactivated when it never was (`crownRepository.reads.test.ts:913-916`).
-- **`SourceUnavailableError`** (`src/domain/models/sourceUnavailableError.ts`) and its
+- **`SourceUnavailableError`** (`src/domain/models/errors/sourceUnavailableError.ts`) and its
   subclass `LastFmUnavailableError`. Distinguish with `isSourceUnavailable`, which
   matches on `err.name` rather than `instanceof` **on purpose**: the same class is loaded
   through several module specifiers here, and an `instanceof` against one copy silently

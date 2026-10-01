@@ -7,11 +7,11 @@ import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { GenreService } from '@bot/services/library/genreService';
-import { GenreBuilders } from '@bot/builders/genreBuilders';
+import { GenreBuilders } from '@bot/builders/library/genreBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/system/colorService';
-import { storeGenreQuery } from '@bot/interactions/genreInteractions';
+import { storeGenreQuery } from '@bot/interactions/library/genreInteractions';
 
 @injectable()
 export class GenreCommands implements ITextCommandModule {

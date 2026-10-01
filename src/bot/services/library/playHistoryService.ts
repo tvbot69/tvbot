@@ -1,11 +1,11 @@
 import { inject, injectable } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
-import type { IPlayRepository } from '@domain/interfaces/iplayRepository';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { IPlayRepository } from '@domain/interfaces/ports/iplayRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
-import { SourceUnavailableError } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 import { GenreService } from '@bot/services/library/genreService';
 import { CountryService } from '@bot/services/library/countryService';
 

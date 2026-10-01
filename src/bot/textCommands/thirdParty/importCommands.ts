@@ -6,12 +6,12 @@ import { UserService } from '@bot/services/user/userService';
 import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { ImportService } from '@bot/services/library/importService';
-import { DiscogsAndImportBuilders } from '@bot/builders/discogsAndImportBuilders';
+import { DiscogsAndImportBuilders } from '@bot/builders/apple/discogsAndImportBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { errorMessage } from '@domain/discordErrors';
+import { errorMessage } from '@domain/errors/discordErrors';
 
 @injectable()
 export class ImportCommands implements ITextCommandModule {

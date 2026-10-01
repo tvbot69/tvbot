@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { container } from 'tsyringe';
-import { CommandHandler } from '@bot/handlers/commandHandler';
+import { CommandHandler } from '@bot/handlers/commands/commandHandler';
 import { PrefixService } from '@bot/services/user/prefixService';
 import { GuildUserService } from '@bot/services/guild/guildUserService';
 import { ColorService } from '@bot/services/system/colorService';

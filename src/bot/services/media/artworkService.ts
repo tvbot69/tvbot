@@ -1,9 +1,9 @@
 import type {
   IAlbumRepository,
-} from '@domain/interfaces/ialbumRepository';
-import type { IArtistRepository } from '@domain/interfaces/iartistRepository';
-import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+} from '@domain/interfaces/ports/ialbumRepository';
+import type { IArtistRepository } from '@domain/interfaces/ports/iartistRepository';
+import type { ITrackRepository } from '@domain/interfaces/ports/itrackRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { CacheService } from '@bot/services/system/cacheService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { DeezerApi } from '@deezer/api/deezerApi';
@@ -12,8 +12,8 @@ import {
   upscaleArtwork,
 } from '@applemusic/api/appleMusicSearchApi';
 import { AppleMusicWebApi } from '@applemusic/api/appleMusicWebApi';
-import { Logger } from '@domain/logger';
-import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import { Logger } from '@domain/logging/logger';
+import { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 
 const MEMORY_CACHE_TTL_SECONDS = 3600;
 /** Negative cache for DEFINITIVE misses (every provider answered no).
@@ -32,9 +32,9 @@ const INCONCLUSIVE_TTL_SECONDS = 90;
 const FRESHNESS_WINDOW_MS = 90 * 24 * 3600 * 1000;
 // Canonical implementation lives in domain so lower layers can call it without
 // importing @bot/*. Re-exported here so the ~20 existing call sites are
-// unchanged. See src/domain/lastfmPlaceholder.ts and AGENTS.md rule 2.
-export { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
-import { isPlaceholderImageUrl } from '@domain/lastfmPlaceholder';
+// unchanged. See src/domain/lastfm/lastfmPlaceholder.ts and AGENTS.md rule 2.
+export { isPlaceholderImageUrl } from '@domain/lastfm/lastfmPlaceholder';
+import { isPlaceholderImageUrl } from '@domain/lastfm/lastfmPlaceholder';
 
 const isValidImageUrl = (url?: string | null): boolean => !!url && !isPlaceholderImageUrl(url);
 

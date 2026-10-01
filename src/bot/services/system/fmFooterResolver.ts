@@ -1,6 +1,6 @@
 import { container } from 'tsyringe';
-import { Logger } from '@domain/logger';
-import type { User } from '@domain/interfaces/iuserRepository';
+import { Logger } from '@domain/logging/logger';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import { ArtistsService } from '@bot/services/library/artistsService';

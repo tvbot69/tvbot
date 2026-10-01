@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import type { ChartItem, ChartSettings } from '@images/models/chartModels';
 import { PuppeteerService } from '@images/generators/puppeteerService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 import { escapeHtml } from '@images/html';
 

@@ -35,7 +35,7 @@ const INTERACTIONS = path.join(REPO, 'src/bot/interactions');
 
 /** Every file that builds a Components V2 payload from a response field. */
 const candidates = fs
-  .readdirSync(INTERACTIONS)
+  .readdirSync(INTERACTIONS, { recursive: true, encoding: 'utf8' })
   .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
   .map((f) => path.join(INTERACTIONS, f));
 

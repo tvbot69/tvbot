@@ -14,9 +14,9 @@ import {
   MusicIntelligenceService,
   GapEntityType,
 } from '@bot/services/library/musicIntelligenceService';
-import { IntelligenceBuilders } from '@bot/builders/intelligenceBuilders';
+import { IntelligenceBuilders } from '@bot/builders/intelligence/intelligenceBuilders';
 import { TimePeriod } from '@domain/enums/timePeriod';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 interface TargetResolution {
   callerUser: User;
@@ -36,7 +36,7 @@ interface TargetResolution {
 }
 
 import { IcebergGenerator } from '@images/generators/icebergGenerator';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 @injectable()
 export class IntelligenceCommands implements ITextCommandModule {

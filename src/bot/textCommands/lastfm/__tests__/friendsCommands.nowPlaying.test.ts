@@ -48,17 +48,17 @@ import { container } from 'tsyringe';
 import { FriendsCommands } from '@bot/textCommands/lastfm/friendsCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { FriendType } from '@domain/enums/friendType';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { Friend } from '@persistence/models/user';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import type { UserService } from '@bot/services/user/userService';
 import type { FriendsService } from '@bot/services/social/friendsService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 
 const textOf = (response: ResponseModel): string => {
   const containerJson = response.componentsV2Container?.toJSON() as

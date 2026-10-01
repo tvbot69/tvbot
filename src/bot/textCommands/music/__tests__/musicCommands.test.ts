@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MusicCommands } from '@bot/textCommands/music/musicCommands';
-import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { MusicBuilders } from '@bot/builders/music/musicBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { playErrorMessage } from '@bot/services/music/musicService';
 import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';

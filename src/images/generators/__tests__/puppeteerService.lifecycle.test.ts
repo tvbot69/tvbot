@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PuppeteerService } from '@images/generators/puppeteerService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * `PuppeteerService` — the one Chromium, the render slot, the render cache and

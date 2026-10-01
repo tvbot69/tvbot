@@ -9,8 +9,8 @@ import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import { FeaturedService } from '@bot/services/library/featuredService';
 import { ShortcutService } from '@bot/services/user/shortcutService';
-import { UserHubBuilders } from '@bot/builders/userHubBuilders';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import { UserHubBuilders } from '@bot/builders/user/userHubBuilders';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 
 @injectable()
 export class UserHubCommands implements ITextCommandModule {

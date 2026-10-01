@@ -3,8 +3,8 @@ import {
   type ButtonInteraction,
   type Interaction,
 } from 'discord.js';
-import { Logger } from '@domain/logger';
-import { errorMessage, isUnknownInteraction } from '@domain/discordErrors';
+import { Logger } from '@domain/logging/logger';
+import { errorMessage, isUnknownInteraction } from '@domain/errors/discordErrors';
 
 export type ComponentInteraction = ButtonInteraction | AnySelectMenuInteraction;
 export type ComponentHandler = (interaction: ComponentInteraction) => Promise<void>;

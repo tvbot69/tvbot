@@ -48,7 +48,7 @@ import { TimePeriod } from '@domain/enums/timePeriod';
 import { CountryChartTheme } from '@images/generators/worldMapGenerator';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { TimeSettingsModel } from '@domain/models/timeSettings';
 import type { UserService } from '@bot/services/user/userService';
 import type { SettingService } from '@bot/services/system/settingService';
@@ -62,11 +62,11 @@ import type {
 import type { ColorService } from '@bot/services/system/colorService';
 import type { WorldMapGenerator } from '@images/generators/worldMapGenerator';
 
-vi.mock('@bot/interactions/countryInteractions', () => ({
+vi.mock('@bot/interactions/library/countryInteractions', () => ({
   storeCountryQuery: vi.fn(),
 }));
 
-import { storeCountryQuery } from '@bot/interactions/countryInteractions';
+import { storeCountryQuery } from '@bot/interactions/library/countryInteractions';
 
 const textOf = (response: ResponseModel): string => {
   const container = response.componentsV2Container?.toJSON() as

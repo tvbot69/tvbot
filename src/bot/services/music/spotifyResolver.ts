@@ -1,7 +1,7 @@
 import { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
 import { clampSpotifySearchLimit } from '@spotify/api/spotifyApiLimits';
-import { Logger } from '@domain/logger';
-import { fetchWithTimeout } from '@domain/fetchWithTimeout';
+import { Logger } from '@domain/logging/logger';
+import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
 import type { MirrorProvider, MirrorTrack } from '@domain/models/music/musicTrack';
 import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
 

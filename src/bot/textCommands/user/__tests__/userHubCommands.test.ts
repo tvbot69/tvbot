@@ -43,17 +43,17 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { UserHubCommands } from '@bot/textCommands/user/userHubCommands';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import type { UserService } from '@bot/services/user/userService';
 import type { BotScrobblingService, PlayingVoiceTrack } from '@bot/services/music/botScrobblingService';
 import type { FeaturedService, FeaturedEntry } from '@bot/services/library/featuredService';
 import type { ShortcutService } from '@bot/services/user/shortcutService';
 import type { PrefixService } from '@bot/services/user/prefixService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import type { ColorService } from '@bot/services/system/colorService';
 
 /** Everything the user reads, from whichever of the two shapes was chosen. */

@@ -1,8 +1,8 @@
 import { Routes, type Client } from 'discord.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { cleanArtistName, cleanTrackTitle } from '@domain/models/music/musicTrack';
 
-import { discordRetryAfterMs, isDiscordRateLimit } from '@domain/discordErrors';
+import { discordRetryAfterMs, isDiscordRateLimit } from '@domain/errors/discordErrors';
 
 export class VoiceChannelStatusService {
   private readonly client: Client;

@@ -44,12 +44,12 @@ import type { GuildRankingItem, GuildRankingSettings } from '@bot/services/guild
 import type { GuildRankingService } from '@bot/services/guild/guildRankingService';
 import type { ColorService } from '@bot/services/system/colorService';
 
-vi.mock('@bot/interactions/serverInteractions', () => ({
+vi.mock('@bot/interactions/guild/serverInteractions', () => ({
   storeServerRankingQuery: vi.fn(),
 }));
 
 // Imported after the mock so the binding is the mocked one.
-import { storeServerRankingQuery } from '@bot/interactions/serverInteractions';
+import { storeServerRankingQuery } from '@bot/interactions/guild/serverInteractions';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 
 /** A rendered claim, from whichever shape the builder chose. */

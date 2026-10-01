@@ -1,5 +1,5 @@
 import { PrismaClient, Track } from '@prisma/client';
-import type { ITrackRepository } from '@domain/interfaces/itrackRepository';
+import type { ITrackRepository } from '@domain/interfaces/ports/itrackRepository';
 
 export class TrackRepository implements ITrackRepository {
   private readonly prisma: PrismaClient;

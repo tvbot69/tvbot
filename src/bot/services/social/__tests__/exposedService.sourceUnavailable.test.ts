@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { ExposedService } from '@bot/services/social/exposedService';
-import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import type { User } from '@domain/interfaces/iuserRepository';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 /**
  * Every laundering site in `exposedService`, tested as a PAIR.

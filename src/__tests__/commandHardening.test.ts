@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { ResponseModel } from '@bot/models/responseModel';
-import { GameBuilders } from '@bot/builders/gameBuilders';
+import { GameBuilders } from '@bot/builders/guild/gameBuilders';
 import { ProfileCommands } from '@bot/textCommands/lastfm/profileCommands';
 import { GameCommands } from '@bot/textCommands/lastfm/gameCommands';
 import { MusicCommands } from '@bot/textCommands/music/musicCommands';
@@ -10,7 +10,7 @@ import type { ContextModel } from '@bot/models/contextModel';
 import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
 
 import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
-import { UserSettingsInteractions } from '@bot/interactions/userSettingsInteractions';
+import { UserSettingsInteractions } from '@bot/interactions/user/userSettingsInteractions';
 
 describe('Bugfixes & Hardening Validation', () => {
   describe('Issue 3: ResponseModel and Pixelation Attachment', () => {
@@ -307,7 +307,7 @@ describe('Bugfixes & Hardening Validation', () => {
 
     it('intelligence modules claim no love/scrobble triggers (track owns them)', async () => {
       const { IntelligenceCommands: IC } = await import('@bot/textCommands/lastfm/intelligenceCommands');
-      const { IntelligenceSlashCommands: ISC } = await import('@bot/slashCommands/intelligenceSlashCommands');
+      const { IntelligenceSlashCommands: ISC } = await import('@bot/slashCommands/intelligence/intelligenceSlashCommands');
       const textTriggers = triggersOf(new (IC as any)());
       for (const t of ['love', 'heart', 'favorite', 'unlove', 'ul', 'unheart', 'loved', 'lovedtracks', 'lt', 'scrobble']) {
         expect(textTriggers).not.toContain(t);
@@ -338,7 +338,7 @@ describe('Bugfixes & Hardening Validation', () => {
 
     it('searchdb reaches the library, search stays music', async () => {
       const { LibrarySearchCommands } = await import('@bot/textCommands/lastfm/librarySearchCommands');
-      const { LibrarySearchSlashCommands } = await import('@bot/slashCommands/librarySearchSlashCommands');
+      const { LibrarySearchSlashCommands } = await import('@bot/slashCommands/library/librarySearchSlashCommands');
       const { MusicCommands } = await import('@bot/textCommands/music/musicCommands');
       const libTriggers = triggersOf(new (LibrarySearchCommands as any)());
       expect(libTriggers).toContain('searchdb');

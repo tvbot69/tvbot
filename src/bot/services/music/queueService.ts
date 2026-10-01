@@ -8,7 +8,7 @@ import {
   DEFAULT_MUSIC_PREFS,
   type GuildMusicPrefs,
 } from '@persistence/repositories/guildMusicSettingsRepository';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 export class QueueService {
   private readonly is247Guilds = new Set<string>();

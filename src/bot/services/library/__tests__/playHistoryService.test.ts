@@ -24,9 +24,9 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { PlayHistoryService } from '@bot/services/library/playHistoryService';
-import { Logger } from '@domain/logger';
-import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import { isLastFmUnavailable } from '@domain/models/lastfmUnavailableError';
+import { Logger } from '@domain/logging/logger';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import { isLastFmUnavailable } from '@domain/models/errors/lastfmUnavailableError';
 
 /** Prisma 5xx / driver-level connectivity failure, the realistic shape. */
 const DB_DOWN = () => new Error("Can't reach database server at `host.docker.internal:5432`");

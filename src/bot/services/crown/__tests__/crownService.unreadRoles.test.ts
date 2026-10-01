@@ -30,7 +30,7 @@ import { CrownService } from '@bot/services/crown/crownService';
 import type { WhoKnowsRoleRead, WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import type { CrownRepository } from '@persistence/repositories/crownRepository';
 import type { UserService } from '@bot/services/user/userService';
-import type { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
+import type { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
 
 const GUILD_ID = '1445761601129943222';
 const CROWN_ROLE = '555';

@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FeaturedService } from '@bot/services/library/featuredService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import type { PrismaClient } from '@prisma/client';
 
 describe('FeaturedService', () => {

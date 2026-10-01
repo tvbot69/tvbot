@@ -1,7 +1,7 @@
 ﻿import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * spotifyScraperService was 32% with 297 uncovered lines.

@@ -2,15 +2,15 @@ import { injectable, inject } from 'tsyringe';
 import { CrownRepository } from '@persistence/repositories/crownRepository';
 import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { crownRoleVerdict } from '@bot/models/whoKnowsModels';
-import type { FullGuildUserDetails } from '@domain/interfaces/iguildUserRepository';
+import type { FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
 import type { Guild } from '@persistence/models/guild';
 import type { UserCrownDto, CrownModel, CrownViewType, CrownLeaderboardEntry } from '@domain/models/crownModels';
 import { UserService } from '@bot/services/user/userService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
-import { LastfmErrorRateTracker } from '@domain/lastfmErrorRateTracker';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import { Logger } from '@domain/logger';
+import { LastfmErrorRateTracker } from '@domain/lastfm/lastfmErrorRateTracker';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 import { AbuseFilterService } from '@bot/services/system/abuseFilterService';
 
 @injectable()

@@ -4,13 +4,13 @@ import type { ContextModel } from '@bot/models/contextModel';
 import type { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { StreakService } from '@bot/services/user/streakService';
-import { StreakBuilders } from '@bot/builders/streakBuilders';
+import { StreakBuilders } from '@bot/builders/user/streakBuilders';
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 @injectable()
 export class StreakCommands implements ITextCommandModule {

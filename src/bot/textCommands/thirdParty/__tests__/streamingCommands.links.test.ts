@@ -4,7 +4,7 @@ import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommand
 import { AppleMusicService } from '@bot/services/media/appleMusicService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { RecentTrack } from '@domain/models/recentTrack';
 
 /**

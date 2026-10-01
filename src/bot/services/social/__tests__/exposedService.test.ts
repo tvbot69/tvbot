@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ExposedService, ROAST_QUOTES } from '@bot/services/social/exposedService';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 describe('ExposedService', () => {
   let mockGenreService: any;

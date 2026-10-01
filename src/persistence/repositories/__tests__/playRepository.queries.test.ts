@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlayRepository } from '@persistence/repositories/playRepository';
-import { Logger } from '@domain/logger';
-import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
+import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 
 /**
  * The read paths of playRepository: top-entity rollups, raw groupBy mappers,

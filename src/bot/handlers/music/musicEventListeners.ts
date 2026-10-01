@@ -1,8 +1,8 @@
 import type { Client } from 'discord.js';
 import type { Manager, Player, Track } from 'moonlink.js';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 import { mapMoonlinkTrack } from '@domain/models/music/musicTrack';
-import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { MusicBuilders } from '@bot/builders/music/musicBuilders';
 import { healthFor, YoutubeHealth } from '@bot/services/music/youtubeHealth';
 import { isLiveVideo } from '@bot/services/music/videoChapters';
 import type { QueueService } from '@bot/services/music/queueService';

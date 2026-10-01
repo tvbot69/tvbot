@@ -1,6 +1,6 @@
 import { container } from 'tsyringe';
 import { CacheService } from '@bot/services/system/cacheService';
-import { Logger } from '@domain/logger';
+import { Logger } from '@domain/logging/logger';
 
 /** Lazily resolves the shared cache without constructor churn. */
 export const resolveCacheService = (): CacheService | null => {

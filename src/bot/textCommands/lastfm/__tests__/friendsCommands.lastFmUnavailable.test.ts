@@ -30,14 +30,14 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { FriendsCommands } from '@bot/textCommands/lastfm/friendsCommands';
-import { LastFmUnavailableError } from '@domain/models/lastfmUnavailableError';
+import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { FriendType } from '@domain/enums/friendType';
 import type { ResponseModel } from '@bot/models/responseModel';
 import type { ContextModel } from '@bot/models/contextModel';
 import type { UserService } from '@bot/services/user/userService';
 import type { FriendsService } from '@bot/services/social/friendsService';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 
 const LFM_DOWN = () =>
   new LastFmUnavailableError('user.getinfo', new Error('Last.fm returned HTTP 503'));

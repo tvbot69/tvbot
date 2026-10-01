@@ -1,10 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ProfileService } from '@bot/services/user/profileService';
-import { isSourceUnavailable } from '@domain/models/sourceUnavailableError';
-import type { ILastfmRepository } from '@domain/interfaces/ilastfmRepository';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import type { LastFmUser } from '@domain/models/lastFmUser';
-import type { User } from '@domain/interfaces/iuserRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { DataSource, UserType } from '@persistence/models/user';
 import { PrivacyLevel } from '@domain/enums/privacyLevel';
 

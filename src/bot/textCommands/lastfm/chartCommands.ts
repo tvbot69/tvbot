@@ -6,7 +6,7 @@ import type { User } from '@persistence/models/user';
 
 import { ChartService, TooManyImagesError } from '@bot/services/charts/chartService';
 import { NotEnoughAlbumsError } from '@bot/services/charts/chartService';
-import { ChartBuilders } from '@bot/builders/chartBuilders';
+import { ChartBuilders } from '@bot/builders/charts/chartBuilders';
 import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';

@@ -2,22 +2,22 @@ import { inject, injectable , container} from 'tsyringe';
 import { createHash } from 'crypto';
 import { Client, Events, ActivityType } from 'discord.js';
 import { ConfigData } from '@bot/configurations/configData';
-import { Logger } from '@domain/logger';
-import { ClientLogHandler } from '@bot/handlers/clientLogHandler';
-import { InteractionHandler } from '@bot/handlers/interactionHandler';
-import { CommandHandler } from '@bot/handlers/commandHandler';
+import { Logger } from '@domain/logging/logger';
+import { ClientLogHandler } from '@bot/handlers/logs/clientLogHandler';
+import { InteractionHandler } from '@bot/handlers/interactions/interactionHandler';
+import { CommandHandler } from '@bot/handlers/commands/commandHandler';
 import { TimerService } from '@bot/services/lastfm/timerService';
 import { HealthServer } from '@bot/services/system/healthServer';
 import { GuildService } from '@bot/services/guild/guildService';
 import { PuppeteerService } from '@images/generators/puppeteerService';
 import { getSlashCommandPayloads } from '@bot/slashCommands';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
-import { MusicHandler } from '@bot/handlers/musicHandler';
+import { MusicHandler } from '@bot/handlers/music/musicHandler';
 import { LyricStatusService } from '@bot/services/music/lyricStatusService';
 import { QueueService } from '@bot/services/music/queueService';
 import { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 
-import { errorMessage } from '@domain/discordErrors';
+import { errorMessage } from '@domain/errors/discordErrors';
 import { skipSlashRegister } from '@config/runtimeEnv';
 
 @injectable()

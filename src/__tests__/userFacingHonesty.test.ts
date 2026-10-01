@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { MusicBuilders } from '@bot/builders/musicBuilders';
+import { MusicBuilders } from '@bot/builders/music/musicBuilders';
 import { MusicCommands } from '@bot/textCommands/music/musicCommands';
-import { NowPlayingInteractions } from '@bot/interactions/nowPlayingInteractions';
+import { NowPlayingInteractions } from '@bot/interactions/music/nowPlayingInteractions';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ResponseModel } from '@bot/models/responseModel';
 

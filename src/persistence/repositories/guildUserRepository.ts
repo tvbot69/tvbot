@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import type { FullGuildUserDetails, IGuildUserRepository } from '@domain/interfaces/iguildUserRepository';
+import type { FullGuildUserDetails, IGuildUserRepository } from '@domain/interfaces/ports/iguildUserRepository';
 
 export class GuildUserRepository implements IGuildUserRepository {
   private readonly prisma: PrismaClient;
