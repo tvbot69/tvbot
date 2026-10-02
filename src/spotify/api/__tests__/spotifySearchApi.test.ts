@@ -1,18 +1,20 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { SpotifySearchApi, SpotifyUnavailableError } from '@spotify/api/spotifySearchApi';
 import { SpotifyTokenManager } from '@spotify/api/spotifyTokenManager';
 
 describe('SpotifySearchApi', () => {
   let tokenManager: SpotifyTokenManager;
+  let rotateCredential: Mock<() => boolean>;
   let api: SpotifySearchApi;
 
   beforeEach(() => {
     SpotifySearchApi.clearRateLimit();
+    rotateCredential = vi.fn(() => false);
     tokenManager = {
       getToken: vi.fn().mockResolvedValue('test-token'),
       invalidate: vi.fn(),
-      rotateCredential: vi.fn().mockReturnValue(false),
+      rotateCredential,
     } as unknown as SpotifyTokenManager;
     api = new SpotifySearchApi(tokenManager);
   });
@@ -152,7 +154,7 @@ describe('SpotifySearchApi', () => {
       }),
     } as unknown as Response;
 
-    (tokenManager.rotateCredential as any).mockReturnValueOnce(true);
+    rotateCredential.mockReturnValueOnce(true);
 
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(mock429)

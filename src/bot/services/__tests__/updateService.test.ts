@@ -177,7 +177,7 @@ describe('UpdateService delta sync (Phase 0.5)', () => {
 describe('UpdateService chunked top-list maintenance', () => {
   const makeChunkSvc = (
     incomingCount: number,
-    applyImpl?: (...args: any[]) => Promise<void>,
+    applyImpl?: (...args: unknown[]) => Promise<void>,
   ) => {
     const recalc = vi.fn(async () => undefined);
     const apply = vi.fn(applyImpl ?? (async () => undefined));

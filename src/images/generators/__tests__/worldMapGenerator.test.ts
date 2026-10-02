@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { WorldMapGenerator, CountryChartTheme } from '@images/generators/worldMapGenerator';
+import type { PuppeteerService } from '@images/generators/puppeteerService';
 
 describe('WorldMapGenerator', () => {
   describe('theme resolution', () => {
@@ -24,7 +25,11 @@ describe('WorldMapGenerator', () => {
 
   describe('generateWorldMap', () => {
     it('generates a world map SVG and calls puppeteer screenshot', async () => {
-      const mockPuppeteerService: any = {
+      // Genuinely partial: `generateWorldMap` only ever calls `screenshotHtml`
+      // (`worldMapGenerator.ts:300`), and the real service owns a Chromium
+      // handle this test must not launch. The cast names the real type so a
+      // change to `screenshotHtml`'s signature still breaks the double.
+      const mockPuppeteerService = {
         screenshotHtml: async (html: string, width: number, height: number) => {
           expect(width).toBe(2754);
           expect(height).toBe(1398);
@@ -33,7 +38,7 @@ describe('WorldMapGenerator', () => {
           expect(html).toContain('.jp{fill:');
           return Buffer.from('mock_map_png');
         },
-      };
+      } as unknown as PuppeteerService;
 
       const generator = new WorldMapGenerator(mockPuppeteerService);
       const countries = [

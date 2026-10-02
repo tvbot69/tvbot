@@ -5,7 +5,30 @@ import { WhoKnowsService } from '@bot/services/whoKnows/whoKnowsService';
 import { WhoKnowsBuilders } from '@bot/builders/whoknows/whoKnowsBuilders';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { ContextModel } from '@bot/models/contextModel';
-import { ComponentPaginatorService } from '@bot/services/system/componentPaginatorService';
+import { ComponentPaginatorService, type ComponentPaginatorSession } from '@bot/services/system/componentPaginatorService';
+
+/**
+ * The component tree this suite walks, typed by what the assertions READ rather
+ * than by discord.js's `APIComponentInContainer`. That type is a union
+ * discriminated on `type`, so every property access would need a narrowing guard
+ * that asserts nothing. These members are exactly the ones the paginator emits.
+ */
+type ContainerJson = {
+  type: number;
+  accent_color?: number | null;
+  components: {
+    type: number;
+    content?: string;
+    divider?: boolean;
+    components?: {
+      type: number;
+      custom_id?: string;
+      label?: string;
+      disabled?: boolean;
+      emoji?: { id?: string | null };
+    }[];
+  }[];
+};
 
 describe('WhoKnows Pagination Mode & Parity', () => {
   const users = [
@@ -64,7 +87,7 @@ describe('WhoKnows Pagination Mode & Parity', () => {
     const container = response.componentsV2Container;
     expect(container).toBeDefined();
 
-    const json = container!.toJSON() as any;
+    const json = container!.toJSON() as unknown as ContainerJson;
     expect(json.type).toBe(17); // Container
     expect(json.accent_color).toBeUndefined(); // No accent color on container, matching fmbot
 
@@ -72,58 +95,58 @@ describe('WhoKnows Pagination Mode & Parity', () => {
     expect(comps.length).toBe(6);
 
     // Component 0: TextDisplay with clean title (no link, no thumbnail accessory)
-    expect(comps[0].type).toBe(10);
-    expect(comps[0].content).toBe('### EsDeeKid in الازعروكش');
+    expect(comps[0]!.type).toBe(10);
+    expect(comps[0]!.content).toBe('### EsDeeKid in الازعروكش');
 
     // Component 1: Separator
-    expect(comps[1].type).toBe(14);
-    expect(comps[1].divider).toBe(true);
+    expect(comps[1]!.type).toBe(14);
+    expect(comps[1]!.divider).toBe(true);
 
     // Component 2: TextDisplay with leaderboard
-    expect(comps[2].type).toBe(10);
-    expect(comps[2].content).toContain('👑  **[moha](https://last.fm/user/Moha504) - 241 plays**');
-    expect(comps[2].content).toContain('2.  [مس](https://last.fm/user/fm-bot) - **2** plays');
+    expect(comps[2]!.type).toBe(10);
+    expect(comps[2]!.content).toContain('👑  **[moha](https://last.fm/user/Moha504) - 241 plays**');
+    expect(comps[2]!.content).toContain('2.  [مس](https://last.fm/user/fm-bot) - **2** plays');
 
     // Component 3: Separator
-    expect(comps[3].type).toBe(14);
-    expect(comps[3].divider).toBe(true);
+    expect(comps[3]!.type).toBe(14);
+    expect(comps[3]!.divider).toBe(true);
 
     // Component 4: TextDisplay with footer
-    expect(comps[4].type).toBe(10);
-    expect(comps[4].content).toContain('-# Page 1/1');
-    expect(comps[4].content).toContain('-# Artist - 2 listeners - 243 plays - 121 avg');
-    expect(comps[4].content).toContain("-# Spotify not tracking properly? Check '.outofsync'");
+    expect(comps[4]!.type).toBe(10);
+    expect(comps[4]!.content).toContain('-# Page 1/1');
+    expect(comps[4]!.content).toContain('-# Artist - 2 listeners - 243 plays - 121 avg');
+    expect(comps[4]!.content).toContain("-# Spotify not tracking properly? Check '.outofsync'");
 
     // Component 5: ActionRow with 5 pagination buttons
-    expect(comps[5].type).toBe(1); // ActionRow
-    const buttons = comps[5].components;
+    expect(comps[5]!.type).toBe(1); // ActionRow
+    const buttons = comps[5]!.components!;
     expect(buttons.length).toBe(5);
 
-    expect(buttons[0].custom_id).toBe('component_paginator_first');
-    expect(buttons[0].emoji?.id).toBe('883825508633182208');
-    expect(buttons[0].disabled).toBe(true); // Total pages is 1, so disabled
+    expect(buttons[0]!.custom_id).toBe('component_paginator_first');
+    expect(buttons[0]!.emoji?.id).toBe('883825508633182208');
+    expect(buttons[0]!.disabled).toBe(true); // Total pages is 1, so disabled
 
-    expect(buttons[1].custom_id).toBe('component_paginator_previous');
-    expect(buttons[1].emoji?.id).toBe('883825508507336704');
-    expect(buttons[1].disabled).toBe(true);
+    expect(buttons[1]!.custom_id).toBe('component_paginator_previous');
+    expect(buttons[1]!.emoji?.id).toBe('883825508507336704');
+    expect(buttons[1]!.disabled).toBe(true);
 
-    expect(buttons[2].custom_id).toBe('component_paginator_next');
-    expect(buttons[2].emoji?.id).toBe('883825508087922739');
-    expect(buttons[2].disabled).toBe(true);
+    expect(buttons[2]!.custom_id).toBe('component_paginator_next');
+    expect(buttons[2]!.emoji?.id).toBe('883825508087922739');
+    expect(buttons[2]!.disabled).toBe(true);
 
-    expect(buttons[3].custom_id).toBe('component_paginator_last');
-    expect(buttons[3].emoji?.id).toBe('883825508482183258');
-    expect(buttons[3].disabled).toBe(true);
+    expect(buttons[3]!.custom_id).toBe('component_paginator_last');
+    expect(buttons[3]!.emoji?.id).toBe('883825508482183258');
+    expect(buttons[3]!.disabled).toBe(true);
 
-    expect(buttons[4].custom_id).toBe('component_paginator_jump');
-    expect(buttons[4].emoji?.id).toBe('1138849626234036264');
-    expect(buttons[4].disabled).toBe(true);
+    expect(buttons[4]!.custom_id).toBe('component_paginator_jump');
+    expect(buttons[4]!.emoji?.id).toBe('1138849626234036264');
+    expect(buttons[4]!.disabled).toBe(true);
 
     // Paginator session attached
-    const session = (response as any)._paginatorSession;
+    const session = (response as unknown as { _paginatorSession?: ComponentPaginatorSession })._paginatorSession;
     expect(session).toBeDefined();
-    expect(session.currentPage).toBe(0);
-    expect(session.totalPages).toBe(1);
+    expect(session!.currentPage).toBe(0);
+    expect(session!.totalPages).toBe(1);
   });
 
   it('ComponentPaginatorService handles button interaction correctly', async () => {
@@ -143,14 +166,14 @@ describe('WhoKnows Pagination Mode & Parity', () => {
 
     service.registerSession('msg-123', session);
 
-    const fakeInteraction: any = {
+    const fakeInteraction = {
       customId: 'component_paginator_next',
       message: { id: 'msg-123' },
       update: vi.fn().mockResolvedValue(undefined),
       deferUpdate: vi.fn().mockResolvedValue(undefined),
     };
 
-    const handled = await service.handleButton(fakeInteraction);
+    const handled = await service.handleButton(fakeInteraction as never);
     expect(handled).toBe(true);
     expect(session.currentPage).toBe(1);
     expect(renderPage).toHaveBeenCalledWith(1);

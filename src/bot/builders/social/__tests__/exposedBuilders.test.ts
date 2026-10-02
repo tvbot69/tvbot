@@ -1,10 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import { ExposedBuilders } from '@bot/builders/social/exposedBuilders';
 import type { ExposedReport } from '@bot/services/social/exposedService';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
+import { DataSource, UserType } from '@persistence/models/user';
+import { PrivacyLevel } from '@domain/enums/privacyLevel';
 
 describe('ExposedBuilders', () => {
   const dummyReport: ExposedReport = {
-    user: { userId: 1 } as any,
+    user: {
+      userId: 1,
+      userNameLastFm: 'Moha504',
+      discordUserId: '687636049576722472',
+      registeredOn: new Date('2020-01-01T00:00:00Z'),
+      userType: UserType.User,
+      dataSource: DataSource.LastFm,
+      privacyLevel: PrivacyLevel.Default,
+    } satisfies User,
     displayName: 'Moha',
     publicArtists: ['Death Grips', 'Travis Scott'],
     publicGenres: ['experimental', 'hip-hop'],

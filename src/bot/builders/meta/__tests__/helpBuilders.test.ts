@@ -1,6 +1,37 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
+import {
+  ButtonBuilder,
+  StringSelectMenuBuilder,
+  type MessageActionRowComponentBuilder,
+} from 'discord.js';
 import { HelpBuilders, HELP_CATEGORIES } from '@bot/builders/meta/helpBuilders';
+
+/*
+ * `ResponseModel.buttonRows` is `ActionRowBuilder<MessageActionRowComponentBuilder>[]`,
+ * so a row's `.components[0]` is a six-way union. The builder that lands in each
+ * slot is the contract under test, so it is narrowed with the real `instanceof`
+ * rather than an unchecked cast.
+ */
+const asStringSelect = (
+  c: MessageActionRowComponentBuilder | undefined,
+): StringSelectMenuBuilder => {
+  expect(c).toBeInstanceOf(StringSelectMenuBuilder);
+  return c as StringSelectMenuBuilder;
+};
+
+const asButton = (c: MessageActionRowComponentBuilder | undefined): ButtonBuilder => {
+  expect(c).toBeInstanceOf(ButtonBuilder);
+  return c as ButtonBuilder;
+};
+
+/**
+ * `ButtonBuilder.data` is `Partial<APIButtonComponent>`, and that union's link
+ * and SKU variants have no `custom_id` - only the custom-id variant does. `in`
+ * is that discriminant.
+ */
+const buttonCustomId = (b: ButtonBuilder): string | undefined =>
+  'custom_id' in b.data ? b.data.custom_id : undefined;
 
 describe('HelpBuilders', () => {
   it('normalizes category strings correctly', () => {
@@ -32,18 +63,18 @@ describe('HelpBuilders', () => {
     // Verify select menu row
     const row0 = response.buttonRows.get(0)?.[0];
     expect(row0).toBeDefined();
-    const selectMenu = row0!.components[0] as any;
+    const selectMenu = asStringSelect(row0!.components[0]);
     expect(selectMenu.data.custom_id).toBe('help:category:12345');
     expect(selectMenu.options.length).toBe(HELP_CATEGORIES.length);
-    const homeOption = selectMenu.options.find((o: any) => o.data.value === 'home');
+    const homeOption = selectMenu.options.find((o) => o.data.value === 'home');
     expect(homeOption?.data.default).toBe(true);
 
     // Verify buttons row
     const row1 = response.buttonRows.get(1)?.[0];
     expect(row1).toBeDefined();
     expect(row1!.components.length).toBe(5);
-    const homeBtn = row1!.components[0] as any;
-    expect(homeBtn.data.custom_id).toBe('help:btn:home:12345');
+    const homeBtn = asButton(row1!.components[0]);
+    expect(buttonCustomId(homeBtn)).toBe('help:btn:home:12345');
     expect(homeBtn.data.disabled).toBe(true); // Home is active
   });
 
@@ -55,8 +86,8 @@ describe('HelpBuilders', () => {
       expect(response.hasEmbed()).toBe(true);
       expect(response.embed.data.description).toContain('+');
 
-      const selectMenu = response.buttonRows.get(0)?.[0]?.components[0] as any;
-      const selected = selectMenu.options.find((o: any) => o.data.value === cat);
+      const selectMenu = asStringSelect(response.buttonRows.get(0)?.[0]?.components[0]);
+      const selected = selectMenu.options.find((o) => o.data.value === cat);
       expect(selected?.data.default).toBe(true);
     }
   });

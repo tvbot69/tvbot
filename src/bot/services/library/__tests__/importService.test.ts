@@ -1,13 +1,23 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { container } from 'tsyringe';
 import { ImportService } from '@bot/services/library/importService';
 import { PlayRepository } from '@persistence/repositories/playRepository';
 import { IndexService } from '@bot/services/lastfm/indexService';
-import type { PrismaClient } from '@prisma/client';
+
+/**
+ * The Prisma surface this suite drives. The real client carries 27 members and
+ * delegate types with no `mockResolvedValue`, so `Mocked` of it would demand far
+ * more than the service reads. Naming only the two delegates keeps an upstream
+ * signature change a compile error here.
+ */
+type PrismaDouble = {
+  user: { update: Mock<(args: unknown) => Promise<unknown>> };
+  userPlay: { deleteMany: Mock<(args: unknown) => Promise<{ count: number }>> };
+};
 
 describe('ImportService', () => {
-  let mockPrisma: any;
+  let mockPrisma: PrismaDouble;
   let service: ImportService;
 
   beforeEach(() => {
@@ -19,7 +29,7 @@ describe('ImportService', () => {
         deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
-    service = new ImportService(mockPrisma as PrismaClient);
+    service = new ImportService(mockPrisma as never);
   });
 
   afterEach(() => {

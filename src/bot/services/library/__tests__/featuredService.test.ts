@@ -1,14 +1,24 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { FeaturedService } from '@bot/services/library/featuredService';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
-import type { PrismaClient } from '@prisma/client';
+
+/**
+ * The Prisma surface this suite drives. The real `PrismaClient` carries 27
+ * members and full delegate types with no `mockResolvedValue`, so `Mocked` of it
+ * would demand far more than the service reads and describe nothing true. This
+ * names exactly what production calls, so an upstream signature change is a
+ * compile error here.
+ */
+type PrismaDouble = {
+  user: { findMany: Mock<(args: unknown) => Promise<unknown[]>> };
+};
 
 describe('FeaturedService', () => {
   let service: FeaturedService;
   let mockLastfmRepo: Partial<ILastfmRepository>;
-  let mockPrisma: any;
+  let mockPrisma: PrismaDouble;
 
   beforeEach(() => {
     mockLastfmRepo = {
@@ -24,7 +34,7 @@ describe('FeaturedService', () => {
 
     service = new FeaturedService(
       mockLastfmRepo as ILastfmRepository,
-      mockPrisma as PrismaClient,
+      mockPrisma as never,
     );
   });
 

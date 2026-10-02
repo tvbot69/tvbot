@@ -1,6 +1,55 @@
 import { describe, it, expect } from 'vitest';
+import {
+  ComponentType,
+  type APIActionRowComponent,
+  type APIButtonComponentWithCustomId,
+  type APIComponentInContainer,
+  type APIComponentInMessageActionRow,
+} from 'discord.js';
 import { CrownBuilders } from '@bot/builders/crown/crownBuilders';
 import type { UserCrownDto, CrownLeaderboardEntry } from '@domain/models/crownModels';
+
+/*
+ * The positional layout of a serialised container IS what these tests assert, so
+ * each slot is read through the real discord-api-types union and checked against
+ * the expected `type` discriminant. A builder that moved a component now fails
+ * here instead of silently reading `.content` off the wrong object.
+ */
+const componentAt = <T extends APIComponentInContainer['type']>(
+  components: readonly APIComponentInContainer[],
+  index: number,
+  type: T,
+): Extract<APIComponentInContainer, { type: T }> => {
+  const component = components[index];
+  expect(component?.type).toBe(type);
+  return component as Extract<APIComponentInContainer, { type: T }>;
+};
+
+const rowComponentAt = <T extends APIComponentInMessageActionRow['type']>(
+  row: APIActionRowComponent<APIComponentInMessageActionRow>,
+  index: number,
+  type: T,
+): Extract<APIComponentInMessageActionRow, { type: T }> => {
+  const component = row.components[index];
+  expect(component?.type).toBe(type);
+  return component as Extract<APIComponentInMessageActionRow, { type: T }>;
+};
+
+/**
+ * `APIButtonComponent` is a three-way union discriminated by `style`, and only
+ * the custom-id variant carries `custom_id` - a link button carries `url`
+ * instead. `in` is that discriminant.
+ */
+const customIdButtonAt = (
+  row: APIActionRowComponent<APIComponentInMessageActionRow>,
+  index: number,
+): APIButtonComponentWithCustomId => {
+  const button = rowComponentAt(row, index, ComponentType.Button);
+  if (!('custom_id' in button)) {
+    throw new Error(`row.components[${index}] is not a custom-id button`);
+  }
+  return button;
+};
 
 describe('CrownBuilders', () => {
   it('builds crowns list response in Component V2 format with correct structure', () => {
@@ -42,20 +91,28 @@ describe('CrownBuilders', () => {
     );
 
     expect(response.isComponentsV2).toBe(true);
-    const json = response.componentsV2Container?.toJSON() as any;
+    const json = response.componentsV2Container!.toJSON();
     expect(json.type).toBe(17);
     expect(json.accent_color).toBe(0xBA0009);
     // First text component is title
-    expect(json.components[0].content).toBe('### Crowns for moha');
+    expect(componentAt(json.components, 0, ComponentType.TextDisplay).content).toBe(
+      '### Crowns for moha',
+    );
     // Third text component has lines
-    expect(json.components[2].content).toContain('1. **TV Girl** — *7,437 plays* — Claimed <t:1776592117:R>');
-    expect(json.components[2].content).toContain('2. **d4vd** — *2,322 plays* — Claimed <t:1777348065:R>');
+    const lines = componentAt(json.components, 2, ComponentType.TextDisplay).content;
+    expect(lines).toContain('1. **TV Girl** — *7,437 plays* — Claimed <t:1776592117:R>');
+    expect(lines).toContain('2. **d4vd** — *2,322 plays* — Claimed <t:1777348065:R>');
     // Footer
-    expect(json.components[4].content).toContain('Page 1/1 - 2 total crowns');
+    expect(componentAt(json.components, 4, ComponentType.TextDisplay).content).toContain(
+      'Page 1/1 - 2 total crowns',
+    );
     // Select menu
-    expect(json.components[5].components[0].custom_id).toBe('user-crownpicker');
+    const selectRow = componentAt(json.components, 5, ComponentType.ActionRow);
+    expect(rowComponentAt(selectRow, 0, ComponentType.StringSelect).custom_id).toBe(
+      'user-crownpicker',
+    );
     // Paginator row with 5 buttons
-    expect(json.components[6].components.length).toBe(5);
+    expect(componentAt(json.components, 6, ComponentType.ActionRow).components.length).toBe(5);
   });
 
   it('builds crown duel response in embed format with WhoKnows button', () => {
@@ -95,9 +152,10 @@ describe('CrownBuilders', () => {
     const rows = response.buttonRows.get(0);
     expect(rows).toBeDefined();
     expect(rows!.length).toBe(1);
-    const row = rows![0]!.toJSON() as any;
-    expect(row.components[0].custom_id).toBe('artist-whoknows:19820');
-    expect(row.components[0].label).toBe('WhoKnows');
+    const row = rows![0]!.toJSON();
+    const whoknowsButton = customIdButtonAt(row, 0);
+    expect(whoknowsButton.custom_id).toBe('artist-whoknows:19820');
+    expect(whoknowsButton.label).toBe('WhoKnows');
   });
 
   it('builds crown leaderboard response in Component V2 format with guild-members select menu', () => {
@@ -121,13 +179,20 @@ describe('CrownBuilders', () => {
     );
 
     expect(response.isComponentsV2).toBe(true);
-    const json = response.componentsV2Container?.toJSON() as any;
-    expect(json.components[0].content).toBe('### Users with most crowns in الازعروكش');
-    expect(json.components[2].content).toBe('1. **moha** - *24 crowns*');
-    expect(json.components[4].content).toContain('-# Your ranking: #1');
-    expect(json.components[4].content).toContain('24 total active crowns in this server');
+    const json = response.componentsV2Container!.toJSON();
+    expect(componentAt(json.components, 0, ComponentType.TextDisplay).content).toBe(
+      '### Users with most crowns in الازعروكش',
+    );
+    expect(componentAt(json.components, 2, ComponentType.TextDisplay).content).toBe(
+      '1. **moha** - *24 crowns*',
+    );
+    const ranking = componentAt(json.components, 4, ComponentType.TextDisplay).content;
+    expect(ranking).toContain('-# Your ranking: #1');
+    expect(ranking).toContain('24 total active crowns in this server');
     // Select menu
-    expect(json.components[5].components[0].custom_id).toBe('guild-members');
-    expect(json.components[5].components[0].options[1].value).toBe('Crowns');
+    const selectRow = componentAt(json.components, 5, ComponentType.ActionRow);
+    const memberSelect = rowComponentAt(selectRow, 0, ComponentType.StringSelect);
+    expect(memberSelect.custom_id).toBe('guild-members');
+    expect(memberSelect.options[1]?.value).toBe('Crowns');
   });
 });

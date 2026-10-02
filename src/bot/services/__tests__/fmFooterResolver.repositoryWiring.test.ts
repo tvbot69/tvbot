@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, type Mocked } from 'vitest';
 import { container } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { FmFooterResolver } from '@bot/services/system/fmFooterResolver';
@@ -81,7 +81,7 @@ const register = (over: Record<string, unknown> = {}) => {
   return deps;
 };
 
-const mockOf = (fn: unknown) => fn as any;
+const mockOf = <T>(fn: T): Mocked<T> => fn as Mocked<T>;
 
 const ALL = [
   FmFooterOption.Loved,
@@ -131,10 +131,10 @@ describe('FmFooterResolver - the database-backed fields come from the repository
 
     await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(...ALL), GUILD);
 
-    expect(mockOf(deps.footerRepo).getUserArtistPlaycount).toHaveBeenCalledWith(123, 'Gunna');
-    expect(mockOf(deps.footerRepo).getUserAlbumPlaycount).toHaveBeenCalledWith(123, 'A Gift & a Curse');
-    expect(mockOf(deps.footerRepo).getUserTrackPlaycount).toHaveBeenCalledWith(123, 'fukumean');
-    expect(mockOf(deps.footerRepo).countUserArtistPlaysSince)
+    expect(mockOf(deps.footerRepo as FmFooterRepository).getUserArtistPlaycount).toHaveBeenCalledWith(123, 'Gunna');
+    expect(mockOf(deps.footerRepo as FmFooterRepository).getUserAlbumPlaycount).toHaveBeenCalledWith(123, 'A Gift & a Curse');
+    expect(mockOf(deps.footerRepo as FmFooterRepository).getUserTrackPlaycount).toHaveBeenCalledWith(123, 'fukumean');
+    expect(mockOf(deps.footerRepo as FmFooterRepository).countUserArtistPlaysSince)
       .toHaveBeenCalledWith(123, 'Gunna', expect.any(Date));
   });
 
@@ -147,7 +147,7 @@ describe('FmFooterResolver - the database-backed fields come from the repository
       dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlaysThisWeek), GUILD,
     );
 
-    const since = mockOf(deps.footerRepo).countUserArtistPlaysSince.mock.calls[0]![2] as Date;
+    const since = mockOf(deps.footerRepo as FmFooterRepository).countUserArtistPlaysSince.mock.calls[0]![2] as Date;
     const daysOut = (Date.now() - since.getTime()) / 86400000;
     expect(daysOut).toBeGreaterThan(6.9);
     expect(daysOut).toBeLessThan(7.1);
@@ -160,12 +160,12 @@ describe('FmFooterResolver - the database-backed fields come from the repository
       dummyUser, dummyTrack, mask(FmFooterOption.ServerAlbumListeners, FmFooterOption.ServerTrackListeners), GUILD,
     );
 
-    expect(mockOf(deps.footerRepo).findAlbumByNameAndArtist)
+    expect(mockOf(deps.footerRepo as FmFooterRepository).findAlbumByNameAndArtist)
       .toHaveBeenCalledWith('A Gift & a Curse', 'Gunna');
-    expect(mockOf(deps.footerRepo).findTrackByNameAndArtist)
+    expect(mockOf(deps.footerRepo as FmFooterRepository).findTrackByNameAndArtist)
       .toHaveBeenCalledWith('fukumean', 'Gunna');
-    expect(mockOf(deps.whoKnowsRepo).getIndexedUsersForAlbum).toHaveBeenCalledWith(GUILD, 99);
-    expect(mockOf(deps.whoKnowsRepo).getIndexedUsersForTrack).toHaveBeenCalledWith(GUILD, 88);
+    expect(mockOf(deps.whoKnowsRepo as WhoKnowsRepository).getIndexedUsersForAlbum).toHaveBeenCalledWith(GUILD, 99);
+    expect(mockOf(deps.whoKnowsRepo as WhoKnowsRepository).getIndexedUsersForTrack).toHaveBeenCalledWith(GUILD, 88);
   });
 
   it('asks for nothing when no owned option is set', async () => {
@@ -188,7 +188,7 @@ describe('FmFooterResolver - the database-backed fields come from the repository
       'findAlbumByNameAndArtist',
       'findTrackByNameAndArtist',
     ]) {
-      expect(mockOf(deps.footerRepo)[method], method).not.toHaveBeenCalled();
+      expect(mockOf(deps.footerRepo as FmFooterRepository)[method as keyof FmFooterRepository], method).not.toHaveBeenCalled();
     }
   });
 

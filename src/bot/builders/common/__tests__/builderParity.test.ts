@@ -16,6 +16,9 @@ import { FmButton } from '@domain/enums/fmButton';
 import { FmEmbedType } from '@domain/enums/fmEmbedType';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import type { User } from '@domain/interfaces/ports/iuserRepository';
+import type { AlbumSearchResult } from '@bot/services/library/albumService';
+import type { MusicBrainzArtistData } from '@bot/services/media/musicBrainzService';
+import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
 import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 
 import { UserType, DataSource } from '@persistence/models/user';
@@ -164,9 +167,9 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
           { name: 'Airbag', playcount: 12, durationSeconds: 284 },
           { name: 'Paranoid Android', playcount: 25, durationSeconds: 383 },
         ],
-      };
+      } satisfies AlbumSearchResult;
 
-      const res = AlbumBuilders.buildAlbumInfoResponse(albumData as any, dummyUser, 'Tester', 0xff0055);
+      const res = AlbumBuilders.buildAlbumInfoResponse(albumData, dummyUser, 'Tester', 0xff0055);
       expect(res.componentsV2Container).toBeDefined();
     });
   });
@@ -195,7 +198,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
           location: 'Wellingborough, Northamptonshire, England',
           countryCode: 'GB',
           links: {},
-        } as any,
+        } satisfies MusicBrainzArtistData,
         'Thom Yorke is an English musician...',
         { serverPlays: 100, serverListeners: 5 },
         { globalPlays: 5000000, globalListeners: 800000 },
@@ -209,13 +212,13 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
 
   describe('WhoKnowsBuilders', () => {
     it('builds components V2 container and embed fallback with thumbnail accessory', async () => {
-      const users = [
+      const users: WhoKnowsUser[] = [
         {
           userId: 1,
           playcount: 150,
           lastFmUsername: 'RadioheadFan',
           discordName: 'RadioheadFan',
-          discordUserId: BigInt('123456789012345678'),
+          discordUserId: '123456789012345678',
           sameServer: true,
           hasCrown: true,
         },
@@ -224,7 +227,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
           playcount: 100,
           lastFmUsername: 'User2',
           discordName: 'User Two',
-          discordUserId: BigInt('222222222222222222'),
+          discordUserId: '222222222222222222',
           sameServer: true,
         },
       ];
@@ -234,7 +237,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'Radiohead',
         'https://last.fm/music/Radiohead',
         'https://images.last.fm/radiohead.jpg',
-        users as any,
+        users,
         undefined,
         undefined,
         ['alternative rock', 'art rock'],
@@ -246,7 +249,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
     });
 
     it('builds standard Discord Rich Embed with exact fmbot unicode spacing in Default Mode', async () => {
-      const users = [
+      const users: WhoKnowsUser[] = [
         {
           userId: 123456789012345678,
           playcount: 263,
@@ -270,7 +273,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'Gunna in الازعروكش',
         'https://www.last.fm/music/Gunna',
         'https://i.scdn.co/image/ab6761610000e5eba998bc86f87b9fe7e2466110',
-        users as any,
+        users,
         undefined,
         undefined,
         ['melodic rap'],
@@ -296,7 +299,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
     });
 
     it('builds footer with 1 listener for Artist, Track, and Album accurately', async () => {
-      const singleArtistUser = [
+      const singleArtistUser: WhoKnowsUser[] = [
         {
           userId: 123,
           playcount: 263,
@@ -311,7 +314,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'Gunna in الازعروكش',
         'https://www.last.fm/music/Gunna',
         undefined,
-        singleArtistUser as any,
+        singleArtistUser,
         undefined,
         undefined,
         undefined,
@@ -322,7 +325,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
       );
       expect(artistRes.embed?.data.footer?.text).toBe('Artist - 1 listener - 263 plays');
 
-      const singleTrackUser = [
+      const singleTrackUser: WhoKnowsUser[] = [
         {
           userId: 123,
           playcount: 3,
@@ -337,7 +340,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'fukumean by Gunna in الازعروكش',
         'https://www.last.fm/music/Gunna/_/fukumean',
         undefined,
-        singleTrackUser as any,
+        singleTrackUser,
         undefined,
         undefined,
         undefined,
@@ -353,7 +356,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'A Gift & a Curse by Gunna in الازعروكش',
         'https://www.last.fm/music/Gunna/A+Gift+&+a+Curse',
         undefined,
-        singleArtistUser as any,
+        singleArtistUser,
         undefined,
         undefined,
         undefined,
@@ -366,7 +369,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
     });
 
     it('builds image file attachment in Image Mode', async () => {
-      const users = [
+      const users: WhoKnowsUser[] = [
         {
           userId: 1,
           playcount: 150,
@@ -382,7 +385,7 @@ describe('Phase 2 Builders Parity & Zero Duplication', () => {
         'Radiohead',
         'https://last.fm/music/Radiohead',
         undefined,
-        users as any,
+        users,
         undefined,
         undefined,
         ['rock'],

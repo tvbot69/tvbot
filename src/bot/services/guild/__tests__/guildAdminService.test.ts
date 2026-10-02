@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { GuildAdminService } from '@bot/services/guild/guildAdminService';
 import type { IGuildUserRepository, FullGuildUserDetails } from '@domain/interfaces/ports/iguildUserRepository';
 import type { IUserRepository, User } from '@domain/interfaces/ports/iuserRepository';
@@ -8,12 +8,23 @@ import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableE
 import { Logger } from '@domain/logging/logger';
 import type { PrismaClient } from '@prisma/client';
 
+/**
+ * The Prisma seam this suite drives. Mocked<PrismaClient> cannot describe it:
+ * Prisma delegates are not plain i.fn() objects, so the real delegate type
+ * carries no mockResolvedValue and is missing 13 other members the suite
+ * never stubs. Naming only what is used is the honest shape of the double.
+ */
+interface PrismaDouble {
+  user: { findMany: Mock<(args: unknown) => Promise<unknown[]>> };
+  userCrown: { groupBy: Mock<(args: unknown) => Promise<unknown[]>> };
+}
+
 describe('GuildAdminService', () => {
   let service: GuildAdminService;
   let mockGuildUserRepo: Partial<IGuildUserRepository>;
   let mockUserRepo: Partial<IUserRepository>;
   let mockGuildService: Partial<GuildService>;
-  let mockPrisma: any;
+  let mockPrisma: PrismaDouble;
 
   beforeEach(() => {
     mockGuildUserRepo = {
@@ -46,7 +57,7 @@ describe('GuildAdminService', () => {
       mockGuildUserRepo as IGuildUserRepository,
       mockUserRepo as IUserRepository,
       mockGuildService as GuildService,
-      mockPrisma as PrismaClient,
+      mockPrisma as unknown as PrismaClient,
     );
   });
 

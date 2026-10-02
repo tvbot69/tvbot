@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach, type Mocked } from 'vitest';
 import { container } from 'tsyringe';
 import { AlbumService } from '@bot/services/library/albumService';
 import { ColorService } from '@bot/services/system/colorService';
@@ -48,7 +48,7 @@ import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 const user = { userId: 1, userNameLastFm: 'DreadRock', sessionKey: 'SK', totalPlayCount: 100 } as User;
 
-const build = (over: Record<string, unknown> = {}, opts: { noColor?: boolean } = {}) => {
+const build = (over = {}, opts: { noColor?: boolean } = {}) => {
   const albumInfo = {
     name: 'OK Computer',
     artistName: 'Radiohead',
@@ -59,37 +59,75 @@ const build = (over: Record<string, unknown> = {}, opts: { noColor?: boolean } =
     summary: 'A record.',
     tracks: [{ name: 'Airbag', durationSeconds: 284, url: 'u', rank: 1 }],
   };
-  const deps: Record<string, unknown> = {
+  /**
+   * Minimal row fixtures, typed by the fields these assertions READ. The real
+   * Album carries 14 required members (mbid, imageUrl, createdAt, six
+   * spotify/deezer image fields, …) that no test here sets and no branch under
+   * test depends on, so typing the double as the whole row would assert a shape
+   * the suite never provides.
+   */
+  type AlbumRow = { albumId?: number; name: string; artistId?: number; releaseDate?: string | null };
+  /** An albumInfo fixture that omits fields the cascade tolerates. */
+  type AlbumInfoLike = {
+    name: string;
+    artistName: string;
+    userPlayCount?: number;
+    tracks: { name: string; durationSeconds?: number; url?: string; rank?: number }[];
+    imageUrl?: string;
+    listeners?: number;
+    playCount?: number;
+    summary?: string;
+  };
+  type ArtistRow = { artistId: number; name: string };
+  /**
+   * The raw rows the search queries are stubbed with. Three different queries
+   * select three different column sets, so a union kept getting outgrown; one
+   * permissive row with the members any of them may carry is the honest shape of
+   * a mockResolvedValue for a raw query.
+   */
+  type PlayRow = { userId?: number; artistName?: string; albumName?: string; trackName?: string };
+  type RawRow = {
+    album_name?: string;
+    artist_name?: string;
+    track_name?: string;
+    playcount?: bigint;
+    release_date?: Date | string | null;
+    album_type?: string;
+  };
+
+  const deps = {
     lastfmRepository: {
       getUserRecentTracksWithMetadata: vi.fn(async () => ({ tracks: [], totalPages: 0, totalScrobbles: 0 })),
-      getTopAlbums: vi.fn(async () => []),
-      searchAlbums: vi.fn(async () => []),
-      getAlbumInfo: vi.fn(async () => albumInfo),
-      getArtistInfo: vi.fn(async () => null),
+      getTopAlbums: vi.fn<() => Promise<{ name: string; artistName: string; imageUrl: string }[]>>(async () => []),
+      searchAlbums: vi.fn<() => Promise<{ name: string; artistName: string; playcount: number }[]>>(async () => []),
+      getAlbumInfo: vi.fn<(a: string, b: string) => Promise<AlbumInfoLike | null>>(async () => albumInfo),
+      getArtistInfo: vi.fn<() => Promise<{ name: string; artistName: string; imageUrl: string; listeners: number; playCount: number; userPlayCount: number; summary: string; tracks: { name: string; durationSeconds: number; url: string; rank: number }[] } | null>>(async () => null),
     },
-    artistRepository: { getOrCreateArtist: vi.fn(async (n: string) => ({ artistId: 1, name: n })) },
+    artistRepository: { getOrCreateArtist: vi.fn<(n: string) => Promise<ArtistRow>>(async (n: string) => ({ artistId: 1, name: n })) },
     albumRepository: {
-      getOrCreateAlbum: vi.fn(async (n: string) => ({ albumId: 1, name: n, releaseDate: null })),
+      getOrCreateAlbum: vi.fn<(n: string) => Promise<AlbumRow>>(async (n: string) => ({ albumId: 1, name: n, releaseDate: null })),
       setReleaseData: vi.fn(async () => undefined),
-      getAlbumById: vi.fn(async () => null),
+      getAlbumById: vi.fn<(id: number) => Promise<AlbumRow | null>>(async () => null),
     },
     userRepository: {},
-    guildUserRepository: { getUserIdsForGuild: vi.fn(async () => []) },
+    guildUserRepository: {
+      getUserIdsForGuild: vi.fn<(guildId: string) => Promise<number[]>>(async () => []),
+    },
     artworkService: { getAlbumCoverUrl: vi.fn(async () => 'https://img/final.png') },
     spotifyApi: {
-      searchAndGetFullAlbum: vi.fn(async () => null),
+      searchAndGetFullAlbum: vi.fn<(a: string, b: string) => Promise<unknown>>(async () => null),
       getAlbumTrackNames: vi.fn(async () => []),
     },
     prisma: {
-      artist: { findUnique: vi.fn(async () => null) },
-      user: { findFirst: vi.fn(async () => null) },
-      album: { findMany: vi.fn(async () => []) },
+      artist: { findUnique: vi.fn<(args: unknown) => Promise<ArtistRow | null>>(async () => null) },
+      user: { findFirst: vi.fn<(args: unknown) => Promise<{ userId: number; artistName?: string } | null>>(async () => null) },
+      album: { findMany: vi.fn<(args: unknown) => Promise<{ name: string; artist: { name: string } }[]>>(async () => []) },
       userPlay: {
-        groupBy: vi.fn(async () => []),
-        count: vi.fn(async () => 0),
-        findMany: vi.fn(async () => []),
+        groupBy: vi.fn<(args: unknown) => Promise<{ trackName: string; _count: { trackName: number } }[]>>(async () => []),
+        count: vi.fn<(args: unknown) => Promise<number>>(async () => 0),
+        findMany: vi.fn<(args: unknown) => Promise<PlayRow[]>>(async () => []),
       },
-      $queryRawUnsafe: vi.fn(async () => []),
+      $queryRawUnsafe: vi.fn<(sql: string) => Promise<RawRow[]>>(async () => []),
     },
     cache: { get: vi.fn(async () => null), set: vi.fn(async () => undefined) },
     colorService: { getColorFromImageUrl: vi.fn(async () => 0x123456) },
@@ -112,7 +150,7 @@ const build = (over: Record<string, unknown> = {}, opts: { noColor?: boolean } =
 
 // One `as any` at the boundary, so 48 call sites can reach .count/.groupBy/
 // .$queryRawUnsafe without each spelling out its mock shape. Warn-only rule.
-const mockOf = (fn: unknown) => fn as any;
+const mockOf = <T>(fn: T): Mocked<T> => fn as Mocked<T>;
 
 // `vi.spyOn(Logger, 'error')` is used in the failure tests below, and a spy left
 // in place is the exact bug class this repo has been bitten by before:

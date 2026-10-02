@@ -1,12 +1,36 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { LyricStatusService } from '@bot/services/music/lyricStatusService';
 import { ActivityType } from 'discord.js';
 
+
+/**
+ * The collaborator surface this suite drives.
+ *
+ * The real `Client` and `LyricsService` carry hundreds of members the service
+ * never touches, so `Mocked` of either would demand all of them and describe
+ * nothing true. These name exactly what production reads, which keeps an
+ * upstream signature change a compile error here.
+ */
+type PresenceArg = { status: string; activities: { type: unknown; name: string }[] };
+type ClientDouble = {
+  user: { setPresence: Mock<(presence: PresenceArg) => void> };
+};
+type LyricsDouble = {
+  setStatus?: Mock<(args: unknown) => Promise<unknown>>;
+  clearStatus?: Mock<(args: unknown) => Promise<unknown>>;
+  getLyrics: Mock<(args: unknown) => Promise<unknown>>;
+};
+type PrismaDouble = {
+  guildMusicSettings?: { upsert: Mock<(args: unknown) => Promise<unknown>> };
+  userPlay: { findMany: Mock<(args: unknown) => Promise<unknown[]>> };
+  userTrack: { findMany: Mock<(args: unknown) => Promise<unknown[]>> };
+};
+
 describe('LyricStatusService', () => {
-  let mockClient: any;
-  let mockLyricsService: any;
-  let mockPrisma: any;
+  let mockClient: ClientDouble;
+  let mockLyricsService: LyricsDouble;
+  let mockPrisma: PrismaDouble;
   let service: LyricStatusService;
 
   beforeEach(() => {
@@ -29,13 +53,13 @@ describe('LyricStatusService', () => {
       },
     };
 
-    service = new LyricStatusService(mockClient, mockLyricsService, mockPrisma);
+    service = new LyricStatusService(mockClient as never, mockLyricsService as never, mockPrisma as never);
   });
 
   describe('extractPunchyLyricLine', () => {
     it('returns null for empty or invalid lyrics', () => {
       expect(LyricStatusService.extractPunchyLyricLine('')).toBeNull();
-      expect(LyricStatusService.extractPunchyLyricLine(null as any)).toBeNull();
+      expect(LyricStatusService.extractPunchyLyricLine(null as unknown as string)).toBeNull();
     });
 
     it('filters out bracketed headers, genius tags, and very short/long lines', () => {
@@ -138,10 +162,10 @@ So let's raise the bar and our cups to the stars
       const success = await service.updateLyricStatusAsync();
       expect(success).toBe(true);
       expect(mockClient.user.setPresence).toHaveBeenCalledTimes(1);
-      const callArg = mockClient.user.setPresence.mock.calls[0][0];
+      const callArg = mockClient.user.setPresence.mock.calls[0]![0];
       expect(callArg.status).toBe('online');
-      expect(callArg.activities[0].type).toBe(ActivityType.Listening);
-      expect(callArg.activities[0].name).toContain('Daft Punk');
+      expect(callArg.activities[0]!.type).toBe(ActivityType.Listening);
+      expect(callArg.activities[0]!.name).toContain('Daft Punk');
     });
 
     it('tries next candidate if first candidate is instrumental or has no lyrics', async () => {

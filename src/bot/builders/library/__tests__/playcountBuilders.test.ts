@@ -1,7 +1,21 @@
 import 'reflect-metadata';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PlaycountBuilders } from '@bot/builders/library/playcountBuilders';
 import { SettingService } from '@bot/services/system/settingService';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+
+/**
+ * Unconstructed instance of a real service class: the real prototype, no
+ * constructor run.
+ *
+ * `ITextCommandModule` implementations build their `commands` array out of
+ * literals in the constructor body, so these two tests read command metadata
+ * and never call a service method - there is nothing for a double to fake. The
+ * constructor type is enforced at the call site, so passing the wrong class or
+ * the wrong number of arguments is a compile error rather than a passing test.
+ */
+const unbuilt = <T extends object>(constructor: new (...args: never[]) => T): T =>
+  Object.create(constructor.prototype) as T;
 
 describe('PlaycountBuilders and SettingService', () => {
   describe('SettingService.getGoalAmount', () => {
@@ -177,22 +191,76 @@ describe('PlaycountBuilders and SettingService', () => {
   });
 
   describe('Text Command alias definitions', () => {
+    /**
+     * One `vi.fn` per repository member, each keeping the real signature, so a
+     * new or renamed method is a compile error here rather than a silently
+     * absent stub. Nothing calls it - `PlaycountCommands` only stores the
+     * reference - but the shape is the contract under test.
+     */
+    const lastfmRepository: ILastfmRepository = {
+      getAuthToken: vi.fn<ILastfmRepository['getAuthToken']>(),
+      getAuthSession: vi.fn<ILastfmRepository['getAuthSession']>(),
+      getUserInfo: vi.fn<ILastfmRepository['getUserInfo']>(),
+      getUserRecentTracks: vi.fn<ILastfmRepository['getUserRecentTracks']>(),
+      getUserRecentTracksWithMetadata: vi.fn<ILastfmRepository['getUserRecentTracksWithMetadata']>(),
+      getTopArtists: vi.fn<ILastfmRepository['getTopArtists']>(),
+      getTopAlbums: vi.fn<ILastfmRepository['getTopAlbums']>(),
+      getTopTracks: vi.fn<ILastfmRepository['getTopTracks']>(),
+      getArtistInfo: vi.fn<ILastfmRepository['getArtistInfo']>(),
+      getAlbumInfo: vi.fn<ILastfmRepository['getAlbumInfo']>(),
+      getTrackInfo: vi.fn<ILastfmRepository['getTrackInfo']>(),
+      searchArtists: vi.fn<ILastfmRepository['searchArtists']>(),
+      searchAlbums: vi.fn<ILastfmRepository['searchAlbums']>(),
+      searchTracks: vi.fn<ILastfmRepository['searchTracks']>(),
+      getUserFriends: vi.fn<ILastfmRepository['getUserFriends']>(),
+      getScrobbleCountFromDate: vi.fn<ILastfmRepository['getScrobbleCountFromDate']>(),
+      getMilestoneScrobble: vi.fn<ILastfmRepository['getMilestoneScrobble']>(),
+      loveTrack: vi.fn<ILastfmRepository['loveTrack']>(),
+      unloveTrack: vi.fn<ILastfmRepository['unloveTrack']>(),
+      getLovedTracks: vi.fn<ILastfmRepository['getLovedTracks']>(),
+      scrobbleTrack: vi.fn<ILastfmRepository['scrobbleTrack']>(),
+    };
+
+    /** The real `PlaycountCommands` class plus the real service classes it takes. */
+    const loadPlaycountCommands = async () => {
+      const [commands, user, playHistory, artists, album, track, artwork, color] =
+        await Promise.all([
+          import('@bot/textCommands/lastfm/playcountCommands'),
+          import('@bot/services/user/userService'),
+          import('@bot/services/library/playHistoryService'),
+          import('@bot/services/library/artistsService'),
+          import('@bot/services/library/albumService'),
+          import('@bot/services/library/trackService'),
+          import('@bot/services/media/artworkService'),
+          import('@bot/services/system/colorService'),
+        ]);
+
+      return {
+        build: () =>
+          new commands.PlaycountCommands(
+            unbuilt(user.UserService),
+            unbuilt(SettingService),
+            unbuilt(playHistory.PlayHistoryService),
+            unbuilt(artists.ArtistsService),
+            unbuilt(album.AlbumService),
+            unbuilt(track.TrackService),
+            unbuilt(artwork.ArtworkService),
+            lastfmRepository,
+            unbuilt(color.ColorService),
+          ),
+        colorService: color.ColorService,
+      };
+    };
+
     it('ensures ap is exclusive to artistplays and not autoplay', async () => {
-      const { PlaycountCommands } = await import('@bot/textCommands/lastfm/playcountCommands');
       const { MusicCommands } = await import('@bot/textCommands/music/musicCommands');
+      const [{ MusicService }, deps] = await Promise.all([
+        import('@bot/services/music/musicService'),
+        loadPlaycountCommands(),
+      ]);
 
       // Check playcount commands define ap and m
-      const pc = new PlaycountCommands(
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-      );
+      const pc = deps.build();
       const apDef = pc.commands.find((c) => c.name === 'artistplays');
       expect(apDef?.aliases).toContain('ap');
 
@@ -201,12 +269,12 @@ describe('PlaycountBuilders and SettingService', () => {
       expect(mDef?.aliases).toContain('ms');
 
       // Check music commands no longer hijack ap
-      const mc = new MusicCommands({} as any, {} as any);
+      const mc = new MusicCommands(unbuilt(MusicService), unbuilt(deps.colorService));
       const autoDef = mc.commands.find((c) => c.name === 'autoplay');
       expect(autoDef?.aliases).not.toContain('ap');
       expect(autoDef?.aliases).toContain('auto');
 
-      // The three `import()` calls above pull in whole command modules (services,
+      // The `import()` calls above pull in whole command modules (services,
       // repositories, Prisma). That cold-load is fast alone and over the default
       // 5s budget once the full suite saturates its workers, which made this
       // file fail intermittently based on how many OTHER files were running -
@@ -215,18 +283,8 @@ describe('PlaycountBuilders and SettingService', () => {
     }, 30_000);
 
     it('verifies Phase 4 command aliases are defined in PlaycountCommands', async () => {
-      const { PlaycountCommands } = await import('@bot/textCommands/lastfm/playcountCommands');
-      const pc = new PlaycountCommands(
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-        {} as any,
-      );
+      const { build } = await loadPlaycountCommands();
+      const pc = build();
 
       const receiptDef = pc.commands.find((c) => c.name === 'receipt');
       expect(receiptDef?.aliases).toContain('rcpt');

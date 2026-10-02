@@ -1,12 +1,41 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { ExposedService, ROAST_QUOTES } from '@bot/services/social/exposedService';
 import type { User } from '@domain/interfaces/ports/iuserRepository';
 
+/**
+ * The collaborator surface this suite drives.
+ *
+ * Each real collaborator carries dozens of members the service never calls, so
+ * `Mocked<GenreService>` and friends would demand all of them and describe
+ * nothing true. These declare exactly what production reads: a rename or a
+ * signature change upstream becomes a compile error here, rather than a double
+ * that silently stops modelling the call.
+ */
+type GenreServiceDouble = {
+  getTopGenresForTopArtists: Mock<() => Promise<unknown>>;
+  getGenresForArtist: Mock<(artist: string) => Promise<unknown>>;
+};
+type PlayRepoDouble = {
+  getTopArtists: Mock<() => Promise<unknown>>;
+};
+type PrismaDouble = {
+  user?: { update: Mock<(args: unknown) => Promise<unknown>> };
+  userArtist: {
+    groupBy?: Mock<(args: unknown) => Promise<unknown[]>>;
+    findMany: Mock<(args: unknown) => Promise<unknown[]>>;
+  };
+  userPlay: {
+    count: Mock<(args: unknown) => Promise<number>>;
+    findMany: Mock<(args: unknown) => Promise<unknown[]>>;
+  };
+  $queryRaw?: Mock<() => Promise<unknown>>;
+};
+
 describe('ExposedService', () => {
-  let mockGenreService: any;
-  let mockPlayRepo: any;
-  let mockPrisma: any;
+  let mockGenreService: GenreServiceDouble;
+  let mockPlayRepo: PlayRepoDouble;
+  let mockPrisma: PrismaDouble;
   let service: ExposedService;
 
   const dummyUser: User = {
@@ -35,7 +64,11 @@ describe('ExposedService', () => {
       },
     };
 
-    service = new ExposedService(mockGenreService, mockPlayRepo, mockPrisma);
+    service = new ExposedService(
+      mockGenreService as never,
+      mockPlayRepo as never,
+      mockPrisma as never,
+    );
   });
 
   describe('generateReport', () => {

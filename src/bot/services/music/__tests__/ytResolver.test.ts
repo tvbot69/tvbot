@@ -102,7 +102,7 @@ describe('chapter cascade (data first, rug fallback)', () => {
   });
 
   it('returns description chapters without probing the home resolver', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       expect(String(input)).toContain('googleapis.com');
       return {
         ok: true,
@@ -118,7 +118,7 @@ describe('chapter cascade (data first, rug fallback)', () => {
   });
 
   it('falls back to the home resolver when the description has no timestamps', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('googleapis.com')) {
         return {
@@ -146,7 +146,7 @@ describe('chapter cascade (data first, rug fallback)', () => {
   });
 
   it('caches the cascade result so the rug probe does not repeat', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('googleapis.com')) {
         return {
@@ -205,7 +205,7 @@ describe('resolver breakage alerts', () => {
     posts = [];
     route = async (id: string) =>
       ({ ok: true, status: 200, json: async () => ({ path: `C:\\c\\${id}.webm`, cached: true }) }) as Response;
-    vi.spyOn(globalThis, 'fetch').mockImplementation((async (input: any, init: any) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       if (String(input) === WEBHOOK) {
         try {
           posts.push(JSON.parse(String(init?.body))?.content ?? '');
@@ -216,7 +216,7 @@ describe('resolver breakage alerts', () => {
       }
       const id = new URL(String(input)).searchParams.get('id') ?? '';
       return route(id);
-    }) as any);
+    });
     mod = await import('@bot/services/music/ytResolver');
   });
 

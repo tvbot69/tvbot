@@ -2,6 +2,8 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { TopBuilders } from '@bot/builders/library/topBuilders';
 import { ResponseMode } from '@domain/enums/responseMode';
+import { TimePeriod } from '@domain/enums/timePeriod';
+import { TimeSettingsModel } from '@domain/models/timeSettings';
 import type { TopBuildersDeps } from '@bot/builders/library/topBuildersDeps';
 
 /** Nothing registered: the shape of a partially built container. */
@@ -36,11 +38,14 @@ describe('TopBuilders', () => {
     { name: 'Karma Police', artistName: 'Radiohead', playcount: 100, imageUrl: 'https://img.spotify.com/kp.jpg' },
   ];
 
-  const timeSettings = {
-    timePeriod: 'weekly',
-    description: 'Weekly',
-    urlParameter: 'LAST_7_DAYS',
-  } as any;
+  /**
+ * The builders take a real `TimeSettingsModel`, which carries the `days`
+ * getter - a bare object literal cannot satisfy it.
+ */
+const timeSettings = new TimeSettingsModel('weekly');
+timeSettings.timePeriod = TimePeriod.Weekly;
+timeSettings.description = 'Weekly';
+timeSettings.urlParameter = 'LAST_7_DAYS';
 
   it('builds standard embed when mode is Embed', async () => {
     const res = await TopBuilders.buildTopArtistsResponse(
@@ -80,7 +85,7 @@ describe('TopBuilders', () => {
     expect(res.hasFile()).toBe(true);
     const files = res.getFiles();
     expect(files.length).toBe(1);
-    expect((files[0] as any).name).toBe('topartists.png');
+    expect(files[0]?.name).toBe('topartists.png');
   });
 
   it('generates image card for top albums in Image mode', async () => {
@@ -103,7 +108,7 @@ describe('TopBuilders', () => {
     expect(mockGenerator.generateWhoKnowsImage).toHaveBeenCalled();
     expect(res.hasFile()).toBe(true);
     const files = res.getFiles();
-    expect((files[0] as any).name).toBe('topalbums.png');
+    expect(files[0]?.name).toBe('topalbums.png');
   });
 
   it('generates image card for top tracks in Image mode', async () => {
@@ -126,6 +131,6 @@ describe('TopBuilders', () => {
     expect(mockGenerator.generateWhoKnowsImage).toHaveBeenCalled();
     expect(res.hasFile()).toBe(true);
     const files = res.getFiles();
-    expect((files[0] as any).name).toBe('toptracks.png');
+    expect(files[0]?.name).toBe('toptracks.png');
   });
 });

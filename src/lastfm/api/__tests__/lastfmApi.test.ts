@@ -16,17 +16,11 @@ describe('LastfmApi', () => {
   it('successfully calls Last.fm and returns parsed JSON', async () => {
     const mockData = { user: { name: 'alice', playcount: '100' } };
 
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
-      return {
-        ok: true,
-        status: 200,
-        // `lastfmApi` reads the body with `response.text()`, not
-        // `response.json()`, so that the body is available even when the status
-        // is not ok. A double offering only `json` cannot express that.
-        json: async () => mockData,
-        text: async () => JSON.stringify(mockData),
-      } as any;
-    });
+    // A real `Response`, not a hand-written stand-in: `lastfmApi` reads the body
+    // with `response.text()`, not `response.json()`, so that the body stays
+    // available when the status is not ok. A double offering only `json` cannot
+    // express that, and a cast would not constrain it either.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(mockData), { status: 200 }));
 
     const api = new LastfmApi(new LastfmErrorRateTracker());
     const result = await api.call<{ user: { name: string; playcount: string } }>('user.getInfo', {
@@ -43,19 +37,9 @@ describe('LastfmApi', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       callCount++;
       if (callCount === 1) {
-        return {
-          ok: false,
-          status: 503,
-          json: async () => ({}),
-          text: async () => '{}',
-        } as any;
+        return new Response('{}', { status: 503 });
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => mockData,
-        text: async () => JSON.stringify(mockData),
-      } as any;
+      return new Response(JSON.stringify(mockData), { status: 200 });
     });
 
     const api = new LastfmApi(new LastfmErrorRateTracker());

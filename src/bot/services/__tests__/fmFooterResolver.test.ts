@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach , type Mock } from 'vitest';
 import { container } from 'tsyringe';
 import { PrismaClient } from '@prisma/client';
 import { FmFooterResolver } from '@bot/services/system/fmFooterResolver';
@@ -85,6 +85,79 @@ const mask = (...flags: FmFooterOption[]): bigint =>
   flags.reduce<bigint>((acc, f) => acc | BigInt(f), BigInt(0));
 
 /**
+ * The Prisma seam these tests drive.
+ *
+ * `Mocked<PrismaClient>` cannot describe this double: Prisma's delegates are
+ * not plain `vi.fn()` objects, so the real delegate type carries no
+ * `mockResolvedValue` and the assertion helpers would not typecheck. This
+ * declares only the three members the suite actually stubs, which is the honest
+ * shape of the double rather than a claim about all of Prisma.
+ */
+/**
+ * The track double these tests use, deliberately PARTIAL. TrackInfo requires
+ * 
+ame and rtistName, but this branch's assertion depends on their
+ * ABSENCE - the service omits 	rackPlays when it cannot key the row - so
+ * adding them to satisfy the type would change what the test proves. Named here
+ * rather than widened to the full DTO.
+ */
+type PartialTrackInfo = { userPlayCount?: number; userLoved?: boolean; name?: string; artistName?: string };
+/**
+ * The artist and album doubles are partial for the same reason: these assertions
+ * pin WHICH field is reported when the other is lost, so the row only needs
+ * the field under test. ArtistInfo/AlbumInfo require 
+ame/rtistName as
+ * well - adding those would be inventing data the test never had.
+ */
+type PartialArtistInfo = { name?: string; artistName?: string; userPlayCount?: number };
+type PartialAlbumInfo = { name?: string; artistName?: string; userPlayCount?: number };
+type PartialArtistService = { getArtistInfo: Mock<() => Promise<PartialArtistInfo | null>> };
+type PartialAlbumService = { getAlbumInfo: Mock<() => Promise<PartialAlbumInfo | null>> };
+type PartialWhoKnowsRepository = {
+  getIndexedUsersForArtist: Mock<(guildId: string, artistName: string) => Promise<{ userId: number; playcount: number }[]>>;
+  getIndexedUsersForAlbum: Mock<(guildId: string, albumId: number) => Promise<{ userId: number; playcount: number }[]>>;
+  getIndexedUsersForTrack: Mock<(guildId: string, trackId: string) => Promise<{ userId: number; playcount: number }[]>>;
+};
+type PartialCrownRepository = {
+  getCurrentCrown: Mock<(guildId: string, artistName: string) => Promise<{ userNameLastFm: string } | null>>;
+};
+type PartialTrackService = {
+  getTrackInfo: Mock<() => Promise<PartialTrackInfo | null>>;
+};
+
+interface PrismaDouble {
+  userArtist: {
+    aggregate: Mock<
+      (args: { where?: { userId: number; artistName: string } }) => Promise<{ _sum: { playcount: number | null } }>
+    >;
+  };
+  userAlbum: {
+    aggregate: Mock<
+      (args: { where?: { userId: number; albumName: string } }) => Promise<{ _sum: { playcount: number | null } }>
+    >;
+  };
+  userTrack: {
+    aggregate: Mock<
+      (args: { where?: { userId: number; trackName: string } }) => Promise<{ _sum: { playcount: number | null } }>
+    >;
+  };
+  userPlay: {
+    count: Mock<
+      (args: {
+        where: {
+          userId: number;
+          artistName?: { equals: string; mode: 'insensitive' };
+          trackName?: { equals: string; mode: 'insensitive' };
+          timePlayed: { gte: Date };
+        };
+      }) => Promise<number>
+    >;
+  };
+  album: { findFirst: Mock<(args: { where?: unknown }) => Promise<unknown>> };
+  track: { findFirst: Mock<(args: { where?: unknown }) => Promise<unknown>> };
+}
+
+/**
  * Registers a full set of collaborators, all returning "there is data", so a
  * test can vary only the mask. Individual tests then retarget one double.
  */
@@ -121,7 +194,7 @@ const registerAll = (over: Record<string, unknown> = {}) => {
 
 // One `as any` at the boundary so a test can retarget a single double without
 // rebuilding the world. Warn-only rule.
-const mockOf = (fn: unknown) => fn as any;
+const mockOf = <T>(fn: T): T => fn;
 
 // A promise a test resolves by hand, used to prove the resolver waits for slow
 // tasks instead of reading whatever has already settled.
@@ -199,10 +272,10 @@ describe('FmFooterResolver', () => {
       ]),
     };
 
-    container.registerInstance(ArtistsService, mockArtistsService as any);
-    container.registerInstance(TrackService, mockTrackService as any);
-    container.registerInstance(AlbumService, mockAlbumService as any);
-    container.registerInstance(WhoKnowsRepository, mockWhoKnowsRepo as any);
+    container.registerInstance(ArtistsService, mockArtistsService as never);
+    container.registerInstance(TrackService, mockTrackService as never);
+    container.registerInstance(AlbumService, mockAlbumService as never);
+    container.registerInstance(WhoKnowsRepository, mockWhoKnowsRepo as never);
 
     const flags =
       BigInt(FmFooterOption.ArtistPlays) |
@@ -386,17 +459,17 @@ describe('FmFooterResolver - artist plays', () => {
 
     await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
-    expect(mockOf(deps.artistsService).getArtistInfo).toHaveBeenCalledWith('Gunna', 'Moha504');
+    expect(mockOf(deps.artistsService as PartialArtistService).getArtistInfo).toHaveBeenCalledWith('Gunna', 'Moha504');
   });
 
   it('falls back to the database aggregate when the service knows no count', async () => {
     const deps = registerAll();
-    mockOf(deps.artistsService).getArtistInfo.mockResolvedValue({ name: 'Gunna' });
+    mockOf(deps.artistsService as PartialArtistService).getArtistInfo.mockResolvedValue({ name: 'Gunna' });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
     expect(data.artistPlays).toBe(11);
-    expect(mockOf(deps.prisma).userArtist.aggregate).toHaveBeenCalledWith({
+    expect(mockOf(deps.prisma as PrismaDouble).userArtist.aggregate).toHaveBeenCalledWith({
       _sum: { playcount: true },
       where: { userId: 123, name: { equals: 'Gunna', mode: 'insensitive' } },
     });
@@ -406,8 +479,8 @@ describe('FmFooterResolver - artist plays', () => {
     // A zero is not a count. Writing artistPlays: 0 would render "0 plays"
     // where the truth is "we have no record of you listening".
     const deps = registerAll();
-    mockOf(deps.artistsService).getArtistInfo.mockResolvedValue(null);
-    mockOf(deps.prisma).userArtist.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+    mockOf(deps.artistsService as PartialArtistService).getArtistInfo.mockResolvedValue(null);
+    mockOf(deps.prisma as PrismaDouble).userArtist.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
@@ -416,8 +489,8 @@ describe('FmFooterResolver - artist plays', () => {
 
   it('omits the count when the aggregate sum is null', async () => {
     const deps = registerAll();
-    mockOf(deps.artistsService).getArtistInfo.mockResolvedValue(null);
-    mockOf(deps.prisma).userArtist.aggregate.mockResolvedValue({ _sum: { playcount: null } });
+    mockOf(deps.artistsService as PartialArtistService).getArtistInfo.mockResolvedValue(null);
+    mockOf(deps.prisma as PrismaDouble).userArtist.aggregate.mockResolvedValue({ _sum: { playcount: null } });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
@@ -428,7 +501,7 @@ describe('FmFooterResolver - artist plays', () => {
     // Asymmetric on purpose: an explicit 0 from the service is a real answer,
     // an absent aggregate row is an unknown.
     const deps = registerAll();
-    mockOf(deps.artistsService).getArtistInfo.mockResolvedValue({ userPlayCount: 0 });
+    mockOf(deps.artistsService as PartialArtistService).getArtistInfo.mockResolvedValue({ userPlayCount: 0 });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
@@ -444,7 +517,7 @@ describe('FmFooterResolver - artist plays', () => {
     // test below), but the failure is now REPORTED.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.artistsService).getArtistInfo.mockRejectedValue(new Error('lastfm down'));
+    mockOf(deps.artistsService as PartialArtistService).getArtistInfo.mockRejectedValue(new Error('lastfm down'));
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
@@ -460,8 +533,8 @@ describe('FmFooterResolver - artist plays', () => {
     // stay empty, or the fix has replaced a lie with a different lie.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.artistsService).getArtistInfo.mockResolvedValue(null);
-    mockOf(deps.prisma).userArtist.aggregate.mockRejectedValue(new Error('db down'));
+    mockOf(deps.artistsService as PartialArtistService).getArtistInfo.mockResolvedValue(null);
+    mockOf(deps.prisma as PrismaDouble).userArtist.aggregate.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays), GUILD);
 
@@ -474,7 +547,7 @@ describe('FmFooterResolver - artist plays', () => {
     // at both call sites and hand the user an apology instead of their card.
     const deps = registerAll();
     vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.crownRepo).getCurrentCrown.mockRejectedValue(new Error('db down'));
+    mockOf(deps.crownRepo as PartialCrownRepository).getCurrentCrown.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser,
@@ -501,8 +574,8 @@ describe('FmFooterResolver - album plays', () => {
     const data = await FmFooterResolver.resolveFooterData(dummyUser, track, mask(FmFooterOption.AlbumPlays), GUILD);
 
     expect(data).toEqual({});
-    expect(mockOf(deps.albumService).getAlbumInfo).not.toHaveBeenCalled();
-    expect(mockOf(deps.prisma).userAlbum.aggregate).not.toHaveBeenCalled();
+    expect(mockOf(deps.albumService as PartialAlbumService).getAlbumInfo).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma as PrismaDouble).userAlbum.aggregate).not.toHaveBeenCalled();
   });
 
   it('passes the artist as well, so an album name cannot cross-match', async () => {
@@ -510,17 +583,17 @@ describe('FmFooterResolver - album plays', () => {
 
     await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.AlbumPlays), GUILD);
 
-    expect(mockOf(deps.albumService).getAlbumInfo).toHaveBeenCalledWith('Gunna', 'A Gift & a Curse', 'Moha504');
+    expect(mockOf(deps.albumService as PartialAlbumService).getAlbumInfo).toHaveBeenCalledWith('Gunna', 'A Gift & a Curse', 'Moha504');
   });
 
   it('falls back to the database aggregate', async () => {
     const deps = registerAll();
-    mockOf(deps.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
+    mockOf(deps.albumService as PartialAlbumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.AlbumPlays), GUILD);
 
     expect(data.albumPlays).toBe(12);
-    expect(mockOf(deps.prisma).userAlbum.aggregate).toHaveBeenCalledWith({
+    expect(mockOf(deps.prisma as PrismaDouble).userAlbum.aggregate).toHaveBeenCalledWith({
       _sum: { playcount: true },
       where: { userId: 123, name: { equals: 'A Gift & a Curse', mode: 'insensitive' } },
     });
@@ -533,8 +606,8 @@ describe('FmFooterResolver - album plays', () => {
     // swallowed" - not what its title claimed. The service now declines
     // normally, so the zero genuinely comes from the query.
     const deps = registerAll();
-    mockOf(deps.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
-    mockOf(deps.prisma).userAlbum.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+    mockOf(deps.albumService as PartialAlbumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
+    mockOf(deps.prisma as PrismaDouble).userAlbum.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.AlbumPlays), GUILD);
 
@@ -547,8 +620,8 @@ describe('FmFooterResolver - album plays', () => {
     // simply lost its album-plays clause, with nothing said anywhere.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
-    mockOf(deps.prisma).userAlbum.aggregate.mockRejectedValue(new Error('db down'));
+    mockOf(deps.albumService as PartialAlbumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
+    mockOf(deps.prisma as PrismaDouble).userAlbum.aggregate.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.AlbumPlays), GUILD);
 
@@ -573,7 +646,7 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.Loved), GUILD);
 
     expect(data).toEqual({ trackPlays: 3, isLoved: true });
-    expect(mockOf(deps.prisma).userTrack.aggregate).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma as PrismaDouble).userTrack.aggregate).not.toHaveBeenCalled();
   });
 
   it('reports a playcount without a playcount fallback query', async () => {
@@ -582,7 +655,7 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.TrackPlays), GUILD);
 
     expect(data.trackPlays).toBe(3);
-    expect(mockOf(deps.prisma).userTrack.aggregate).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma as PrismaDouble).userTrack.aggregate).not.toHaveBeenCalled();
   });
 
   it('leaks the loved status into a playcount-only footer when Last.fm reports it', async () => {
@@ -601,7 +674,7 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
 
   it('omits the leaked loved status when the service does not report one', async () => {
     const deps = registerAll();
-    mockOf(deps.trackService).getTrackInfo.mockResolvedValue({ userPlayCount: 3 });
+    mockOf(deps.trackService as PartialTrackService).getTrackInfo.mockResolvedValue({ userPlayCount: 3 });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.TrackPlays), GUILD);
 
@@ -616,12 +689,12 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
     );
 
     expect(data).toEqual({ trackPlays: 3, isLoved: true });
-    expect(mockOf(deps.trackService).getTrackInfo).toHaveBeenCalledTimes(1);
+    expect(mockOf(deps.trackService as PartialTrackService).getTrackInfo).toHaveBeenCalledTimes(1);
   });
 
   it('carries an explicit false through, since un-loved is a real answer', async () => {
     const deps = registerAll();
-    mockOf(deps.trackService).getTrackInfo.mockResolvedValue({ userPlayCount: 4, userLoved: false });
+    mockOf(deps.trackService as PartialTrackService).getTrackInfo.mockResolvedValue({ userPlayCount: 4, userLoved: false });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.Loved), GUILD);
 
@@ -630,12 +703,12 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
 
   it('falls back to the aggregate when the service returns nothing at all', async () => {
     const deps = registerAll();
-    mockOf(deps.trackService).getTrackInfo.mockResolvedValue(null);
+    mockOf(deps.trackService as PartialTrackService).getTrackInfo.mockResolvedValue(null);
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.TrackPlays), GUILD);
 
     expect(data.trackPlays).toBe(13);
-    expect(mockOf(deps.prisma).userTrack.aggregate).toHaveBeenCalledWith({
+    expect(mockOf(deps.prisma as PrismaDouble).userTrack.aggregate).toHaveBeenCalledWith({
       _sum: { playcount: true },
       where: { userId: 123, name: { equals: 'fukumean', mode: 'insensitive' } },
     });
@@ -643,18 +716,18 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
 
   it('keeps a zero playcount the service reported', async () => {
     const deps = registerAll();
-    mockOf(deps.trackService).getTrackInfo.mockResolvedValue({ userPlayCount: 0, userLoved: true });
+    mockOf(deps.trackService as PartialTrackService).getTrackInfo.mockResolvedValue({ userPlayCount: 0, userLoved: true });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.TrackPlays), GUILD);
 
     expect(data.trackPlays).toBe(0);
-    expect(mockOf(deps.prisma).userTrack.aggregate).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma as PrismaDouble).userTrack.aggregate).not.toHaveBeenCalled();
   });
 
   it('omits the playcount when neither the service nor the aggregate knows one', async () => {
     const deps = registerAll();
-    mockOf(deps.trackService).getTrackInfo.mockResolvedValue(null);
-    mockOf(deps.prisma).userTrack.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+    mockOf(deps.trackService as PartialTrackService).getTrackInfo.mockResolvedValue(null);
+    mockOf(deps.prisma as PrismaDouble).userTrack.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.TrackPlays), GUILD);
 
@@ -670,8 +743,8 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
     // that silently was not there.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.trackService).getTrackInfo.mockResolvedValue({ userLoved: true });
-    mockOf(deps.prisma).userTrack.aggregate.mockRejectedValue(new Error('db down'));
+    mockOf(deps.trackService as PartialTrackService).getTrackInfo.mockResolvedValue({ userLoved: true });
+    mockOf(deps.prisma as PrismaDouble).userTrack.aggregate.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.TrackPlays, FmFooterOption.Loved), GUILD,
@@ -690,7 +763,7 @@ describe('FmFooterResolver - track plays and loved share one lookup', () => {
     // it loses both - and the log has to say so.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.trackService).getTrackInfo.mockRejectedValue(new Error('lastfm down'));
+    mockOf(deps.trackService as PartialTrackService).getTrackInfo.mockRejectedValue(new Error('lastfm down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.TrackPlays, FmFooterOption.Loved), GUILD,
@@ -715,7 +788,7 @@ describe('FmFooterResolver - artist plays this week', () => {
 
     await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlaysThisWeek), GUILD);
 
-    const call = mockOf(deps.prisma).userPlay.count.mock.calls[0]![0];
+    const call = mockOf(deps.prisma as PrismaDouble).userPlay.count.mock.calls[0]![0];
     expect(call.where.userId).toBe(123);
     expect(call.where.artistName).toEqual({ equals: 'Gunna', mode: 'insensitive' });
     const daysOut = (Date.now() - call.where.timePlayed.gte.getTime()) / 86400000;
@@ -727,7 +800,7 @@ describe('FmFooterResolver - artist plays this week', () => {
     // Unlike the playcounts, "you played them zero times this week" is a real,
     // displayable answer, so 0 is written through.
     const deps = registerAll();
-    mockOf(deps.prisma).userPlay.count.mockResolvedValue(0);
+    mockOf(deps.prisma as PrismaDouble).userPlay.count.mockResolvedValue(0);
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlaysThisWeek), GUILD,
@@ -742,7 +815,7 @@ describe('FmFooterResolver - artist plays this week', () => {
     // zero directly above - that one runs, answers, and stays silent.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.prisma).userPlay.count.mockRejectedValue(new Error('db down'));
+    mockOf(deps.prisma as PrismaDouble).userPlay.count.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlaysThisWeek), GUILD,
@@ -763,7 +836,7 @@ describe('FmFooterResolver - server listener counts', () => {
     // A row at zero is someone the index knows but who never actually played
     // them; counting them inflates the who-else-listen count.
     const deps = registerAll();
-    mockOf(deps.whoKnowsRepo).getIndexedUsersForArtist.mockResolvedValue([
+    mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForArtist.mockResolvedValue([
       { userId: 1, playcount: 20 },
       { userId: 2, playcount: 0 },
       { userId: 3, playcount: 4 },
@@ -778,7 +851,7 @@ describe('FmFooterResolver - server listener counts', () => {
 
   it('reports zero listeners when the server has none', async () => {
     const deps = registerAll();
-    mockOf(deps.whoKnowsRepo).getIndexedUsersForArtist.mockResolvedValue([]);
+    mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForArtist.mockResolvedValue([]);
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ServerArtistListeners), GUILD,
@@ -805,15 +878,15 @@ describe('FmFooterResolver - server listener counts', () => {
     );
 
     expect(data).toEqual({});
-    expect(mockOf(deps.whoKnowsRepo).getIndexedUsersForArtist).not.toHaveBeenCalled();
-    expect(mockOf(deps.prisma).album.findFirst).not.toHaveBeenCalled();
-    expect(mockOf(deps.prisma).track.findFirst).not.toHaveBeenCalled();
-    expect(mockOf(deps.crownRepo).getCurrentCrown).not.toHaveBeenCalled();
+    expect(mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForArtist).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma as PrismaDouble).album.findFirst).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma as PrismaDouble).track.findFirst).not.toHaveBeenCalled();
+    expect(mockOf(deps.crownRepo as PartialCrownRepository).getCurrentCrown).not.toHaveBeenCalled();
   });
 
   it('resolves the album row by name and artist before counting its listeners', async () => {
     const deps = registerAll();
-    mockOf(deps.whoKnowsRepo).getIndexedUsersForAlbum.mockResolvedValue([
+    mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForAlbum.mockResolvedValue([
       { userId: 1, playcount: 3 },
       { userId: 2, playcount: 0 },
     ]);
@@ -822,26 +895,26 @@ describe('FmFooterResolver - server listener counts', () => {
       dummyUser, dummyTrack, mask(FmFooterOption.ServerAlbumListeners), GUILD,
     );
 
-    expect(mockOf(deps.prisma).album.findFirst).toHaveBeenCalledWith({
+    expect(mockOf(deps.prisma as PrismaDouble).album.findFirst).toHaveBeenCalledWith({
       where: {
         name: { equals: 'A Gift & a Curse', mode: 'insensitive' },
         artist: { name: { equals: 'Gunna', mode: 'insensitive' } },
       },
     });
-    expect(mockOf(deps.whoKnowsRepo).getIndexedUsersForAlbum).toHaveBeenCalledWith(GUILD, 99);
+    expect(mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForAlbum).toHaveBeenCalledWith(GUILD, 99);
     expect(data.serverAlbumListeners).toBe(1);
   });
 
   it('omits the album listener count when the album is not in the catalogue', async () => {
     const deps = registerAll();
-    mockOf(deps.prisma).album.findFirst.mockResolvedValue(null);
+    mockOf(deps.prisma as PrismaDouble).album.findFirst.mockResolvedValue(null);
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ServerAlbumListeners), GUILD,
     );
 
     expect('serverAlbumListeners' in data).toBe(false);
-    expect(mockOf(deps.whoKnowsRepo).getIndexedUsersForAlbum).not.toHaveBeenCalled();
+    expect(mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForAlbum).not.toHaveBeenCalled();
   });
 
   it('skips the album listener count when the track has no album', async () => {
@@ -853,12 +926,12 @@ describe('FmFooterResolver - server listener counts', () => {
     );
 
     expect(data).toEqual({});
-    expect(mockOf(deps.prisma).album.findFirst).not.toHaveBeenCalled();
+    expect(mockOf(deps.prisma as PrismaDouble).album.findFirst).not.toHaveBeenCalled();
   });
 
   it('resolves the track row by name and artist before counting its listeners', async () => {
     const deps = registerAll();
-    mockOf(deps.whoKnowsRepo).getIndexedUsersForTrack.mockResolvedValue([
+    mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForTrack.mockResolvedValue([
       { userId: 1, playcount: 9 },
     ]);
 
@@ -866,19 +939,19 @@ describe('FmFooterResolver - server listener counts', () => {
       dummyUser, dummyTrack, mask(FmFooterOption.ServerTrackListeners), GUILD,
     );
 
-    expect(mockOf(deps.prisma).track.findFirst).toHaveBeenCalledWith({
+    expect(mockOf(deps.prisma as PrismaDouble).track.findFirst).toHaveBeenCalledWith({
       where: {
         name: { equals: 'fukumean', mode: 'insensitive' },
         artist: { name: { equals: 'Gunna', mode: 'insensitive' } },
       },
     });
-    expect(mockOf(deps.whoKnowsRepo).getIndexedUsersForTrack).toHaveBeenCalledWith(GUILD, 88);
+    expect(mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForTrack).toHaveBeenCalledWith(GUILD, 88);
     expect(data.serverTrackListeners).toBe(1);
   });
 
   it('omits the track listener count when the track is not in the catalogue', async () => {
     const deps = registerAll();
-    mockOf(deps.prisma).track.findFirst.mockResolvedValue(null);
+    mockOf(deps.prisma as PrismaDouble).track.findFirst.mockResolvedValue(null);
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ServerTrackListeners), GUILD,
@@ -893,7 +966,7 @@ describe('FmFooterResolver - server listener counts', () => {
     // "reports zero listeners when the server has none" above.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.whoKnowsRepo).getIndexedUsersForArtist.mockRejectedValue(new Error('db down'));
+    mockOf(deps.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForArtist.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ServerArtistListeners), GUILD,
@@ -912,7 +985,7 @@ describe('FmFooterResolver - server listener counts', () => {
     // the track listener count when the track is not in the catalogue" above.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.prisma).track.findFirst.mockRejectedValue(new Error('db down'));
+    mockOf(deps.prisma as PrismaDouble).track.findFirst.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ServerTrackListeners), GUILD,
@@ -934,7 +1007,7 @@ describe('FmFooterResolver - crown holder', () => {
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.CrownHolder), GUILD);
 
-    expect(mockOf(deps.crownRepo).getCurrentCrown).toHaveBeenCalledWith(GUILD, 'Gunna');
+    expect(mockOf(deps.crownRepo as PartialCrownRepository).getCurrentCrown).toHaveBeenCalledWith(GUILD, 'Gunna');
     expect(data.crownHolder).toBe('DreadRock');
   });
 
@@ -942,7 +1015,7 @@ describe('FmFooterResolver - crown holder', () => {
     // A freshly seeded crown has no winner. The footer must show nothing
     // rather than an empty crown link.
     const deps = registerAll();
-    mockOf(deps.crownRepo).getCurrentCrown.mockResolvedValue({ userNameLastFm: '' });
+    mockOf(deps.crownRepo as PartialCrownRepository).getCurrentCrown.mockResolvedValue({ userNameLastFm: '' });
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.CrownHolder), GUILD);
 
@@ -951,7 +1024,7 @@ describe('FmFooterResolver - crown holder', () => {
 
   it('omits the holder when nobody holds the crown', async () => {
     const deps = registerAll();
-    mockOf(deps.crownRepo).getCurrentCrown.mockResolvedValue(null);
+    mockOf(deps.crownRepo as PartialCrownRepository).getCurrentCrown.mockResolvedValue(null);
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.CrownHolder), GUILD);
 
@@ -964,7 +1037,7 @@ describe('FmFooterResolver - crown holder', () => {
     // genuine "nobody holds the crown" below, which is the pair's other half.
     const deps = registerAll();
     const logged = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
-    mockOf(deps.crownRepo).getCurrentCrown.mockRejectedValue(new Error('db down'));
+    mockOf(deps.crownRepo as PartialCrownRepository).getCurrentCrown.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(dummyUser, dummyTrack, mask(FmFooterOption.CrownHolder), GUILD);
 
@@ -1002,7 +1075,7 @@ describe('FmFooterResolver - assembling the full mask', () => {
     // result before the slow query settled would silently drop a field.
     const slow = deferred<number>();
     const deps = registerAll();
-    mockOf(deps.prisma).userPlay.count.mockReturnValue(slow.promise);
+    mockOf(deps.prisma as PrismaDouble).userPlay.count.mockReturnValue(slow.promise);
 
     const pending = FmFooterResolver.resolveFooterData(
       dummyUser, dummyTrack, mask(FmFooterOption.ArtistPlays, FmFooterOption.ArtistPlaysThisWeek), GUILD,
@@ -1014,7 +1087,7 @@ describe('FmFooterResolver - assembling the full mask', () => {
 
   it('keeps the fast fields when the slow one fails', async () => {
     const deps = registerAll();
-    mockOf(deps.prisma).userPlay.count.mockRejectedValue(new Error('db down'));
+    mockOf(deps.prisma as PrismaDouble).userPlay.count.mockRejectedValue(new Error('db down'));
 
     const data = await FmFooterResolver.resolveFooterData(
       dummyUser,
@@ -1121,10 +1194,10 @@ describe('FmFooterResolver - A1: a query that cannot be read says so', () => {
     {
       field: 'artistPlays',
       flag: FmFooterOption.ArtistPlays,
-      breakIt: d => mockOf(d.artistsService).getArtistInfo.mockRejectedValue(new Error('db down')),
+      breakIt: d => mockOf(d.artistsService as PartialArtistService).getArtistInfo.mockRejectedValue(new Error('db down')),
       answered: d => {
-        mockOf(d.artistsService).getArtistInfo.mockResolvedValue({ name: 'Gunna' });
-        mockOf(d.prisma).userArtist.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+        mockOf(d.artistsService as PartialArtistService).getArtistInfo.mockResolvedValue({ name: 'Gunna' });
+        mockOf(d.prisma as PrismaDouble).userArtist.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
       },
       answeredPresent: false,
     },
@@ -1134,58 +1207,58 @@ describe('FmFooterResolver - A1: a query that cannot be read says so', () => {
       // The service must decline first, or it answers with a playcount and the
       // aggregate is never reached - which would make this row test nothing.
       breakIt: d => {
-        mockOf(d.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
-        mockOf(d.prisma).userAlbum.aggregate.mockRejectedValue(new Error('db down'));
+        mockOf(d.albumService as PartialAlbumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
+        mockOf(d.prisma as PrismaDouble).userAlbum.aggregate.mockRejectedValue(new Error('db down'));
       },
       answered: d => {
-        mockOf(d.albumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
-        mockOf(d.prisma).userAlbum.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+        mockOf(d.albumService as PartialAlbumService).getAlbumInfo.mockResolvedValue({ name: 'A Gift & a Curse' });
+        mockOf(d.prisma as PrismaDouble).userAlbum.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
       },
       answeredPresent: false,
     },
     {
       field: 'trackPlays',
       flag: FmFooterOption.TrackPlays,
-      breakIt: d => mockOf(d.trackService).getTrackInfo.mockRejectedValue(new Error('db down')),
+      breakIt: d => mockOf(d.trackService as PartialTrackService).getTrackInfo.mockRejectedValue(new Error('db down')),
       answered: d => {
-        mockOf(d.trackService).getTrackInfo.mockResolvedValue(null);
-        mockOf(d.prisma).userTrack.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
+        mockOf(d.trackService as PartialTrackService).getTrackInfo.mockResolvedValue(null);
+        mockOf(d.prisma as PrismaDouble).userTrack.aggregate.mockResolvedValue({ _sum: { playcount: 0 } });
       },
       answeredPresent: false,
     },
     {
       field: 'artistPlaysThisWeek',
       flag: FmFooterOption.ArtistPlaysThisWeek,
-      breakIt: d => mockOf(d.prisma).userPlay.count.mockRejectedValue(new Error('db down')),
-      answered: d => { mockOf(d.prisma).userPlay.count.mockResolvedValue(0); },
+      breakIt: d => mockOf(d.prisma as PrismaDouble).userPlay.count.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.prisma as PrismaDouble).userPlay.count.mockResolvedValue(0); },
       answeredPresent: true,
     },
     {
       field: 'serverArtistListeners',
       flag: FmFooterOption.ServerArtistListeners,
-      breakIt: d => mockOf(d.whoKnowsRepo).getIndexedUsersForArtist.mockRejectedValue(new Error('db down')),
-      answered: d => { mockOf(d.whoKnowsRepo).getIndexedUsersForArtist.mockResolvedValue([]); },
+      breakIt: d => mockOf(d.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForArtist.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForArtist.mockResolvedValue([]); },
       answeredPresent: true,
     },
     {
       field: 'serverAlbumListeners',
       flag: FmFooterOption.ServerAlbumListeners,
-      breakIt: d => mockOf(d.whoKnowsRepo).getIndexedUsersForAlbum.mockRejectedValue(new Error('db down')),
-      answered: d => { mockOf(d.prisma).album.findFirst.mockResolvedValue(null); },
+      breakIt: d => mockOf(d.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForAlbum.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.prisma as PrismaDouble).album.findFirst.mockResolvedValue(null); },
       answeredPresent: false,
     },
     {
       field: 'serverTrackListeners',
       flag: FmFooterOption.ServerTrackListeners,
-      breakIt: d => mockOf(d.whoKnowsRepo).getIndexedUsersForTrack.mockRejectedValue(new Error('db down')),
-      answered: d => { mockOf(d.prisma).track.findFirst.mockResolvedValue(null); },
+      breakIt: d => mockOf(d.whoKnowsRepo as PartialWhoKnowsRepository).getIndexedUsersForTrack.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.prisma as PrismaDouble).track.findFirst.mockResolvedValue(null); },
       answeredPresent: false,
     },
     {
       field: 'crownHolder',
       flag: FmFooterOption.CrownHolder,
-      breakIt: d => mockOf(d.crownRepo).getCurrentCrown.mockRejectedValue(new Error('db down')),
-      answered: d => { mockOf(d.crownRepo).getCurrentCrown.mockResolvedValue(null); },
+      breakIt: d => mockOf(d.crownRepo as PartialCrownRepository).getCurrentCrown.mockRejectedValue(new Error('db down')),
+      answered: d => { mockOf(d.crownRepo as PartialCrownRepository).getCurrentCrown.mockResolvedValue(null); },
       answeredPresent: false,
     },
   ];

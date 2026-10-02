@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { ProfileBuilders } from '@bot/builders/user/profileBuilders';
 import type { LastFmUser } from '@domain/models/lastFmUser';
-import { UserType } from '@persistence/models/user';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
+import { DataSource, UserType } from '@persistence/models/user';
+import { PrivacyLevel } from '@domain/enums/privacyLevel';
 
 describe('ProfileBuilders', () => {
   const mockLfmUser: LastFmUser = {
@@ -16,16 +18,26 @@ describe('ProfileBuilders', () => {
     trackCount: 25952,
   };
 
+  /**
+   * The real `User` row shape. `discordUserId` is a string, not a BigInt -
+   * `persistence/models/user.ts` types every BigInt id as a string, and the
+   * builder reads it through `.toString()`, which both types satisfy.
+   */
+  const mockUser: User = {
+    userId: 1,
+    userNameLastFm: 'Moha504',
+    discordUserId: '687636049576722472',
+    registeredOn: new Date('2020-01-01T00:00:00Z'),
+    userType: UserType.User,
+    dataSource: DataSource.LastFm,
+    privacyLevel: PrivacyLevel.Default,
+  };
+
   it('builds full profile response with variety and statistics matching fmbot 1:1', () => {
     const response = ProfileBuilders.buildProfileResponse({
       userDisplayName: 'Moha',
       lastFmUser: mockLfmUser,
-      user: {
-        userId: 1,
-        userNameLastFm: 'Moha504',
-        discordUserId: BigInt('687636049576722472'),
-        userType: UserType.User,
-      } as any,
+      user: mockUser,
       top10ArtistsScrobbles: 50000,
       friendsCount: 12,
       accentColor: 0xa6006c,
@@ -51,11 +63,7 @@ describe('ProfileBuilders', () => {
       userDisplayName: 'Moha',
       lastFmUser: mockLfmUser,
       registeredUnix: 1577836800,
-      user: {
-        userId: 1,
-        userNameLastFm: 'Moha504',
-        discordUserId: BigInt('687636049576722472'),
-      } as any,
+      user: mockUser,
       accentColor: 0xa6006c,
       months: [
         { monthName: 'September 2026', playCount: 767, timeString: '1d 20h' },
@@ -84,7 +92,7 @@ describe('ProfileBuilders', () => {
     });
 
     expect(response.embed.data.color).toBeUndefined();
-    const containerJson = (response.componentsV2Container as any).toJSON();
+    const containerJson = response.componentsV2Container!.toJSON();
     expect(containerJson.accent_color).toBeUndefined();
   });
 

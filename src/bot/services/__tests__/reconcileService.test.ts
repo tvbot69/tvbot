@@ -15,12 +15,15 @@ vi.mock('@persistence/prismaClient', () => ({ prisma: db }));
 
 const agg = (v: number | null) => ({ _sum: { playcount: v } });
 
+/** Only the two discriminators this test branches on are typed, not the whole args object. */
+type CountArgs = { where?: { albumName?: string; trackName?: string } };
+
 const healthyState = (total = 1000) => {
   db.user.findMany.mockResolvedValue([{ userId: 1, totalPlayCount: total }]);
   db.userArtist.aggregate.mockResolvedValue(agg(total));
   db.userAlbum.aggregate.mockResolvedValue(agg(900));
   db.userTrack.aggregate.mockResolvedValue(agg(950));
-  db.userPlay.count.mockImplementation(async (args: any) => {
+  db.userPlay.count.mockImplementation(async (args: CountArgs) => {
     if (args?.where?.albumName) return 900;
     if (args?.where?.trackName) return 950;
     return total;
@@ -63,7 +66,7 @@ describe('ReconcileService', () => {
     db.userArtist.aggregate.mockResolvedValue(agg(800));
     db.userAlbum.aggregate.mockResolvedValue(agg(800));
     db.userTrack.aggregate.mockResolvedValue(agg(800));
-    db.userPlay.count.mockImplementation(async (args: any) => {
+    db.userPlay.count.mockImplementation(async (args: CountArgs) => {
       if (args?.where?.albumName) return 800;
       if (args?.where?.trackName) return 800;
       return 800;

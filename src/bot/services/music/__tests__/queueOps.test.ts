@@ -2,19 +2,52 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { MusicService } from '@bot/services/music/musicService';
 import { QueueService } from '@bot/services/music/queueService';
+import type { PendingEntry } from '@bot/services/music/musicTypes';
 
 // Faithful Moonlink queue semantics: removeRange is INCLUSIVE on both ends,
 // skip() shifts the front and pushes the old current into history.
 const track = (id: string) => ({ identifier: id, title: id, encoded: `enc-${id}` });
 
-const makePlayer = (currentId: string | null, queueIds: string[], previousIds: string[] = []) => {
-  const player: any = {
-    current: currentId ? track(currentId) : null,
+/**
+ * The moonlink surface these doubles implement. Moonlink's own `Player` carries
+ * hundreds of members (node, filters, session state), so a faithful double of
+ * it would be unreadable — but every member below is one production code reads
+ * (`musicService` queue ops, `queueService`, identity-based rollback), so a
+ * rename or a signature change upstream is a compile error here rather than a
+ * double that silently stops modelling it.
+ */
+type MockTrack = { identifier: string; title: string; encoded: string; duration?: number };
+
+/** The queue members skip()/skipto()/previous() drive. */
+type SkipQueue = {
+  tracks: MockTrack[];
+  // Moonlink exposes the live list as `all`; production code (queueService,
+  // identity-based rollback) reads it, so the double must model it.
+  readonly all: MockTrack[];
+  readonly size: number;
+  removeRange(start: number, end: number): boolean;
+  remove(index: number): MockTrack | undefined;
+  unshift(t: MockTrack): void;
+  shift(): MockTrack | undefined;
+};
+
+type SkipPlayer = {
+  current: MockTrack;
+  previous: MockTrack[];
+  queue: SkipQueue;
+  skip(): Promise<boolean>;
+};
+
+const makePlayer = (
+  currentId: string,
+  queueIds: string[],
+  previousIds: string[] = [],
+): SkipPlayer => {
+  const player: SkipPlayer = {
+    current: track(currentId),
     previous: previousIds.map(track),
     queue: {
       tracks: queueIds.map(track),
-      // Moonlink exposes the live list as `all`; production code (queueService,
-      // identity-based rollback) reads it, so the double must model it.
       get all() {
         return this.tracks;
       },
@@ -28,14 +61,14 @@ const makePlayer = (currentId: string | null, queueIds: string[], previousIds: s
       remove(index: number) {
         return this.tracks.splice(index, 1)[0];
       },
-      unshift(t: { identifier: string; title: string; encoded: string }) {
+      unshift(t) {
         this.tracks.unshift(t);
       },
       shift() {
         return this.tracks.shift();
       },
     },
-    skip: vi.fn(async function (this: any) {
+    skip: vi.fn(async function (this: SkipPlayer) {
       const next = this.queue.shift();
       if (!next) return false;
       if (this.current) this.previous.push(this.current);
@@ -46,14 +79,14 @@ const makePlayer = (currentId: string | null, queueIds: string[], previousIds: s
   return player;
 };
 
-const makeService = (player: any) =>
+const makeService = (player: SkipPlayer) =>
   new MusicService(
     { getManager: () => ({ players: { get: () => player } }) } as never,
     {} as never,
     {} as never,
   );
 
-const ids = (player: any): string[] => player.queue.tracks.map((t: any) => t.identifier);
+const ids = (player: SkipPlayer): string[] => player.queue.tracks.map((t) => t.identifier);
 
 describe('MusicService queue ops (Phase 3.3)', () => {
   it('skip(2) skips current + next, landing on queue #2 like skipto 2', async () => {
@@ -102,7 +135,7 @@ describe('MusicService queue ops (Phase 3.3)', () => {
 });
 
 describe('MusicService combined queue (resolved + pending)', () => {
-  const spEntry = (i: number) => ({
+  const spEntry = (i: number): PendingEntry => ({
     spTrack: {
       searchQuery: `Artist${i} - Title${i}`,
       name: `Title${i}`,
@@ -116,18 +149,46 @@ describe('MusicService combined queue (resolved + pending)', () => {
     override: undefined,
   });
 
+  /** Same queue as above plus the members the merged-queue ops drive. */
+  type MergedQueue = {
+    tracks: MockTrack[];
+    readonly all: MockTrack[];
+    readonly size: number;
+    readonly isEmpty: boolean;
+    readonly duration: number;
+    remove(index: number): MockTrack | undefined;
+    removeRange(start: number, end: number): boolean;
+    insert(index: number, t: MockTrack): void;
+    add(t: MockTrack): void;
+    unshift(t: MockTrack): void;
+    shift(): MockTrack | undefined;
+    clear(): void;
+    move(from: number, to: number): boolean;
+  };
+
+  type MergedPlayer = {
+    guildId: string;
+    node: { identifier: string };
+    playing: boolean;
+    paused: boolean;
+    current: MockTrack | null;
+    previous: MockTrack[];
+    queue: MergedQueue;
+    skip(): Promise<boolean>;
+    play(): Promise<boolean>;
+  };
+
   const makeCombined = (
     queueIds: string[],
     pendingN: number,
     searchImpl?: (args: { query: string; source: string }) => Promise<unknown>,
   ) => {
-    type MockQt = { identifier: string; title: string; encoded: string; duration?: number };
     const search = vi.fn(
       searchImpl ??
         (async () => ({ tracks: [{ identifier: 'yt-hit', duration: 180000, title: 'raw', author: 'raw' }] })),
     );
-    const tracks: MockQt[] = queueIds.map(track);
-    const player: any = {
+    const tracks: MockTrack[] = queueIds.map(track);
+    const player: MergedPlayer = {
       guildId: 'g',
       current: null,
       node: { identifier: 'test-node' },
@@ -141,26 +202,29 @@ describe('MusicService combined queue (resolved + pending)', () => {
         get isEmpty() {
           return this.tracks.length === 0;
         },
-        remove(i: number) {
+        remove(i) {
           return this.tracks.splice(i, 1)[0];
         },
-        removeRange(s: number, e: number) {
+        removeRange(s, e) {
           this.tracks.splice(s, e - s + 1);
           return true;
         },
-        insert(i: number, t: MockQt) {
+        insert(i, t) {
           this.tracks.splice(i, 0, t);
         },
-        add(t: MockQt) {
+        add(t) {
           this.tracks.push(t);
         },
-        unshift(t: MockQt) {
+        unshift(t) {
           this.tracks.unshift(t);
+        },
+        shift() {
+          return this.tracks.shift();
         },
         clear() {
           this.tracks.length = 0;
         },
-        move(i: number, j: number) {
+        move(i, j) {
           const t = this.tracks.splice(i, 1)[0]!;
           this.tracks.splice(j, 0, t);
           return true;
@@ -169,10 +233,10 @@ describe('MusicService combined queue (resolved + pending)', () => {
           return this.tracks;
         },
         get duration() {
-          return this.tracks.reduce((a: number, t: any) => a + (t.duration || 0), 0);
+          return this.tracks.reduce((a, t) => a + (t.duration || 0), 0);
         },
       },
-      skip: vi.fn(async function (this: any) {
+      skip: vi.fn(async function (this: MergedPlayer) {
         const next = this.queue.tracks.shift();
         if (!next) return false;
         if (this.current) this.previous.push(this.current);
@@ -180,7 +244,7 @@ describe('MusicService combined queue (resolved + pending)', () => {
         return true;
       }),
       play: vi.fn(async () => true),
-      previous: [] as unknown[],
+      previous: [],
     };
     const manager = { search, players: { get: () => player }, on: vi.fn() };
     const svc = new MusicService(
@@ -198,7 +262,7 @@ describe('MusicService combined queue (resolved + pending)', () => {
       move: (guildId: string, from: number, to: number) => Promise<boolean>;
       skip: (guildId: string, amount?: number) => Promise<boolean>;
       skipto: (guildId: string, position: number) => Promise<boolean>;
-      pendingSpotify: Map<string, unknown[]>;
+      pendingSpotify: Map<string, PendingEntry[]>;
     };
     if (pendingN > 0) {
       svc.pendingSpotify.set(
@@ -206,7 +270,7 @@ describe('MusicService combined queue (resolved + pending)', () => {
         Array.from({ length: pendingN }, (_, i) => spEntry(i)),
       );
     }
-    const titles = () => player.queue.tracks.map((t: any) => t.title ?? t.identifier);
+    const titles = () => player.queue.tracks.map((t) => t.title ?? t.identifier);
     return { svc, player, titles };
   };
 
@@ -232,7 +296,7 @@ describe('MusicService combined queue (resolved + pending)', () => {
     const { svc, titles } = makeCombined(['a', 'b'], 3);
     expect(await svc.move('g', 3, 5)).toBe(true);
     expect(titles()).toEqual(['a', 'b']);
-    const pending = svc.pendingSpotify.get('g')!.map((e: any) => e.spTrack.name);
+    const pending = svc.pendingSpotify.get('g')!.map((e) => e.spTrack.name);
     expect(pending).toEqual(['Title1', 'Title2', 'Title0']);
   });
 
@@ -240,7 +304,7 @@ describe('MusicService combined queue (resolved + pending)', () => {
     const { svc, titles } = makeCombined(['a', 'b'], 2);
     expect(await svc.move('g', 1, 4)).toBe(true);
     expect(titles()).toEqual(['b']);
-    const pending = svc.pendingSpotify.get('g')!.map((e: any) => e.spTrack.name);
+    const pending = svc.pendingSpotify.get('g')!.map((e) => e.spTrack.name);
     expect(pending).toEqual(['Title0', 'Title1', 'a']);
   });
 
@@ -267,7 +331,7 @@ describe('MusicService combined queue (resolved + pending)', () => {
   it('skipto() into pending resolves the target and drops ahead', async () => {
     const { svc, player, titles } = makeCombined(['a', 'b'], 2);
     expect(await svc.skipto('g', 4)).toBe(true);
-    expect(player.current.identifier).toBe('yt-hit');
+    expect(player.current!.identifier).toBe('yt-hit');
     expect(titles()).toEqual([]);
     expect(svc.pendingSpotify.has('g')).toBe(false);
   });
@@ -275,14 +339,45 @@ describe('MusicService combined queue (resolved + pending)', () => {
   it('skip() past resolved entries jumps into pending', async () => {
     const { svc, player } = makeCombined(['a'], 1);
     expect(await svc.skip('g', 2)).toBe(true);
-    expect(player.current.identifier).toBe('yt-hit');
+    expect(player.current!.identifier).toBe('yt-hit');
   });
 });
 
 describe('MusicService player lifecycle safety', () => {
+  type LifecycleQueue = {
+    tracks: MockTrack[];
+    readonly all: MockTrack[];
+    readonly size: number;
+    add(t: MockTrack): void;
+    remove(index: number): MockTrack | undefined;
+    unshift(t: MockTrack): void;
+    clear(): void;
+  };
+
+  type LifecyclePlayer = {
+    guildId: string;
+    destroyed: boolean;
+    connected: boolean;
+    playing: boolean;
+    paused: boolean;
+    voiceChannelId: string;
+    textChannelId: string;
+    current: MockTrack | null;
+    previous: MockTrack[];
+    node: { identifier: string };
+    queue: LifecycleQueue;
+    connect(): Promise<void>;
+    play(): Promise<boolean>;
+    destroy(): Promise<void>;
+    setVoiceChannelId(id: string): void;
+    setTextChannelId(id: string): void;
+    get(key: string): unknown;
+    set(key: string, value: unknown): void;
+  };
+
   const makeLifecycle = (opts: { destroyed?: boolean; connected?: boolean } = {}) => {
     const data = new Map<string, unknown>();
-    const player: any = {
+    const player: LifecyclePlayer = {
       guildId: 'g-life',
       destroyed: opts.destroyed ?? false,
       connected: opts.connected ?? false,
@@ -294,20 +389,20 @@ describe('MusicService player lifecycle safety', () => {
       previous: [],
       node: { identifier: 'Home' },
       queue: {
-        tracks: [] as unknown[],
+        tracks: [],
         get all() {
           return this.tracks;
         },
         get size() {
           return this.tracks.length;
         },
-        add(t: unknown) {
+        add(t) {
           this.tracks.push(t);
         },
-        remove(i: number) {
+        remove(i) {
           return this.tracks.splice(i, 1)[0];
         },
-        unshift(t: unknown) {
+        unshift(t) {
           this.tracks.unshift(t);
         },
         clear() {
@@ -317,16 +412,16 @@ describe('MusicService player lifecycle safety', () => {
       connect: vi.fn(async () => undefined),
       play: vi.fn(async () => true),
       destroy: vi.fn(async () => undefined),
-      setVoiceChannelId: vi.fn(function (this: any, id: string) {
+      setVoiceChannelId: vi.fn(function (this: LifecyclePlayer, id) {
         this.voiceChannelId = id;
       }),
-      setTextChannelId: vi.fn(function (this: any, id: string) {
+      setTextChannelId: vi.fn(function (this: LifecyclePlayer, id) {
         this.textChannelId = id;
       }),
-      get: (k: string) => data.get(k),
-      set: (k: string, v: unknown) => void data.set(k, v),
+      get: (k) => data.get(k),
+      set: (k, v) => void data.set(k, v),
     };
-    const players = new Map<string, unknown>([['g-life', player]]);
+    const players = new Map<string, LifecyclePlayer>([['g-life', player]]);
     const svc = new MusicService(
       {
         getManager: () => ({

@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach, type Mocked } from 'vitest';
 import { OverviewService } from '@bot/services/library/overviewService';
 import { Logger } from '@domain/logging/logger';
 import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
@@ -44,7 +44,7 @@ vi.mock('@persistence/prismaClient', () => ({ prisma: db }));
 
 // One `as any` at the boundary so a test can retarget a single query.
 // Warn-only rule.
-const mockOf = (fn: unknown) => fn as any;
+const mockOf = <T>(fn: T): Mocked<T> => fn as Mocked<T>;
 
 interface PlayRow {
   artistName: string | null;

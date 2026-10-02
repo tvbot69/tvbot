@@ -60,7 +60,7 @@ describe('chapter cascade: unusable rung is never a chapter-less fact', () => {
   });
 
   it('returns null, not [], when the home-resolver chapter probe is unreachable', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('googleapis.com')) return descriptionWithoutTimestamps();
       throw new Error('tower asleep');
@@ -72,7 +72,7 @@ describe('chapter cascade: unusable rung is never a chapter-less fact', () => {
 
   it('does not cache the chapter-less fact after an unreachable probe, so a later play re-probes', async () => {
     let rugCalls = 0;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('googleapis.com')) return descriptionWithoutTimestamps();
       rugCalls += 1;
@@ -95,7 +95,7 @@ describe('chapter cascade: unusable rung is never a chapter-less fact', () => {
 
   it('recovers as soon as the resolver comes back', async () => {
     let rugUp = false;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('googleapis.com')) return descriptionWithoutTimestamps();
       if (!rugUp) throw new Error('tower asleep');
@@ -113,7 +113,7 @@ describe('chapter cascade: unusable rung is never a chapter-less fact', () => {
   });
 
   it('returns null while the resolver is configured but paused (unreachable pause)', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('googleapis.com')) return descriptionWithoutTimestamps();
       throw new Error('down');
@@ -131,7 +131,7 @@ describe('chapter cascade: unusable rung is never a chapter-less fact', () => {
 
   it('still returns [] (and caches it) when the resolver answers with no chapters', async () => {
     let rugCalls = 0;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes('googleapis.com')) return descriptionWithoutTimestamps();
       rugCalls += 1;
@@ -149,7 +149,7 @@ describe('chapter cascade: unusable rung is never a chapter-less fact', () => {
     delete process.env.HOME_RESOLVER_URL;
     delete process.env.HOME_RESOLVER_TOKEN;
     let dataCalls = 0;
-    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       expect(String(input)).toContain('googleapis.com');
       dataCalls += 1;
       return descriptionWithoutTimestamps();

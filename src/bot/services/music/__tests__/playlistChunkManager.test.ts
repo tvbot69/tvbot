@@ -2,9 +2,14 @@ import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
 import { PlaylistChunkManager } from '@bot/services/music/playlistChunkManager';
 import { MusicService, MAX_QUEUE_TRACKS } from '@bot/services/music/musicService';
+import type { ChunkTrackResolver } from '@bot/services/music/playlistChunkManager';
+import type { Track } from 'moonlink.js';
+
+/** Moonlink's event callbacks; the chunk manager only ever registers on these. */
+type EventHandler = (...args: unknown[]) => Promise<void>;
 
 const makeChunk = (opts?: {
-  resolver?: (player: unknown, spTrack: any) => Promise<any>;
+  resolver?: ChunkTrackResolver;
   searchImpl?: (args: { query: string; source: string }) => Promise<unknown>;
 }) => {
   const added: unknown[] = [];
@@ -19,7 +24,7 @@ const makeChunk = (opts?: {
       },
     },
   };
-  const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+  const handlers = new Map<string, EventHandler>();
   const search = vi.fn(
     opts?.searchImpl ??
       (async () => ({ tracks: [{ identifier: 'yt1', duration: 180000, title: 'raw', author: 'raw' }] })),
@@ -27,7 +32,7 @@ const makeChunk = (opts?: {
   const manager = {
     search,
     players: { get: (id: string) => (id === 'g-chunk' ? player : undefined) },
-    on: vi.fn((ev: string, cb: (...args: any[]) => Promise<void>) => {
+    on: vi.fn((ev: string, cb: EventHandler) => {
       handlers.set(ev, cb);
     }),
   };
@@ -48,7 +53,7 @@ const makeChunk = (opts?: {
     })),
   };
   const chunk = new PlaylistChunkManager({ getManager: () => manager } as never, scraper as never);
-  if (opts?.resolver) chunk.setTrackResolver(opts.resolver as never);
+  if (opts?.resolver) chunk.setTrackResolver(opts.resolver);
   chunk.bindEvents();
   chunk.register('g-chunk', 'pl1', 'P', 102, 100, 'u1', 'tc1');
   return { chunk, player, added, handlers, search };
@@ -56,10 +61,12 @@ const makeChunk = (opts?: {
 
 describe('PlaylistChunkManager ladder resolution', () => {
   it('resolves tails through the injected ladder with rung-aware labels', async () => {
-    const resolver = vi.fn(async (_player: unknown, sp: any) => ({
-      lavalinkTrack: { identifier: `r-${sp.name}` },
-      rung: sp.name === 'C1' ? 'resolver' : 'plugin',
-    }));
+    const resolver = vi.fn<ChunkTrackResolver>(
+      async (_player, sp) => ({
+        lavalinkTrack: { identifier: `r-${sp.name}` } as Track,
+        rung: sp.name === 'C1' ? 'resolver' : 'plugin',
+      }),
+    );
     const { player, added, handlers, search } = makeChunk({ resolver });
     await handlers.get('trackStart')!(player as never);
     expect(resolver).toHaveBeenCalledTimes(2);
@@ -87,8 +94,8 @@ describe('PlaylistChunkManager ladder resolution', () => {
   });
 
   it('skips entries the ladder cannot resolve', async () => {
-    const resolver = vi.fn(async (_player: unknown, sp: any) =>
-      sp.name === 'C1' ? { lavalinkTrack: { identifier: 'r1' }, rung: 'soundcloud' } : null,
+    const resolver = vi.fn<ChunkTrackResolver>(async (_player, sp) =>
+      sp.name === 'C1' ? { lavalinkTrack: { identifier: 'r1' } as Track, rung: 'soundcloud' } : null,
     );
     const { player, added, handlers } = makeChunk({ resolver });
     await handlers.get('trackStart')!(player as never);
@@ -128,7 +135,7 @@ describe('MusicService chunk wiring', () => {
 describe('PlaylistChunkManager queueEnd drain & integrity', () => {
   const makeDrainChunk = (opts?: {
     fetchPage?: () => Promise<unknown>;
-    resolver?: (player: unknown, sp: any) => Promise<any>;
+    resolver?: ChunkTrackResolver;
   }) => {
     const added: unknown[] = [];
     const play = vi.fn(async () => true);
@@ -146,10 +153,10 @@ describe('PlaylistChunkManager queueEnd drain & integrity', () => {
         },
       },
     };
-    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const handlers = new Map<string, EventHandler>();
     const manager = {
       players: { get: (id: string) => (id === 'g-drain' ? player : undefined) },
-      on: vi.fn((ev: string, cb: (...args: any[]) => Promise<void>) => {
+      on: vi.fn((ev: string, cb: EventHandler) => {
         handlers.set(ev, cb);
       }),
     };
@@ -162,7 +169,7 @@ describe('PlaylistChunkManager queueEnd drain & integrity', () => {
     const chunk = new PlaylistChunkManager({ getManager: () => manager } as never, scraper as never);
     chunk.setTrackResolver(
       (opts?.resolver ??
-        (async () => ({ lavalinkTrack: { identifier: 'r-d1' }, rung: 'soundcloud' }))) as never,
+        (async () => ({ lavalinkTrack: { identifier: 'r-d1' } as Track, rung: 'soundcloud' }))) as never,
     );
     chunk.bindEvents();
     chunk.register('g-drain', 'pl1', 'Playlist P', 200, 100, 'u1', 'tc1');
@@ -217,10 +224,10 @@ describe('PlaylistChunkManager queueEnd drain & integrity', () => {
         },
       },
     };
-    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const handlers = new Map<string, EventHandler>();
     const manager = {
       players: { get: (id: string) => (id === 'g-drain' ? player : undefined) },
-      on: vi.fn((ev: string, cb: (...args: any[]) => Promise<void>) => {
+      on: vi.fn((ev: string, cb: EventHandler) => {
         handlers.set(ev, cb);
       }),
     };
@@ -232,7 +239,9 @@ describe('PlaylistChunkManager queueEnd drain & integrity', () => {
       ),
     };
     const chunk = new PlaylistChunkManager({ getManager: () => manager } as never, scraper as never);
-    chunk.setTrackResolver((async () => ({ lavalinkTrack: { identifier: 'r-x' }, rung: 'soundcloud' })) as never);
+    chunk.setTrackResolver(
+      (async () => ({ lavalinkTrack: { identifier: 'r-x' } as Track, rung: 'soundcloud' })) as never,
+    );
     chunk.bindEvents();
     chunk.register('g-drain', 'pl-old', 'Old', 200, 100, 'u1', 'tc1');
     const pending = handlers.get('trackEnd')!(player as never);

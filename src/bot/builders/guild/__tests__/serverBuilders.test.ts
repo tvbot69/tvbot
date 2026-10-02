@@ -180,7 +180,7 @@ describe('ServerBuilders & GuildRankingService', () => {
       expect(payload.components).toBeDefined();
       expect(payload.embeds).toBeUndefined();
 
-      const containerJson = (response.componentsV2Container as any).toJSON();
+      const containerJson = response.componentsV2Container!.toJSON();
       expect(containerJson.accent_color).toBe(0x5865F2);
     });
 
@@ -202,7 +202,7 @@ describe('ServerBuilders & GuildRankingService', () => {
         accentColor: undefined,
       });
 
-      const containerJson = (response.componentsV2Container as any).toJSON();
+      const containerJson = response.componentsV2Container!.toJSON();
       expect(containerJson.accent_color).toBeUndefined();
     });
 
@@ -220,7 +220,7 @@ describe('ServerBuilders & GuildRankingService', () => {
       });
 
       expect(response.isComponentsV2).toBe(true);
-      const containerJson = (response.componentsV2Container as any).toJSON();
+      const containerJson = response.componentsV2Container!.toJSON();
       expect(containerJson.accent_color).toBe(DiscordConstants.WarningColorOrange);
     });
   });

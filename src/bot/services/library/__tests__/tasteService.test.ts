@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, type Mocked } from 'vitest';
 import { TasteService, formatTasteTable } from '@bot/services/library/tasteService';
 import type { TasteComparisonItem, TasteData } from '@bot/services/library/tasteService';
 import { TimePeriod } from '@domain/enums/timePeriod';
@@ -41,8 +41,8 @@ const genreMap = (m: Record<string, string[]>): Map<string, string[]> => new Map
 const countries = (...specs: Array<[string, string, number]>): TopCountryItem[] =>
   specs.map(([countryName, countryCode, playcount]) => ({ countryName, countryCode, playcount }));
 
-const build = (over: Record<string, unknown> = {}) => {
-  const deps: Record<string, unknown> = {
+const build = (over = {}) => {
+  const deps = {
     lastfmRepo: {
       getTopArtists: vi.fn(async () => [] as TopArtist[]),
     },
@@ -69,7 +69,7 @@ const build = (over: Record<string, unknown> = {}) => {
 
 // One `as any` at the boundary so individual tests can retarget a double
 // without rebuilding the world. Warn-only rule.
-const mockOf = (fn: unknown) => fn as any;
+const mockOf = <T>(fn: T): Mocked<T> => fn as Mocked<T>;
 
 const total = (i: TasteComparisonItem) => i.ownPlaycount + i.otherPlaycount;
 

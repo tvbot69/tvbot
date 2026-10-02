@@ -4,7 +4,38 @@ import { Logger } from '@domain/logging/logger';
 import { TelemetryService } from '@bot/services/system/telemetryService';
 import { NowPlayingInteractions } from '@bot/interactions/music/nowPlayingInteractions';
 import { AutopostService, type AutopostConfig } from '@bot/services/charts/autopostService';
+import type { ArtistsService } from '@bot/services/library/artistsService';
+import type { AlbumService } from '@bot/services/library/albumService';
+import type { TrackService } from '@bot/services/library/trackService';
+import type { CrownService } from '@bot/services/crown/crownService';
+import type { LyricsService } from '@bot/services/music/lyricsService';
+import type { UserRepository } from '@persistence/repositories/userRepository';
+import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
 import type { ButtonInteraction, Client } from 'discord.js';
+
+/**
+ * Typed partial double for a class-shaped dependency.
+ *
+ * `Partial<T>` carries the REAL signature of every member the test supplies, so a
+ * production signature change breaks this file at compile time instead of letting a
+ * mis-shaped `any` double keep passing. Members the test does not supply stay ABSENT,
+ * so production reaching for one throws instead of silently reading `undefined` off an
+ * unconstrained object. Duplicated verbatim from `oauthActions.test.ts` because a
+ * shared helper module would be scored as production source by `count-debt.ts`
+ * (it only skips `*.test.ts`).
+ */
+const stub = <T>(partial: Partial<T>): T => partial as T;
+
+const user = (over: Partial<User> = {}): User =>
+  ({
+    userId: 1,
+    discordUserId: 'user-123',
+    userNameLastFm: 'MusicLover',
+    registeredOn: new Date('2024-01-01T00:00:00Z'),
+    sessionKey: 'valid-session-key',
+    ...over,
+  }) as User;
 
 describe('Phase 3: Logging & Telemetry System', () => {
   it('creates scoped loggers with context and traceId', () => {
@@ -35,7 +66,7 @@ describe('Phase 3: Logging & Telemetry System', () => {
     expect(commandStats?.failures).toBe(10);
     expect(commandStats?.minDurationMs).toBe(10);
     expect(commandStats?.maxDurationMs).toBe(1000);
-    
+
     const p50 = telemetry.calculatePercentile(commandStats!.recentLatencies, 50);
     const p95 = telemetry.calculatePercentile(commandStats!.recentLatencies, 95);
     const p99 = telemetry.calculatePercentile(commandStats!.recentLatencies, 99);
@@ -64,42 +95,43 @@ describe('Phase 3: Logging & Telemetry System', () => {
 });
 
 describe('Phase 4: Interactive Component Button Handlers', () => {
-  let mockLastfmRepo: any;
-  let mockUserRepo: any;
-  let mockTrackService: any;
-  let mockLyricsService: any;
+  let mockLastfmRepo: LastFmRepository;
+  let mockUserRepo: UserRepository;
+  let mockTrackService: TrackService;
+  let mockLyricsService: LyricsService;
   let interactions: NowPlayingInteractions;
 
   beforeEach(() => {
-    mockLastfmRepo = {
-      scrobbleTrack: vi.fn().mockResolvedValue(true),
-      loveTrack: vi.fn().mockResolvedValue(true),
-      unloveTrack: vi.fn().mockResolvedValue(true),
-    };
-    mockUserRepo = {
-      getUserByDiscordUserId: vi.fn().mockResolvedValue({
-        userId: 1,
-        discordUserId: 'user-123',
-        userNameLastFm: 'MusicLover',
-        sessionKey: 'valid-session-key',
-      }),
-    };
-    mockTrackService = {
-      getScrobbleReference: vi.fn().mockImplementation((token: string) => {
+    mockLastfmRepo = stub<LastFmRepository>({
+      scrobbleTrack: vi.fn<LastFmRepository['scrobbleTrack']>().mockResolvedValue(true),
+      loveTrack: vi.fn<LastFmRepository['loveTrack']>().mockResolvedValue(true),
+      unloveTrack: vi.fn<LastFmRepository['unloveTrack']>().mockResolvedValue(true),
+    });
+    mockUserRepo = stub<UserRepository>({
+      getUserByDiscordUserId: vi.fn<UserRepository['getUserByDiscordUserId']>().mockResolvedValue(
+        user(),
+      ),
+    });
+    mockTrackService = stub<TrackService>({
+      // `getScrobbleReference` returns `| undefined`, and the caller tests it with
+      // `if (!ref)` (nowPlayingInteractions.ts:52), so `undefined` is the in-contract
+      // spelling of the same expired-token state.
+      getScrobbleReference: vi.fn<TrackService['getScrobbleReference']>((token: string) => {
         if (token === 'valid-ref') {
           return { artist: 'Radiohead', track: 'Creep' };
         }
-        return null;
+        return undefined;
       }),
-    };
-    mockLyricsService = {
-      getLyrics: vi.fn().mockResolvedValue({
+    });
+    mockLyricsService = stub<LyricsService>({
+      getLyrics: vi.fn<LyricsService['getLyrics']>().mockResolvedValue({
         title: 'Creep',
         artist: 'Radiohead',
         plainLyrics: 'When you were here before...',
+        instrumental: false,
         source: 'lrclib',
       }),
-    };
+    });
 
     interactions = new NowPlayingInteractions(
       mockUserRepo,
@@ -113,9 +145,9 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const mockInteraction = {
       customId: 'scrobble-ref:valid-ref:user-123',
       user: { id: 'user-123' },
-      deferReply: vi.fn().mockResolvedValue(undefined),
-      editReply: vi.fn().mockResolvedValue(undefined),
-      reply: vi.fn().mockResolvedValue(undefined),
+      deferReply: vi.fn(),
+      editReply: vi.fn(),
+      reply: vi.fn(),
     } as unknown as ButtonInteraction;
 
     await interactions.handleScrobble(mockInteraction);
@@ -137,9 +169,9 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const mockInteraction = {
       customId: `scrobble-now:${encodeURIComponent('Coldplay')}:${encodeURIComponent('Yellow')}:user-123`,
       user: { id: 'user-123' },
-      deferReply: vi.fn().mockResolvedValue(undefined),
-      editReply: vi.fn().mockResolvedValue(undefined),
-      reply: vi.fn().mockResolvedValue(undefined),
+      deferReply: vi.fn(),
+      editReply: vi.fn(),
+      reply: vi.fn(),
     } as unknown as ButtonInteraction;
 
     await interactions.handleScrobble(mockInteraction);
@@ -160,9 +192,9 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const loveInteraction = {
       customId: `love-track:${encodeURIComponent('Daft Punk')}:${encodeURIComponent('Get Lucky')}`,
       user: { id: 'user-123' },
-      deferReply: vi.fn().mockResolvedValue(undefined),
-      editReply: vi.fn().mockResolvedValue(undefined),
-      reply: vi.fn().mockResolvedValue(undefined),
+      deferReply: vi.fn(),
+      editReply: vi.fn(),
+      reply: vi.fn(),
     } as unknown as ButtonInteraction;
 
     await interactions.handleLove(loveInteraction);
@@ -175,9 +207,9 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const unloveInteraction = {
       customId: `unlove-track:${encodeURIComponent('Daft Punk')}:${encodeURIComponent('Get Lucky')}`,
       user: { id: 'user-123' },
-      deferReply: vi.fn().mockResolvedValue(undefined),
-      editReply: vi.fn().mockResolvedValue(undefined),
-      reply: vi.fn().mockResolvedValue(undefined),
+      deferReply: vi.fn(),
+      editReply: vi.fn(),
+      reply: vi.fn(),
     } as unknown as ButtonInteraction;
 
     await interactions.handleLove(unloveInteraction);
@@ -190,8 +222,8 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
   it('handles lyrics preview button', async () => {
     const lyricsInteraction = {
       customId: `track-lyrics:${encodeURIComponent('Radiohead')}:${encodeURIComponent('Creep')}:fm`,
-      deferReply: vi.fn().mockResolvedValue(undefined),
-      editReply: vi.fn().mockResolvedValue(undefined),
+      deferReply: vi.fn(),
+      editReply: vi.fn(),
     } as unknown as ButtonInteraction;
 
     await interactions.handleLyrics(lyricsInteraction);
@@ -211,12 +243,12 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
     const { TrackService } = await import('@bot/services/library/trackService');
     const { LyricsService } = await import('@bot/services/music/lyricsService');
 
-    container.registerInstance(UserRepository, mockUserRepo as any);
-    container.registerInstance('IUserRepository', mockUserRepo as any);
-    container.registerInstance(LastFmRepository, mockLastfmRepo as any);
-    container.registerInstance('ILastfmRepository', mockLastfmRepo as any);
-    container.registerInstance(TrackService, mockTrackService as any);
-    container.registerInstance(LyricsService, mockLyricsService as any);
+    container.registerInstance(UserRepository, mockUserRepo);
+    container.registerInstance('IUserRepository', mockUserRepo);
+    container.registerInstance(LastFmRepository, mockLastfmRepo);
+    container.registerInstance('ILastfmRepository', mockLastfmRepo);
+    container.registerInstance(TrackService, mockTrackService);
+    container.registerInstance(LyricsService, mockLyricsService);
 
     const resolved = container.resolve(NowPlayingInteractions);
     expect(resolved).toBeDefined();
@@ -228,18 +260,18 @@ describe('Phase 4: Interactive Component Button Handlers', () => {
 
 describe('Phase 5: Background Indexer & Autopost Worker Engine', () => {
   let autopostService: AutopostService;
-  let mockArtistsService: any;
-  let mockAlbumService: any;
-  let mockTrackService: any;
-  let mockCrownService: any;
-  let mockTelemetryService: any;
+  let mockArtistsService: ArtistsService;
+  let mockAlbumService: AlbumService;
+  let mockTrackService: TrackService;
+  let mockCrownService: CrownService;
+  let mockTelemetryService: TelemetryService;
 
   beforeEach(() => {
-    mockArtistsService = {};
-    mockAlbumService = {};
-    mockTrackService = {};
-    mockCrownService = {
-      getGuildLeaderboard: vi.fn().mockResolvedValue({
+    mockArtistsService = stub<ArtistsService>({});
+    mockAlbumService = stub<AlbumService>({});
+    mockTrackService = stub<TrackService>({});
+    mockCrownService = stub<CrownService>({
+      getGuildLeaderboard: vi.fn<CrownService['getGuildLeaderboard']>().mockResolvedValue({
         entries: [
           {
             userId: 1,
@@ -251,10 +283,10 @@ describe('Phase 5: Background Indexer & Autopost Worker Engine', () => {
         ],
         totalActiveCrowns: 42,
       }),
-    };
-    mockTelemetryService = {
-      recordCommandExecution: vi.fn(),
-    };
+    });
+    mockTelemetryService = stub<TelemetryService>({
+      recordCommandExecution: vi.fn<TelemetryService['recordCommandExecution']>(),
+    });
 
     autopostService = new AutopostService(
       mockArtistsService,
@@ -297,7 +329,7 @@ describe('Phase 5: Background Indexer & Autopost Worker Engine', () => {
 
     autopostService.setAutopost(config);
 
-    const mockSend = vi.fn().mockResolvedValue({});
+    const mockSend = vi.fn();
     const mockChannel = {
       isTextBased: () => true,
       send: mockSend,

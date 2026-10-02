@@ -1,19 +1,39 @@
 import 'reflect-metadata';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { MusicIntelligenceService } from '@bot/services/library/musicIntelligenceService';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
-import type { PrismaClient } from '@prisma/client';
+import type { GenreService } from '@bot/services/library/genreService';
 import { Logger } from '@domain/logging/logger';
 import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 
+/**
+ * The collaborator surface this suite drives.
+ *
+ * `Mocked<PrismaClient>` cannot describe these: Prisma's delegates are not
+ * plain `vi.fn()` objects, so the real types carry no `mockResolvedValue`, and
+ * the real client has 27 members this service never touches. Naming only what
+ * production reads keeps an upstream change a compile error here.
+ */
+type PrismaDouble = {
+  $queryRawUnsafe: Mock<(sql: string) => Promise<unknown[]>>;
+  artist: { findMany: Mock<(args: unknown) => Promise<unknown[]>> };
+  guildUser: { findMany: Mock<(args: unknown) => Promise<unknown[]>> };
+  userArtist: {
+    findMany: Mock<(args: { where?: { userId?: unknown } }) => Promise<unknown[]>>;
+  };
+};
+type CountryServiceDouble = {
+  getTopCountriesForTopArtists: Mock<(args: unknown) => Promise<unknown[]>>;
+};
+
 describe('MusicIntelligenceService', () => {
   let service: MusicIntelligenceService;
-  let mockPrisma: any;
-  let mockCountryService: any;
+  let mockPrisma: PrismaDouble;
+  let mockCountryService: CountryServiceDouble;
   // Built but never injected - see the note in the quality review.
   let _mockLastfmRepo: Partial<ILastfmRepository>;
   // Built but never injected - see the note in the quality review.
-  let _mockGenreService: any;
+  let _mockGenreService: Partial<GenreService>;
 
   beforeEach(() => {
     _mockLastfmRepo = {
@@ -50,12 +70,12 @@ describe('MusicIntelligenceService', () => {
     };
 
     mockCountryService = {
-      getTopCountriesForTopArtists: vi.fn().mockResolvedValue([
+      getTopCountriesForTopArtists: vi.fn<(args: { where?: { userId?: unknown } }) => Promise<unknown[]>>().mockResolvedValue([
         { countryCode: 'gb', countryName: 'United Kingdom', playcount: 120 },
       ]),
     };
 
-    service = new MusicIntelligenceService(mockPrisma as PrismaClient, mockCountryService);
+    service = new MusicIntelligenceService(mockPrisma as never, mockCountryService as never);
   });
 
   // The failure tests below spy on `Logger.error`. A spy left in place on a shared
@@ -263,7 +283,7 @@ describe('MusicIntelligenceService', () => {
           },
         ]),
       );
-      mockPrisma.userArtist.findMany.mockImplementation((args: { where?: { userId?: unknown } }) => {
+      mockPrisma.userArtist.findMany.mockImplementation(((args: { where?: { userId?: unknown } }) => {
         const target = typeof args?.where?.userId === 'number';
         if (target && breakRead === 'targetArtists') return Promise.reject(DB_DOWN());
         if (!target && breakRead === 'guildArtists') return Promise.reject(DB_DOWN());
@@ -272,7 +292,7 @@ describe('MusicIntelligenceService', () => {
             ? [{ name: 'Radiohead', playcount: 500 }]
             : [{ userId: 2, name: 'Radiohead', playcount: 400 }],
         );
-      });
+      }));
       mockPrisma.artist.findMany.mockImplementation(() =>
         breakRead === 'enrichment' ? Promise.reject(DB_DOWN()) : Promise.resolve([]),
       );

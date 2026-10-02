@@ -34,13 +34,13 @@ describe('SpotifyScraperService html fallback', () => {
         duration: 135053,
       },
     ]);
-    vi.spyOn(globalThis, 'fetch').mockImplementation((async (input: any) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.startsWith('https://open.spotify.com/')) {
         return { ok: true, status: 200, text: async () => page } as Response;
       }
       return { ok: false, status: 403 } as Response;
-    }) as any);
+    });
     const svc = new SpotifyScraperService();
     const res = await svc.fetchPlaylistPage('73VZK7BqgCVuZr5Z3rv40k', 0, 100);
     expect(res?.tracks[0]?.spotifyUri).toBe('spotify:track:4mF0aVVHtmHQSIdem2Wh0g');
@@ -49,13 +49,13 @@ describe('SpotifyScraperService html fallback', () => {
 
   it('leaves spotifyUri undefined when the embed item has no uri', async () => {
     const page = htmlPage([{ title: 'Mystery', subtitle: 'Nobody', duration: 180000 }]);
-    vi.spyOn(globalThis, 'fetch').mockImplementation((async (input: any) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.startsWith('https://open.spotify.com/')) {
         return { ok: true, status: 200, text: async () => page } as Response;
       }
       return { ok: false, status: 403 } as Response;
-    }) as any);
+    });
     const svc = new SpotifyScraperService();
     const res = await svc.fetchPlaylistPage('xyz', 0, 100);
     expect(res?.tracks[0]?.spotifyUri).toBeUndefined();

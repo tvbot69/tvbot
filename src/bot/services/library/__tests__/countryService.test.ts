@@ -53,7 +53,7 @@ import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableErro
  */
 
 describe('CountryService', () => {
-  const mockPrisma: any = {
+  const mockPrisma = {
     artist: {
       findMany: async () => [],
       findFirst: async () => null,
@@ -62,17 +62,17 @@ describe('CountryService', () => {
     $queryRaw: async () => [],
   };
 
-  const mockMusicBrainzService: any = {
+  const mockMusicBrainzService = {
     getArtistData: async () => null,
   };
 
-  const mockCache: any = {
+  const mockCache = {
     get: async () => undefined,
     set: async () => undefined,
   };
 
   it('loads countries and maps country codes', () => {
-    const service = new CountryService(mockPrisma, mockMusicBrainzService, mockCache);
+    const service = new CountryService(mockPrisma as never, mockMusicBrainzService as never, mockCache as never);
     expect(service.countries.length).toBeGreaterThan(0);
 
     const us = service.getCountryByCode('US');
@@ -85,7 +85,7 @@ describe('CountryService', () => {
   });
 
   it('searches countries by name, code, or alias', () => {
-    const service = new CountryService(mockPrisma, mockMusicBrainzService, mockCache);
+    const service = new CountryService(mockPrisma as never, mockMusicBrainzService as never, mockCache as never);
 
     const japan = service.searchCountry('japan');
     expect(japan?.Code).toBe('JP');
@@ -106,7 +106,7 @@ describe('CountryService', () => {
   });
 
   it('aggregates top countries for top artists', async () => {
-    const service = new CountryService(mockPrisma, mockMusicBrainzService, mockCache);
+    const service = new CountryService(mockPrisma as never, mockMusicBrainzService as never, mockCache as never);
 
     const topArtists = [
       { name: 'Radiohead', playcount: 500 }, // UK seed

@@ -3,6 +3,21 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ArtworkService, matchesArtistName, matchesTrackTitle, sanitizeMusicName, stripChannelSuffix } from '@bot/services/media/artworkService';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
+import type { DeezerTrack } from '@deezer/models/deezerModels';
+import type { SpotifySearchAlbum, SpotifySearchArtist, SpotifySearchTrack } from '@spotify/models/spotifyModels';
+
+/**
+ * Minimal provider fixtures, typed by the surface the cascade READS rather
+   * than by the full provider DTO. TrackInfoResponseLfm and
+   * SpotifySearchTrack carry dozens of required members these fixtures
+   * deliberately omit - a row only needs an image url to be routed - so typing
+   * the doubles as the whole DTO would assert a shape no test provides and no
+   * production branch depends on.
+   */
+  type ImageRow = { url: string; height?: number | null; width?: number | null };
+  type TrackInfoFixture = { album?: { images: ImageRow[] } };
+
+
 
 describe('matcher name normalization', () => {
   it('folds diacritics in stylized artist and title names', () => {
@@ -200,8 +215,8 @@ describe('negative-cache semantics (definitive vs inconclusive misses)', () => {
   };
 
   const makeTrackArt = (
-    spotifyImpl: () => Promise<any[]>,
-    opts: { cache?: ReturnType<typeof memCache>; deezerImpl?: () => Promise<any[]> } = {},
+    spotifyImpl: () => Promise<SpotifySearchTrack[]>,
+    opts: { cache?: ReturnType<typeof memCache>; deezerImpl?: () => Promise<DeezerTrack[]> } = {},
   ) => {
     const cache = opts.cache ?? memCache();
     const service = new ArtworkService(
@@ -256,7 +271,7 @@ describe('negative-cache semantics (definitive vs inconclusive misses)', () => {
     let calls = 0;
     const { service } = makeTrackArt(async () => {
       calls++;
-      return [{ artists: [{ name: 'Mond' }], name: 'Esme', album: { images: [{ url: 'https://img.test/hit.jpg' }] } }];
+      return [{ id: '1', uri: 'spotify:track:1', artists: [{ name: 'Mond' }], name: 'Esme', album: { images: [{ url: 'https://img.test/hit.jpg', height: 640, width: 640 }] } }];
     });
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBe('https://img.test/hit.jpg');
     await expect(service.getTrackCoverUrl('Esme', 'Mond')).resolves.toBe('https://img.test/hit.jpg');
@@ -276,7 +291,7 @@ describe('getTrackCoverBySpotifyId', () => {
     };
   };
 
-  const makeById = (getTrackImpl: () => Promise<any>, cache = memCache()) => {
+  const makeById = (getTrackImpl: () => Promise<TrackInfoFixture | null>, cache = memCache()) => {
     const getTrack = vi.fn(getTrackImpl);
     const service = new ArtworkService(
       { getTrack, searchTracks: async () => [], searchAlbums: async () => [], searchArtists: async () => [] } as never,
@@ -303,7 +318,7 @@ describe('getTrackCoverBySpotifyId', () => {
 
   it('returns exact art and caches it (no refetch)', async () => {
     const { service, getTrack } = makeById(async () => ({
-      album: { images: [{ url: 'https://img.test/exact.jpg', height: 640 }] },
+      album: { images: [{ url: 'https://img.test/exact.jpg', height: 640, width: 640 }] },
     }));
     await expect(service.getTrackCoverBySpotifyId('4mF0aVVHtmHQSIdem2Wh0g')).resolves.toBe(
       'https://img.test/exact.jpg',
@@ -401,12 +416,12 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
   };
 
   interface HarnessOpts {
-    spotifyTracks?: () => Promise<any[]>;
-    spotifyAlbums?: () => Promise<any[]>;
-    spotifyArtists?: () => Promise<any[]>;
-    lastFmTrackInfo?: () => Promise<any>;
-    lastFmAlbumInfo?: () => Promise<any>;
-    getArtistByName?: () => Promise<any>;
+    spotifyTracks?: () => Promise<SpotifySearchTrack[]>;
+    spotifyAlbums?: () => Promise<SpotifySearchAlbum[]>;
+    spotifyArtists?: () => Promise<SpotifySearchArtist[]>;
+    lastFmTrackInfo?: () => Promise<TrackInfoFixture | null>;
+    lastFmAlbumInfo?: () => Promise<TrackInfoFixture | null>;
+    getArtistByName?: () => Promise<unknown>;
     tracker?: { isElevated: () => boolean };
   }
 
@@ -453,15 +468,21 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
   });
 
   it('shares one cascade between concurrent lookups of the same track', async () => {
-    let resolveSpotify!: (v: any[]) => void;
-    const gate = new Promise<any[]>((resolve) => {
+    let resolveSpotify!: (v: SpotifySearchTrack[]) => void;
+    const gate = new Promise<SpotifySearchTrack[]>((resolve) => {
       resolveSpotify = resolve;
     });
     const { service, calls } = makeResilient({ spotifyTracks: () => gate });
     const p1 = service.getTrackCoverUrl('Esme', 'Mond');
     const p2 = service.getTrackCoverUrl('Esme', 'Mond');
     resolveSpotify([
-      { artists: [{ name: 'Mond' }], name: 'Esme', album: { images: [{ url: 'https://img.test/hit.jpg' }] } },
+      {
+        id: '1',
+        uri: 'spotify:track:1',
+        artists: [{ name: 'Mond' }],
+        name: 'Esme',
+        album: { images: [{ url: 'https://img.test/hit.jpg', height: 640, width: 640 }] },
+      },
     ]);
     await expect(p1).resolves.toBe('https://img.test/hit.jpg');
     await expect(p2).resolves.toBe('https://img.test/hit.jpg');
@@ -469,12 +490,12 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
   });
 
   it('a lookup joining a shared album cascade never caches a definitive none', async () => {
-    let resolveAlbums!: (v: any[]) => void;
-    const gate = new Promise<any[]>((resolve) => {
+    let resolveAlbums!: (v: SpotifySearchAlbum[]) => void;
+    const gate = new Promise<SpotifySearchTrack[]>((resolve) => {
       resolveAlbums = resolve;
     });
     const { service, cache } = makeResilient({
-      lastFmTrackInfo: async () => ({ albumName: 'Homework' }),
+      lastFmTrackInfo: async () => ({ albumName: 'Homework' } as unknown as TrackInfoFixture),
       spotifyAlbums: () => gate,
     });
     const p1 = service.getTrackCoverUrl('Esme', 'Mond');
@@ -496,7 +517,7 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
         throw new Error('db down');
       },
       spotifyAlbums: async () => [
-        { artists: [{ name: 'Daft Punk' }], images: [{ url: 'https://img.test/album.jpg', height: 640 }] },
+        { artists: [{ name: 'Daft Punk' }], images: [{ url: 'https://img.test/album.jpg', height: 640 }] } as unknown as SpotifySearchAlbum,
       ],
     });
     await expect(service.getAlbumCoverUrl('Homework', 'Daft Punk')).resolves.toBe('https://img.test/album.jpg');
@@ -506,7 +527,7 @@ describe('cascade resilience (single-flight, DB containment, outage gate)', () =
         throw new Error('db down');
       },
       spotifyArtists: async () => [
-        { name: 'Kanye West', images: [{ url: 'https://img.test/kanye.jpg', height: 640 }] },
+        { name: 'Kanye West', images: [{ url: 'https://img.test/kanye.jpg', height: 640 }] } as unknown as SpotifySearchArtist,
       ],
     });
     await expect(artistSvc.getArtistImageUrl('Kanye West')).resolves.toBe('https://img.test/kanye.jpg');

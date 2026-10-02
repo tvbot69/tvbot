@@ -7,26 +7,73 @@ import { TrackCommands } from '@bot/textCommands/lastfm/trackCommands';
 import { LoginCommands } from '@bot/textCommands/lastfm/loginCommands';
 import { ContextModel } from '@bot/models/contextModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { TelemetryService } from '@bot/services/system/telemetryService';
+import { CrownService } from '@bot/services/crown/crownService';
+import { UserService } from '@bot/services/user/userService';
+import { LoginService } from '@bot/services/user/loginService';
+import { PrefixService } from '@bot/services/user/prefixService';
+import { UpdateService } from '@bot/services/lastfm/updateService';
+import { GuildService } from '@bot/services/guild/guildService';
+import { GuildAdminService } from '@bot/services/guild/guildAdminService';
+import { GuildDisabledCommandService } from '@bot/services/guild/guildDisabledCommandService';
+import { ComponentInteractionTracker } from '@bot/services/system/componentInteractionTracker';
+import { UserType, DataSource } from '@persistence/models/user';
+import { PrivacyLevel } from '@domain/enums/privacyLevel';
+import type { ArtistsService } from '@bot/services/library/artistsService';
+import type { AlbumService } from '@bot/services/library/albumService';
+import type { TrackService } from '@bot/services/library/trackService';
+import type { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
+import type { LyricsService } from '@bot/services/music/lyricsService';
+import type { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
+import type { User } from '@domain/interfaces/ports/iuserRepository';
+
+/**
+ * Typed partial double for a class-shaped dependency.
+ *
+ * `Partial<T>` carries the REAL signature of every member the test supplies, so a
+ * production signature change breaks this file at compile time instead of letting a
+ * mis-shaped `any` double keep passing. Members the test does not supply stay ABSENT,
+ * so production reaching for one throws instead of silently reading `undefined` off an
+ * unconstrained object. Duplicated verbatim from `oauthActions.test.ts` because a
+ * shared helper module would be scored as production source by `count-debt.ts`
+ * (it only skips `*.test.ts`).
+ */
+const stub = <T>(partial: Partial<T>): T => partial as T;
+
+/** A complete `User`: `getUserByDiscordId` returns `User | null`, not a loose shape. */
+const user = (over: Partial<User> = {}): User => ({
+  userId: 1,
+  discordUserId: '111',
+  userNameLastFm: 'tester',
+  registeredOn: new Date('2024-01-01T00:00:00Z'),
+  userType: UserType.User,
+  dataSource: DataSource.LastFm,
+  privacyLevel: PrivacyLevel.Default,
+  ...over,
+});
 
 describe('New Features Suite', () => {
   describe('AutopostService & AutopostCommands', () => {
     let autopostService: AutopostService;
-    let mockArtistsService: any;
-    let mockAlbumService: any;
-    let mockTrackService: any;
-    let mockCrownService: any;
-    let mockTelemetryService: any;
+    let mockArtistsService: ArtistsService;
+    let mockAlbumService: AlbumService;
+    let mockTrackService: TrackService;
+    let mockCrownService: CrownService;
+    let mockTelemetryService: TelemetryService;
 
     beforeEach(() => {
-      mockArtistsService = {};
-      mockAlbumService = {};
-      mockTrackService = {};
-      mockCrownService = {
-        getGuildLeaderboard: vi.fn().mockResolvedValue({ entries: [], totalActiveCrowns: 0 }),
-      };
-      mockTelemetryService = {
-        recordCommandExecution: vi.fn(),
-      };
+      mockArtistsService = stub<ArtistsService>({});
+      mockAlbumService = stub<AlbumService>({});
+      mockTrackService = stub<TrackService>({});
+      mockCrownService = stub<CrownService>({
+        getGuildLeaderboard: vi.fn<CrownService['getGuildLeaderboard']>().mockResolvedValue({
+          entries: [],
+          totalActiveCrowns: 0,
+        }),
+      });
+      mockTelemetryService = stub<TelemetryService>({
+        recordCommandExecution: vi.fn<TelemetryService['recordCommandExecution']>(),
+      });
 
       autopostService = new AutopostService(
         mockArtistsService,
@@ -86,31 +133,31 @@ describe('New Features Suite', () => {
 
   describe('Crown Moderation Commands', () => {
     let crownCommands: CrownCommands;
-    let mockUserService: any;
-    let mockCrownService: any;
-    let mockLastfmRepo: any;
-    let mockArtistsService: any;
-    let mockUpdateService: any;
+    let mockUserService: UserService;
+    let mockCrownService: CrownService;
+    let mockLastfmRepo: LastFmRepository;
+    let mockArtistsService: ArtistsService;
+    let mockUpdateService: UpdateService;
 
     beforeEach(() => {
-      mockUserService = {
-        getUserByDiscordId: vi.fn().mockResolvedValue({ userId: 1, userNameLastFm: 'tester', discordUserId: '111' }),
-        getUserByLastFmName: vi.fn().mockResolvedValue({ userId: 1, userNameLastFm: 'tester', discordUserId: '111' }),
-      };
-      mockCrownService = {
-        killCrown: vi.fn().mockResolvedValue(true),
-        removeUserCrowns: vi.fn().mockResolvedValue(5),
-        setCrownBlock: vi.fn().mockResolvedValue(undefined),
-        getBlockedCrownUsers: vi.fn().mockResolvedValue([
+      mockUserService = stub<UserService>({
+        getUserByDiscordId: vi.fn<UserService['getUserByDiscordId']>().mockResolvedValue(user()),
+        getUserByLastFmName: vi.fn<UserService['getUserByLastFmName']>().mockResolvedValue(user()),
+      });
+      mockCrownService = stub<CrownService>({
+        killCrown: vi.fn<CrownService['killCrown']>().mockResolvedValue(true),
+        removeUserCrowns: vi.fn<CrownService['removeUserCrowns']>().mockResolvedValue(5),
+        setCrownBlock: vi.fn<CrownService['setCrownBlock']>().mockResolvedValue(undefined),
+        getBlockedCrownUsers: vi.fn<CrownService['getBlockedCrownUsers']>().mockResolvedValue([
           { userId: 1, userNameLastFm: 'tester', discordUserId: '111' },
         ]),
-        setCrownRole: vi.fn().mockResolvedValue(undefined),
-        getCrownRoles: vi.fn().mockResolvedValue(['999']),
-        killAllCrowns: vi.fn().mockResolvedValue(10),
-      };
-      mockLastfmRepo = {};
-      mockArtistsService = {};
-      mockUpdateService = {};
+        setCrownRole: vi.fn<CrownService['setCrownRole']>().mockResolvedValue(undefined),
+        getCrownRoles: vi.fn<CrownService['getCrownRoles']>().mockResolvedValue(['999']),
+        killAllCrowns: vi.fn<CrownService['killAllCrowns']>().mockResolvedValue(10),
+      });
+      mockLastfmRepo = stub<LastFmRepository>({});
+      mockArtistsService = stub<ArtistsService>({});
+      mockUpdateService = stub<UpdateService>({});
 
       crownCommands = new CrownCommands(
         mockUserService,
@@ -123,8 +170,8 @@ describe('New Features Suite', () => {
 
     const createAdminContext = (guildId = '123') => {
       const ctx = new ContextModel();
-      ctx.guildId = guildId as any;
-      ctx.discordUserId = '111' as any;
+      ctx.guildId = guildId;
+      ctx.discordUserId = '111';
       ctx.prefix = '.';
       // mock admin
       Object.defineProperty(ctx, 'userIsGuildAdmin', { get: () => true });
@@ -200,26 +247,26 @@ describe('New Features Suite', () => {
 
   describe('Guild Admin Prefix & Command Toggles', () => {
     let guildAdminCommands: GuildAdminCommands;
-    let mockGuildService: any;
-    let mockGuildAdminService: any;
-    let mockUserService: any;
-    let mockPrefixService: any;
-    let mockGuildDisabledCommandService: any;
+    let mockGuildService: GuildService;
+    let mockGuildAdminService: GuildAdminService;
+    let mockUserService: UserService;
+    let mockPrefixService: PrefixService;
+    let mockGuildDisabledCommandService: GuildDisabledCommandService;
 
     beforeEach(() => {
-      mockGuildService = { getGuild: vi.fn() };
-      mockGuildAdminService = {};
-      mockUserService = {};
-      mockPrefixService = {
-        getPrefix: vi.fn().mockResolvedValue('!'),
-        setPrefix: vi.fn().mockResolvedValue(undefined),
-      };
-      mockGuildDisabledCommandService = {
-        isCommandDisabled: vi.fn().mockResolvedValue(false),
-        addDisabledCommand: vi.fn().mockResolvedValue(undefined),
-        removeDisabledCommand: vi.fn().mockResolvedValue(undefined),
-        getDisabledCommands: vi.fn().mockResolvedValue(['ping']),
-      };
+      mockGuildService = stub<GuildService>({ getGuild: vi.fn<GuildService['getGuild']>() });
+      mockGuildAdminService = stub<GuildAdminService>({});
+      mockUserService = stub<UserService>({});
+      mockPrefixService = stub<PrefixService>({
+        getPrefix: vi.fn<PrefixService['getPrefix']>().mockResolvedValue('!'),
+        setPrefix: vi.fn<PrefixService['setPrefix']>().mockResolvedValue(undefined),
+      });
+      mockGuildDisabledCommandService = stub<GuildDisabledCommandService>({
+        isCommandDisabled: vi.fn<GuildDisabledCommandService['isCommandDisabled']>().mockResolvedValue(false),
+        addDisabledCommand: vi.fn<GuildDisabledCommandService['addDisabledCommand']>().mockResolvedValue(undefined),
+        removeDisabledCommand: vi.fn<GuildDisabledCommandService['removeDisabledCommand']>().mockResolvedValue(undefined),
+        getDisabledCommands: vi.fn<GuildDisabledCommandService['getDisabledCommands']>().mockResolvedValue(['ping']),
+      });
 
       guildAdminCommands = new GuildAdminCommands(
         mockGuildService,
@@ -232,8 +279,8 @@ describe('New Features Suite', () => {
 
     const createAdminContext = (guildId = '123') => {
       const ctx = new ContextModel();
-      ctx.guildId = guildId as any;
-      ctx.discordUserId = '111' as any;
+      ctx.guildId = guildId;
+      ctx.discordUserId = '111';
       ctx.prefix = '!';
       Object.defineProperty(ctx, 'userIsGuildAdmin', { get: () => true });
       return ctx;
@@ -263,33 +310,34 @@ describe('New Features Suite', () => {
 
   describe('Standalone Lyrics Command', () => {
     let trackCommands: TrackCommands;
-    let mockUserService: any;
-    let mockTrackService: any;
-    let mockTrackDetailsService: any;
-    let mockLastfmRepository: any;
-    let mockUpdateService: any;
-    let mockLyricsService: any;
+    let mockUserService: UserService;
+    let mockTrackService: TrackService;
+    let mockTrackDetailsService: TrackDetailsService;
+    let mockLastfmRepository: LastFmRepository;
+    let mockUpdateService: UpdateService;
+    let mockLyricsService: LyricsService;
 
     beforeEach(() => {
-      mockUserService = {
-        getUserByDiscordId: vi.fn().mockResolvedValue({ userId: 1, userNameLastFm: 'tester' }),
-      };
-      mockTrackService = {};
-      mockTrackDetailsService = {};
-      mockLastfmRepository = {
-        getUserRecentTracks: vi.fn().mockResolvedValue([
-          { name: 'Paranoid Android', artistName: 'Radiohead' },
+      mockUserService = stub<UserService>({
+        getUserByDiscordId: vi.fn<UserService['getUserByDiscordId']>().mockResolvedValue(user()),
+      });
+      mockTrackService = stub<TrackService>({});
+      mockTrackDetailsService = stub<TrackDetailsService>({});
+      mockLastfmRepository = stub<LastFmRepository>({
+        getUserRecentTracks: vi.fn<LastFmRepository['getUserRecentTracks']>().mockResolvedValue([
+          { name: 'Paranoid Android', artistName: 'Radiohead', albumName: 'OK Computer', nowPlaying: false },
         ]),
-      };
-      mockUpdateService = {};
-      mockLyricsService = {
-        getLyrics: vi.fn().mockResolvedValue({
+      });
+      mockUpdateService = stub<UpdateService>({});
+      mockLyricsService = stub<LyricsService>({
+        getLyrics: vi.fn<LyricsService['getLyrics']>().mockResolvedValue({
           title: 'Paranoid Android',
           artist: 'Radiohead',
           plainLyrics: 'Please could you stop the noise...',
+          instrumental: false,
           source: 'lrclib',
         }),
-      };
+      });
 
       trackCommands = new TrackCommands(
         mockUserService,
@@ -304,7 +352,7 @@ describe('New Features Suite', () => {
     it('fetches lyrics for query', async () => {
       const cmd = trackCommands.commands.find((c) => c.name === 'lyric')!;
       const ctx = new ContextModel();
-      ctx.discordUserId = '111' as any;
+      ctx.discordUserId = '111';
       const res = await cmd.executeAsync(ctx, ['Radiohead - Paranoid Android']);
       expect(res.commandResponse).toBe(CommandResponse.Ok);
       expect(mockLyricsService.getLyrics).toHaveBeenCalledWith('Paranoid Android', 'Radiohead');
@@ -314,7 +362,7 @@ describe('New Features Suite', () => {
     it('fetches lyrics for now playing if no query provided', async () => {
       const cmd = trackCommands.commands.find((c) => c.name === 'lyric')!;
       const ctx = new ContextModel();
-      ctx.discordUserId = '111' as any;
+      ctx.discordUserId = '111';
       const res = await cmd.executeAsync(ctx, []);
       expect(res.commandResponse).toBe(CommandResponse.Ok);
       expect(mockLastfmRepository.getUserRecentTracks).toHaveBeenCalledWith('tester', 1, 1, undefined, undefined);
@@ -324,17 +372,19 @@ describe('New Features Suite', () => {
 
   describe('Account Unlink / Removal', () => {
     let loginCommands: LoginCommands;
-    let mockLoginService: any;
-    let mockUserService: any;
-    let mockComponentTracker: any;
+    let mockLoginService: LoginService;
+    let mockUserService: UserService;
+    let mockComponentTracker: ComponentInteractionTracker;
 
     beforeEach(() => {
-      mockLoginService = {};
-      mockUserService = {
-        getUserByDiscordId: vi.fn().mockResolvedValue({ userId: 1, userNameLastFm: 'tester' }),
-        removeUser: vi.fn().mockResolvedValue(true),
-      };
-      mockComponentTracker = { register: vi.fn() };
+      mockLoginService = stub<LoginService>({});
+      mockUserService = stub<UserService>({
+        getUserByDiscordId: vi.fn<UserService['getUserByDiscordId']>().mockResolvedValue(user()),
+        removeUser: vi.fn<UserService['removeUser']>().mockResolvedValue(true),
+      });
+      mockComponentTracker = stub<ComponentInteractionTracker>({
+        register: vi.fn<ComponentInteractionTracker['register']>(),
+      });
 
       loginCommands = new LoginCommands(
         mockLoginService,
@@ -346,7 +396,7 @@ describe('New Features Suite', () => {
     it('asks for confirmation before removing account', async () => {
       const cmd = loginCommands.commands.find((c) => c.name === 'unlink')!;
       const ctx = new ContextModel();
-      ctx.discordUserId = '111' as any;
+      ctx.discordUserId = '111';
       ctx.prefix = '.';
       const res = await cmd.executeAsync(ctx, []);
       expect(res.embed.data.title).toContain('Account Deletion');
@@ -357,7 +407,7 @@ describe('New Features Suite', () => {
     it('deletes account when confirmed', async () => {
       const cmd = loginCommands.commands.find((c) => c.name === 'unlink')!;
       const ctx = new ContextModel();
-      ctx.discordUserId = '111' as any;
+      ctx.discordUserId = '111';
       ctx.prefix = '.';
       const res = await cmd.executeAsync(ctx, ['confirm']);
       expect(res.commandResponse).toBe(CommandResponse.Ok);

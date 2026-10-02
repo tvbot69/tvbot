@@ -14,10 +14,39 @@ import { MusicService } from '@bot/services/music/musicService';
 
 const track = (id: string) => ({ identifier: id, title: id, encoded: `enc-${id}` });
 
-const makePlayer = (currentId: string | null, queueIds: string[] = []) => {
-  const player: any = {
+/**
+ * The moonlink surface this double implements. Every member is one production
+ * reads (`musicService` shuffle/remove/clear, `queueService`), so a rename or
+ * signature change upstream is a compile error here instead of a double that
+ * quietly stops modelling it.
+ */
+type MockTrack = { identifier: string; title: string; encoded: string };
+
+type MockQueue = {
+  tracks: MockTrack[];
+  readonly all: MockTrack[];
+  readonly size: number;
+  readonly isEmpty: boolean;
+  shuffle(): boolean;
+  clear(): boolean;
+  removeRange(start: number, end: number): boolean;
+  remove(index: number): MockTrack | undefined;
+  insert(index: number, t: MockTrack): boolean;
+  unshift(t: MockTrack): void;
+  shift(): MockTrack | undefined;
+};
+
+type MockPlayer = {
+  current: MockTrack | null;
+  previous: MockTrack[];
+  queue: MockQueue;
+  skip(): Promise<boolean>;
+};
+
+const makePlayer = (currentId: string | null, queueIds: string[] = []): MockPlayer => {
+  const player: MockPlayer = {
     current: currentId ? track(currentId) : null,
-    previous: [] as unknown[],
+    previous: [],
     queue: {
       tracks: queueIds.map(track),
       get all() {
@@ -29,36 +58,42 @@ const makePlayer = (currentId: string | null, queueIds: string[] = []) => {
       get isEmpty() {
         return this.tracks.length === 0;
       },
-      shuffle: vi.fn(function (this: any) {
+      // Invoked as `player.queue.shuffle()`, so `this` is the queue.
+      shuffle: vi.fn(function (this: MockQueue) {
         for (let i = this.tracks.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
-          [this.tracks[i], this.tracks[j]] = [this.tracks[j], this.tracks[i]];
+          // Both indices are in range by construction; the assertions only
+          // satisfy `noUncheckedIndexedAccess`.
+          const a = this.tracks[i]!;
+          const b = this.tracks[j]!;
+          this.tracks[i] = b;
+          this.tracks[j] = a;
         }
         return true;
       }),
-      clear: vi.fn(function (this: any) {
+      clear: vi.fn(function (this: MockQueue) {
         this.tracks.length = 0;
         return true;
       }),
-      removeRange(start: number, end: number) {
+      removeRange(start, end) {
         this.tracks.splice(start, end - start + 1);
         return true;
       },
-      remove(index: number) {
+      remove(index) {
         return this.tracks.splice(index, 1)[0];
       },
-      insert(index: number, t: { identifier: string; title: string; encoded: string }) {
+      insert(index, t) {
         this.tracks.splice(index, 0, t);
         return true;
       },
-      unshift(t: { identifier: string; title: string; encoded: string }) {
+      unshift(t) {
         this.tracks.unshift(t);
       },
       shift() {
         return this.tracks.shift();
       },
     },
-    skip: vi.fn(async function (this: any) {
+    skip: vi.fn(async function (this: MockPlayer) {
       const next = this.queue.shift();
       if (!next) return false;
       if (this.current) this.previous.push(this.current);
@@ -69,7 +104,7 @@ const makePlayer = (currentId: string | null, queueIds: string[] = []) => {
   return player;
 };
 
-const makeService = (player: any, queueService: any = {}) =>
+const makeService = (player: MockPlayer | null, queueService: unknown = {}) =>
   new MusicService(
     { getManager: () => ({ players: { get: () => player } }) } as never,
     {} as never,

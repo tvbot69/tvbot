@@ -1,10 +1,55 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { VoiceChannel } from 'discord.js';
+import type { Player, Track } from 'moonlink.js';
 import { MusicHandler } from '@bot/handlers/music/musicHandler';
 import { MusicService, playErrorMessage, MAX_QUEUE_TRACKS } from '@bot/services/music/musicService';
 import { SpotifyResolver } from '@bot/services/music/spotifyResolver';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
+
+/**
+ * The listener signatures `MusicEventListeners.register()` hands to Moonlink
+ * (`musicEventListeners.ts:102-113`), copied rather than inferred from a double.
+ *
+ * `track` is nullable on the two failure events because both handlers guard
+ * `if (!track)` (`musicEventListeners.ts:400` and `:570`): Moonlink emits them
+ * after the player already advanced, and that late-failure path is what the
+ * "null-track events" block below exists to pin.
+ */
+type CapturedEvents = {
+  trackStart: (player: Player, track: Track) => Promise<void>;
+  trackEnd: (player: Player, track: Track, reason: string) => void;
+  trackStuck: (player: Player, track: Track | null, threshold: number) => Promise<void>;
+  trackException: (player: Player, track: Track | null, exception: unknown) => Promise<void>;
+  queueEnd: (player: Player) => void;
+  playerDestroy: (player: Player) => Promise<void>;
+  playerTriggeredSeek: (player: Player, position: number) => void;
+};
+
+/** What `captureHandlers` collects: the callbacks registered, keyed by event. */
+type CapturedHandlers = { [K in keyof CapturedEvents]?: CapturedEvents[K] };
+
+/**
+ * The `manager.on` recorder. Generic in the event name so a registration whose
+ * signature changes stops compiling here instead of silently landing in a map
+ * that accepts anything.
+ */
+const makeOnRecorder =
+  (handlers: CapturedHandlers) =>
+  <K extends keyof CapturedEvents>(event: K, cb: CapturedEvents[K]): void => {
+    handlers[event] = cb;
+  };
+
+/**
+ * Moonlink's `Track` carries a private field, so it is nominally typed and no
+ * object literal can satisfy it. One named helper keeps that single cast
+ * greppable; everything downstream of it is still checked against the real
+ * `Track` and the real listener signatures.
+ */
+const trackOf = (fields: object): Track => fields as unknown as Track;
+
+/** Moonlink's `Player` is likewise nominal; the doubles are genuine partials. */
+const playerOf = (fields: object): Player => fields as unknown as Player;
 
 const makeHandler = () => {
   const manager = { on: vi.fn(), players: { get: () => undefined } };
@@ -149,12 +194,10 @@ describe('resolvePlaylistTrack (ladder)', () => {
 });
 
 describe('null-track events (late failures after advancement)', () => {
-  const captureHandlers = () => {
-    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+  const captureHandlers = (): CapturedHandlers => {
+    const handlers: CapturedHandlers = {};
     const manager = {
-      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
-        handlers.set(event, cb);
-      }),
+      on: vi.fn(makeOnRecorder(handlers)),
       players: { get: () => undefined },
     };
     const client = { on: vi.fn(), channels: { cache: new Map() } };
@@ -166,26 +209,26 @@ describe('null-track events (late failures after advancement)', () => {
     return handlers;
   };
 
-  const deadPlayer = () =>
-    ({
+  const deadPlayer = (): Player =>
+    playerOf({
       guildId: 'g9',
       current: null,
       queue: { unshift: vi.fn(), size: 0, isEmpty: true },
       skip: vi.fn(async () => true),
       playing: false,
       paused: false,
-    }) as never;
+    });
 
   it('trackException with null track does not throw and does not search', async () => {
     const handlers = captureHandlers();
-    const onException = handlers.get('trackException');
+    const onException = handlers.trackException;
     expect(onException).toBeDefined();
     await expect(onException!(deadPlayer(), null, { message: 'late failure' })).resolves.toBeUndefined();
   });
 
   it('trackStuck with null track does not throw', async () => {
     const handlers = captureHandlers();
-    const onStuck = handlers.get('trackStuck');
+    const onStuck = handlers.trackStuck;
     expect(onStuck).toBeDefined();
     await expect(onStuck!(deadPlayer(), null, 10000)).resolves.toBeUndefined();
   });
@@ -193,11 +236,9 @@ describe('null-track events (late failures after advancement)', () => {
 
 describe('song-identity circuit breaker', () => {
   const captureHandlers = () => {
-    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const handlers: CapturedHandlers = {};
     const manager = {
-      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
-        handlers.set(event, cb);
-      }),
+      on: vi.fn(makeOnRecorder(handlers)),
       players: { get: () => undefined },
       search: vi.fn(async () => ({ tracks: [{ identifier: 'alt-1', duration: 174000 }] })),
     };
@@ -210,9 +251,9 @@ describe('song-identity circuit breaker', () => {
     return { handlers, manager };
   };
 
-  const livePlayer = (): any => {
+  const livePlayer = (): Player => {
     const data = new Map<string, unknown>();
-    return {
+    return playerOf({
       guildId: 'g-song',
       current: { identifier: 'v1', encoded: 'enc-v1', uri: 'u1', title: 'Stormi Daniels', author: 'Rich Amiri', duration: 200000 },
       queue: { unshift: vi.fn(), size: 1, isEmpty: false },
@@ -222,33 +263,31 @@ describe('song-identity circuit breaker', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as never;
+    });
   };
 
   it('abandons the same song after repeated failures without new searches', async () => {
     const { handlers, manager } = captureHandlers();
-    const onException = handlers.get('trackException')!;
+    const onException = handlers.trackException!;
     const search = manager.search as ReturnType<typeof vi.fn>;
 
     // Failures 1-2: fallback attempted (2 searches each: youtube + soundcloud)
-    await onException(livePlayer(), { ...livePlayer().current }, { message: 'blocked' });
-    await onException(livePlayer(), { ...livePlayer().current }, { message: 'blocked' });
+    await onException(livePlayer(), trackOf({ ...livePlayer().current }), { message: 'blocked' });
+    await onException(livePlayer(), trackOf({ ...livePlayer().current }), { message: 'blocked' });
     const searchesAfterTwo = search.mock.calls.length;
     expect(searchesAfterTwo).toBeGreaterThan(0);
 
     // Failure 3: song exhausted — skip with zero new searches
-    await onException(livePlayer(), { ...livePlayer().current }, { message: 'blocked' });
+    await onException(livePlayer(), trackOf({ ...livePlayer().current }), { message: 'blocked' });
     expect(search.mock.calls.length).toBe(searchesAfterTwo);
   });
 });
 
 describe('seek-stall recovery (re-seek once before fallback)', () => {
   const captureHandlers = () => {
-    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const handlers: CapturedHandlers = {};
     const manager = {
-      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
-        handlers.set(event, cb);
-      }),
+      on: vi.fn(makeOnRecorder(handlers)),
       players: { get: () => undefined },
       search: vi.fn(async () => ({ tracks: [{ identifier: 'alt-1', duration: 174000 }] })),
     };
@@ -261,12 +300,12 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
     return { handlers, manager };
   };
 
-  const seekPlayer = (): any => {
+  const seekPlayer = (): Player => {
     const data = new Map<string, unknown>([
       ['lastUserSeekAt', Date.now() - 5000],
       ['lastUserSeekPos', 1500000],
     ]);
-    return {
+    return playerOf({
       guildId: 'g-seek',
       current: { identifier: 'v1', encoded: 'enc-v1', uri: 'u1', title: 'Hour Set', author: 'DJ', duration: 3600000 },
       queue: { unshift: vi.fn(), size: 1, isEmpty: false },
@@ -277,21 +316,22 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as never;
+    });
   };
 
-  const stuckTrack = () => ({
-    identifier: 'v1',
-    encoded: 'enc-v1',
-    uri: 'u1',
-    title: 'Hour Set',
-    author: 'DJ',
-    duration: 3600000,
-  });
+  const stuckTrack = (): Track =>
+    trackOf({
+      identifier: 'v1',
+      encoded: 'enc-v1',
+      uri: 'u1',
+      title: 'Hour Set',
+      author: 'DJ',
+      duration: 3600000,
+    });
 
   it('re-issues the user seek once instead of burning fallback budget', async () => {
     const { handlers, manager } = captureHandlers();
-    const onStuck = handlers.get('trackStuck')!;
+    const onStuck = handlers.trackStuck!;
     const player = seekPlayer();
     const search = manager.search as ReturnType<typeof vi.fn>;
 
@@ -305,7 +345,7 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
 
   it('falls through to normal fallback when it stalls again', async () => {
     const { handlers, manager } = captureHandlers();
-    const onStuck = handlers.get('trackStuck')!;
+    const onStuck = handlers.trackStuck!;
     const player = seekPlayer();
     const search = manager.search as ReturnType<typeof vi.fn>;
 
@@ -321,7 +361,7 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
 
   it('ignores stale seeks outside the window', async () => {
     const { handlers, manager } = captureHandlers();
-    const onStuck = handlers.get('trackStuck')!;
+    const onStuck = handlers.trackStuck!;
     const player = seekPlayer();
     player.set('lastUserSeekAt', Date.now() - 120000);
     const search = manager.search as ReturnType<typeof vi.fn>;
@@ -335,11 +375,9 @@ describe('seek-stall recovery (re-seek once before fallback)', () => {
 
 describe('stuck/exception card-timer survival + resume carryover', () => {
   const captureAll = (queueService: unknown) => {
-    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const handlers: CapturedHandlers = {};
     const manager = {
-      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
-        handlers.set(event, cb);
-      }),
+      on: vi.fn(makeOnRecorder(handlers)),
       players: { get: () => undefined },
       search: vi.fn(async () => ({ tracks: [] })),
     };
@@ -356,25 +394,26 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
     return { handlers, manager, clearSpy };
   };
 
-  const stuckTrack = () => ({
-    identifier: 'v1',
-    encoded: 'enc-v1',
-    uri: 'u1',
-    title: 'Hour Set',
-    author: 'DJ',
-    duration: 3600000,
-  });
+  const stuckTrack = (): Track =>
+    trackOf({
+      identifier: 'v1',
+      encoded: 'enc-v1',
+      uri: 'u1',
+      title: 'Hour Set',
+      author: 'DJ',
+      duration: 3600000,
+    });
 
   it('keeps the updater alive across a seek-stall re-issue', async () => {
     const { handlers, clearSpy } = captureAll(null);
-    const onStuck = handlers.get('trackStuck')!;
+    const onStuck = handlers.trackStuck!;
     const data = new Map<string, unknown>([
       ['lastUserSeekAt', Date.now() - 5000],
       ['lastUserSeekPos', 1500000],
     ]);
-    const player = {
+    const player = playerOf({
       guildId: 'g-seek',
-      current: { ...stuckTrack(), position: 0 },
+      current: trackOf({ ...stuckTrack(), position: 0 }),
       queue: { unshift: vi.fn(), size: 1, isEmpty: false },
       skip: vi.fn(async () => true),
       play: vi.fn(async () => true),
@@ -383,25 +422,25 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as any;
+    });
 
     await onStuck(player, stuckTrack(), 10000);
 
     expect(clearSpy).not.toHaveBeenCalled();
     expect(player.seek).toHaveBeenCalledWith(1500000);
     // Nudge alignment: Moonlink's own +1000 recovery reads this state.
-    expect(player.current.position).toBe(1500000);
+    expect(player.current?.position).toBe(1500000);
   });
 
   it('resumes the fallback alternate where the stuck track died', async () => {
-    const altTrack = {
+    const altTrack = trackOf({
       identifier: 'yt-alt',
       encoded: 'enc-alt',
       uri: 'u-alt',
       title: 'Hour Set',
       author: 'DJ',
       duration: 3600000,
-    };
+    });
     const { handlers, manager, clearSpy } = captureAll({
       getQueueInfo: () => null,
       is247: () => false,
@@ -410,14 +449,16 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
     (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({
       tracks: [altTrack],
     }));
-    const onStuck = handlers.get('trackStuck')!;
+    const onStuck = handlers.trackStuck!;
     const data = new Map<string, unknown>([['lastUserSeekAt', Date.now() - 120000]]);
-    const player = {
+    const player = playerOf({
       guildId: 'g-seek',
-      current: { ...stuckTrack() },
+      current: trackOf({ ...stuckTrack() }),
       queue: { unshift: vi.fn(), size: 1, isEmpty: false },
-      skip: vi.fn(async function (this: any) {
-        player.current = { ...altTrack };
+      // Moonlink advances by replacing `current` inside `skip()`; the double
+      // reproduces that so `stillCurrent()` sees the alternate.
+      skip: vi.fn(async () => {
+        player.current = trackOf({ ...altTrack });
         return true;
       }),
       play: vi.fn(async () => true),
@@ -426,28 +467,28 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as any;
+    });
 
     await onStuck(player, stuckTrack(), 10000);
 
     expect(clearSpy).not.toHaveBeenCalled();
     expect(player.skip).toHaveBeenCalled();
     expect(player.seek).toHaveBeenCalledWith(1800000);
-    expect(player.current.position).toBe(1800000);
+    expect(player.current?.position).toBe(1800000);
   });
 
   it('holds post-seek stalls inside grace instead of falling back', async () => {
     const { handlers, manager, clearSpy } = captureAll(null);
     (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
-    const onStuck = handlers.get('trackStuck')!;
+    const onStuck = handlers.trackStuck!;
     const data = new Map<string, unknown>([
       ['lastUserSeekAt', Date.now() - 30000],
       ['lastUserSeekPos', 1800000],
       ['seekStallRetried', true],
     ]);
-    const player = {
+    const player = playerOf({
       guildId: 'g-seek',
-      current: { ...stuckTrack(), position: 1800000 },
+      current: trackOf({ ...stuckTrack(), position: 1800000 }),
       queue: { unshift: vi.fn(), size: 1, isEmpty: false },
       skip: vi.fn(async () => true),
       play: vi.fn(async () => true),
@@ -456,7 +497,7 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as any;
+    });
 
     await onStuck(player, stuckTrack(), 10000);
 
@@ -471,7 +512,7 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
   it('resumes normal machinery once grace is exhausted', async () => {
     const { handlers, manager } = captureAll(null);
     (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
-    const onStuck = handlers.get('trackStuck')!;
+    const onStuck = handlers.trackStuck!;
     const seekAt = Date.now() - 60000;
     const data = new Map<string, unknown>([
       ['lastUserSeekAt', seekAt],
@@ -480,9 +521,9 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
       ['seekStallGraceSeekAt', seekAt],
       ['seekStallGraceUsed', 10],
     ]);
-    const player = {
+    const player = playerOf({
       guildId: 'g-seek',
-      current: { ...stuckTrack() },
+      current: trackOf({ ...stuckTrack() }),
       queue: { unshift: vi.fn(), size: 1, isEmpty: false },
       skip: vi.fn(async () => true),
       play: vi.fn(async () => true),
@@ -491,7 +532,7 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as any;
+    });
 
     await onStuck(player, stuckTrack(), 10000);
 
@@ -501,16 +542,16 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
   it('never graces short tracks (their stalls are real)', async () => {
     const { handlers, manager } = captureAll(null);
     (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
-    const onStuck = handlers.get('trackStuck')!;
+    const onStuck = handlers.trackStuck!;
     const data = new Map<string, unknown>([
       ['lastUserSeekAt', Date.now() - 30000],
       ['lastUserSeekPos', 60000],
       ['seekStallRetried', true],
     ]);
-    const shortTrack = { ...stuckTrack(), duration: 180000 };
-    const player = {
+    const shortTrack = trackOf({ ...stuckTrack(), duration: 180000 });
+    const player = playerOf({
       guildId: 'g-seek',
-      current: { ...shortTrack },
+      current: trackOf({ ...shortTrack }),
       queue: { unshift: vi.fn(), size: 1, isEmpty: false },
       skip: vi.fn(async () => true),
       play: vi.fn(async () => true),
@@ -519,7 +560,7 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
       paused: false,
       get: (k: string) => data.get(k),
       set: (k: string, v: unknown) => void data.set(k, v),
-    } as any;
+    });
 
     await onStuck(player, shortTrack, 10000);
 
@@ -530,10 +571,10 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
   it('keeps the updater alive when an exception has no fallback', async () => {
     const { handlers, manager, clearSpy } = captureAll(null);
     (manager.search as ReturnType<typeof vi.fn>).mockImplementation(async () => ({ tracks: [] }));
-    const onException = handlers.get('trackException')!;
-    const player = {
+    const onException = handlers.trackException!;
+    const player = playerOf({
       guildId: 'g-exc',
-      current: { ...stuckTrack() },
+      current: trackOf({ ...stuckTrack() }),
       queue: { unshift: vi.fn(), size: 1, isEmpty: false },
       skip: vi.fn(async () => true),
       play: vi.fn(async () => true),
@@ -542,7 +583,7 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
       paused: false,
       get: () => undefined,
       set: () => undefined,
-    } as any;
+    });
 
     await onException(player, stuckTrack(), { severity: 'common', message: 'blocked' });
 
@@ -552,9 +593,9 @@ describe('stuck/exception card-timer survival + resume carryover', () => {
 });
 
 describe('preview-cut detection (short finishes feed the breaker)', () => {  const captureHandlers = () => {
-    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const handlers = new Map<string, (...args: unknown[]) => Promise<void>>();
     const manager = {
-      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
+      on: vi.fn((event: string, cb: (...args: unknown[]) => Promise<void>) => {
         handlers.set(event, cb);
       }),
       players: { get: () => undefined },
@@ -774,9 +815,9 @@ describe('HOME_PLUGIN_RUNG flag', () => {
 
 describe('okTimer lifecycle', () => {
   it('clears stale okTimers on playerDestroy', async () => {
-    const handlers = new Map<string, (...args: any[]) => Promise<void>>();
+    const handlers = new Map<string, (...args: unknown[]) => Promise<void>>();
     const manager = {
-      on: vi.fn((event: string, cb: (...args: any[]) => Promise<void>) => {
+      on: vi.fn((event: string, cb: (...args: unknown[]) => Promise<void>) => {
         handlers.set(event, cb);
       }),
       players: { get: () => undefined },
