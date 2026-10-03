@@ -49,7 +49,7 @@ export class UserHubCommands implements ITextCommandModule {
       },
       {
         name: 'rateyourmusic',
-        aliases: ['rym'],
+        aliases: [],
         executeAsync: (ctx, args) => this.rateYourMusicAsync(ctx, args),
       },
       {

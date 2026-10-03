@@ -683,7 +683,7 @@ describe('UserHubCommands — the registry surface', () => {
     // the rendered answer for a user who typed nothing new.
     expect(byName.get('youtube')).toEqual(['yt', 'y', 'youtubesearch', 'ytsearch', 'yts']);
     expect(byName.get('shortcuts')).toEqual(['shortcut', 'sc', 'scs']);
-    expect(byName.get('rateyourmusic')).toEqual(['rym']);
+    expect(byName.get('rateyourmusic')).toEqual([]);
   });
 });
 

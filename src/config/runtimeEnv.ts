@@ -292,6 +292,21 @@ export function isFileLoggingEnabled(env: NodeJS.ProcessEnv = currentEnv()): boo
   return env.LOG_FILE !== 'false' && env.NODE_ENV !== 'test';
 }
 
+/** RYM_FLARESOLVERR_URL - FlareSolverr endpoint for Rate Your Music scraping. */
+export function rymFlaresolverrUrl(env: NodeJS.ProcessEnv = currentEnv()): EnvString {
+  return trimmed(env, 'RYM_FLARESOLVERR_URL');
+}
+
+/** RYM_REQUEST_DELAY_MS - minimum gap between RYM fetches. */
+export function rymRequestDelayMs(env: NodeJS.ProcessEnv = currentEnv()): EnvCount {
+  return finiteNumber(env, 'RYM_REQUEST_DELAY_MS');
+}
+
+/** RYM_MAX_TIMEOUT_MS - per-fetch budget handed to FlareSolverr. */
+export function rymMaxTimeoutMs(env: NodeJS.ProcessEnv = currentEnv()): EnvCount {
+  return finiteNumber(env, 'RYM_MAX_TIMEOUT_MS');
+}
+
 /** NODE_ENV, or 'development' for the startup banner. `||` not `??`: unchanged. */
 export function displayNodeEnv(env: NodeJS.ProcessEnv = currentEnv()): string {
   return env.NODE_ENV || 'development';

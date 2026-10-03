@@ -284,7 +284,7 @@ describe('slash command registry invariants', () => {
   });
 
   it('found a plausible number of top-level slash registrations', () => {
-    // 76 distinct names via the direct fluent chain, as walked by the
+    // 77 distinct names via the direct fluent chain, as walked by the
     // extractor immediately above this test (same walk, same literal() helper):
     // `new SlashCommandBuilder()` rooted chains, taking the single `setName()`
     // literal off each. Reproduce with a standalone AST walk over
@@ -300,7 +300,7 @@ describe('slash command registry invariants', () => {
     // The true top-level count is AT LEAST this, since a builder assembled
     // through a helper rather than `new SlashCommandBuilder().setName(...)` is
     // not matched.
-    expect(names.size).toBe(76);
+    expect(names.size).toBe(77);
     expect(names.size).toBeGreaterThan(60);
   });
 });

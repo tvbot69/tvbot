@@ -16,7 +16,8 @@
       "@applemusic/*": ["src/applemusic/*"],
       "@spotify/*": ["src/spotify/*"],
       "@deezer/*": ["src/deezer/*"],
-      "@config/*": ["src/config/*"]
+      "@config/*": ["src/config/*"],
+      "@rateyourmusic/*": ["src/rateyourmusic/*"]
     },
     "strict": true,
     "noUncheckedIndexedAccess": true,

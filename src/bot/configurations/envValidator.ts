@@ -40,6 +40,10 @@ export function validateEnvironment(): EnvValidationResult {
     warnings.push('Spotify credentials missing (SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET) — album artwork enrichment and Spotify playback will be disabled.');
   }
 
+  if (!process.env.RYM_FLARESOLVERR_URL) {
+    warnings.push('RYM_FLARESOLVERR_URL not set - Rate Your Music scraping disabled (defaults to http://localhost:8191).');
+  }
+
   if (!process.env.REDIS_URL) {
     // Queues, rate limits, and sessions are memory-only without Redis: a
     // restart wipes them and shards diverge. Tolerable locally, fatal in prod.

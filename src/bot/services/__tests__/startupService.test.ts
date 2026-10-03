@@ -260,6 +260,9 @@ import { GuildAdminCommands } from '@bot/textCommands/guild/guildAdminCommands';
 import { UserHubCommands } from '@bot/textCommands/user/userHubCommands';
 import { ImportCommands } from '@bot/textCommands/thirdParty/importCommands';
 import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
+import { RymCommands } from '@bot/textCommands/thirdParty/rymCommands';
+import { RymSlashCommands } from '@bot/slashCommands/music/rymSlashCommands';
+import { RymTransport } from '@rateyourmusic/api/rymTransport';
 import { ExposedCommands } from '@bot/textCommands/lastfm/exposedCommands';
 import { MusicCommands } from '@bot/textCommands/music/musicCommands';
 import { SettingsInteractions } from '@bot/interactions/user/settingsInteractions';
@@ -676,6 +679,14 @@ const PINS: readonly Pin[] = [
     ['appleMusicService', AppleMusicService], ['prefixService', PrefixService],
     ['lastFmRepository', LastFmRepository], ['colorService', ColorService],
   ] },
+  { ctor: RymCommands, arity: 3, slots: [
+    ['rymTransport', RymTransport], ['prefixService', PrefixService],
+    ['colorService', ColorService],
+  ] },
+  { ctor: RymSlashCommands, arity: 3, slots: [
+    ['rymTransport', RymTransport], ['prefixService', PrefixService],
+    ['colorService', ColorService],
+  ] },
   { ctor: BotScrobblingService, arity: 3, slots: [
     ['lastFmRepository', LastFmRepository], ['userRepository', UserRepository],
     ['settingsRepo', GuildMusicSettingsRepository],
@@ -1002,7 +1013,8 @@ describe('composition root — the registered token set', () => {
       'PlaycountCommands', 'PlaycountInteractions', 'PlaycountSlashCommands', 'PrefixService',
       'PreviewResolverService', 'ProfileCommands', 'ProfileInteractions', 'ProfileService',
       'ProfileSlashCommands', 'PuppeteerService', 'QueueService', 'RateLimitService',
-      'ReceiptGenerator', 'RecentInteractions', 'ReconcileService', 'ServerCommands',
+      'ReceiptGenerator', 'RecentInteractions', 'ReconcileService', 'RymCommands',
+      'RymSlashCommands', 'RymTransport', 'ServerCommands',
       'ServerInteractions', 'ServerSlashCommands', 'SettingService', 'SettingsCommands',
       'SettingsInteractions', 'SettingsSlashCommands', 'ShortcutService', 'SpotifyResolver',
       'SpotifySearchApi', 'SpotifyTokenManager', 'StartupService', 'StaticCommands',

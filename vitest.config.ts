@@ -103,6 +103,7 @@ exclude: [
       '@spotify': new URL('./src/spotify', import.meta.url).pathname,
       '@deezer': new URL('./src/deezer', import.meta.url).pathname,
       '@config': new URL('./src/config', import.meta.url).pathname,
+      '@rateyourmusic': new URL('./src/rateyourmusic', import.meta.url).pathname,
     },
   },
 });

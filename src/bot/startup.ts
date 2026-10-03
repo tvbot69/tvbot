@@ -203,6 +203,9 @@ import { ImportCommands } from '@bot/textCommands/thirdParty/importCommands';
 import { ImportSlashCommands } from '@bot/slashCommands/imports/importSlashCommands';
 import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
 import { StreamingSlashCommands } from '@bot/slashCommands/music/streamingSlashCommands';
+import { RymCommands } from '@bot/textCommands/thirdParty/rymCommands';
+import { RymSlashCommands } from '@bot/slashCommands/music/rymSlashCommands';
+import { RymTransport } from '@rateyourmusic/api/rymTransport';
 import { HelpInteractions } from '@bot/interactions/meta/helpInteractions';
 import { HelpCommands } from '@bot/textCommands/meta/helpCommands';
 import { HelpSlashCommands } from '@bot/slashCommands/meta/helpSlashCommands';
@@ -1051,6 +1054,10 @@ export const configureContainer = (): void => {
 
   const importService = new ImportService(prisma);
   const appleMusicService = new AppleMusicService();
+  const rymTransport = new RymTransport();
+
+  const rymCommands = new RymCommands(rymTransport, prefixService, colorService);
+  const rymSlashCommands = new RymSlashCommands(rymTransport, prefixService, colorService);
 
   const importCommands = new ImportCommands(userService, importService, prefixService, colorService);
   const importSlashCommands = new ImportSlashCommands(userService, importService, prefixService, colorService);
@@ -1059,10 +1066,13 @@ export const configureContainer = (): void => {
 
   container.registerInstance(ImportService, importService);
   container.registerInstance(AppleMusicService, appleMusicService);
+  container.registerInstance(RymTransport, rymTransport);
   container.registerInstance(ImportCommands, importCommands);
   container.registerInstance(ImportSlashCommands, importSlashCommands);
   container.registerInstance(StreamingCommands, streamingCommands);
   container.registerInstance(StreamingSlashCommands, streamingSlashCommands);
+  container.registerInstance(RymCommands, rymCommands);
+  container.registerInstance(RymSlashCommands, rymSlashCommands);
 
   const exposedService = new ExposedService(genreService, playRepository, prisma);
   const exposedCommands = new ExposedCommands(userService, exposedService);
