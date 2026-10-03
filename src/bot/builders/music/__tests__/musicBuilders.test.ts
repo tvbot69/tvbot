@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
-import { fallbackRow, MusicBuilders } from '@bot/builders/music/musicBuilders';
+import { fallbackRow, MusicBuilders, MUSIC_SOURCE_BADGES } from '@bot/builders/music/musicBuilders';
 import { REPO_ROOT } from '../../../../testSupport/repoRoot';
 
 describe('buildLyricSection', () => {
@@ -138,36 +138,118 @@ describe('Now Playing card text limits (58 + ...)', () => {
   };
   const embedDesc = (res: unknown): string =>
     String((res as { embed: { data: { description?: string } } }).embed.data.description ?? '');
+  /**
+   * The header as the user reads it: markdown link syntax and the trailing
+   * source badge stripped, separators left. Budget assertions run on THIS,
+   * not on the raw description, which carries a URL and a badge.
+   */
+  const visibleHeaderOf = (res: unknown): string => {
+    const first = embedDesc(res).split('\n')[0] ?? '';
+    return first
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .split(' • ')
+      .filter((part) => !MUSIC_SOURCE_BADGES.youtube.includes(part))
+      .join(' • ')
+      .trim();
+  };
   const queueWith = (over: Record<string, unknown>) => {
     const base = JSON.parse(JSON.stringify(npQueue)) as { current: Record<string, unknown> };
     Object.assign(base.current, over);
     return base as never;
   };
 
-  it('clamps a long title to 52 chars plus .. in V2 and fallback', () => {
+  it('clamps an over-budget title to the shared line budget in V2 and fallback', () => {
     const long = 'T'.repeat(100);
     const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title: long }), 0xff0000, null, null);
-    const want = `${'T'.repeat(52)}..`;
+    // 50 chars + '..' = the 52-char budget, suffix included.
+    const want = `${'T'.repeat(50)}..`;
     expect(textsOf(res).some((t) => t.includes(want))).toBe(true);
     expect(embedDesc(res).includes(want)).toBe(true);
+    expect(visibleHeaderOf(res).length).toBeLessThanOrEqual(52);
     // Without the clamp the full 100-char run survives; its absence is the mutation check.
     expect(embedDesc(res).includes('T'.repeat(59 + 2))).toBe(false);
   });
 
-  it('cuts the measured real title exactly where the card was too wide', () => {
-    // From the 2026-10-03 card: this title ran the header long enough to
-    // dominate the layout. 52 chars + '..' is the agreed cut point.
-    const title = 'WHAT TO DO? • JACKBOYS • JACKBOYS, Travis Scott, Don Toliver';
-    const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title }), 0xff0000, null, null);
-    expect(embedDesc(res)).toContain('[WHAT TO DO? • JACKBOYS • JACKBOYS, Travis Scott, Don..]');
-    expect(embedDesc(res)).not.toContain('Don Toliver]');
+  it('budgets the JOINED header line, not each field alone', () => {
+    // The 2026-10-03 card that kept overflowing: title 22 chars, artist 32.
+    // Both fit any per-field cap, so a per-field clamp could never shorten
+    // this — the 57-char joined line is what dominated the card.
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({ title: 'WHAT TO DO? • JACKBOYS', author: 'JACKBOYS, Travis Scott, Don Toliver' }),
+      0xff0000,
+      null,
+      null,
+    );
+    const visible = visibleHeaderOf(res);
+    expect(visible.length).toBeLessThanOrEqual(52);
+    expect(visible).toContain('WHAT TO DO?');
+    // Truncated on a word boundary, marked with the two-dot suffix.
+    expect(visible.endsWith('..')).toBe(true);
+    expect(visible).not.toMatch(/[a-z]\.\.$/);
+    expect(visible).not.toContain('Toliver');
   });
 
-  it('passes an exact-52 title through untouched', () => {
-    const exact = 'E'.repeat(52);
+  it('keeps the title whole and spends what is left on the artist', () => {
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({ title: 'WHAT TO DO? • JACKBOYS', author: 'JACKBOYS, Travis Scott, Don Toliver' }),
+      0xff0000,
+      null,
+      null,
+    );
+    const visible = visibleHeaderOf(res);
+    expect(visible.startsWith('WHAT TO DO? • JACKBOYS • JACKBOYS,')).toBe(true);
+  });
+
+  it('keeps the line inside budget with all three fields present', () => {
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({
+        title: 'WHAT TO DO? • JACKBOYS',
+        album: 'Love Sick',
+        author: 'JACKBOYS, Travis Scott, Don Toliver',
+      }),
+      0xff0000,
+      null,
+      null,
+    );
+    const visible = visibleHeaderOf(res);
+    expect(visible.length).toBeLessThanOrEqual(52);
+    expect(visible.startsWith('WHAT TO DO? • JACKBOYS • Love Sick •')).toBe(true);
+    // The artist is what gets cut, and it is cut on a word boundary.
+    expect(visible.endsWith('..')).toBe(true);
+  });
+
+  it('drops the album when its own room is too small to be worth rendering', () => {
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({
+        title: 'WHAT TO DO? • JACKBOYS • JACKBOYS, Travis Scott',
+        album: 'Love Sick Deluxe Edition',
+        author: 'Don Toliver',
+      }),
+      0xff0000,
+      null,
+      null,
+    );
+    const visible = visibleHeaderOf(res);
+    expect(visible.length).toBeLessThanOrEqual(52);
+    expect(visible).not.toContain('Deluxe Edition');
+  });
+
+  it('a short header still renders every field in full', () => {
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({ title: 'Geronimo', album: 'Love Sick', author: 'Don Toliver' }),
+      0xff0000,
+      null,
+      null,
+    );
+    const visible = visibleHeaderOf(res);
+    expect(visible).toBe('Geronimo • Love Sick • Don Toliver');
+  });
+
+  it('passes a title that fits the budget through untouched', () => {
+    const exact = 'E'.repeat(48);
     const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title: exact }), 0xff0000, null, null);
     expect(embedDesc(res).includes(`[${exact}]`)).toBe(true);
-    expect(embedDesc(res).includes('..')).toBe(false);
+    expect(embedDesc(res)).not.toContain('..');
   });
 
   it('leaves a short title untouched', () => {
@@ -231,15 +313,34 @@ describe('Now Playing card text limits (58 + ...)', () => {
     expect(MusicBuilders.buildLyricSection({ current: null, next: null })).toBeNull();
   });
 
-  it('clamps long album and artist parts of the header', () => {
+  it('keeps long album and artist parts inside the same budget', () => {
     const res = MusicBuilders.buildNowPlayingResponse(
-      queueWith({ album: 'A'.repeat(100), author: 'B'.repeat(100) }),
+      queueWith({ album: 'Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India', author: 'Juliet Kilo Lima Mike November Oscar Papa Quebec' }),
       0xff0000,
       null,
       null,
     );
-    expect(embedDesc(res).includes(`${'A'.repeat(58)}...`)).toBe(true);
-    expect(embedDesc(res).includes(`${'B'.repeat(58)}...`)).toBe(true);
+    const visible = visibleHeaderOf(res);
+    expect(visible.length).toBeLessThanOrEqual(52);
+    expect(visible.startsWith('Eseekid Live • Alpha')).toBe(true);
+    // Word-boundary cuts: no half-words, and the tails are gone.
+    expect(visible).not.toContain('Foxtrot');
+    expect(visible).not.toContain('Papa Quebec');
+  });
+
+  it('hard-splits an unbreakable run rather than exceeding the budget', () => {
+    // A 100-char single "word" has no boundary to cut at, so it is sliced.
+    // The budget still holds — that is the invariant that matters.
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({ album: 'A'.repeat(100), author: 'B '.repeat(60) }),
+      0xff0000,
+      null,
+      null,
+    );
+    const visible = visibleHeaderOf(res);
+    expect(visible.length).toBeLessThanOrEqual(52);
+    expect(visible.endsWith('..')).toBe(true);
+    expect(visible).not.toContain('A'.repeat(60));
   });
 });
 

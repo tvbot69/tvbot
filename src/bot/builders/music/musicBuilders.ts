@@ -306,6 +306,77 @@ export class MusicBuilders {
     return t || title.trim();
   }
 
+  /**
+   * The Now Playing header, as parts joined by ' • '.
+   *
+   * The budget is on the JOINED LINE, not per field. Clamping each field
+   * separately bounds nothing: "WHAT TO DO? • JACKBOYS" (22) plus
+   * "JACKBOYS, Travis Scott, Don Toliver" (32) is 57 rendered characters,
+   * both fields comfortably under any per-field cap, and the line still
+   * dominated the card. Measured 2026-10-03.
+   *
+   * The title is the identity, so it is never dropped and always gets the
+   * full budget; the album is the least identifying and is dropped first
+   * when the line cannot hold it. Whatever remains goes to the artist.
+   * `fillToBudget` cuts at a word boundary, because a header ending
+   * mid-word ("Travis Sco|") reads worse than one ending in '..'.
+   */
+  private static buildHeaderParts(current: MusicTrack, sourceIcon: string): string[] {
+    const budget = MusicBuilders.NOW_PLAYING_TITLE_LIMIT;
+    const sep = ' • ';
+    const title = escapeLinkLabel(MusicBuilders.trimDisplayTitle(current.title));
+    const albumRaw = current.album?.trim() ? escapeMarkdown(current.album.trim()).replace(/[\r\n]+/g, ' ') : '';
+    const artist = escapeMarkdown(current.author).replace(/[\r\n]+/g, ' ');
+    const linked = `[${title}](${current.uri})`;
+
+    // A title that cannot fit even alone is truncated by its own budget and
+    // nothing else is shown — there is no room, and a stub album reads worse
+    // than no album.
+    if (title.length + MusicBuilders.TITLE_ELLIPSIS.length >= budget) {
+      return [`[${MusicBuilders.clampDisplay(title, budget - MusicBuilders.TITLE_ELLIPSIS.length, MusicBuilders.TITLE_ELLIPSIS)}](${current.uri})`, sourceIcon];
+    }
+
+    const parts = [linked];
+    let used = title.length;
+
+    if (albumRaw) {
+      const room = budget - used - sep.length;
+      if (room > MusicBuilders.TITLE_ELLIPSIS.length + 2) {
+        const filled = MusicBuilders.fillToBudget(albumRaw, room);
+        parts.push(filled);
+        used += sep.length + filled.length;
+      }
+      // No else: a room too small for an album leaves it out entirely rather
+      // than rendering two characters of it.
+    }
+
+    const artistRoom = budget - used - sep.length;
+    if (artistRoom > MusicBuilders.TITLE_ELLIPSIS.length) {
+      parts.push(MusicBuilders.fillToBudget(artist, artistRoom));
+    }
+    parts.push(sourceIcon);
+    return parts;
+  }
+
+  /**
+   * Whole words that fit `max`, then the ellipsis if any were dropped.
+   * A single word longer than `max` is hard-split, so the result is never
+   * over budget.
+   */
+  private static fillToBudget(text: string, max: number): string {
+    if (text.length <= max) return text;
+    let out = '';
+    for (const word of text.split(' ')) {
+      const next = out ? `${out} ${word}` : word;
+      if (next.length + MusicBuilders.TITLE_ELLIPSIS.length > max) {
+        break;
+      }
+      out = next;
+    }
+    if (!out) return `${text.slice(0, Math.max(1, max - MusicBuilders.TITLE_ELLIPSIS.length)).trimEnd()}${MusicBuilders.TITLE_ELLIPSIS}`;
+    return `${out}${MusicBuilders.TITLE_ELLIPSIS}`;
+  }
+
   public static buildNowPlayingResponse(
     queue: MusicQueueInfo,
     accentColor?: number,
@@ -341,18 +412,7 @@ export class MusicBuilders {
     // Titles/artists/albums are user-supplied, so they are escaped: a release
     // named "**FREE** [click](https://x)" used to restyle the whole card and
     // render a fake link.
-    const displayTitle = MusicBuilders.clampDisplay(
-      escapeLinkLabel(MusicBuilders.trimDisplayTitle(current.title)),
-      MusicBuilders.NOW_PLAYING_TITLE_LIMIT,
-      MusicBuilders.TITLE_ELLIPSIS,
-    );
-    const headerParts = [`[${displayTitle}](${current.uri})`];
-    if (current.album?.trim()) {
-      const albumOneLine = escapeMarkdown(current.album.trim()).replace(/[\r\n]+/g, ' ');
-      headerParts.push(MusicBuilders.clampDisplay(albumOneLine));
-    }
-    const artistOneLine = escapeMarkdown(current.author).replace(/[\r\n]+/g, ' ');
-    headerParts.push(MusicBuilders.clampDisplay(artistOneLine), sourceIcon);
+    const headerParts = MusicBuilders.buildHeaderParts(current, sourceIcon);
     const header = headerParts.join(' • ');
     const chapterLine = chapter ? `Live — **${escapeInline(chapter.title, 100)}**` : null;
     const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
