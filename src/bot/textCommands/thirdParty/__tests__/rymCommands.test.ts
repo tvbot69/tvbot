@@ -25,7 +25,7 @@ const build = (html: string, status = 200) => {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     if (body.cmd === 'sessions.create') {
-      return new Response(JSON.stringify({ status: 'ok', solution: { session: 's1' } }));
+      return new Response(JSON.stringify({ status: 'ok', session: 's1' }));
     }
     return new Response(solverHtml(html, status));
   });

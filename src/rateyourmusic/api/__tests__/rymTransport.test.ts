@@ -24,7 +24,7 @@ describe('RymTransport', () => {
       const body = createBody(init);
       bodies.push(body);
       if (body.cmd === 'sessions.create') {
-        return new Response(JSON.stringify({ status: 'ok', solution: { session: 's1' } }));
+        return new Response(JSON.stringify({ status: 'ok', session: 's1' }));
       }
       return new Response(JSON.stringify(solverOk('<html>ok</html>')));
     });
@@ -34,14 +34,14 @@ describe('RymTransport', () => {
     expect(page.html).toBe('<html>ok</html>');
     await transport.getHtml('/artist/a');
     expect(bodies.filter((b) => b.cmd === 'sessions.create')).toHaveLength(1);
-    expect(bodies.filter((b) => b.cmd === 'sessions.request')).toHaveLength(2);
+    expect(bodies.filter((b) => b.cmd === 'request.get')).toHaveLength(2);
   });
 
   it('flags a 503 origin block with RymOriginBlockError', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
       const body = createBody(init);
       if (body.cmd === 'sessions.create') {
-        return new Response(JSON.stringify({ status: 'ok', solution: { session: 's1' } }));
+        return new Response(JSON.stringify({ status: 'ok', session: 's1' }));
       }
       return new Response(
         JSON.stringify(solverOk('<html>HTTP ERROR 503\nThe server is currently unable to handle this request</html>', 503)),
@@ -61,7 +61,7 @@ describe('RymTransport', () => {
         if (creates === 1) {
           return new Response(JSON.stringify({ status: 'error', message: 'boom' }));
         }
-        return new Response(JSON.stringify({ status: 'ok', solution: { session: 's1' } }));
+        return new Response(JSON.stringify({ status: 'ok', session: 's1' }));
       }
       return new Response(JSON.stringify(solverOk('<html>ok</html>')));
     });
@@ -77,7 +77,7 @@ describe('RymTransport', () => {
       const body = createBody(init);
       if (body.cmd === 'sessions.create') {
         sessionsCreated.push(String(body.cmd));
-        return new Response(JSON.stringify({ status: 'ok', solution: { session: `s${sessionsCreated.length}` } }));
+        return new Response(JSON.stringify({ status: 'ok', session: `s${sessionsCreated.length}` }));
       }
       requestCalls += 1;
       if (requestCalls === 1) {
@@ -99,7 +99,7 @@ describe('RymTransport', () => {
       if (url === SOLVER_URL) {
         const body = createBody(init);
         if (body.cmd === 'sessions.create') {
-          return new Response(JSON.stringify({ status: 'ok', solution: { session: 's1' } }));
+          return new Response(JSON.stringify({ status: 'ok', session: 's1' }));
         }
         return new Response(
           JSON.stringify(solverOk('<html>HTTP ERROR 503\nThe server is currently unable to handle this request</html>', 503)),

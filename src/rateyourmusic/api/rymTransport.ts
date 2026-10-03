@@ -126,7 +126,7 @@ export class RymTransport {
     if (json.status !== 'ok') {
       throw new RymTransportError(`FlareSolverr session create failed: ${json.message ?? json.status}`);
     }
-    const id = (json as { solution?: { session?: string } }).solution?.session;
+    const id = (json as { session?: string }).session;
     if (!id) {
       throw new RymTransportError('FlareSolverr session create returned no session id');
     }
@@ -139,7 +139,7 @@ export class RymTransport {
     const res = await fetch(`${this.solverUrl}/v1`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cmd: 'sessions.request', session: sessionId, url, maxTimeout: this.maxTimeoutMs }),
+      body: JSON.stringify({ cmd: 'request.get', session: sessionId, url, maxTimeout: this.maxTimeoutMs }),
     });
     const json = (await res.json()) as SolverResponse;
     if (json.status !== 'ok' || !json.solution) {
