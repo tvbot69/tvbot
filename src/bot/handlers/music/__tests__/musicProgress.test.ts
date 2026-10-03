@@ -58,6 +58,18 @@ describe('MusicHandler progress card', () => {
     expect(handler.lyricWindowFor(karaokePlayer, 9000)).toEqual({ current: 'Line two', next: null });
   });
 
+  it('an explicit startup offset runs the lookup behind the clock', () => {
+    const handler = buildHandler() as unknown as {
+      lyricWindowFor: (player: unknown, positionMs: number, offsetMs?: number) => unknown;
+    };
+    // Clock at 4s, offset 3s: effective 1s sits before the first line at 2s.
+    // Without the passthrough the 4s clock would already sing line one.
+    expect(handler.lyricWindowFor(karaokePlayer, 4000, 3000)).toEqual({
+      current: null,
+      next: 'Line one',
+    });
+  });
+
   it('retakes a stale publish guard instead of skipping forever', async () => {
     const handler = buildHandler();
     handler.progressPublishingView.set('g-progress-1', Date.now() - 60000);

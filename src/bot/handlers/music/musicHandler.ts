@@ -299,8 +299,8 @@ export class MusicHandler implements
    * tests can still read it and forgetGuild still sweeps it. */
   private readonly karaoke: KaraokeController;
 
-  public lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
-    return this.karaoke.lyricWindowFor(player, positionMs);
+  public lyricWindowFor(player: Player, positionMs: number, startupOffsetMs?: number): LyricWindow | null {
+    return this.karaoke.lyricWindowFor(player, positionMs, startupOffsetMs);
   }
 
   public async resolveKaraokeLines(

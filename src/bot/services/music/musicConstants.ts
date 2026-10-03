@@ -59,3 +59,12 @@ export const SEEK_REST_TIMEOUT_MS = 8_000;
  * the visible error under one beat.
  */
 export const KARAOKE_TIMER_MIN_MS = 250;
+
+/**
+ * Track-start audibility gap: the clock starts at the trackStart event but
+ * the first audible frame follows later (voice join, stream buffering), so
+ * an uncompensated lookup shows every line early by the gap. 0 until
+ * measured — set from paired boundary-log/hearing evidence, never a guess.
+ * Applied in KaraokeController.lyricWindowFor via lyricWindowAt.
+ */
+export const LYRIC_STARTUP_OFFSET_MS = 0;

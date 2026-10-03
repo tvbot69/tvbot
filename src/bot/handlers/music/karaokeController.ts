@@ -1,6 +1,7 @@
 import type { Player } from 'moonlink.js';
+import { Logger } from '@domain/logging/logger';
 import { lyricWindowAt, type SyncedLine, type LyricWindow } from '@bot/services/music/syncedLyrics';
-import { KARAOKE_TIMER_MIN_MS } from '@bot/services/music/musicConstants';
+import { KARAOKE_TIMER_MIN_MS, LYRIC_STARTUP_OFFSET_MS } from '@bot/services/music/musicConstants';
 import type { LyricsService } from '@bot/services/music/lyricsService';
 import type { QueueService } from '@bot/services/music/queueService';
 
@@ -31,15 +32,21 @@ export class KaraokeController {
 
   /**
    * Lyric window for a position, or null when lyrics are off, unsynced or
-   * nothing singable (card renders unchanged).
+   * nothing singable (card renders unchanged). The startup offset runs the
+   * lookup behind the clock by the measured track-start audibility gap
+   * (trackStart event vs first audible frame); 0 until measured.
    */
-  public lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
+  public lyricWindowFor(
+    player: Player,
+    positionMs: number,
+    startupOffsetMs: number = LYRIC_STARTUP_OFFSET_MS,
+  ): LyricWindow | null {
     try {
       if (!this.host.lyricsService) return null;
       if (!this.host.queueService.isKaraokeEnabled(player.guildId)) return null;
       const lines = player.get<SyncedLine[] | null>('karaokeLines');
       if (!lines || lines.length === 0) return null;
-      return lyricWindowAt(lines, Math.max(0, positionMs));
+      return lyricWindowAt(lines, Math.max(0, positionMs), startupOffsetMs);
     } catch {
       // CORRECT AS IS: "no lyric window" is exactly the pre-karaoke card,
       // so the fingerprint carries 'none' and no edit is spent proving it.
@@ -119,6 +126,17 @@ export class KaraokeController {
       const timer = setTimeout(() => {
         this.karaokeTimers.delete(player.guildId);
         try {
+          // Boundary diagnostic: clock position vs the line about to show.
+          // Pair with what you HEAR to measure the real offset — the log
+          // alone only proves internal consistency, not audibility.
+          const atFire = this.host.queueService.calculatePosition(player);
+          const title =
+            typeof player.current === 'object' && player.current !== null
+              ? String((player.current as { title?: unknown }).title ?? '').slice(0, 60)
+              : '';
+          Logger.debug(
+            `[Music] Karaoke boundary { track: '${title}', pos: ${atFire}, lineMs: ${next.ms}, clockAheadBy: ${atFire - next.ms} }`,
+          );
           void this.host.publishProgress(player);
         } catch {
           // Timer errors must never break the chain below.
