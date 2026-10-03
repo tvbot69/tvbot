@@ -339,9 +339,11 @@ jobs:
           TEST_DATABASE_URL: postgresql://tvbot:tvbot@localhost:5432/tvbot_ci_test?schema=public
 
   # Independent and fast by design: no `needs: build`, no DATABASE_URL, no
-  # secrets. Fails on high-or-worse advisories only.
+  # secrets. Fails on any high-or-worse advisory NOT in
+  # `scripts/audit-allowlist.json` — see `scripts/check-audit.ts` for why the
+  # gate is an allowlist rather than a blanket `--audit-level`.
   audit:
-    name: audit (npm audit high)
+    name: audit (allowlisted highs only)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -355,4 +357,4 @@ jobs:
       - run: npm ci
 
       - name: Audit
-        run: npm audit --audit-level=high
+        run: npx tsx scripts/check-audit.ts

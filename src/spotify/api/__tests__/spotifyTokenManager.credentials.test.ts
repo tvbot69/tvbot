@@ -490,29 +490,46 @@ describe('no credentials configured', () => {
 
   it('reports the missing credentials EXACTLY ONCE, and not from getToken()', async () => {
     // This test started life asserting `Logger.warn` was never called here, and
-    // failed: `ConfigData` calls `assertValidEnvironment()` at import, which
-    // pushes "Spotify credentials missing … will be disabled" through
-    // `Logger.warn`. Which is the point — the capability loss IS reported, once,
-    // at the one place that owns the configuration.
+    // failed: `ConfigData` calls `assertValidEnvironment()` on the first
+    // `Data` read, which pushes "Spotify credentials missing … will be disabled"
+    // through `Logger.warn`. Which is the point — the capability loss IS reported,
+    // once, at the one place that owns the configuration.
     //
     // So the claim worth pinning is not "silent" but "reported exactly once, by
     // the boot validator, naming the keys". Two `getToken()` calls must not add a
     // second line: `getToken()` runs once per Spotify lookup, so warning there
     // would turn one boot warning into dozens an hour.
+    //
+    // CI pins the shape, not the total: `assertValidEnvironment()` also warns
+    // about a missing REDIS_URL (`envValidator.ts`), which is present in the
+    // local `.env` via `dotenv/config` but absent on CI where `setupEnv.ts`
+    // supplies no fallback. That second line is environment-dependent and says
+    // nothing about Spotify, so the total count cannot be pinned. What is
+    // pinned instead: the delta across the `getToken()` calls is 0 (getToken
+    // adds no warnings), and the full log holds exactly one Spotify boot line.
+    // MUTATION CHECK: make `getToken()` warn and the delta assertion goes red.
     const { SpotifyTokenManager, Logger } = await load(CREDS.none);
     vi.stubGlobal('fetch', vi.fn(async (..._args: unknown[]) => jsonResponse({}, 200)));
     const manager = new SpotifyTokenManager();
 
+    // Drain the lazy boot validator BEFORE the snapshot: the first `Data` read
+    // fires the warn(s), and later reads are memoised. Everything after this
+    // point is `getToken()` behaviour, which is what the delta pins.
+    void manager.credentialCount;
+    const warn = vi.mocked(Logger.warn);
+    const before = warn.mock.calls.length;
+
     await manager.getToken();
     await manager.getToken();
     await manager.getToken();
 
-    const warn = vi.mocked(Logger.warn);
-    expect(warn).toHaveBeenCalledTimes(1);
-    const line = loggedText(warn);
-    expect(line).toContain('SPOTIFY_CLIENT_ID');
-    expect(line).toContain('SPOTIFY_CLIENT_SECRET');
-    expect(line).toContain('Spotify credentials missing');
+    expect(warn.mock.calls.length - before).toBe(0);
+    const bootLines = warn.mock.calls
+      .map((c) => String(c[0]))
+      .filter((line) => line.includes('Spotify credentials missing'));
+    expect(bootLines).toHaveLength(1);
+    expect(bootLines[0]).toContain('SPOTIFY_CLIENT_ID');
+    expect(bootLines[0]).toContain('SPOTIFY_CLIENT_SECRET');
   });
 });
 

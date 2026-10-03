@@ -79,7 +79,12 @@ describe('resolveBinary', () => {
     expect(resolveBinary(undefined, [], packagedFile, 'ffmpeg', { PATH: '' })).toBe(packagedFile);
   });
 
-  it('prefers the packaged build over PATH, so a healthy install is unchanged', () => {
+  // WINDOWS-ONLY PINS. The four tests below read the real packaged fixture
+  // `node_modules/ffprobe-static/bin/win32/x64/ffprobe.exe`, which exists on a
+  // Windows checkout and does not exist on Linux (ubuntu-latest). PATHEXT
+  // resolution is a Windows concept, so no Linux fixture is invented for it.
+  // Gated with `skipIf`, not deleted: win32 runs them, CI skips them.
+  it.skipIf(process.platform !== 'win32')('prefers the packaged build over PATH, so a healthy install is unchanged', () => {
     // A real file on PATH that is NOT the packaged one. If this ever returns the
     // PATH hit, the rung order has been inverted and every host starts using a
     // different ffmpeg build than it did before.
@@ -91,7 +96,7 @@ describe('resolveBinary', () => {
     })).toBe(packagedFile);
   });
 
-  it('finds a binary on PATH when nothing else is available', () => {
+  it.skipIf(process.platform !== 'win32')('finds a binary on PATH when nothing else is available', () => {
     const ffprobe = path.join(process.cwd(), 'node_modules', 'ffprobe-static', 'bin', 'win32', 'x64', 'ffprobe.exe');
     expect(fs.existsSync(ffprobe)).toBe(true);
     expect(resolveBinary(undefined, [], undefined, 'ffprobe', {
@@ -104,7 +109,7 @@ describe('resolveBinary', () => {
   // matches a file on disk called `ffmpeg.exe`. Publishing the constructed name
   // writes a path into process.env.FFMPEG_PATH that reads as nonexistent in the
   // startup log.
-  it('publishes the name as spelled on disk, not as spelled in PATHEXT', () => {
+  it.skipIf(process.platform !== 'win32')('publishes the name as spelled on disk, not as spelled in PATHEXT', () => {
     const ffprobe = path.join(process.cwd(), 'node_modules', 'ffprobe-static', 'bin', 'win32', 'x64', 'ffprobe.exe');
     const found = resolveBinary(undefined, [], undefined, 'ffprobe', {
       PATH: path.dirname(ffprobe),
@@ -125,7 +130,7 @@ describe('resolveBinary', () => {
     expect(resolveBinary(undefined, [], undefined, 'ffmpeg', { PATH: dir })).toBe(path.join(dir, 'ffmpeg'));
   });
 
-  it('resolves a Windows .EXE through PATHEXT', () => {
+  it.skipIf(process.platform !== 'win32')('resolves a Windows .EXE through PATHEXT', () => {
     const ffprobe = path.join(process.cwd(), 'node_modules', 'ffprobe-static', 'bin', 'win32', 'x64', 'ffprobe.exe');
     expect(resolveBinary(undefined, [], undefined, 'ffprobe', {
       PATH: path.dirname(ffprobe),

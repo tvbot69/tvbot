@@ -1,0 +1,10 @@
+{
+  "https://github.com/advisories/GHSA-ggr8-5vv4-36mx": {
+    "reason": "deepmerge-ts <8.0.0 stack exhaustion via recursive graphs, reachable only through @prisma/config schema/env merge at generate/migrate/deploy. No Discord or user input reaches the merge. Patched 8.0.2 needs a vendor major Prisma has not shipped; pinned at 7.1.5 by @prisma/config.",
+    "revisitWhen": "@prisma/config ships deepmerge-ts >=8, or Prisma 7 changes the merge surface"
+  },
+  "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm": {
+    "reason": "braces stack exhaustion via nested patterns, reachable only through tsc-alias/chokidar globs at build time over repo sources. No user pattern reaches a glob. No patched braces range exists; the only remediation is a tsc-alias downgrade to 1.0.11, which is rejected.",
+    "revisitWhen": "a patched braces range is published, or tsc-alias is replaced"
+  }
+}

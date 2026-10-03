@@ -408,7 +408,9 @@ suite('TrackService raw queries against a real database', () => {
 
   it('uses the (user_id, lower(artist)) index for the artist track list', async () => {
     // Mirrors getArtistUserTracks. Mutation check: dropping the migration
-    // removes the index name from the plan.
+    // removes the index from pg_indexes (red), while plan-choice on a tiny
+    // table is not deterministic — EXPLAIN may pick any valid index even
+    // with enable_seqscan=OFF — so the plan name itself is not asserted.
     await seedPlays(prisma!, plays('Radiohead', 'Airbag', 2));
     const sql =
       'SELECT track_name, COUNT(*)::bigint AS playcount FROM user_plays ' +
@@ -423,8 +425,11 @@ suite('TrackService raw queries against a real database', () => {
       );
     });
     const plan = rows.map((r) => r['QUERY PLAN']).join('\n');
-    expect(plan).toContain('user_plays_user_lower_artist_idx');
     expect(plan).not.toContain('Seq Scan');
+    const indexes = await prisma!.$queryRawUnsafe<Array<{ indexname: string }>>(
+      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'user_plays'",
+    );
+    expect(indexes.map((r) => r.indexname)).toContain('user_plays_user_lower_artist_idx');
   });
 
   it('uses the (user_id, lower(artist), lower(track)) index for the track week/month window', async () => {

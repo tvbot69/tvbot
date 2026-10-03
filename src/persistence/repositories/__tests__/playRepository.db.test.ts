@@ -138,7 +138,10 @@ suite('PlayRepository against a real database', () => {
 
   it('uses the (user_id, lower(artist)) index for the artist-only week/month window', async () => {
     // Mirrors getRecentEntityPlaycounts artist-only shape. Mutation check:
-    // dropping the migration removes the index name from the plan.
+    // dropping the migration removes the index from pg_indexes (red), while
+    // plan-choice on a tiny table is not deterministic — EXPLAIN may pick any
+    // valid index even with enable_seqscan=OFF — so the plan name itself is
+    // not asserted.
     await repo!.batchInsertPlays([
       play({ artistName: 'Radiohead', timePlayed: new Date('2024-02-10T12:00:00.000Z') }),
       play({ artistName: 'Radiohead', timePlayed: new Date('2024-02-10T12:00:01.000Z') }),
@@ -159,8 +162,11 @@ suite('PlayRepository against a real database', () => {
       );
     });
     const plan = rows.map((r) => r['QUERY PLAN']).join('\n');
-    expect(plan).toContain('user_plays_user_lower_artist_idx');
     expect(plan).not.toContain('Seq Scan');
+    const indexes = await prisma!.$queryRawUnsafe<Array<{ indexname: string }>>(
+      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'user_plays'",
+    );
+    expect(indexes.map((r) => r.indexname)).toContain('user_plays_user_lower_artist_idx');
   });
 
   it('uses the (user_id, lower(artist), lower(album)) index for the album week/month window', async () => {
