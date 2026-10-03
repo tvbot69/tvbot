@@ -263,17 +263,30 @@ export class MusicBuilders {
   }
 
   /**
-   * Card-text budget for the Now Playing card: 58 chars, then `...`.
-   * Existing `clamp` is TOTAL (slice to max-3); this one keeps the full
-   * budget and appends, so a 58-char line passes through untouched.
-   * Applied AFTER trim/escape; a slice that lands on a lone `\` would
-   * re-arm the next char, so trailing backslashes are stripped.
+   * Card-text budgets for the Now Playing card.
+   *
+   * The title is the one field that visibly stretches the Components V2
+   * container and shrinks the artwork, so it gets the tighter budget and the
+   * shorter suffix. Measured against a real card 2026-10-03: at 58 + `...`
+   * the header still ran long enough to dominate the layout, while 52 + `..`
+   * cut exactly at "WHAT TO DO? • JACKBOYS • JACKBOYS, Travis Scott, Don..".
+   *
+   * `clamp` is TOTAL (slice to max-3); `clampDisplay` keeps the full budget
+   * and appends, so a line at exactly the limit passes through untouched.
+   * Applied AFTER trim/escape; a slice landing on a lone `\` would re-arm the
+   * next char, so trailing backslashes are stripped.
    */
   private static readonly NOW_PLAYING_TEXT_LIMIT = 58;
+  private static readonly NOW_PLAYING_TITLE_LIMIT = 52;
+  private static readonly TITLE_ELLIPSIS = '..';
 
-  private static clampDisplay(text: string, max: number = MusicBuilders.NOW_PLAYING_TEXT_LIMIT): string {
+  private static clampDisplay(
+    text: string,
+    max: number = MusicBuilders.NOW_PLAYING_TEXT_LIMIT,
+    ellipsis: string = '...',
+  ): string {
     if (text.length <= max) return text;
-    return `${text.slice(0, max).replace(/\\+$/, '')}...`;
+    return `${text.slice(0, max).replace(/\\+$/, '')}${ellipsis}`;
   }
 
   /**
@@ -330,6 +343,8 @@ export class MusicBuilders {
     // render a fake link.
     const displayTitle = MusicBuilders.clampDisplay(
       escapeLinkLabel(MusicBuilders.trimDisplayTitle(current.title)),
+      MusicBuilders.NOW_PLAYING_TITLE_LIMIT,
+      MusicBuilders.TITLE_ELLIPSIS,
     );
     const headerParts = [`[${displayTitle}](${current.uri})`];
     if (current.album?.trim()) {

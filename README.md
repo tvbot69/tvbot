@@ -23,7 +23,7 @@ ships as both a slash command and a `.`-prefixed text command.
 | Metric | Count |
 |---|---|
 | Production files | 395 |
-| Production lines | 84653 |
+| Production lines | 84668 |
 | Slash top-level commands | 76 |
 | Text commands | 158 |
 | Text triggers + aliases | 575 |

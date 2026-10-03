@@ -144,21 +144,30 @@ describe('Now Playing card text limits (58 + ...)', () => {
     return base as never;
   };
 
-  it('clamps a long title to 58 chars plus ... in V2 and fallback', () => {
+  it('clamps a long title to 52 chars plus .. in V2 and fallback', () => {
     const long = 'T'.repeat(100);
     const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title: long }), 0xff0000, null, null);
-    const want = `${'T'.repeat(58)}...`;
+    const want = `${'T'.repeat(52)}..`;
     expect(textsOf(res).some((t) => t.includes(want))).toBe(true);
     expect(embedDesc(res).includes(want)).toBe(true);
     // Without the clamp the full 100-char run survives; its absence is the mutation check.
-    expect(embedDesc(res).includes('T'.repeat(59 + 3))).toBe(false);
+    expect(embedDesc(res).includes('T'.repeat(59 + 2))).toBe(false);
   });
 
-  it('passes an exact-58 title through untouched', () => {
-    const exact = 'E'.repeat(58);
+  it('cuts the measured real title exactly where the card was too wide', () => {
+    // From the 2026-10-03 card: this title ran the header long enough to
+    // dominate the layout. 52 chars + '..' is the agreed cut point.
+    const title = 'WHAT TO DO? • JACKBOYS • JACKBOYS, Travis Scott, Don Toliver';
+    const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title }), 0xff0000, null, null);
+    expect(embedDesc(res)).toContain('[WHAT TO DO? • JACKBOYS • JACKBOYS, Travis Scott, Don..]');
+    expect(embedDesc(res)).not.toContain('Don Toliver]');
+  });
+
+  it('passes an exact-52 title through untouched', () => {
+    const exact = 'E'.repeat(52);
     const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title: exact }), 0xff0000, null, null);
     expect(embedDesc(res).includes(`[${exact}]`)).toBe(true);
-    expect(embedDesc(res).includes('...')).toBe(false);
+    expect(embedDesc(res).includes('..')).toBe(false);
   });
 
   it('leaves a short title untouched', () => {
