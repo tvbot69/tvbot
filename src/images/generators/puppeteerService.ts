@@ -96,8 +96,28 @@ export class PuppeteerService {
       if (this.browser) {
         // A failed `close()` at exit leaks nothing: the child dies with the
         // parent's namespace on Railway, and the SIGKILL above is the backstop.
-        void this.browser.close().catch(() => undefined);
+        // The shape is checked, not assumed: a sync throw here (no `close`
+        // method at all) or a non-Promise return (a `close` that returns
+        // undefined) escapes a chained `.catch` as an uncaught exception, and
+        // in a test runner that fails the WHOLE run after every file passed.
+        // Seen in CI: a fake browser left on the instance without `close`.
+        // Single `as` casts only — a double assertion would trip the
+        // `as-unknown-as` ratchet — and the catch carries a Logger receipt so
+        // it is not silent-failure debt either.
+        const browser = this.browser;
         this.browser = null;
+        try {
+          const closable = browser as { close?: unknown };
+          if (typeof closable.close === 'function') {
+            const returned: unknown = (closable.close as () => unknown).call(browser);
+            const catcher = (returned as { catch?: unknown } | null | undefined)?.catch;
+            if (typeof catcher === 'function') {
+              void (catcher as (onRejected: () => void) => unknown).call(returned, () => undefined);
+            }
+          }
+        } catch (err) {
+          Logger.debug({ err }, 'Puppeteer exit cleanup: browser close failed; the OS reaps the child');
+        }
       }
     };
     process.once('exit', kill);

@@ -533,3 +533,50 @@ describe('retry skips when a slot waiter is queued', () => {
     expect(Logger.warn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('exit cleanup — a close-less browser never fails the run', () => {
+  it('tolerates no close method, a non-promise close, and a rejecting close', async () => {
+    // CI shape: every file passed, then vitest reported one unhandled error —
+    // `TypeError: this.browser.close is not a function` from the `exit`
+    // listener, because a fake browser without `close` was left on the
+    // instance. The `.catch` only covers async rejections, never the sync
+    // TypeError of the call itself (nor a non-Promise return). Each shape
+    // below must run the listener without throwing and leave null behind.
+    const seen: Array<{ event: string; cb: () => void }> = [];
+    const onceSpy = vi
+      .spyOn(process, 'once')
+      .mockImplementation(((event: string, cb: () => void) => {
+        seen.push({ event, cb });
+        return process;
+      }) as never);
+    let svc: PuppeteerService;
+    try {
+      svc = new PuppeteerService();
+    } finally {
+      onceSpy.mockRestore();
+    }
+    try {
+      const exit = seen.find((s) => s.event === 'exit')!.cb;
+      const inner = svc as unknown as { browser: unknown };
+      const fakes: unknown[] = [
+        {},
+        { close: undefined },
+        { close: () => undefined },
+        {
+          close: async () => {
+            throw new Error('already gone');
+          },
+        },
+      ];
+      for (const fake of fakes) {
+        inner.browser = fake;
+        expect(() => exit()).not.toThrow();
+        expect(inner.browser).toBeNull();
+      }
+      // A rejecting close is swallowed, not unhandled: let the microtask run.
+      await Promise.resolve();
+    } finally {
+      for (const s of seen) process.removeListener(s.event, s.cb as (...args: unknown[]) => void);
+    }
+  });
+});
