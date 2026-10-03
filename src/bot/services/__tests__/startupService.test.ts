@@ -452,7 +452,7 @@ const PINS: readonly Pin[] = [
     ['lastfmRepo', LastFmRepository],
     ['prisma', PrismaClient],
   ] },
-  { ctor: AutopostService, arity: 7, slots: [
+  { ctor: AutopostService, arity: 8, slots: [
     ['artistsService', ArtistsService],
     ['albumService', AlbumService],
     ['trackService', TrackService],
@@ -460,6 +460,7 @@ const PINS: readonly Pin[] = [
     ['telemetryService', TelemetryService],
     ['guildRepository', GuildRepository],
     ['autopostRepository', AutopostRepository],
+    ['guildRankingService', GuildRankingService],
   ] },
   { ctor: UpdateService, arity: 9, slots: [
     ['userRepository', UserRepository],

@@ -49,6 +49,8 @@ export class MoonlinkManager {
    * on their own, so without this the bot needs a restart to see Home again).
    */
   private readonly nodeConfigs: LavalinkNodeConfig[] = [];
+  /** Wired at startup — best-effort one-line notice in the now-playing channel. */
+  private unavailableNotifier: ((guildId: string, message: string) => void) | null = null;
 
   constructor(cache?: CacheService) {
     this.cache = cache ?? null;
@@ -235,6 +237,24 @@ export class MoonlinkManager {
   private static readonly REST_DEAD_MIGRATE_SIGHTINGS = 2;
 
   private static readonly REST_DEAD_COOLDOWN_MS = 120_000;
+  /** Cooldown for a backup node that refused a transfer — keeps the retry off it. */
+  private static readonly TRANSFER_REFUSED_COOLDOWN_MS = 30_000;
+
+  /**
+   * Wired at startup — same pattern as MusicService/PlaylistChunkManager.
+   * Setter, never a constructor param (tests build MoonlinkManager positionally).
+   */
+  public setUnavailableNotifier(notifier: (guildId: string, message: string) => void): void {
+    this.unavailableNotifier = notifier;
+  }
+
+  private notifyUnavailable(guildId: string, message: string): void {
+    try {
+      this.unavailableNotifier?.(guildId, message);
+    } catch {
+      // A notice must never break the flow that produced it.
+    }
+  }
 
   /**
    * Search candidate excluding REST-dead / cooling nodes. Moonlink's own
@@ -561,72 +581,105 @@ export class MoonlinkManager {
       }
 
       // Pick healthiest node with lowest load / players
-      const targetNode = healthyNodes.sort((a, b) => {
+      const sortedCandidates = healthyNodes.sort((a, b) => {
         const aPlayers = a.stats?.players ?? 0;
         const bPlayers = b.stats?.players ?? 0;
         return aPlayers - bPlayers;
-      })[0];
+      });
 
-      if (!targetNode) return;
+      if (sortedCandidates.length === 0) return;
 
       for (const player of affectedPlayers) {
-        Logger.info(
-          `[Lavalink] Moving player ${player.guildId} from failed node "${failedNode.identifier}" to "${targetNode.identifier}"`,
-        );
-        // Node state (volume, loop, filters, position) is per-session: snapshot
-        // before the move and re-apply after, or playback silently resets to
-        // 100%/no-filter/from-zero on the new node.
-        const snapshot = {
-          volume: player.volume ?? 100,
-          loop: player.loop ?? 'off',
-          autoPlay: player.autoPlay,
-          filters: [...(player.filters?.enabled ?? [])],
-          position: player.current?.position ?? 0,
-        };
-        player
-          .transferNode(targetNode)
-          .then(async () => {
-            try {
-              if (snapshot.volume !== 100) player.setVolume(snapshot.volume);
-              if (snapshot.loop && snapshot.loop !== 'off') player.setLoop(snapshot.loop);
-              if (snapshot.autoPlay) player.setAutoPlay(true);
-              for (const filter of snapshot.filters) {
-                try {
-                  player.filters.enable(filter as Parameters<typeof player.filters.enable>[0]);
-                } catch {
-                  // CORRECT AS IS: a name this node/moonlink build does not
-                  // know. The filter stays in the player's own state, so the
-                  // migration is not corrupted by refusing it; the cost is
-                  // one missing audio effect on the new node, and the next
-                  // filter toggle re-applies. Swallowing here keeps one bad
-                  // filter name from skipping the position restore below.
-                }
-              }
-              if (snapshot.filters.length > 0) {
-                // CORRECT AS IS: the migrated player keeps the filters in its
-                // own state, so failing to push them to the new node costs the
-                // audio effect, not playback — and the next filter toggle
-                // re-applies. Swallowing it keeps one bad transfer from
-                // skipping the position restore below.
-                await player.filters.apply().catch(() => undefined);
-              }
-              if (snapshot.position > 5000) {
-                // CORRECT AS IS: a refused seek-back leaves the track at the
-                // start of the new node. That is a real degradation, but the
-                // alternative — rejecting the .then() chain — would skip
-                // nothing and break the transfer log. Playback continues.
-                await player.seek(snapshot.position).catch(() => undefined);
-              }
-            } catch (err) {
-              Logger.warn({ err, guildId: player.guildId }, 'Failed to restore player state after node transfer');
-            }
-          })
-          .catch((err) => {
-            Logger.error({ err, guildId: player.guildId }, 'Failed to move player to backup node');
-          });
+        void this.migratePlayerWithFallback(player, sortedCandidates, failedNode.identifier);
       }
     } catch (err) {
       Logger.error({ err }, 'Error during node failover');
+    }
+  }
+
+  /**
+   * One player, up to two attempts: the healthiest backup, then the next one
+   * once when the first refuses. A single transferNode refusal used to strand
+   * the guild on the dead node with only a log line — no retry, no user
+   * notice. The refusing target is re-cooled so the retry and the search
+   * picker both route past it; when both attempts fail the guild is told.
+   */
+  private async migratePlayerWithFallback(player: Player, candidates: Node[], failedId: string): Promise<void> {
+    // Node state (volume, loop, filters, position) is per-session: snapshot
+    // before the move and re-apply after, or playback silently resets to
+    // 100%/no-filter/from-zero on the new node.
+    const snapshot = {
+      volume: player.volume ?? 100,
+      loop: player.loop ?? 'off',
+      autoPlay: player.autoPlay,
+      filters: [...(player.filters?.enabled ?? [])],
+      position: player.current?.position ?? 0,
+    };
+    const attempts = candidates.slice(0, 2);
+    for (let i = 0; i < attempts.length; i++) {
+      const target = attempts[i]!;
+      Logger.info(
+        `[Lavalink] Moving player ${player.guildId} from failed node "${failedId}" to "${target.identifier}"${i > 0 ? ' (retry)' : ''}`,
+      );
+      try {
+        await player.transferNode(target);
+        await this.restorePlayerState(player, snapshot);
+        return;
+      } catch (err) {
+        this.setNodeCooldown(target.identifier, MoonlinkManager.TRANSFER_REFUSED_COOLDOWN_MS);
+        if (i < attempts.length - 1) {
+          Logger.warn(
+            { err, guildId: player.guildId, refused: target.identifier, retry: attempts[i + 1]!.identifier },
+            `Backup node "${target.identifier}" refused transfer, retrying "${attempts[i + 1]!.identifier}"`,
+          );
+          continue;
+        }
+        Logger.error({ err, guildId: player.guildId }, 'Failed to move player to backup node');
+        this.notifyUnavailable(
+          player.guildId,
+          '⚠️ Music node failed and playback could not be moved to a backup node. Use `.play` to restart once a node recovers.',
+        );
+      }
+    }
+  }
+
+  private async restorePlayerState(
+    player: Player,
+    snapshot: { volume: number; loop: Player['loop']; autoPlay: Player['autoPlay']; filters: string[]; position: number },
+  ): Promise<void> {
+    try {
+      if (snapshot.volume !== 100) player.setVolume(snapshot.volume);
+      if (snapshot.loop && snapshot.loop !== 'off') player.setLoop(snapshot.loop);
+      if (snapshot.autoPlay) player.setAutoPlay(true);
+      for (const filter of snapshot.filters) {
+        try {
+          player.filters.enable(filter as Parameters<typeof player.filters.enable>[0]);
+        } catch {
+          // CORRECT AS IS: a name this node/moonlink build does not
+          // know. The filter stays in the player's own state, so the
+          // migration is not corrupted by refusing it; the cost is
+          // one missing audio effect on the new node, and the next
+          // filter toggle re-applies. Swallowing here keeps one bad
+          // filter name from skipping the position restore below.
+        }
+      }
+      if (snapshot.filters.length > 0) {
+        // CORRECT AS IS: the migrated player keeps the filters in its
+        // own state, so failing to push them to the new node costs the
+        // audio effect, not playback — and the next filter toggle
+        // re-applies. Swallowing it keeps one bad transfer from
+        // skipping the position restore below.
+        await player.filters.apply().catch(() => undefined);
+      }
+      if (snapshot.position > 5000) {
+        // CORRECT AS IS: a refused seek-back leaves the track at the
+        // start of the new node. That is a real degradation, but the
+        // alternative — rejecting the .then() chain — would skip
+        // nothing and break the transfer log. Playback continues.
+        await player.seek(snapshot.position).catch(() => undefined);
+      }
+    } catch (err) {
+      Logger.warn({ err, guildId: player.guildId }, 'Failed to restore player state after node transfer');
     }
   }
 

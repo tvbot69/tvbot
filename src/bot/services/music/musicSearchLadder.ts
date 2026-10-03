@@ -5,6 +5,7 @@ import { ladderFor, HOME_NODE, type Rung } from '@bot/services/music/youtubeHeal
 import { resolveViaHome, type ResolverMeta } from '@bot/services/music/ytResolver';
 import { LOAD_TRACKS_TIMEOUT_MS } from '@bot/services/music/musicConstants';
 import { isNodeCooling } from '@bot/services/music/musicNodeHealth';
+import { moonlinkChapterStash } from '@bot/services/music/moonlinkTypes';
 import { leadArtist, preCleanArtwork } from '@bot/services/music/musicTrackArtwork';
 import {
   cleanArtistName,
@@ -189,12 +190,14 @@ export class MusicSearchLadder {
       // adoption overwrites title/author. Without this, extractArtistFromTitle
       // reads the Spotify title (no " - ") and resolver local files lose the
       // video ID entirely.
-      const rec = ytHit as unknown as Record<string, unknown>;
-      if (typeof rec._rawVideoTitle !== 'string' && ytHit.title) {
-        rec._rawVideoTitle = ytHit.title;
-      }
-      if (typeof rec._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(ytHit.identifier ?? '')) {
-        rec._sourceVideoId = ytHit.identifier;
+      const stash = moonlinkChapterStash(ytHit);
+      if (stash) {
+        if (typeof stash._rawVideoTitle !== 'string' && ytHit.title) {
+          stash._rawVideoTitle = ytHit.title;
+        }
+        if (typeof stash._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(ytHit.identifier ?? '')) {
+          stash._sourceVideoId = ytHit.identifier;
+        }
       }
     }
     for (const rung of rungs) {
@@ -338,7 +341,7 @@ export class MusicSearchLadder {
       // any track that already has artwork, so the card would show a video
       // frame for the whole set instead of the real cover. Drop it here (no
       // known art to stamp) so the ladder's backfill fills real art.
-      preCleanArtwork(track as unknown as { artworkUrl?: string | null });
+      preCleanArtwork(track);
       // Wrong-song guard (same ±30s rule as fallbacks): the ytsearch top hit
       // can be a compilation or wrong upload; the probed file duration is
       // ground truth. Missing durations pass through.
@@ -351,14 +354,14 @@ export class MusicSearchLadder {
         return null;
       }
       // Carry chapter context onto the local file (it has no video ID itself).
-      const srcRec = ytTrack as unknown as Record<string, unknown>;
-      const dstRec = track as unknown as Record<string, unknown>;
-      const rawTitle = srcRec._rawVideoTitle ?? ytTrack.title;
-      if (typeof rawTitle === 'string' && rawTitle && typeof dstRec._rawVideoTitle !== 'string') {
-        dstRec._rawVideoTitle = rawTitle;
+      const srcStash = moonlinkChapterStash(ytTrack);
+      const dstStash = moonlinkChapterStash(track);
+      const rawTitle = srcStash?._rawVideoTitle ?? ytTrack.title;
+      if (dstStash && typeof rawTitle === 'string' && rawTitle && typeof dstStash._rawVideoTitle !== 'string') {
+        dstStash._rawVideoTitle = rawTitle;
       }
-      if (/^[\w-]{11}$/.test(ytTrack.identifier ?? '')) {
-        dstRec._sourceVideoId = ytTrack.identifier;
+      if (dstStash && /^[\w-]{11}$/.test(ytTrack.identifier ?? '')) {
+        dstStash._sourceVideoId = ytTrack.identifier;
       }
       return track;
     } catch (err) {

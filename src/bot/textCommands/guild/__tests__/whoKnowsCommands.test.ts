@@ -99,14 +99,17 @@ const build = (opts: {
     whoKnowsArtistService: {
       getFilteredUsersForArtist: vi.fn(async () => artistResult),
       getFriendUsersForArtists: vi.fn(async () => []),
+      getGuildHiddenUserIds: vi.fn(async () => new Set<number>()),
     },
     whoKnowsTrackService: {
       getFilteredUsersForTrack: vi.fn(async () => trackResult),
       getFriendUsersForTrack: vi.fn(async () => []),
+      getGuildHiddenUserIds: vi.fn(async () => new Set<number>()),
     },
     whoKnowsAlbumService: {
       getFilteredUsersForAlbum: vi.fn(async () => albumResult),
       getFriendUsersForAlbum: vi.fn(async () => []),
+      getGuildHiddenUserIds: vi.fn(async () => new Set<number>()),
     },
     whoKnowsPlayService: {
       getGuildAlsoPlayingArtist: vi.fn(async () => undefined),
@@ -581,6 +584,84 @@ describe('WhoKnowsCommands artist genre anchoring', () => {
     sampleTrack = 'Callers Track';
     await commands.whoKnowsArtistAsync(ctx(), 'mond');
     expect(builderArgs()[7]).toEqual(['darkwave']);
+  });
+});
+
+describe('WhoKnowsCommands friends privacy filtering', () => {
+  const guildWithId = (id = '222'): ContextModel =>
+    ctx({ guild: { name: 'Test Guild', id, members: { cache: { get: () => undefined } } } });
+
+  it('never names a Hide friend from the friends list, but keeps visible friends', async () => {
+    const { commands, deps } = build();
+    (deps.friendsService as { getFriendsByUserId: ReturnType<typeof vi.fn> }).getFriendsByUserId.mockResolvedValue([
+      { userId: 1, friendUserId: 2, friendUser: { userId: 2, privacyLevel: 'Hide' } },
+      { userId: 1, friendUserId: 3, friendUser: { userId: 3, privacyLevel: 'Default' } },
+    ]);
+    (deps.whoKnowsArtistService as { getFriendUsersForArtists: ReturnType<typeof vi.fn> })
+      .getFriendUsersForArtists.mockResolvedValue([
+        { userId: 2, playcount: 50, lastFmUsername: 'hidden_friend' },
+        { userId: 3, playcount: 10, lastFmUsername: 'visible_friend' },
+      ]);
+    await privates(commands).friendsWhoKnowArtistAsync(ctx(), 'Mond');
+    const users = builderArgs()[4] as Array<{ userId: number }>;
+    expect(users.map((u) => u.userId)).not.toContain(2);
+    expect(users.map((u) => u.userId)).toContain(3);
+  });
+
+  it('excludes a self-blocked friend via the guild users map', async () => {
+    const { commands, deps } = build();
+    (deps.friendsService as { getFriendsByUserId: ReturnType<typeof vi.fn> }).getFriendsByUserId.mockResolvedValue([
+      { userId: 1, friendUserId: 2 },
+      { userId: 1, friendUserId: 3 },
+    ]);
+    (deps.whoKnowsArtistService as { getFriendUsersForArtists: ReturnType<typeof vi.fn> })
+      .getFriendUsersForArtists.mockResolvedValue([
+        { userId: 2, playcount: 50, lastFmUsername: 'blocked_friend' },
+        { userId: 3, playcount: 10, lastFmUsername: 'visible_friend' },
+      ]);
+    // The guild-user read lives in the entity service (already-injected
+    // repository), never resolved out of the container from a command module.
+    (deps.whoKnowsArtistService as { getGuildHiddenUserIds: ReturnType<typeof vi.fn> })
+      .getGuildHiddenUserIds.mockResolvedValue(new Set([2]));
+    await privates(commands).friendsWhoKnowArtistAsync(guildWithId(), 'Mond');
+    const users = builderArgs()[4] as Array<{ userId: number }>;
+    expect(users.map((u) => u.userId)).not.toContain(2);
+    expect(users.map((u) => u.userId)).toContain(3);
+  });
+
+  it('excludes a Hide caller from their own friends list', async () => {
+    const { commands, deps } = build({
+      registered: user({ privacyLevel: 'Hide' as never }),
+    });
+    (deps.friendsService as { getFriendsByUserId: ReturnType<typeof vi.fn> }).getFriendsByUserId.mockResolvedValue([
+      { userId: 1, friendUserId: 3 },
+    ]);
+    (deps.whoKnowsArtistService as { getFriendUsersForArtists: ReturnType<typeof vi.fn> })
+      .getFriendUsersForArtists.mockResolvedValue([
+        { userId: 3, playcount: 10, lastFmUsername: 'visible_friend' },
+      ]);
+    (deps.artistsService as { getArtistInfo: ReturnType<typeof vi.fn> }).getArtistInfo.mockResolvedValue({
+      name: 'Mond',
+      userPlayCount: 5,
+    });
+    await privates(commands).friendsWhoKnowArtistAsync(ctx(), 'Mond');
+    const users = builderArgs()[4] as Array<{ userId: number }>;
+    expect(users.map((u) => u.userId)).not.toContain(1);
+    expect(users.map((u) => u.userId)).toContain(3);
+  });
+
+  it('CONTROL: visible friends are still listed, so the filter cannot hide everyone', async () => {
+    const { commands, deps } = build();
+    (deps.friendsService as { getFriendsByUserId: ReturnType<typeof vi.fn> }).getFriendsByUserId.mockResolvedValue([
+      { userId: 1, friendUserId: 2, friendUser: { userId: 2, privacyLevel: 'Default' } },
+    ]);
+    (deps.whoKnowsArtistService as { getFriendUsersForArtists: ReturnType<typeof vi.fn> })
+      .getFriendUsersForArtists.mockResolvedValue([
+        { userId: 2, playcount: 10, lastFmUsername: 'visible_friend' },
+      ]);
+    await privates(commands).friendsWhoKnowArtistAsync(ctx(), 'Mond');
+    const users = builderArgs()[4] as Array<{ userId: number }>;
+    expect(users.map((u) => u.userId)).toContain(2);
   });
 });
 

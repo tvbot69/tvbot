@@ -201,5 +201,120 @@ describe('ImportService', () => {
       expect(batchInsertPlays).not.toHaveBeenCalled();
       expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
+
+    it('returns clean success with no shortfall when the counter moves', async () => {
+      wireRepos(new Set());
+
+      const result = await service.parseAndImport(123, JSON.stringify(sample));
+
+      expect(result.newRowsInserted).toBe(2);
+      expect(result.counterShortBy ?? 0).toBe(0);
+      expect(result.counterWarning).toBeUndefined();
+    });
+  });
+
+  describe('counter shortfall visibility', () => {
+    const sample = [
+      {
+        ts: '2023-01-01T12:00:00Z',
+        master_metadata_track_name: 'Paranoid Android',
+        master_metadata_album_artist_name: 'Radiohead',
+        master_metadata_album_album_name: 'OK Computer',
+        ms_played: 380000,
+      },
+      {
+        ts: '2023-01-02T15:00:00Z',
+        master_metadata_track_name: 'One More Time',
+        master_metadata_album_artist_name: 'Daft Punk',
+        master_metadata_album_album_name: 'Discovery',
+        ms_played: 320000,
+      },
+    ];
+
+    const wireRepos = (existingKeys: Set<string>, recalculateImpl?: () => Promise<void>) => {
+      const batchInsertPlays = vi.fn(async (rows: unknown[]) => rows.length);
+      const recalculateTopLists = vi.fn(
+        recalculateImpl ?? (async () => undefined),
+      );
+      container.registerInstance(
+        PlayRepository,
+        { findExistingPlayKeys: vi.fn(async () => existingKeys), batchInsertPlays } as never,
+      );
+      container.registerInstance(IndexService, { recalculateTopLists } as never);
+      return { batchInsertPlays, recalculateTopLists };
+    };
+
+    it('surfaces the shortfall instead of clean success when the increment fails', async () => {
+      wireRepos(new Set());
+      mockPrisma.user.update.mockRejectedValueOnce(new Error('P1001: Cannot reach database server'));
+
+      const result = await service.parseAndImport(123, JSON.stringify(sample));
+
+      // Rows WERE stored, so the insert count stays — but the summary must not
+      // read as clean success: every leaderboard reads the short counter forever
+      // and a re-upload inserts 0 rows, so nothing repairs it silently.
+      expect(result.newRowsInserted).toBe(2);
+      expect(result.counterShortBy).toBe(2);
+      expect(result.counterWarning).toMatch(/short by 2/i);
+      expect(result.counterWarning).toMatch(/re-upload/i);
+    });
+
+    it('surfaces the shortfall on the no-repo fallback path as well', async () => {
+      // No PlayRepository wired: legacy counter path increments by parsed length.
+      mockPrisma.user.update.mockRejectedValueOnce(new Error('P1001: Cannot reach database server'));
+
+      const result = await service.parseAndImport(123, JSON.stringify(sample));
+
+      expect(result.counterShortBy).toBe(2);
+      expect(result.counterWarning).toMatch(/short by 2/i);
+    });
+
+    it('flags stale aggregates when the post-import rebuild fails', async () => {
+      wireRepos(new Set(), async () => {
+        throw new Error('recalc down');
+      });
+
+      const result = await service.parseAndImport(123, JSON.stringify(sample));
+
+      expect(result.newRowsInserted).toBe(2);
+      expect(result.aggregatesStale).toBe(true);
+      // Counter moved fine here, so no counter shortfall alongside it.
+      expect(result.counterShortBy ?? 0).toBe(0);
+    });
+  });
+
+  describe('reset recalc visibility', () => {
+    it('returns false when the rollup rebuild fails after delete', async () => {
+      container.registerInstance(
+        IndexService,
+        {
+          recalculateTopLists: vi.fn(async () => {
+            throw new Error('recalc down');
+          }),
+        } as never,
+      );
+
+      const success = await service.resetImport(123);
+
+      // Rows deleted and counter reset, but artist/album/track rollups still
+      // count deleted plays — true would claim charts clean when stale.
+      expect(success).toBe(false);
+      expect(mockPrisma.userPlay.deleteMany).toHaveBeenCalled();
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { userId: 123 },
+        data: { totalPlayCount: 0 },
+      });
+    });
+
+    it('returns true when delete, rebuild and counter reset all succeed', async () => {
+      container.registerInstance(
+        IndexService,
+        { recalculateTopLists: vi.fn(async () => undefined) } as never,
+      );
+
+      const success = await service.resetImport(123);
+
+      expect(success).toBe(true);
+    });
   });
 });

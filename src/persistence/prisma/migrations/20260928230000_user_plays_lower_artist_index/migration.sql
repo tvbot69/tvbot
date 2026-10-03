@@ -1,0 +1,24 @@
+-- LOWER artist play lookup index.
+--
+-- Reads filter with LOWER(artist_name) = LOWER(param) in playRepository
+-- getRecentEntityPlaycounts and in trackService getArtistUserTracks and in
+-- sibling artistsService and albumService queries. The hot-path migration
+-- created (user_id, UPPER(artist_name)) which never serves a LOWER predicate
+-- because a functional index only serves its exact expression. Every crown
+-- and playcount card with a LOWER artist filter therefore full-scanned
+-- user_plays.
+--
+-- CONCURRENTLY so the build does not block writes to user_plays. Reads are
+-- unaffected either way.
+--
+-- READ THIS BEFORE EDITING. This file must contain EXACTLY ONE STATEMENT.
+-- Prisma decides transaction wrapping by statement arity. One statement runs
+-- outside a transaction so CREATE INDEX CONCURRENTLY works. Two statements get
+-- wrapped and CONCURRENTLY then fails. Keep each index in its own file.
+--
+-- A functional index cannot be expressed in schema.prisma so it lives here
+-- only and this file is the source of truth. Do not run prisma migrate dev
+-- expecting parity for it.
+--
+-- Idempotent via IF NOT EXISTS for safe re-application.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "user_plays_user_lower_artist_idx" ON "user_plays" ("user_id", lower("artist_name"));

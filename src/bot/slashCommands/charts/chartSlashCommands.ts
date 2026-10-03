@@ -13,16 +13,10 @@ import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import type { User } from '@domain/interfaces/ports/iuserRepository';
 
 import { ColorService } from '@bot/services/system/colorService';
-
-const notRegisteredResponse = (): ResponseModel =>
-  GenericEmbedService.buildCommandErrorResponse(
-    CommandResponse.NotFound,
-    'You have not connected your Last.fm account yet. Use `/register` first.',
-  );
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 /**
  * `1990`, `1990s`, `90` and `90s` all name the same decade, and the refusal
@@ -312,9 +306,9 @@ export class ChartSlashCommands implements ISlashCommandModule {
       }
     }
 
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return notRegisteredResponse();
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) {
+      return user;
     }
     const member = context.interaction?.member as { displayName?: string } | null;
     return {

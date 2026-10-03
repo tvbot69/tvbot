@@ -5,6 +5,23 @@ import type { Guild } from '@persistence/models/guild';
 
 export class WhoKnowsService {
   /**
+   * The userIds that must never be named on a people-listing card.
+   *
+   * Same rule as `filterWhoKnowsObjects` below: `selfBlockFromWhoKnows` or
+   * `privacyLevel Hide`. Factored out so the friends commands — which have no
+   * guild-user map in scope, only a guild id — can enforce the identical rule
+   * through their entity service instead of resolving a repository out of the
+   * container from a command module.
+   */
+  public static hiddenGuildUserIds(guildUsers: Iterable<FullGuildUserDetails>): Set<number> {
+    const hidden = new Set<number>();
+    for (const gu of guildUsers) {
+      if (gu.selfBlockFromWhoKnows || gu.privacyLevel === 'Hide') hidden.add(gu.userId);
+    }
+    return hidden;
+  }
+
+  /**
    * Inject or update caller's live playcount in the WhoKnows list.
    */
   public static addOrReplaceUserToIndexList(

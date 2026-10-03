@@ -143,6 +143,17 @@ describe('IndexService.fetchAndStorePlays', () => {
     expect(result.seen).toBe(0);
   });
 
+  it('flushes partial progress then throws on outage mid-run', async () => {
+    const { LastFmUnavailableError } = await import('@domain/models/errors/lastfmUnavailableError');
+    const { service, lastfmRepository, playRepository } = build();
+    const fullPage = Array.from({ length: 1000 }, (_, i) => play(i));
+    (lastfmRepository.getUserRecentTracksWithMetadata as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(page(fullPage, 5))
+      .mockRejectedValueOnce(new LastFmUnavailableError('user.getrecenttracks', new Error('down')));
+    await expect(fetch(service)).rejects.toBeInstanceOf(LastFmUnavailableError);
+    expect(playRepository.batchInsertPlays).toHaveBeenCalled();
+  });
+
   it('never stores a now-playing entry, which is not a scrobble', async () => {
     // A now-playing track has no timestamp and is not a play. Storing it
     // would inflate every count by one.

@@ -9,6 +9,8 @@ import { AlbumService } from '@bot/services/library/albumService';
 import { TrackService } from '@bot/services/library/trackService';
 import { CrownService } from '@bot/services/crown/crownService';
 import { CrownBuilders } from '@bot/builders/crown/crownBuilders';
+import { GuildRankingService, OrderType } from '@bot/services/guild/guildRankingService';
+import type { GuildRankingSettings } from '@bot/services/guild/guildRankingService';
 import { IGuildRepository } from '@domain/interfaces/ports/iguildRepository';
 import { AutopostRepository } from '@persistence/repositories/autopostRepository';
 import { EmbedBuilder } from 'discord.js';
@@ -29,6 +31,40 @@ export interface AutopostConfig {
   lastPosted?: Date | null;
   created?: Date;
 }
+
+/**
+ * One guild-scoped leaderboard row for a Top autopost, read from
+ * `GuildRankingService` — the same guild aggregate the `.top` commands render,
+ * which already excludes Hide/abuse/banned/self-blocked members. `GuildRankingItem`
+ * assigns structurally, so no adapter type is needed beyond this alias.
+ */
+export interface AutopostTopRow {
+  name: string;
+  secondaryName?: string | null;
+  artistName?: string | null;
+  playcount?: number | null;
+  totalPlaycount?: number | null;
+  listenerCount?: number | null;
+}
+
+/** At most this many leaderboard rows go into one recap embed. */
+export const AUTOPOST_TOP_ROW_LIMIT = 10;
+
+export const formatAutopostTopRows = (rows: AutopostTopRow[]): string =>
+  rows
+    .slice(0, AUTOPOST_TOP_ROW_LIMIT)
+    .map((row, index) => {
+      const name = row.name?.trim() || 'Unknown';
+      const artist = (row.secondaryName ?? row.artistName)?.trim();
+      const plays = row.totalPlaycount ?? row.playcount;
+      const listeners = row.listenerCount;
+      let line = `**${index + 1}.** ${name}`;
+      if (artist) line += ` — ${artist}`;
+      if (typeof plays === 'number') line += ` — ${plays} plays`;
+      if (typeof listeners === 'number') line += ` (${listeners} listeners)`;
+      return line;
+    })
+    .join('\n');
 
 /**
  * A scheduled post is a claim the user never asked for at the time, and it
@@ -83,6 +119,7 @@ export class AutopostService {
     private readonly telemetryService: TelemetryService,
     @inject('IGuildRepository') private readonly guildRepository?: IGuildRepository,
     @inject(AutopostRepository) private readonly autopostRepository?: AutopostRepository,
+    @inject(GuildRankingService) private readonly guildRankingService?: GuildRankingService,
   ) {}
 
   /**
@@ -294,10 +331,23 @@ export class AutopostService {
         );
         await (channel as TextChannel).send(response.toMessagePayload());
       } else {
+        // A title-only recap stamped as success is a confident wrong answer:
+        // the guild reads "here is your Top overview" with no rows and nothing
+        // ever corrects it. So an unreadable read throws into the catch below
+        // (false, unstamped, retried next sweep) and a genuine zero rows ALSO
+        // returns false rather than posting an empty card.
+        const rows = await this.readTopRowsFor(autopost.contentType, autopost.guildId, autopost.schedule);
+        if (!rows || rows.length === 0) {
+          Logger.warn(
+            { guildId: autopost.guildId, contentType: autopost.contentType },
+            '[Autopost] Leaderboard read returned no rows; refusing to post an empty recap',
+          );
+          return false;
+        }
         const embed = new EmbedBuilder()
           .setColor(DiscordConstants.LastFmColorBlue)
           .setTitle(`📊 ${autopost.schedule} ${guildName} Music Recap`)
-          .setDescription(`Here is your server's **${autopost.contentType.replace('Top', 'Top ')}** overview for this ${autopost.schedule.toLowerCase()} cycle!`)
+          .setDescription(`Here is your server's **${autopost.contentType.replace('Top', 'Top ')}** overview for this ${autopost.schedule.toLowerCase()} cycle!\n\n${formatAutopostTopRows(rows)}`)
           .setFooter({ text: `tvbot Autopost • ${autopost.schedule}` })
           .setTimestamp();
 
@@ -310,6 +360,52 @@ export class AutopostService {
 
     autopost.lastPosted = new Date();
     return true;
+  }
+
+  /**
+   * Guild rows for a Top content type, from the injected `GuildRankingService`.
+   *
+   * The schedule is the window: Daily reads the last 24h, Weekly the last 7d,
+   * Monthly the last 28d — the same windows the due-sweep uses. A missing
+   * ranking service is NOT an empty guild: with no reader there is no honest
+   * row to post, so this returns null and the caller refuses without stamping.
+   * (The artists/album/track services stay injected for the builders that read
+   * through them; the guild aggregate is the only source with a guild window.)
+   */
+  private async readTopRowsFor(
+    contentType: AutopostContentType,
+    guildId: string,
+    schedule: AutopostSchedule,
+  ): Promise<AutopostTopRow[] | null> {
+    if (!this.guildRankingService) {
+      Logger.warn(
+        { guildId, contentType },
+        '[Autopost] Top recap has no guild ranking source wired; refusing to post an empty recap',
+      );
+      return null;
+    }
+    const windowDays = schedule === 'Daily' ? 1 : schedule === 'Weekly' ? 7 : 28;
+    const settings: GuildRankingSettings = {
+      chartTimePeriod: schedule.toLowerCase(),
+      timeDescription: schedule,
+      orderType: OrderType.Playcount,
+      amountOfDays: windowDays,
+      startDateTime: new Date(Date.now() - windowDays * 24 * 3600 * 1000),
+      endDateTime: null,
+      billboardStartDateTime: null,
+      billboardEndDateTime: null,
+      billboardTimeDescription: null,
+    };
+    if (contentType === 'TopArtists') {
+      return this.guildRankingService.getGuildTopArtists(guildId, settings);
+    }
+    if (contentType === 'TopAlbums') {
+      return this.guildRankingService.getGuildTopAlbums(guildId, settings);
+    }
+    if (contentType === 'TopTracks') {
+      return this.guildRankingService.getGuildTopTracks(guildId, settings);
+    }
+    return null;
   }
 
   private dueCutoff(schedule: AutopostConfig['schedule'], now: Date): Date | null {

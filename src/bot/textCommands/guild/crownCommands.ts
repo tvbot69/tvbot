@@ -1,13 +1,12 @@
 
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { CrownService } from '@bot/services/crown/crownService';
 import { CrownBuilders } from '@bot/builders/crown/crownBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { ArtistsService } from '@bot/services/library/artistsService';
 import { auditAdminAction } from '@domain/logging/adminAudit';
@@ -15,6 +14,7 @@ import { auditAdminAction } from '@domain/logging/adminAudit';
 import { container } from 'tsyringe';
 import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService } from '@bot/services/media/artworkService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class CrownCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -91,13 +91,8 @@ export class CrownCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
 
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
 
     if (UpdateService.needsUpdate(caller, 2)) {
       void this.updateService.updateUser(caller.userId, { accurateTotal: true });
@@ -159,13 +154,8 @@ export class CrownCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
 
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
 
     if (UpdateService.needsUpdate(caller, 2)) {
       void this.updateService.updateUser(caller.userId, { accurateTotal: true });

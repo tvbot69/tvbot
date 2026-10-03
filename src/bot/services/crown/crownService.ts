@@ -142,12 +142,27 @@ export class CrownService {
               return { crown: currentCrown };
             }
             // Live recheck: the holder may have scrobbled past the challenger
-            // since their last index. Fail-open (proceed) when Last.fm is
-            // unreachable — the atomic replace below still guards double-steals.
-            const holderLive = await this.getHolderLivePlaycount(
-              effectiveName,
-              currentCrown.userNameLastFm,
-            );
+            // since their last index. Answered-absent (null) fails open —
+            // the atomic replace below still guards double-steals. An
+            // unanswered non-source error keeps the standing crown like the
+            // kill switch above: a transient read is not proof the holder
+            // fell behind.
+            let holderLive: number | null;
+            try {
+              holderLive = await this.getHolderLivePlaycount(
+                effectiveName,
+                currentCrown.userNameLastFm,
+              );
+            } catch (err) {
+              if (isSourceUnavailable(err)) {
+                throw err;
+              }
+              Logger.warn(
+                { guildId: guildIdStr, artist: effectiveName },
+                'Crown steal skipped — holder live recheck failed',
+              );
+              return { crown: currentCrown };
+            }
             if (holderLive !== null && holderLive >= topUser.playcount) {
               await this.crownRepository.updateCrownPlaycount(currentCrown.crownId, holderLive);
               currentCrown.currentPlaycount = holderLive;
@@ -227,13 +242,11 @@ export class CrownService {
    * userplaycount). Null when Last.fm ANSWERED and there is no playcount to be
    * had - that is a real empty and the caller fails open on it.
    *
-   * A Last.fm that did not answer is not an empty: `getArtistInfo` raises
-   * `LastFmUnavailableError` for that, and swallowing it here returned the same
-   * `null` - so an outage read as "the holder is not ahead" and the steal below
-   * was written to the crown store. That is a permanent claim, naming the
-   * challenger as the holder and the real holder as dethroned, made on data the
-   * bot never managed to read. Re-thrown, so the throw lands on the who-knows
-   * boundary and the card shows no crown rather than a wrong one.
+   * A Last.fm that did not answer raises rather than returning null.
+   * `getArtistInfo` raises `LastFmUnavailableError` for a source outage (the
+   * throw lands on the who-knows boundary and the card shows no crown rather
+   * than a wrong one); any other driver error also raises, and the caller
+   * keeps the standing crown like the error-rate kill switch above.
    *
    * The `errorRateTracker` kill switch above still covers the *global* outage
    * case. It is not a substitute: it needs 20+ tracked calls and 25% errors, so
@@ -244,16 +257,9 @@ export class CrownService {
     holderLastFmUsername?: string | null,
   ): Promise<number | null> {
     if (!this.lastfmRepository || !holderLastFmUsername) return null;
-    try {
-      const info = await this.lastfmRepository.getArtistInfo(artistName, holderLastFmUsername);
-      const plays = info?.userPlayCount;
-      return typeof plays === 'number' && Number.isFinite(plays) ? plays : null;
-    } catch (err) {
-      if (isSourceUnavailable(err)) {
-        throw err;
-      }
-      return null;
-    }
+    const info = await this.lastfmRepository.getArtistInfo(artistName, holderLastFmUsername);
+    const plays = info?.userPlayCount;
+    return typeof plays === 'number' && Number.isFinite(plays) ? plays : null;
   }
 
   public async getCurrentCrown(guildId: string, artistName: string): Promise<UserCrownDto | null> {

@@ -216,19 +216,16 @@ describe('/botscrobbling: an opt-in toggle that must not toggle what nobody aske
   });
 
   it('refuses an unregistered caller and writes nothing', async () => {
-    // A WRITE behind a guard. The message has to name the guild's own prefix, not
-    // a hard-coded dot, or a server that renamed its prefix is told to run a
-    // command that does not exist there.
-    const { privates, botScrobblingService, prefixService } = build({ caller: null, prefix: '!' });
+    // A WRITE behind a guard. Slash commands use the canonical `/register`
+    // message, never a prefix.
+    const { privates, botScrobblingService } = build({ caller: null, prefix: '!' });
     const response = await privates.botScrobblingSlashAsync(
       makeContext({ strings: { action: 'enable' } }),
     );
 
-    expect(response.commandResponse).toBe(CommandResponse.WrongInput);
-    expect(cardText(response)).toContain('`!login`');
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    expect(cardText(response)).toContain('Use `/register` first');
     expect(botScrobblingService.toggleUserOptIn).not.toHaveBeenCalled();
-    // The prefix is read before the guard, so it is available to the message.
-    expect(prefixService.getPrefix).toHaveBeenCalledWith('222');
   });
 
   it('shows the voice track when the server has one, and says nothing about it when it has none', async () => {

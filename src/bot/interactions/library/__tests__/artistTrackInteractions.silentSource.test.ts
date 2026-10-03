@@ -149,5 +149,16 @@ describe('ArtistTrackInteractions.handle — the read is deliberately unprotecte
     await expect(service.handle(press)).resolves.toBeUndefined();
 
     expect(press.update).toHaveBeenCalledTimes(1);
+    // The rendered payload, so the count above cannot be satisfied by an
+    // update carrying something other than the built card.
+    expect(press.update).toHaveBeenCalledWith({
+      components: [V2_CONTAINER],
+      flags: MessageFlags.IsComponentsV2,
+    });
+    // …built from the ROWS, not an empty list: the honest-empty test above is
+    // the only one allowed to render `[]`.
+    expect(ArtistTrackBuilders.buildArtistTopTracksResponse).toHaveBeenCalledWith(
+      'Radiohead', 'Tester', [{ name: 'Track 1', playcount: 12 }], 24, 1, 0, 0xff0000, 'Radiohead', 'u1', 'u1', false,
+    );
   });
 });

@@ -367,12 +367,25 @@ describe('TrackService.getUserAllTimeTopTracks', () => {
     expect(cache.set).not.toHaveBeenCalled();
   });
 
-  it('returns empty array when the query throws', async () => {
+  it('raises rather than reporting "no tracks" when the query fails', async () => {
+    // REPLACED. `resolves.toEqual([])` pinned the defect: a dead database
+    // rendered as an empty leaderboard for a user with real plays.
     const prisma = {
       $queryRawUnsafe: vi.fn(async () => { throw new Error('db down'); }),
     };
     const { service } = build({ prisma });
+    await expect(service.getUserAllTimeTopTracks(1)).rejects.toBeInstanceOf(
+      SourceUnavailableError,
+    );
+  });
+
+  it('still returns an empty array when the query RAN and found no rows', async () => {
+    // The other half of the pair: empty is the honest answer only when the
+    // query succeeded. Without this, raising is no better than always throwing.
+    const prisma = { $queryRawUnsafe: vi.fn(async () => []) };
+    const { service } = build({ prisma });
     await expect(service.getUserAllTimeTopTracks(1)).resolves.toEqual([]);
+    expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -399,12 +412,23 @@ describe('TrackService.getArtistUserTracks', () => {
     ]);
   });
 
-  it('returns empty array when the query throws', async () => {
+  it('raises rather than reporting "no plays for this artist" when the query fails', async () => {
+    // REPLACED. `resolves.toEqual([])` pinned the defect: a dead database
+    // rendered as "you have no plays for this artist".
     const prisma = {
       $queryRawUnsafe: vi.fn(async () => { throw new Error('db down'); }),
     };
     const { service } = build({ prisma });
+    await expect(service.getArtistUserTracks(1, 'Radiohead')).rejects.toBeInstanceOf(
+      SourceUnavailableError,
+    );
+  });
+
+  it('still returns an empty array when the query RAN and found no rows', async () => {
+    const prisma = { $queryRawUnsafe: vi.fn(async () => []) };
+    const { service } = build({ prisma });
     await expect(service.getArtistUserTracks(1, 'Radiohead')).resolves.toEqual([]);
+    expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -569,5 +593,137 @@ describe('TrackService.searchThroughTracks', () => {
     };
     const { service } = build({ prisma });
     await expect(service.searchThroughTracks('Airbag')).resolves.toEqual([]);
+  });
+});
+
+describe('TrackService.getUserTotalPlays honesty', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns undefined when prisma is not injected (no source ran, not 0)', async () => {
+    const { service } = build();
+    await expect(service.getUserTotalPlays(1, 'Airbag', 'Radiohead')).resolves.toBeUndefined();
+  });
+
+  it('returns the indexed count from the database', async () => {
+    let seen: { where?: Record<string, unknown> } | undefined;
+    const prisma = {
+      userPlay: {
+        count: vi.fn(async (args: { where?: Record<string, unknown> }) => {
+          seen = args;
+          return 12;
+        }),
+      },
+    };
+    const { service } = build({ prisma });
+    await expect(service.getUserTotalPlays(1, 'Airbag', 'Radiohead')).resolves.toBe(12);
+    expect(prisma.userPlay.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 1,
+          artistName: expect.objectContaining({ equals: 'Radiohead' }),
+          trackName: expect.objectContaining({ equals: 'Airbag' }),
+        }),
+      }),
+    );
+    // No date bound: the total, not the last-month window.
+    expect(seen?.where).not.toHaveProperty('timePlayed');
+  });
+
+  it('still returns 0 when the query RAN and the member genuinely has no plays', async () => {
+    const prisma = { userPlay: { count: vi.fn(async () => 0) } };
+    const { service } = build({ prisma });
+    await expect(service.getUserTotalPlays(1, 'Airbag', 'Radiohead')).resolves.toBe(0);
+  });
+
+  it('raises (never 0, never undefined) when the database query throws', async () => {
+    // Mutation check: forcing the read to throw must surface as a visible
+    // error, not as a 0 claim and not as a silently omitted line. The query did
+    // not run, so there is no answer to return.
+    const prisma = { userPlay: { count: vi.fn(async () => { throw new Error('db down'); }) } };
+    const { service } = build({ prisma });
+    await expect(service.getUserTotalPlays(1, 'Airbag', 'Radiohead')).rejects.toThrow(/Database unavailable/);
+  });
+});
+
+describe('TrackService.searchTrack userPlaycount fallback', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const user = { userId: 1, userNameLastFm: 'DreadRock', sessionKey: 'SK' };
+
+  it('prefers the Last.fm count and skips the DB when it ran', async () => {
+    let seen: { where?: Record<string, unknown> } | undefined;
+    let calls = 0;
+    const prisma = {
+      userPlay: {
+        count: vi.fn(async (args: { where?: Record<string, unknown> }) => {
+          calls += 1;
+          seen = args;
+          return 999;
+        }),
+      },
+    };
+    const { service } = build({ prisma });
+    const result = await service.searchTrack('Radiohead | Airbag', user as never);
+    // Fixture Last.fm userPlayCount is 7; the DB (999) must not override it.
+    expect(result?.userPlaycount).toBe(7);
+    // The only DB read is the last-month count, not a total fallback.
+    expect(calls).toBe(1);
+    expect(seen?.where).toHaveProperty('timePlayed');
+  });
+
+  it('falls back to the indexed DB total when Last.fm supplied no count', async () => {
+    // Last.fm down (info null) + DB has 12 plays → the real count is shown.
+    const prisma = {
+      userPlay: {
+        count: vi.fn(async (args: { where?: { timePlayed?: unknown } }) =>
+          args?.where?.timePlayed ? 3 : 12,
+        ),
+      },
+    };
+    const { service, lastfmRepository } = build({
+      prisma,
+      lastfmRepository: { getTrackInfo: vi.fn(async () => null) },
+    });
+    void lastfmRepository;
+    const result = await service.searchTrack('Radiohead | Airbag', user as never);
+    expect(result?.userPlaycount).toBe(12);
+    expect(result?.lastMonthPlays).toBe(3);
+  });
+
+  it('keeps a genuine DB zero as zero (no throw, no omission)', async () => {
+    const prisma = { userPlay: { count: vi.fn(async () => 0) } };
+    const { service } = build({
+      prisma,
+      lastfmRepository: { getTrackInfo: vi.fn(async () => null) },
+    });
+    const result = await service.searchTrack('Radiohead | Airbag', user as never);
+    expect(result?.userPlaycount).toBe(0);
+  });
+
+  it('raises (undefined never, 0 never) when Last.fm is down and the DB read throws', async () => {
+    // Total-count read throws, last-month read succeeds: no source measured the
+    // total, so there is no honest card to render — the boundary reports the
+    // outage instead of a line omission the reader parses as "no data".
+    const prisma = {
+      userPlay: {
+        count: vi.fn(async (args: { where?: { timePlayed?: unknown } }) => {
+          if (!args?.where?.timePlayed) throw new Error('db down');
+          return 2;
+        }),
+      },
+    };
+    const { service } = build({
+      prisma,
+      lastfmRepository: { getTrackInfo: vi.fn(async () => null) },
+    });
+    await expect(service.searchTrack('Radiohead | Airbag', user as never)).rejects.toThrow(/Database unavailable/);
+  });
+
+  it('omits (undefined, not 0) when Last.fm is down and no prisma is configured', async () => {
+    const { service } = build({
+      lastfmRepository: { getTrackInfo: vi.fn(async () => null) },
+    });
+    const result = await service.searchTrack('Radiohead | Airbag', user as never);
+    expect(result?.userPlaycount).toBeUndefined();
   });
 });

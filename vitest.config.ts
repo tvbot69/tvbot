@@ -32,9 +32,9 @@ export default defineConfig({
     // counting and coverage rises by shrinking the denominator rather than by
     // adding tests.
     //
-    //   lines 91.61%  branches 87.17%  functions 87.71%  statements 91.61%
-    // (57,294 statements in src/, 9,148 unit tests, 2026-10-01, re-measured
-    // after the tree cleanup in 941ed51. Coverage run includes the 3 render
+    //   See docs/METRICS.md for the current measured baseline
+    // (lines/branches/functions/statements, statement count, unit test count,
+    // date. Coverage run includes the 3 render
     // files; the plain unit run excludes them.)
     //
     // Thresholds sit just below each, so a 0.1% regression fails the build.

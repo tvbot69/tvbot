@@ -1,6 +1,6 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { TasteService } from '@bot/services/library/tasteService';
 import type { TasteData } from '@bot/services/library/tasteService';
@@ -14,6 +14,7 @@ import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmReposito
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class TasteCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -34,13 +35,8 @@ export class TasteCommands implements ITextCommandModule {
   }
 
   private async tasteAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
 
     if (UpdateService.needsUpdate(caller, 2)) {
       void this.updateService.updateUser(caller.userId, { accurateTotal: true });

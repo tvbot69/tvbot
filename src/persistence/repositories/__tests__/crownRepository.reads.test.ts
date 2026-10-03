@@ -740,6 +740,21 @@ describe('CrownRepository.seedCrownsForGuild', () => {
     expect(sql).toMatch(/gu\.who_knows_banned = false/);
   });
 
+  it('excludes privacy-Hide users from the seed candidates', async () => {
+    await r.seedCrownsForGuild(GUILD, 30);
+    const { sql } = rawCallOf(prisma.$queryRaw);
+    expect(sql).toMatch(/JOIN users u ON u\.user_id = ua\.user_id/);
+    expect(sql).toMatch(/u\.privacy_level::text != 'Hide'/);
+  });
+
+  it('CONTROL: a visible user is still a seed candidate, so the privacy filter cannot empty the query', async () => {
+    prisma.$queryRaw.mockResolvedValue([
+      { userId: 7, artistName: 'Radiohead', playcount: 40 },
+    ] as never);
+    expect(await r.seedCrownsForGuild(GUILD)).toBe(1);
+    expect(prisma.userCrown.create).toHaveBeenCalledTimes(1);
+  });
+
   it('DEFAULTS the threshold to 30', async () => {
     await r.seedCrownsForGuild(GUILD);
     expect(rawCallOf(prisma.$queryRaw).values[1]).toBe(30);

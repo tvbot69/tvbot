@@ -1,12 +1,13 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { AlbumBuilders } from '@bot/builders/library/albumBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { AlbumService } from '@bot/services/library/albumService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 
 export class AlbumCommands implements ITextCommandModule {
@@ -44,13 +45,8 @@ export class AlbumCommands implements ITextCommandModule {
   }
 
   private async coverAsync(context: ContextModel, rawArgs: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });
@@ -79,13 +75,8 @@ export class AlbumCommands implements ITextCommandModule {
   }
 
   private async albumAsync(context: ContextModel, rawArgs: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });
@@ -114,13 +105,8 @@ export class AlbumCommands implements ITextCommandModule {
   }
 
   private async albumTracksAsync(context: ContextModel, rawArgs: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });

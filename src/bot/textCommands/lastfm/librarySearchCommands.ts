@@ -1,7 +1,8 @@
 import { inject, injectable } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 import { UserService } from '@bot/services/user/userService';
 import { LibrarySearchService, SearchTab } from '@bot/services/library/librarySearchService';
 import { LibrarySearchBuilders } from '@bot/builders/library/librarySearchBuilders';
@@ -37,13 +38,11 @@ export class LibrarySearchCommands implements ITextCommandModule {
       );
     }
 
-    const callerUser = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!callerUser) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `You have not connected your Last.fm account yet. Use the \`${context.prefix}register\` command first.`,
-      );
-    }
+    const linked = await ensureLinkedUser(this.userService, context.discordUserId, {
+      prefix: context.prefix,
+    });
+    if (linked instanceof ResponseModel) return linked;
+    const callerUser = linked;
 
     const cacheKey = Math.random().toString(36).substring(2, 10);
     storeSearchQuery(cacheKey, query, callerUser.userId);

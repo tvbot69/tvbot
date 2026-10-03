@@ -13,6 +13,7 @@ import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/system/colorService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 const CHART_COOLDOWN_MS = 40000;
 
@@ -130,14 +131,9 @@ export class ChartCommands implements ITextCommandModule {
 
     }
 
-    const user =
-      requestedByOther ??
-      (await this.userService.getUserByDiscordId(context.discordUserId));
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
+    const user = requestedByOther ?? await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) {
+      return user;
     }
 
     if (UpdateService.needsUpdate(user, 2)) {

@@ -2,7 +2,7 @@ import { inject, injectable } from 'tsyringe';
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { TrackService } from '@bot/services/library/trackService';
 import { TrackDetailsService } from '@bot/services/audio/trackDetailsService';
@@ -16,6 +16,7 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { ColorService } from '@bot/services/system/colorService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class TrackSlashCommands implements ISlashCommandModule {
@@ -85,15 +86,16 @@ export class TrackSlashCommands implements ISlashCommandModule {
     const targetDiscordUser = context.interaction?.options.getUser('user');
     const targetDiscordId = targetDiscordUser?.id ?? context.discordUserId;
 
-    const user = await this.userService.getUserByDiscordId(targetDiscordId);
-    if (!user) {
+    const target = targetDiscordUser ? await this.userService.getUserByDiscordId(targetDiscordId) : null;
+    if (targetDiscordUser && !target) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NotFound,
-        targetDiscordUser
-          ? 'That user has not registered with the bot yet.'
-          : 'You have not connected your Last.fm account yet. Use `/register` first.',
+        'That user has not registered with the bot yet.',
       );
     }
+    const linked = target ?? await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in linked) return linked;
+    const user = linked;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });
@@ -163,10 +165,8 @@ export class TrackSlashCommands implements ISlashCommandModule {
   }
 
   private async trackDetailsAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet. Use `/register` first.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });
@@ -227,13 +227,8 @@ export class TrackSlashCommands implements ISlashCommandModule {
   }
 
   private async loveAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
     if (!user.sessionKey) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NoPermission,
@@ -286,13 +281,8 @@ export class TrackSlashCommands implements ISlashCommandModule {
   }
 
   private async unloveAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
     if (!user.sessionKey) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NoPermission,
@@ -348,15 +338,16 @@ export class TrackSlashCommands implements ISlashCommandModule {
     const targetDiscordUser = context.interaction?.options.getUser('user');
     const targetDiscordId = targetDiscordUser?.id ?? context.discordUserId;
 
-    const user = await this.userService.getUserByDiscordId(targetDiscordId);
-    if (!user) {
+    const target = targetDiscordUser ? await this.userService.getUserByDiscordId(targetDiscordId) : null;
+    if (targetDiscordUser && !target) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NotFound,
-        targetDiscordUser
-          ? 'That user has not registered with the bot yet.'
-          : 'You have not connected your Last.fm account yet. Use `/login` first.',
+        'That user has not registered with the bot yet.',
       );
     }
+    const linked = target ?? await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in linked) return linked;
+    const user = linked;
 
     const targetDisplayName =
       (targetDiscordUser && context.guild?.members.cache.get(targetDiscordId)?.displayName) ??
@@ -384,13 +375,8 @@ export class TrackSlashCommands implements ISlashCommandModule {
   }
 
   private async scrobbleAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
     if (!user.sessionKey) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NoPermission,

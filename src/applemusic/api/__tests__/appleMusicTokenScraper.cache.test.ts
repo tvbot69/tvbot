@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   AppleMusicTokenScraper,
+  SCRAPE_FAILURE_BACKOFF_MS,
   extractTokenFromHtml,
   extractBundleUrls,
 } from '@applemusic/api/appleMusicTokenScraper';
@@ -59,6 +60,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = realFetch;
+  vi.useRealTimers();
 });
 
 /*
@@ -205,17 +207,63 @@ describe('AppleMusicTokenScraper: a failed scrape must not stick', () => {
     await expect(new AppleMusicTokenScraper().getToken()).resolves.toBeNull();
   });
 
-  it('does not cache a failure, so the next call retries instead of waiting out the TTL', async () => {
-    // THE assertion for this file. Caching a null would turn one transient Apple
-    // outage into twelve hours of "token unavailable" for every card in between.
+  it('backs off a failure briefly, so the next call retries after the backoff not the TTL', async () => {
+    // A failed scrape fetches the landing page plus bundles for nothing, so an
+    // immediate retry on every artwork miss is a hot loop. The failure holds
+    // for SCRAPE_FAILURE_BACKOFF_MS (minutes), never the 12h success TTL.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.now();
     fetchMock.mockResolvedValue(errorResponse(503));
     const scraper = new AppleMusicTokenScraper();
 
-    await scraper.getToken();
-    fetchMock.mockResolvedValue(htmlResponse(pageWithToken(JWT)));
+    await expect(scraper.getToken()).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // Inside the backoff: no second request.
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValue(htmlResponse(pageWithToken(JWT)));
+    await expect(scraper.getToken()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Past the backoff, well short of the 12h success TTL: retries for real.
+    vi.setSystemTime(start + SCRAPE_FAILURE_BACKOFF_MS + 1000);
     await expect(scraper.getToken()).resolves.toBe(JWT);
-    expect(fetchMock).toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts scrape failures without caching them for the success TTL', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.now();
+    fetchMock.mockResolvedValue(errorResponse(503));
+    const scraper = new AppleMusicTokenScraper();
+    expect(scraper.failureCount).toBe(0);
+
+    await scraper.getToken();
+    expect(scraper.failureCount).toBe(1);
+
+    // A backoff-blocked call answers null without a new scrape, so no count.
+    await scraper.getToken();
+    expect(scraper.failureCount).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(start + SCRAPE_FAILURE_BACKOFF_MS + 1000);
+    await scraper.getToken();
+    expect(scraper.failureCount).toBe(2);
+  });
+
+  it('invalidate() clears the failure backoff, so a 401-driven retry rescrapes at once', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now());
+    fetchMock.mockResolvedValue(errorResponse(503));
+    const scraper = new AppleMusicTokenScraper();
+
+    await expect(scraper.getToken()).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    scraper.invalidate();
+    fetchMock.mockResolvedValue(htmlResponse(pageWithToken(JWT)));
+    await expect(scraper.getToken()).resolves.toBe(JWT);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('returns null when the page loads but holds no token anywhere', async () => {
@@ -247,11 +295,14 @@ describe('AppleMusicTokenScraper: a failed scrape must not stick', () => {
   it('does not let a failed scrape wedge the in-flight promise', async () => {
     // If the rejection were not cleared, every later call would await a settled
     // rejected promise and the token would be unavailable for the process lifetime.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const start = Date.now();
     fetchMock.mockResolvedValue(errorResponse(500));
     const scraper = new AppleMusicTokenScraper();
 
     await scraper.getToken();
     fetchMock.mockResolvedValue(htmlResponse(pageWithToken(JWT)));
+    vi.setSystemTime(start + SCRAPE_FAILURE_BACKOFF_MS + 1000);
 
     await expect(scraper.getToken()).resolves.toBe(JWT);
   });

@@ -2,7 +2,7 @@ import { container } from 'tsyringe';
 import { TextDisplayBuilder } from 'discord.js';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { FriendsService } from '@bot/services/social/friendsService';
@@ -16,6 +16,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { Logger } from '@domain/logging/logger';
 import { toDate } from '@domain/text/date';
 import { FriendType } from '@domain/enums/friendType';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class FriendsCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -65,10 +66,8 @@ export class FriendsCommands implements ITextCommandModule {
   }
 
   private async friendsFmAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     const allFriends = await this.friendsService.getFriendsByUserId(user.userId);
     const visibleFriends = allFriends.filter((f) => f.friendType >= FriendType.VisibleInNowPlaying);
@@ -165,10 +164,8 @@ export class FriendsCommands implements ITextCommandModule {
   }
 
   private async addFriendsAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (args.length === 0) {
       return GenericEmbedService.buildWrongInputResponse(`Please specify at least one username: \`${context.prefix}addfriend <username>\``);
@@ -286,10 +283,8 @@ export class FriendsCommands implements ITextCommandModule {
   }
 
   private async removeFriendsAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (args.length === 0) {
       return GenericEmbedService.buildWrongInputResponse(`Please specify at least one username: \`${context.prefix}removefriend <username>\``);
@@ -317,30 +312,24 @@ export class FriendsCommands implements ITextCommandModule {
   }
 
   private async removeAllFriendsAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     const count = await this.friendsService.removeAllFriends(user.userId);
     return GenericEmbedService.buildSuccessResponse(`Removed **${count}** friend${count !== 1 ? 's' : ''} from your friends list.`);
   }
 
   private async manageFriendsAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     const friends = await this.friendsService.getFriendsByUserId(user.userId);
     return FriendBuilders.buildManageFriendsResponse(context, friends, 0);
   }
 
   private async friendedAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     const friendedBy = await this.friendsService.getFriended(user.userId);
     if (friendedBy.length === 0) {

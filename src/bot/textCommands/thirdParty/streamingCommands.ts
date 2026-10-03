@@ -11,6 +11,7 @@ import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmReposito
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { errorMessage } from '@domain/errors/discordErrors';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 import {
   appleSearchAlbum,
   appleSearchArtist,
@@ -71,14 +72,9 @@ export class StreamingCommands implements ITextCommandModule {
     const raw = args.join(' ').trim();
     if (raw) return { query: raw };
 
-    const user = await this.userService.getUserByDiscordId(ctx.discordUserId);
-    if (!user || !user.userNameLastFm) {
-      return {
-        errorResponse: GenericEmbedService.buildCommandErrorResponse(
-          CommandResponse.NotFound,
-          `You have not connected your Last.fm account yet. Link your account with \`${ctx.prefix}login\` or specify a track name (e.g. \`${ctx.prefix}${cmdName} <song / artist>\`).`,
-        ),
-      };
+    const user = await ensureLinkedUser(this.userService, ctx.discordUserId, { prefix: ctx.prefix });
+    if ('commandResponse' in user) {
+      return { errorResponse: user };
     }
 
     try {
@@ -129,14 +125,9 @@ export class StreamingCommands implements ITextCommandModule {
     const raw = args.join(' ').trim();
     if (raw) return { query: raw };
 
-    const user = await this.userService.getUserByDiscordId(ctx.discordUserId);
-    if (!user || !user.userNameLastFm) {
-      return {
-        errorResponse: GenericEmbedService.buildCommandErrorResponse(
-          CommandResponse.NotFound,
-          `You have not connected your Last.fm account yet. Link your account with \`${ctx.prefix}login\` or specify an album name (e.g. \`${ctx.prefix}${cmdName} <album>\`).`,
-        ),
-      };
+    const user = await ensureLinkedUser(this.userService, ctx.discordUserId, { prefix: ctx.prefix });
+    if ('commandResponse' in user) {
+      return { errorResponse: user };
     }
 
     try {
@@ -187,14 +178,9 @@ export class StreamingCommands implements ITextCommandModule {
     const raw = args.join(' ').trim();
     if (raw) return { query: raw };
 
-    const user = await this.userService.getUserByDiscordId(ctx.discordUserId);
-    if (!user || !user.userNameLastFm) {
-      return {
-        errorResponse: GenericEmbedService.buildCommandErrorResponse(
-          CommandResponse.NotFound,
-          `You have not connected your Last.fm account yet. Link your account with \`${ctx.prefix}login\` or specify an artist name (e.g. \`${ctx.prefix}${cmdName} <artist>\`).`,
-        ),
-      };
+    const user = await ensureLinkedUser(this.userService, ctx.discordUserId, { prefix: ctx.prefix });
+    if ('commandResponse' in user) {
+      return { errorResponse: user };
     }
 
     try {

@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { ArtworkService } from '@bot/services/media/artworkService';
@@ -22,6 +22,9 @@ import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { container } from 'tsyringe';
 import { ArtistTrackService } from '@bot/services/library/artistTrackService';
 import { GenreService } from '@bot/services/library/genreService';
+import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
+import type { Friend } from '@persistence/models/user';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 const lastfmArtistUrl = (artist: string): string =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -210,15 +213,35 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     }
   }
 
+  private filterHiddenFriends(
+    users: WhoKnowsUser[],
+    friends: Friend[],
+    caller: User,
+    hiddenGuildUserIds: Set<number>,
+  ): WhoKnowsUser[] {
+    const hiddenIds = new Set<number>(hiddenGuildUserIds);
+    for (const f of friends) {
+      const level = f.friendUser?.privacyLevel as unknown;
+      if (String(level) === 'Hide') {
+        if (typeof f.friendUserId === 'number') hiddenIds.add(f.friendUserId);
+        const nestedId = f.friendUser?.userId;
+        if (typeof nestedId === 'number') hiddenIds.add(nestedId);
+      }
+    }
+    let filtered = hiddenIds.size > 0 ? users.filter((u) => !hiddenIds.has(u.userId)) : users;
+    if (String(caller.privacyLevel as unknown) === 'Hide') {
+      filtered = filtered.filter((u) => u.userId !== caller.userId);
+    }
+    return filtered;
+  }
+
   private async whoKnowsArtistAsync(context: ContextModel): Promise<ResponseModel> {
     if (!context.guild) {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
 
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -348,10 +371,8 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
 
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -434,10 +455,8 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
 
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -522,10 +541,8 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
   }
 
   private async friendsWhoKnowArtistAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -558,11 +575,17 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     );
 
     const requesterMember = context.guild?.members.cache.get(user.discordUserId);
-    const usersWithCaller = WhoKnowsService.addOrReplaceUserToIndexList(
+    const withCallerArtist = WhoKnowsService.addOrReplaceUserToIndexList(
       friendUsers,
       user,
       requesterMember?.displayName,
       artistInfo?.userPlayCount,
+    );
+    const usersWithCaller = this.filterHiddenFriends(
+      withCallerArtist,
+      friends,
+      user,
+      context.guild ? await this.whoKnowsArtistService.getGuildHiddenUserIds(context.guild.id) : new Set<number>(),
     );
 
     const [imgUrl, closeFriends] = await Promise.all([
@@ -593,10 +616,8 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
   }
 
   private async friendsWhoKnowTrackAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -639,11 +660,17 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     );
 
     const requesterMember = context.guild?.members.cache.get(user.discordUserId);
-    const usersWithCaller = WhoKnowsService.addOrReplaceUserToIndexList(
+    const withCallerTrack = WhoKnowsService.addOrReplaceUserToIndexList(
       friendUsers,
       user,
       requesterMember?.displayName,
       trackInfo?.userPlayCount,
+    );
+    const usersWithCaller = this.filterHiddenFriends(
+      withCallerTrack,
+      friends,
+      user,
+      context.guild ? await this.whoKnowsTrackService.getGuildHiddenUserIds(context.guild.id) : new Set<number>(),
     );
 
     const [imgUrl, closeFriends] = await Promise.all([
@@ -674,10 +701,8 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
   }
 
   private async friendsWhoKnowAlbumAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -723,11 +748,17 @@ export class WhoKnowsSlashCommands implements ISlashCommandModule {
     );
 
     const requesterMember = context.guild?.members.cache.get(user.discordUserId);
-    const usersWithCaller = WhoKnowsService.addOrReplaceUserToIndexList(
+    const withCallerAlbum = WhoKnowsService.addOrReplaceUserToIndexList(
       friendUsers,
       user,
       requesterMember?.displayName,
       albumInfo?.userPlayCount,
+    );
+    const usersWithCaller = this.filterHiddenFriends(
+      withCallerAlbum,
+      friends,
+      user,
+      context.guild ? await this.whoKnowsAlbumService.getGuildHiddenUserIds(context.guild.id) : new Set<number>(),
     );
 
     const [imgUrl, closeFriends] = await Promise.all([

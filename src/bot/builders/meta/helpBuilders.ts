@@ -208,7 +208,7 @@ export class HelpBuilders {
             `  View your active daily listening streak and personal records.\n\n` +
             `• **\`${prefix}milestone\`** \`[user]\`\n` +
             `  Track your progress toward the next major scrobble milestone (e.g. 10k, 50k).\n\n` +
-            `• **\`${prefix}search\`** \`<query>\`\n` +
+            `• **\`${prefix}librarysearch\`** or **\`${prefix}searchdb\`** \`<query>\`\n` +
             `  Search your personal Last.fm library for songs, albums, or artists.\n\n` +
             `• **\`${prefix}artist\`** \`<artist>\`\n` +
             `  Artist overview: your playcount, global plays, top tracks, and albums.\n\n` +
@@ -227,9 +227,9 @@ export class HelpBuilders {
             `• **\`${prefix}chart\`** or **\`${prefix}c\`** \`[size] [period]\`\n` +
             `  Generate an album cover collage.\n` +
             `  *Example*: \`${prefix}c 3x3 w\` *(Weekly 3x3)*, \`${prefix}c 5x5 m\` *(Monthly 5x5)*, \`${prefix}c 10x10 y\`\n\n` +
-            `• **\`${prefix}artistchart\`** or **\`${prefix}artistchart\`** \`[size] [period]\`\n` +
+            `• **\`${prefix}artistchart\`** or **\`${prefix}ac\`** \`[size] [period]\`\n` +
             `  Generate an artist collage using artist profile photos.\n\n` +
-            `• **\`${prefix}trackchart\`** or **\`${prefix}trackchart\`** \`[size] [period]\`\n` +
+            `• **\`${prefix}trackchart\`** \`[size] [period]\`\n` +
             `  Generate a track collage using album cover art.\n\n` +
             `### 📐 Supported Sizes\n` +
             `\`3x3\` (9 items) • \`4x4\` (16 items) • \`5x5\` (25 items) • \`10x10\` (100 items)\n\n` +
@@ -255,7 +255,7 @@ export class HelpBuilders {
             `  Your top albums list with artwork showcase.\n\n` +
             `• **\`${prefix}toptracks\`** or **\`${prefix}tt\`** \`[period]\`\n` +
             `  Your top tracks list with playcount rankings.\n\n` +
-            `• **\`${prefix}topartists\`** or **\`${prefix}topartists\`** \`[period]\`\n` +
+            `• **\`${prefix}overview\`** or **\`${prefix}o\`** \`[period]\`\n` +
             `  Combined overview of your #1 artists, albums, and tracks.\n\n` +
             `### 🖼️ Graphic Image Mode\n` +
             `In Image Mode (\`mode: 2\`), Top Lists generate stunning full-card infographics featuring:\n` +
@@ -276,7 +276,7 @@ export class HelpBuilders {
             `  Server leaderboard for an album with top tracks preview box.\n\n` +
             `• **\`${prefix}whoknowstrack\`** or **\`${prefix}wkt\`** \`[track]\`\n` +
             `  Server leaderboard for a specific song.\n\n` +
-            `• **\`${prefix}serverartists\`** or **\`${prefix}serverartists\`**\n` +
+            `• **\`${prefix}serverartists\`** or **\`${prefix}sa\`**\n` +
             `  Server-wide listening statistics, most scrobbled artists, and guild rank.\n\n` +
             `• **\`${prefix}crowns\`** or **\`${prefix}crown\`** \`[user]\`\n` +
             `  List all crowns currently held by you or another member in this server.\n\n` +
@@ -300,7 +300,7 @@ export class HelpBuilders {
             `  Stop playback, clear the queue, and leave the voice channel.\n\n` +
             `• **\`${prefix}queue\`** or **\`${prefix}q\`** \`[page]\`\n` +
             `  Display upcoming tracks in the music queue.\n\n` +
-            `• **\`${prefix}nowplaying\`** or **\`${prefix}np\`**\n` +
+            `• **\`${prefix}nowplaying\`**\n` +
             `  Show currently playing audio track with dynamic progress bar and DSP analysis.\n\n` +
             `• **\`${prefix}volume\`** or **\`${prefix}vol\`** \`<0 - 150>\`\n` +
             `  Adjust output volume.\n\n` +
@@ -324,7 +324,7 @@ export class HelpBuilders {
             `  View mutual friends, listening habits, and compatibility rankings.\n\n` +
             `• **\`${prefix}gamestats\`** \`[track | artist | album]\`\n` +
             `  Launch a music trivia guesser game! Guess songs or artists from clues.\n\n` +
-            `• **\`${prefix}genre\`** or **\`${prefix}genre\`** \`<genre>\`\n` +
+            `• **\`${prefix}genre\`** or **\`${prefix}g\`** \`<genre>\`\n` +
             `  Explore top global artists and tracks for any genre or Last.fm tag.\n\n` +
             `• **\`${prefix}country\`** \`<country_name>\`\n` +
             `  Explore music listening charts and top artists across the globe.`,
@@ -336,7 +336,7 @@ export class HelpBuilders {
         embed.setTitle('⚙️ Settings, Admin & Import');
         embed.setDescription(
           `Account configuration, customization settings, and guild management.\n\n` +
-            `• **\`${prefix}login\`** or **\`${prefix}login\`** \`<lastfm_username>\`\n` +
+            `• **\`${prefix}login\`** or **\`${prefix}connect\`** \`<lastfm_username>\`\n` +
             `  Link your Last.fm username to your Discord account.\n\n` +
             `• **\`${prefix}settings\`**\n` +
             `  Interactive settings hub to customize:\n` +

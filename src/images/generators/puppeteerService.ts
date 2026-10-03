@@ -396,6 +396,13 @@ export class PuppeteerService {
         this.putCachedRender(key, buf);
         return buf;
       } catch (err) {
+        if (this.renderWaiters.length > 0) {
+          Logger.debug(
+            `Puppeteer render retry skipped with ${this.renderWaiters.length} waiter(s) queued`,
+          );
+          this.browser = null;
+          throw err;
+        }
         Logger.warn({ err }, 'Puppeteer render error; reinitializing browser and retrying...');
         this.browser = null;
         const buf = await this.renderHtmlOnce(html, width, height);
@@ -447,6 +454,13 @@ export class PuppeteerService {
         this.putCachedRender(key, buf);
         return buf;
       } catch (err) {
+        if (this.renderWaiters.length > 0) {
+          Logger.debug(
+            `Puppeteer rainbow render retry skipped with ${this.renderWaiters.length} waiter(s) queued`,
+          );
+          this.browser = null;
+          throw err;
+        }
         Logger.warn({ err }, 'Puppeteer rainbow render error; reinitializing browser and retrying...');
         this.browser = null;
         const buf = await this.renderRainbowOnce(html, width, height);

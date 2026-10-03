@@ -105,4 +105,176 @@ describe('BotScrobblingService', () => {
       'valid_session_key',
     );
   });
+
+  it('refuses a track that ends before the 30s floor, with no repo call', async () => {
+    service.toggleUserOptIn('u1', true);
+    vi.mocked(mockUserRepo.getUserByDiscordUserId!).mockResolvedValue({
+      userId: 1,
+      discordUserId: 'u1',
+      userNameLastFm: 'user1_lfm',
+      sessionKey: 'valid_session_key',
+    } as User);
+
+    service.recordTrackStart({
+      guildId: 'g1',
+      voiceChannelId: 'vc1',
+      title: 'Karma Police',
+      artist: 'Radiohead',
+      durationMs: 260000,
+      startedAt: Date.now() - 10000,
+    });
+
+    const mockClient = {
+      channels: { cache: { get: vi.fn().mockReturnValue({ isVoiceBased: () => true, members: new Map([['u1', { user: { bot: false } }]]) }) } },
+    } as unknown as Client;
+
+    await expect(service.handleTrackEnd(mockClient, 'g1', 'vc1')).resolves.toBe(0);
+    expect(mockLastfmRepo.scrobbleTrack).not.toHaveBeenCalled();
+    expect(mockUserRepo.getUserByDiscordUserId).not.toHaveBeenCalled();
+  });
+
+  it('refuses a track past 30s but before 50%, with no repo call', async () => {
+    service.toggleUserOptIn('u1', true);
+    vi.mocked(mockUserRepo.getUserByDiscordUserId!).mockResolvedValue({
+      userId: 1,
+      discordUserId: 'u1',
+      userNameLastFm: 'user1_lfm',
+      sessionKey: 'valid_session_key',
+    } as User);
+
+    service.recordTrackStart({
+      guildId: 'g1',
+      voiceChannelId: 'vc1',
+      title: 'Karma Police',
+      artist: 'Radiohead',
+      durationMs: 260000,
+      startedAt: Date.now() - 60000,
+    });
+
+    const mockClient = {
+      channels: { cache: { get: vi.fn().mockReturnValue({ isVoiceBased: () => true, members: new Map([['u1', { user: { bot: false } }]]) }) } },
+    } as unknown as Client;
+
+    await expect(service.handleTrackEnd(mockClient, 'g1', 'vc1')).resolves.toBe(0);
+    expect(mockLastfmRepo.scrobbleTrack).not.toHaveBeenCalled();
+    expect(mockUserRepo.getUserByDiscordUserId).not.toHaveBeenCalled();
+  });
+
+  it('a missing channel returns 0 without reading members', async () => {
+    service.toggleUserOptIn('u1', true);
+    service.recordTrackStart({
+      guildId: 'g1',
+      voiceChannelId: 'vc1',
+      title: 'Karma Police',
+      artist: 'Radiohead',
+      durationMs: 260000,
+      startedAt: Date.now() - 150000,
+    });
+
+    const get = vi.fn().mockReturnValue(undefined);
+    const mockClient = { channels: { cache: { get } } } as unknown as Client;
+
+    await expect(service.handleTrackEnd(mockClient, 'g1', 'vc1')).resolves.toBe(0);
+    expect(get).toHaveBeenCalledWith('vc1');
+    expect(mockLastfmRepo.scrobbleTrack).not.toHaveBeenCalled();
+    expect(mockUserRepo.getUserByDiscordUserId).not.toHaveBeenCalled();
+  });
+
+  it('an empty voice channel returns 0 without any repo call', async () => {
+    service.toggleUserOptIn('u1', true);
+    service.recordTrackStart({
+      guildId: 'g1',
+      voiceChannelId: 'vc1',
+      title: 'Karma Police',
+      artist: 'Radiohead',
+      durationMs: 260000,
+      startedAt: Date.now() - 150000,
+    });
+
+    const mockClient = {
+      channels: {
+        cache: {
+          get: vi.fn().mockReturnValue({
+            isVoiceBased: () => true,
+            members: new Map([['bot_id', { user: { bot: true } }]]),
+          }),
+        },
+      },
+    } as unknown as Client;
+
+    await expect(service.handleTrackEnd(mockClient, 'g1', 'vc1')).resolves.toBe(0);
+    expect(mockLastfmRepo.scrobbleTrack).not.toHaveBeenCalled();
+    expect(mockUserRepo.getUserByDiscordUserId).not.toHaveBeenCalled();
+  });
+
+  it('a per-user throw does not stop the next listener from scrobbling', async () => {
+    service.toggleUserOptIn('u1', true);
+    service.toggleUserOptIn('u2', true);
+
+    vi.mocked(mockUserRepo.getUserByDiscordUserId!).mockImplementation(async (id: string) => {
+      if (id === 'u1') throw new Error('db down for one user');
+      return { userId: 2, discordUserId: 'u2', userNameLastFm: 'user2_lfm', sessionKey: 'key2' } as User;
+    });
+
+    const startedAt = Date.now() - 150000;
+    service.recordTrackStart({
+      guildId: 'g1',
+      voiceChannelId: 'vc1',
+      title: 'Karma Police',
+      artist: 'Radiohead',
+      durationMs: 260000,
+      startedAt,
+    });
+
+    const mockClient = {
+      channels: {
+        cache: {
+          get: vi.fn().mockReturnValue({
+            isVoiceBased: () => true,
+            members: new Map([['u1', { user: { bot: false } }], ['u2', { user: { bot: false } }]]),
+          }),
+        },
+      },
+    } as unknown as Client;
+
+    await expect(service.handleTrackEnd(mockClient, 'g1', 'vc1')).resolves.toBe(1);
+    expect(mockLastfmRepo.scrobbleTrack).toHaveBeenCalledTimes(1);
+    expect(mockLastfmRepo.scrobbleTrack).toHaveBeenCalledWith('Radiohead', 'Karma Police', Math.floor(startedAt / 1000), 'key2');
+  });
+
+  it('a per-user scrobble rejection does not stop the next listener', async () => {
+    service.toggleUserOptIn('u1', true);
+    service.toggleUserOptIn('u2', true);
+
+    vi.mocked(mockUserRepo.getUserByDiscordUserId!).mockImplementation(async (id: string) =>
+      ({ userId: id === 'u1' ? 1 : 2, discordUserId: id, userNameLastFm: `${id}_lfm`, sessionKey: `${id}-key` }) as User,
+    );
+    vi.mocked(mockLastfmRepo.scrobbleTrack!).mockImplementation(async (_a: string, _t: string, _ts: number, key: string) => {
+      if (key === 'u1-key') throw new Error('vendor down for one user');
+      return true;
+    });
+
+    service.recordTrackStart({
+      guildId: 'g1',
+      voiceChannelId: 'vc1',
+      title: 'Karma Police',
+      artist: 'Radiohead',
+      durationMs: 260000,
+      startedAt: Date.now() - 150000,
+    });
+
+    const mockClient = {
+      channels: {
+        cache: {
+          get: vi.fn().mockReturnValue({
+            isVoiceBased: () => true,
+            members: new Map([['u1', { user: { bot: false } }], ['u2', { user: { bot: false } }]]),
+          }),
+        },
+      },
+    } as unknown as Client;
+
+    await expect(service.handleTrackEnd(mockClient, 'g1', 'vc1')).resolves.toBe(1);
+    expect(mockLastfmRepo.scrobbleTrack).toHaveBeenCalledTimes(2);
+  });
 });

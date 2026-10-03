@@ -2,10 +2,15 @@
 import {
   artTimingNumber,
   artTimingOutcome,
+  isDeletableChannel,
+  isSendableChannel,
   moonlinkArtTiming,
   moonlinkClock,
   moonlinkNodeMap,
   moonlinkNodePool,
+  moonlinkPlayerCurrent,
+  moonlinkRequester,
+  moonlinkRequesterId,
   moonlinkSourceName,
   moonlinkTrackKey,
 } from '@bot/services/music/moonlinkTypes';
@@ -124,5 +129,121 @@ describe('moonlink node pool', () => {
     // The real guard: resurrectionNodes does `instanceof Map` before trusting
     // it, and a plain object here would throw on .get()/.set().
     expect(moonlinkNodeMap({ nodes: { nodes: { get: 1 } } })).toBeUndefined();
+  });
+});
+
+describe('moonlinkPlayerCurrent', () => {
+  it('returns the SAME record, so a position write-back reaches Moonlink', () => {
+    const current = { identifier: 't1', position: 1, time: 2 };
+    const player = { current };
+    const result = moonlinkPlayerCurrent(player);
+    expect(result).toBe(current);
+    result!.position = 999;
+    expect(current.position).toBe(999);
+  });
+
+  it('reads documented fields without a cast at the call site', () => {
+    const result = moonlinkPlayerCurrent({
+      current: { identifier: 'vid', title: 'T', duration: 200_000, isStream: false, position: 5 },
+    });
+    expect(result?.identifier).toBe('vid');
+    expect(result?.duration).toBe(200_000);
+    expect(result?.position).toBe(5);
+  });
+
+  it.each([
+    ['a null player', null],
+    ['an undefined player', undefined],
+    ['a non-object player', 'player'],
+    ['a player with no current', {}],
+    ['a player with a null current', { current: null }],
+    ['a player with a non-object current', { current: 'track' }],
+  ])('returns null for %s', (_label, input) => {
+    expect(moonlinkPlayerCurrent(input)).toBeNull();
+  });
+});
+
+describe('channel guards', () => {
+  it('accepts a channel with a callable send', () => {
+    const channel = { send: async (): Promise<{ id: string }> => ({ id: '1' }), isTextBased: () => true };
+    expect(isSendableChannel(channel)).toBe(true);
+  });
+
+  it.each([
+    ['a channel with no send', {}],
+    ['a channel with a non-function send', { send: 'yes' }],
+    ['a null channel', null],
+    ['an undefined channel', undefined],
+  ])('rejects %s as sendable', (_label, input) => {
+    expect(isSendableChannel(input)).toBe(false);
+  });
+
+  it('accepts a channel with messages.delete', () => {
+    const channel = { messages: { delete: async (): Promise<unknown> => undefined } };
+    expect(isDeletableChannel(channel)).toBe(true);
+  });
+
+  it.each([
+    ['a channel with no messages', {}],
+    ['a channel with messages but no delete', { messages: {} }],
+    ['a channel with a non-function delete', { messages: { delete: 'no' } }],
+    ['a null channel', null],
+  ])('rejects %s as deletable', (_label, input) => {
+    expect(isDeletableChannel(input)).toBe(false);
+  });
+
+  it('a send-only channel is not deletable, and vice versa', () => {
+    expect(isDeletableChannel({ send: async () => ({ id: '1' }) })).toBe(false);
+    expect(isSendableChannel({ messages: { delete: async () => undefined } })).toBe(false);
+  });
+});
+
+describe('moonlinkRequester', () => {
+  it('reads a bare requester', () => {
+    expect(moonlinkRequester({ id: 'u1', tag: 'T', avatarUrl: 'A' })).toEqual({
+      id: 'u1',
+      tag: 'T',
+      avatarUrl: 'A',
+    });
+  });
+
+  it('reads a requester nested on a track', () => {
+    expect(moonlinkRequester({ identifier: 'vid', requester: { id: 'u1', tag: 'T' } })).toEqual({
+      id: 'u1',
+      tag: 'T',
+    });
+  });
+
+  it('prefers the nested requester when both levels carry an id', () => {
+    expect(moonlinkRequester({ id: 'outer', requester: { id: 'inner' } })?.id).toBe('inner');
+  });
+
+  it('drops empty or non-string tag/avatarUrl but keeps the id', () => {
+    expect(moonlinkRequester({ id: 'u1', tag: '', avatarUrl: 5 })).toEqual({ id: 'u1' });
+  });
+
+  it.each([
+    ['an empty object', {}],
+    ['an empty id', { id: '' }],
+    ['a non-string id', { id: 5 }],
+    ['a track with an empty nested id', { requester: { id: '' } }],
+    ['a track with no requester id', { requester: {} }],
+    ['a null value', null],
+    ['an undefined value', undefined],
+    ['a string', 'u1'],
+  ])('returns undefined for %s', (_label, input) => {
+    expect(moonlinkRequester(input)).toBeUndefined();
+  });
+
+  it('returns a copy, so later mutation cannot rewrite the track', () => {
+    const track = { requester: { id: 'u1', tag: 'T' } };
+    const result = moonlinkRequester(track);
+    result!.tag = 'changed';
+    expect(track.requester.tag).toBe('T');
+  });
+
+  it('moonlinkRequesterId mirrors the requester id', () => {
+    expect(moonlinkRequesterId({ requester: { id: 'u1' } })).toBe('u1');
+    expect(moonlinkRequesterId({})).toBeUndefined();
   });
 });

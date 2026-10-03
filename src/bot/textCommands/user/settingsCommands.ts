@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { buildSettingsPage } from '@bot/interactions/user/settingsInteractions';
 import { UserSettingsBuilders } from '@bot/builders/user/userSettingsBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
@@ -10,6 +10,7 @@ import { ColorService } from '@bot/services/system/colorService';
 import { UserService } from '@bot/services/user/userService';
 import { GuildService } from '@bot/services/guild/guildService';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class SettingsCommands implements ITextCommandModule {
@@ -56,17 +57,14 @@ export class SettingsCommands implements ITextCommandModule {
   }
 
   private async settingsAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
     const accentColor = context.accentColor;
 
-    if (!user) {
+    if ('commandResponse' in user) {
       if (context.userIsGuildAdmin) {
         return buildSettingsPage(context, this.prefixService);
       }
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
+      return user;
     }
 
     return UserSettingsBuilders.buildUserSettingsResponse(
@@ -79,35 +77,20 @@ export class SettingsCommands implements ITextCommandModule {
   }
 
   private async modePickAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
     return UserSettingsBuilders.buildModePickResponse(context, context.accentColor);
   }
 
   private async responseModeAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
     return UserSettingsBuilders.buildResponseModeResponse(context, user, context.accentColor);
   }
 
   private async coverModeAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
     return UserSettingsBuilders.buildCoverModeResponse(context, user, context.accentColor);
   }
 
@@ -119,13 +102,8 @@ export class SettingsCommands implements ITextCommandModule {
       );
     }
 
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     const success = block
       ? await this.guildService.selfBlockGuildUserAsync(context.guildId, user.userId)

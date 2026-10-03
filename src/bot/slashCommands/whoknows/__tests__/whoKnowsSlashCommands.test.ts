@@ -72,6 +72,7 @@ const build = (over: Record<string, unknown> = {}) => {
       guildUsers: [], genres: undefined, crownModel: null,
     })),
     getFriendUsersForArtists: vi.fn(async (..._args: unknown[]) => (over.friendUsers ?? [])),
+    getGuildHiddenUserIds: vi.fn(async (..._args: unknown[]) => (over.hiddenGuildUserIds ?? new Set<number>())),
     ...(over.whoKnowsArtistService as object),
   };
   const whoKnowsTrackService = {
@@ -79,6 +80,7 @@ const build = (over: Record<string, unknown> = {}) => {
       filteredUsersWithTrack: [], filterStats: { total: 0, eligible: 0, filtered: 0 }, guildUsers: [],
     })),
     getFriendUsersForTrack: vi.fn(async (..._args: unknown[]) => (over.friendUsers ?? [])),
+    getGuildHiddenUserIds: vi.fn(async (..._args: unknown[]) => (over.hiddenGuildUserIds ?? new Set<number>())),
     ...(over.whoKnowsTrackService as object),
   };
   const whoKnowsAlbumService = {
@@ -86,6 +88,7 @@ const build = (over: Record<string, unknown> = {}) => {
       filteredUsersWithAlbum: [], filterStats: { total: 0, eligible: 0, filtered: 0 }, guildUsers: [],
     })),
     getFriendUsersForAlbum: vi.fn(async (..._args: unknown[]) => (over.friendUsers ?? [])),
+    getGuildHiddenUserIds: vi.fn(async (..._args: unknown[]) => (over.hiddenGuildUserIds ?? new Set<number>())),
     ...(over.whoKnowsAlbumService as object),
   };
   const whoKnowsPlayService = {
@@ -498,6 +501,73 @@ describe('WhoKnowsSlashCommands.friendsWhoKnowTrackAsync', () => {
     const args = (WhoKnowsBuilders.buildWhoKnowsResponse as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(args[1]).toBe('Friends who know Spectral Bloom by Mitch Murder');
     expect(args[11]).toBe('Track');
+  });
+});
+
+describe('WhoKnowsSlashCommands friends privacy filtering', () => {
+  const guildWithMembers = { name: 'Test Guild', members: { cache: new Map() } };
+
+  it('never names a Hide friend from the friends list, but keeps visible friends', async () => {
+    const { service } = build({
+      friends: [
+        { userId: 1, friendUserId: 2, friendUser: { userId: 2, privacyLevel: 'Hide' } },
+        { userId: 1, friendUserId: 3, friendUser: { userId: 3, privacyLevel: 'Default' } },
+      ],
+      friendUsers: [
+        { userId: 2, playcount: 50, lastFmUsername: 'hidden_friend' },
+        { userId: 3, playcount: 10, lastFmUsername: 'visible_friend' },
+      ],
+      artistInfo: { name: 'Mond' },
+    });
+    await call(
+      service,
+      'friendsWhoKnowArtistAsync',
+      mkContext({ guild: guildWithMembers, interaction: { options: opts({ artist: 'mond' }) } }),
+    );
+    const args = (WhoKnowsBuilders.buildWhoKnowsResponse as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const users = args[4] as Array<{ userId: number }>;
+    expect(users.map((u) => u.userId)).not.toContain(2);
+    expect(users.map((u) => u.userId)).toContain(3);
+  });
+
+  it('excludes a self-blocked friend via the guild users map', async () => {
+    const { service } = build({
+      friends: [{ userId: 1, friendUserId: 2 }, { userId: 1, friendUserId: 3 }],
+      friendUsers: [
+        { userId: 2, playcount: 50, lastFmUsername: 'blocked_friend' },
+        { userId: 3, playcount: 10, lastFmUsername: 'visible_friend' },
+      ],
+      artistInfo: { name: 'Mond' },
+      hiddenGuildUserIds: new Set([2]),
+    });
+    await call(
+      service,
+      'friendsWhoKnowArtistAsync',
+      mkContext({
+        guild: { name: 'Test Guild', id: '222', members: { cache: new Map() } },
+        interaction: { options: opts({ artist: 'mond' }) },
+      }),
+    );
+    const args = (WhoKnowsBuilders.buildWhoKnowsResponse as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const users = args[4] as Array<{ userId: number }>;
+    expect(users.map((u) => u.userId)).not.toContain(2);
+    expect(users.map((u) => u.userId)).toContain(3);
+  });
+
+  it('CONTROL: visible friends are still listed, so the filter cannot hide everyone', async () => {
+    const { service } = build({
+      friends: [{ userId: 1, friendUserId: 2, friendUser: { userId: 2, privacyLevel: 'Default' } }],
+      friendUsers: [{ userId: 2, playcount: 10, lastFmUsername: 'visible_friend' }],
+      artistInfo: { name: 'Mond' },
+    });
+    await call(
+      service,
+      'friendsWhoKnowArtistAsync',
+      mkContext({ guild: guildWithMembers, interaction: { options: opts({ artist: 'mond' }) } }),
+    );
+    const args = (WhoKnowsBuilders.buildWhoKnowsResponse as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const users = args[4] as Array<{ userId: number }>;
+    expect(users.map((u) => u.userId)).toContain(2);
   });
 });
 

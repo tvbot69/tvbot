@@ -180,3 +180,38 @@ describe('TrackBuilders.buildTrackInfoResponse: the card serialises with and wit
     expect(without).toBe(withCover);
   });
 });
+
+describe('TrackBuilders.buildTrackInfoResponse: unknown user playcount is omitted, genuine zero is kept', () => {
+  const user = { userId: 1, discordUserId: '103854464', userNameLastFm: 'Moha504' } as User;
+
+  const track = (over: Partial<TrackSearchResult> = {}): TrackSearchResult =>
+    ({
+      trackName: 'Airbag',
+      artistName: 'Radiohead',
+      trackUrl: 'https://www.last.fm/music/Radiohead/_/Airbag',
+      artistUrl: 'https://www.last.fm/music/Radiohead',
+      userPlaycount: 12,
+      lastMonthPlays: 3,
+      ...over,
+    }) as TrackSearchResult;
+
+  const card = (over: Partial<TrackSearchResult> = {}) => TrackBuilders.buildTrackInfoResponse(track(over), user, 'moha');
+
+  it('shows the DB fallback count when Last.fm was down but the DB ran', () => {
+    expect(texts(card({ userPlaycount: 12, lastMonthPlays: 3 }))).toContain('**12** plays by **moha**');
+  });
+
+  it('omits the user-plays line (never "0 plays") when the source did not run', () => {
+    // Mutation check: forcing the read to throw surfaces here as `undefined`
+    // from `getUserTotalPlays` — the card must not claim 0.
+    const body = texts(card({ userPlaycount: undefined, lastMonthPlays: 3 }));
+    expect(body).not.toContain('0 plays by');
+    expect(body).not.toContain('plays by **moha**');
+    expect(body).not.toContain('last month');
+    expect(() => serialised(card({ userPlaycount: undefined }))).not.toThrow();
+  });
+
+  it('still renders "**0** plays" when a query RAN and the member genuinely has none', () => {
+    expect(texts(card({ userPlaycount: 0, lastMonthPlays: 0 }))).toContain('**0** plays by **moha**');
+  });
+});

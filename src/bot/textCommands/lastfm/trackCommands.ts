@@ -17,6 +17,7 @@ import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { ColorService } from '@bot/services/system/colorService';
 import { LyricsService } from '@bot/services/music/lyricsService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class TrackCommands implements ITextCommandModule {
@@ -105,14 +106,9 @@ export class TrackCommands implements ITextCommandModule {
       }
     }
 
-    const user =
-      requestedByOther ??
-      (await this.userService.getUserByDiscordId(context.discordUserId));
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
+    const user = requestedByOther ?? await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) {
+      return user;
     }
 
     if (UpdateService.needsUpdate(user, 2)) {
@@ -173,10 +169,8 @@ export class TrackCommands implements ITextCommandModule {
   }
 
   private async trackDetailsAsync(context: ContextModel, trackValues: string): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet. Use the register command first.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });
@@ -234,13 +228,8 @@ export class TrackCommands implements ITextCommandModule {
   }
 
   private async loveAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
     if (!user.sessionKey) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NoPermission,
@@ -303,13 +292,8 @@ export class TrackCommands implements ITextCommandModule {
   }
 
   private async unloveAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
     if (!user.sessionKey) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NoPermission,
@@ -393,12 +377,9 @@ export class TrackCommands implements ITextCommandModule {
       }
     }
 
-    const user = requestedByOther ?? (await this.userService.getUserByDiscordId(context.discordUserId));
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
+    const user = requestedByOther ?? await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) {
+      return user;
     }
 
     const displayName =
@@ -428,13 +409,8 @@ export class TrackCommands implements ITextCommandModule {
   }
 
   private async scrobbleAsync(context: ContextModel, rawArgs: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `.login` or `/login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
     if (!user.sessionKey) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NoPermission,
@@ -533,13 +509,8 @@ export class TrackCommands implements ITextCommandModule {
         trackName = trimmed;
       }
     } else {
-      const user = await this.userService.getUserByDiscordId(context.discordUserId);
-      if (!user) {
-        return GenericEmbedService.buildCommandErrorResponse(
-          CommandResponse.NotFound,
-          `You have not connected your Last.fm account yet. Either specify a song (\`${context.prefix}lyrics Artist - Track\`) or connect with \`${context.prefix}login\`.`,
-        );
-      }
+      const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
       const recentTracks = await this.lastfmRepository.getUserRecentTracks(user.userNameLastFm, 1, 1, undefined, user.sessionKey);
       if (!recentTracks || recentTracks.length === 0) {

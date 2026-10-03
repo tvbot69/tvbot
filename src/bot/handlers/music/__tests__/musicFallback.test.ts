@@ -163,7 +163,10 @@ describe('resolvePlaylistTrack (ladder)', () => {
       resolvePlaylistTrack: (
         player: unknown,
         spTrack: { searchQuery: string; name: string; artist: string },
-      ) => Promise<{ lavalinkTrack: { identifier: string }; rung: string } | null>;
+      ) => Promise<
+        | { lavalinkTrack: { identifier: string }; rung: string; spTrack: { searchQuery: string; name: string; artist: string } }
+        | null
+      >;
     };
     return { svc, search };
   };
@@ -175,7 +178,15 @@ describe('resolvePlaylistTrack (ladder)', () => {
     const res = await svc.resolvePlaylistTrack(player, spTrack);
     expect(res?.lavalinkTrack.identifier).toBe('yt1');
     expect(res?.rung).toBe('plugin');
+    // The whole track object travels back, not just its id: the queue renders
+    // from `lavalinkTrack`, and the same row is what a pending entry is mapped
+    // from later.
+    expect(res?.lavalinkTrack).toMatchObject({ identifier: 'yt1' });
+    expect(res?.spTrack).toEqual(spTrack);
     expect(search).toHaveBeenCalledTimes(1);
+    // Asked with the SPOTIFY search query, on the plugin rung. A rewritten
+    // query would resolve a different recording under the playlist's name.
+    expect(search).toHaveBeenCalledWith({ query: 'Mond - Esme', source: 'youtube' });
   });
 
   it('tries SoundCloud when YouTube misses', async () => {
@@ -190,6 +201,23 @@ describe('resolvePlaylistTrack (ladder)', () => {
   it('returns null when both sources miss', async () => {
     const { svc } = makeSvc(async () => ({ tracks: [] }));
     await expect(svc.resolvePlaylistTrack(player, spTrack)).resolves.toBeNull();
+  });
+
+  it('returns null when every rung THROWS, without raising into the queue loop', async () => {
+    // The other half of the miss case, and the reason the two are different:
+    // an answered empty is a miss; an unanswered ladder is a transport error the
+    // ladder itself reports. `resolvePlaylistTrack` collapses BOTH to null
+    // (musicService.ts:1048) because it has no transport-error channel — a throw
+    // here would abort the whole JIT queue instead of skipping one entry.
+    const { svc, search } = makeSvc(async () => {
+      throw new Error('Request error: ');
+    });
+    await expect(svc.resolvePlaylistTrack(player, spTrack)).resolves.toBeNull();
+    // Both rungs were still asked before giving up, on the same query.
+    expect(search.mock.calls.map((c) => (c[0] as { source: string }).source)).toEqual([
+      'youtube',
+      'soundcloud',
+    ]);
   });
 });
 
@@ -606,7 +634,7 @@ describe('preview-cut detection (short finishes feed the breaker)', () => {  con
       { getManager: () => manager } as never,
       { getQueueInfo: () => null, is247: () => false } as never,
     ) as unknown as {
-      songFailureCounts: Map<string, { count: number; firstAt: number }>;
+      songFailureCountsView: Map<string, { count: number; firstAt: number }>;
     };
     return { handlers, handler };
   };
@@ -633,7 +661,12 @@ describe('preview-cut detection (short finishes feed the breaker)', () => {  con
     const { handlers, handler } = captureHandlers();
     const onEnd = handlers.get('trackEnd')!;
     await onEnd(finishedPlayer(30000), previewTrack, 'finished');
-    expect(handler.songFailureCounts.size).toBe(1);
+    expect(handler.songFailureCountsView.size).toBe(1);
+    // The recorded count is the signal the breaker reads, and it starts at one
+    // for a preview-cut finish — not zero, and not keyed to nothing at all.
+    expect([...handler.songFailureCountsView.values()]).toEqual([
+      { count: 1, firstAt: expect.any(Number) },
+    ]);
   });
 
   it('ignores full-length finishes and non-finish reasons', async () => {
@@ -641,7 +674,24 @@ describe('preview-cut detection (short finishes feed the breaker)', () => {  con
     const onEnd = handlers.get('trackEnd')!;
     await onEnd(finishedPlayer(200000), previewTrack, 'finished');
     await onEnd(finishedPlayer(30000), previewTrack, 'stopped');
-    expect(handler.songFailureCounts.size).toBe(0);
+    expect(handler.songFailureCountsView.size).toBe(0);
+    // Not merely "the map is empty" — nothing was recorded for that song at all,
+    // so a later real preview cut still starts from one.
+    expect([...handler.songFailureCountsView.values()]).toEqual([]);
+  });
+
+  it('a genuine preview cut after two ignored finishes still records one', async () => {
+    // The paired direction: the ignore rules above must not have latched the
+    // song into a "never counted" state, or a repeatedly-failing song would
+    // stay at zero forever and never trip the breaker.
+    const { handlers, handler } = captureHandlers();
+    const onEnd = handlers.get('trackEnd')!;
+    await onEnd(finishedPlayer(200000), previewTrack, 'finished');
+    await onEnd(finishedPlayer(30000), previewTrack, 'stopped');
+    await onEnd(finishedPlayer(30000), previewTrack, 'finished');
+    expect([...handler.songFailureCountsView.values()]).toEqual([
+      { count: 1, firstAt: expect.any(Number) },
+    ]);
   });
 });
 
@@ -827,13 +877,13 @@ describe('okTimer lifecycle', () => {
       client as never,
       { getManager: () => manager } as never,
       { getQueueInfo: () => null, is247: () => false } as never,
-    ) as unknown as { okTimers: Map<string, NodeJS.Timeout> };
+    ) as unknown as { okTimersView: Map<string, NodeJS.Timeout> };
     const timer = setTimeout(() => undefined, 15000);
-    handler.okTimers.set('g-destroy', timer);
+    handler.okTimersView.set('g-destroy', timer);
     const onDestroy = handlers.get('playerDestroy')!;
     expect(onDestroy).toBeDefined();
     await onDestroy({ guildId: 'g-destroy', get: () => undefined } as never);
-    expect(handler.okTimers.has('g-destroy')).toBe(false);
+    expect(handler.okTimersView.has('g-destroy')).toBe(false);
   });
 });
 
@@ -1309,8 +1359,12 @@ describe('resolve artwork backfill', () => {
       const pending = svc.resolvePlaylistTrack(player, spTrack);
       await vi.advanceTimersByTimeAsync(10100);
       const res = await pending;
+      // A cascade that never answers costs the ART, never the track: the row is
+      // already resolved and returned, artless.
+      expect(res?.lavalinkTrack).toMatchObject({ identifier: 'yt1' });
       expect(res?.lavalinkTrack.artworkUrl).toBeUndefined();
       expect(getTrackCoverUrl).toHaveBeenCalledTimes(1);
+      expect(getTrackCoverUrl).toHaveBeenCalledWith('Esme', 'Mond');
     } finally {
       vi.useRealTimers();
     }
@@ -1837,23 +1891,30 @@ describe('direct SoundCloud URL plays + transport reporting', () => {
   });
 
   it('reports all-nodes-dead SoundCloud URL plays as an error, not empty', async () => {
-    const { svc, search } = playManager(async () => {
+    const { svc, search, enqueue } = playManager(async () => {
       throw new Error('Request error: ');
     });
     const res = await svc.play('g-sc', 'vc', 'tc', 'https://soundcloud.com/artist/track', { id: 'u1' } as never);
     expect(res.loadType).toBe('error');
     expect(search).toHaveBeenCalled();
+    // …and NOTHING was queued: an error outcome must not leave a half-enqueued
+    // track behind for the next `.play` to discover.
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('keeps a genuine SoundCloud miss as empty (no node cooling)', async () => {
-    const { svc, noteRestFailure } = playManager(async () => ({ loadType: 'search', tracks: [] }));
+    const { svc, noteRestFailure, enqueue } = playManager(async () => ({ loadType: 'search', tracks: [] }));
     const res = await svc.play('g-sc', 'vc', 'tc', 'https://soundcloud.com/artist/track', { id: 'u1' } as never);
     expect(res.loadType).toBe('empty');
     expect(noteRestFailure).not.toHaveBeenCalled();
+    // The pair to the test above: an answered empty reports empty AND queues
+    // nothing. The two outcomes differ in wording only — never in what is left
+    // in the queue.
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('reports all-nodes-dead YouTube URL plays as an error, not empty', async () => {
-    const { svc, search } = playManager(async () => {
+    const { svc, search, enqueue } = playManager(async () => {
       throw new Error('Request error: ');
     });
     const res = await svc.play('g-sc', 'vc', 'tc', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', { id: 'u1' } as never);
@@ -1861,13 +1922,15 @@ describe('direct SoundCloud URL plays + transport reporting', () => {
     // track's existence — the SoundCloud twin above already forbids it.
     expect(res.loadType).toBe('error');
     expect(search).toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('keeps a genuine YouTube URL miss as empty (no node cooling)', async () => {
-    const { svc, noteRestFailure } = playManager(async () => ({ loadType: 'search', tracks: [] }));
+    const { svc, noteRestFailure, enqueue } = playManager(async () => ({ loadType: 'search', tracks: [] }));
     const res = await svc.play('g-sc', 'vc', 'tc', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', { id: 'u1' } as never);
     expect(res.loadType).toBe('empty');
     expect(noteRestFailure).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it('ladder with every search dead (timeout-null) reports transportError, not a miss', async () => {
@@ -1900,6 +1963,16 @@ describe('direct SoundCloud URL plays + transport reporting', () => {
     });
     const tracks = await svc.searchTracks('some song', 'youtube', false);
     expect(tracks).toHaveLength(1);
+    // The rendered row, not just "one row came back": this is what the select
+    // menu shows and what the pick override carries into play() as trusted
+    // metadata.
+    expect(tracks[0]).toMatchObject({
+      identifier: 'yt-search-hit',
+      title: 'Some Song',
+      author: 'Some Artist',
+      uri: 'https://www.youtube.com/watch?v=yt-search-hit',
+      source: 'youtube',
+    });
     expect(search).toHaveBeenCalledTimes(2);
     expect(search.mock.calls[0]![0]).toMatchObject({ node: 'Home', source: 'youtube' });
     expect(search.mock.calls[1]![0]).toMatchObject({ node: 'Serenetia-SSL', source: 'youtube' });
@@ -1987,6 +2060,11 @@ describe('audio-first art backfill (play path)', () => {
     expect(res.loadType).toBe('track');
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect(getTrackCoverUrl).toHaveBeenCalledTimes(1);
+    // Audio-first means audio was enqueued BEFORE art resolved — so the queued
+    // row must already be the real track, artless, not a placeholder.
+    const queued = (enqueue.mock.calls[0]![1] as Array<Record<string, unknown>>)[0]!;
+    expect(queued).toMatchObject({ identifier: 'sc-cold-01', title: 'Cold Song', author: 'Cold Artist' });
+    expect(queued.artworkUrl).toBeUndefined();
   });
 
   it('late-attaches the resolved cover to the queued track', async () => {
@@ -2061,6 +2139,15 @@ describe('enqueue guardrails (play-false rollback, queue cap)', () => {
     expect(res.totalTracksAdded).toBe(1);
     expect(player.play).toHaveBeenCalledTimes(1);
     expect(queued).toHaveLength(1);
+    // The queued row is the track the caller asked for, byte for byte on the
+    // fields the queue renders. A count of 1 with the wrong row in it is the
+    // failure a count-only assertion cannot see.
+    expect(queued[0]).toMatchObject({
+      identifier: 'id-00000001',
+      title: 'Track 1',
+      author: 'Artist',
+      duration: 1000,
+    });
   });
 
   it('rolls the enqueue back and reports a voice error when playback never starts', async () => {
@@ -2428,6 +2515,13 @@ describe('REST-dead search failover (uplink-stall class)', () => {
       });
       await new Promise((r) => setTimeout(r, 450));
       expect(spy).toHaveBeenCalledTimes(1);
+      // …and it was the nudge the chapters just attached that triggered it,
+      // with the parsed titles and timestamps the card is about to render.
+      expect(spy).toHaveBeenCalledWith(player);
+      expect(store.chapters).toEqual([
+        { title: 'A', startMs: 0 },
+        { title: 'B', startMs: 60000 },
+      ]);
     } finally {
       if (savedKey === undefined) delete process.env.YOUTUBE_API_KEY;
       else process.env.YOUTUBE_API_KEY = savedKey;

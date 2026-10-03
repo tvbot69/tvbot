@@ -1,6 +1,6 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { ArtistTrackService } from '@bot/services/library/artistTrackService';
 import type { User } from '@domain/interfaces/ports/iuserRepository';
@@ -10,12 +10,12 @@ import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { ArtistBuilders } from '@bot/builders/library/artistBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { prisma } from '@persistence/prismaClient';
 import { container } from 'tsyringe';
 import { ArtistRepository } from '@persistence/repositories/artistRepository';
 import { ArtistsService } from '@bot/services/library/artistsService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class ArtistCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -50,13 +50,8 @@ export class ArtistCommands implements ITextCommandModule {
   }
 
   private async artistInfoAsync(context: ContextModel, raw: string): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });
@@ -107,13 +102,8 @@ export class ArtistCommands implements ITextCommandModule {
   }
 
   private async artistOverviewAsync(context: ContextModel, raw: string): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });
@@ -152,13 +142,8 @@ export class ArtistCommands implements ITextCommandModule {
   }
 
   private async artistAlbumsAsync(context: ContextModel, raw: string): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });

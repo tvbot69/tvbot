@@ -134,19 +134,24 @@ export class TrackBuilders {
       );
     }
 
-    // Personal user plays + last month
-    const plays = track.userPlaycount ?? 0;
-    const playsWord = plays === 1 ? 'play' : 'plays';
-    const monthPart =
-      track.lastMonthPlays !== undefined && track.lastMonthPlays > 0
-        ? ` — **${track.lastMonthPlays.toLocaleString()}** last month`
-        : '';
-    const userPlaysLine = `**${plays.toLocaleString()}** ${playsWord} by **${displayName}**${monthPart}`;
+    // Personal user plays + last month. Presence, not magnitude: an unread
+    // count (`undefined`/`null` — Last.fm gave nothing and the DB fallback was
+    // unavailable) omits the line, the same rule `albumBuilders` uses. A
+    // genuine 0 from a query that RAN still renders as "**0** plays".
+    if (track.userPlaycount !== undefined && track.userPlaycount !== null) {
+      const plays = track.userPlaycount;
+      const playsWord = plays === 1 ? 'play' : 'plays';
+      const monthPart =
+        track.lastMonthPlays !== undefined && track.lastMonthPlays > 0
+          ? ` — **${track.lastMonthPlays.toLocaleString()}** last month`
+          : '';
+      const userPlaysLine = `**${plays.toLocaleString()}** ${playsWord} by **${displayName}**${monthPart}`;
 
-    container.addSeparatorComponents(
-      new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
-    );
-    container.addTextDisplayComponents(new TextDisplayBuilder().setContent(userPlaysLine));
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+      );
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(userPlaysLine));
+    }
 
     // ActionRow with Streaming link + Preview
     const row = new ActionRowBuilder<ButtonBuilder>();

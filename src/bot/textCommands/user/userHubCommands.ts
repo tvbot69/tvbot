@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
@@ -11,6 +11,7 @@ import { FeaturedService } from '@bot/services/library/featuredService';
 import { ShortcutService } from '@bot/services/user/shortcutService';
 import { UserHubBuilders } from '@bot/builders/user/userHubBuilders';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class UserHubCommands implements ITextCommandModule {
@@ -68,13 +69,9 @@ export class UserHubCommands implements ITextCommandModule {
     context: ContextModel,
     args: string[],
   ): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
     const prefix = await this.prefixService.getPrefix(context.guildId);
-    if (!user) {
-      return GenericEmbedService.buildWrongInputResponse(
-        `You have not connected your Last.fm account yet. Connect it with \`${prefix}login\`.`,
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix });
+    if ('commandResponse' in user) return user;
 
     const firstArg = args[0]?.toLowerCase();
     if (firstArg === 'enable' || firstArg === 'on' || firstArg === 'true') {

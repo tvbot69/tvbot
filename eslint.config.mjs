@@ -99,6 +99,105 @@ export default tseslint.config(
   },
 
 /**
+   * TYPE-AWARE GATE, scoped to the two music directories.
+   *
+   * Why here and not repo-wide: in a codebase where a dropped promise means
+   * dead air — a stall where a fast skip was required — the un-awaited promise
+   * is the single most expensive defect class, and the playback DAG is where
+   * the incidents happened. But enabling `recommendedTypeChecked` globally
+   * turns on ~40 type-aware rules over 83k lines and buries that one signal
+   * in a flag flood, which is worse than not having it: a gate that cries wolf
+   * gets muted, and then it catches nothing.
+   *
+   * Why `projectService` and not `recommendedTypeChecked` + `project`:
+   *   - `projectService` supplies type information per file without switching
+   *     the whole recommended set to type-checked, so exactly the two rules
+   *     that matter here turn on and nothing else does. A scoped `files` block
+   *     with `recommendedTypeChecked` would drag every type-aware rule along
+   *     for every file matched by the glob, which is the flood again.
+   *   - It needs no `include` list maintenance. `project: ['tsconfig.json']`
+   *     would have to be re-pointed as soon as a second tsconfig exists, and a
+   *     stale `project` fails closed with a parser crash rather than a rule
+   *     result. `projectService` reads the nearest tsconfig for the file.
+   *   - `tsconfig.json` already includes every `.ts` file under `src`, which
+   *     covers both globs including their `__tests__/` folders, so there is no
+   *     second tsconfig to author and nothing to keep in sync.
+   *
+   * Deliberately NOT scoped repo-wide: the rest of the codebase keeps the
+   * untyped recommended set. Same reasoning as the `no-restricted-imports`
+   * block above — where a rule earns its keep is a per-subtree judgement, not a
+   * default.
+   *
+   * Measured 2026-10-02 (typescript-eslint 8.68, typescript 5.9.3) across the
+   * two globs named in the `files` below (74 + 18 `.ts` files, tests included):
+   *   no-floating-promises: 0 violations — clean, and the rule stays an error
+   *   no-misused-promises:  9 violations across 3 files
+   *
+   * Cost of the gate, measured on the same commit: `npm run lint` goes from
+   * 21.4s / 0 errors / 56 warnings to 29.4s / 0 errors / 65 warnings. The
+   * +8s is the tsconfig program being built once for the scoped files; the +9
+   * warnings are exactly the baseline below and nothing else.
+   *
+   * NB: a glob pattern cannot be written literally in this comment. Its trailing
+   *     star-slash ends the block comment early and the whole config stops
+   *     parsing, which is the one trap in this file. The `files` array below
+   *     is the source of truth for what is scoped.
+   *
+   * BASELINE: those 9 are downgraded to `warn` in the block immediately below,
+   * by explicit file. `no-misused-promises` is the expected shape here and none
+   * of the nine is provably safe to "fix" without touching source:
+   *   musicEventListeners.ts:102,106,109,113 — `manager.on(...)` handlers that
+   *     RETURN their promise on purpose, so the suite can `await` a listener
+   *     directly (stated at musicEventListeners.ts:98-101 and in
+   *     src/bot/handlers/music/AGENTS.md). Wrapping them in `void` would break
+   *     every test that drives them. Not a mechanical fix.
+   *   moonlinkManager.ts:157 — `client.once('ready', async ...)`; the ready
+   *     init has no caller to await it.
+   *   moonlinkManager.ts:315 — `setTimeout(async ...)`, the reconnect arm.
+   *   playlistChunkManager.ts:96,106,118 — `manager.on('trackEnd'/'trackStart'/
+   *     'queueEnd', async ...)`. The `queueEnd` one is the silence guard
+   *     (playlistChunkManager.ts:114-117): it exists BECAUSE nothing else will
+   *     ever trigger the next fetch. Adding a catch changes which failures
+   *     reach the logger.
+   *
+   * The honest reading of all nine: the emitter discards the promise, so a
+   * rejection surfaces as an unhandled rejection rather than as silent dead
+   * air. That is the milder half of the failure mode, and it is still a real
+   * defect — but each fix changes runtime behaviour in a directory this repo
+   * protects with incident-derived invariants, so it wants its own change, not
+   * a lint side-effect. They are enumerated by file here rather than exempted
+   * silently; a tenth violation anywhere in these two directories is an error.
+   */
+  {
+    files: ['src/bot/services/music/**/*.ts', 'src/bot/handlers/music/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+    },
+  },
+  {
+    /**
+     * Baseline carve-out, listed file by file. See the block above for the
+     * count (9, all `no-misused-promises`) and why each is not mechanical.
+     * `no-floating-promises` is intentionally absent here: it is clean today.
+     */
+    files: [
+      'src/bot/handlers/music/musicEventListeners.ts',
+      'src/bot/services/music/moonlinkManager.ts',
+      'src/bot/services/music/playlistChunkManager.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-misused-promises': 'warn',
+    },
+  },
+
+  /**
  * `scripts/` is linted, because it now contains code that runs against the
  * production database - a migration verifier that nobody ever lints is how a
  * bad assumption reaches production.

@@ -28,8 +28,9 @@ export class TimerService {
       const ids = container.resolve(Client).shard?.ids;
       if (!ids || ids.length === 0) return true;
       return ids[0] === 0;
-    } catch {
-      return true;
+    } catch (err) {
+      Logger.error({ err }, 'Shard ownership check failed, skipping global job');
+      return false;
     }
   }
 

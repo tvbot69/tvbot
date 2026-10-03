@@ -2,7 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import { MessageFlags } from 'discord.js';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { GameService, JumbleSession } from '@bot/services/guild/gameService';
@@ -12,6 +12,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
 import { Logger } from '@domain/logging/logger';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class GameCommands implements ITextCommandModule {
@@ -65,13 +66,8 @@ export class GameCommands implements ITextCommandModule {
       );
     }
 
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `You have not connected your Last.fm account yet. Use \`${context.prefix}register\` first.`,
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
 
     const accentColor = context.guild.id && this.colorService
       ? await this.colorService.getAccentColorAsync(context.guild.id)
@@ -230,13 +226,8 @@ export class GameCommands implements ITextCommandModule {
       );
     }
 
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `You have not connected your Last.fm account yet. Use \`${context.prefix}register\` first.`,
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
 
     const accentColor = context.guild.id && this.colorService
       ? await this.colorService.getAccentColorAsync(context.guild.id)

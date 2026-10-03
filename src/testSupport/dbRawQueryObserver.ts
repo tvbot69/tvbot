@@ -64,6 +64,13 @@ export interface RawQueryRecord {
   /** The interpolated values, in order. Prisma rewrites `?` to `$n` for Postgres. */
   values: unknown[];
   /**
+   * Stable identity of `sql` for per-query ratcheting. Two spellings of the
+   * same statement (different indentation) share a hash; a rewritten predicate
+   * does not. Recorded at call time so a failed statement still carries one -
+   * "the call failed" is exactly when the identity matters most.
+   */
+  hash: string;
+  /**
    * What the call resolved to: rows for the `$queryRaw*` family, an
    * affected-row count for `$executeRaw*`. Undefined when the call threw, which
    * is why the record is pushed BEFORE the call settles - a failed test must
@@ -102,6 +109,60 @@ export interface RawQueryRecorder {
  * removed, so a changed predicate still shows up as a changed string.
  */
 export const normaliseSql = (sql: string): string => sql.replace(/\s+/g, ' ').trim();
+
+/**
+ * Stable per-query identity: FNV-1a over the normalised statement.
+ *
+ * The ratchet in scripts/count-debt.ts duplicates this function rather than
+ * importing it, because importing `src/` from `scripts/` would drag a file
+ * outside `rootDir` into `tsc` and break `npm run build`. The two copies must
+ * stay identical: same normalisation, same hash, or a production shape and the
+ * test that proves it will disagree about what they are looking at.
+ */
+export const hashNormalizedSql = (sql: string): string => {
+  const s = normaliseSql(sql);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+};
+
+/**
+ * Distinct query shapes executed, oldest hash first is NOT guaranteed - sorted,
+ * so a test comparing against an expected set is order-independent.
+ */
+export const queryHashes = (records: readonly RawQueryRecord[]): string[] => [
+  ...new Set(records.map((r) => r.hash)),
+].sort();
+
+/** How many times each query shape ran. */
+export const countByQueryHash = (records: readonly RawQueryRecord[]): Record<string, number> => {
+  const out: Record<string, number> = {};
+  for (const r of records) out[r.hash] = (out[r.hash] ?? 0) + 1;
+  return out;
+};
+
+/**
+ * Assert the executed shapes are exactly the expected ones.
+ *
+ * Both directions matter: a new untested shape throws, and so does a missing
+ * one - while an empty run against an empty expectation passes, so a genuine
+ * "no query was opened" is still distinguishable from "it returned nothing".
+ */
+export const assertExpectedQueries = (
+  raw: readonly RawQueryRecord[],
+  expectedSql: readonly string[],
+): void => {
+  const actual = queryHashes(raw);
+  const expected = [...new Set(expectedSql.map(hashNormalizedSql))].sort();
+  if (actual.length !== expected.length || !actual.every((h, i) => h === expected[i])) {
+    throw new Error(
+      `expected queries ${JSON.stringify(expected)} but executed ${JSON.stringify(actual)}`,
+    );
+  }
+};
 
 /**
  * Rebuild `(sql, values)` from a raw call's arguments.
@@ -146,7 +207,8 @@ export const recordRawQueries = (real: PrismaClient): RawQueryRecorder => {
       }
       const original = value as (...callArgs: unknown[]) => unknown;
       return (...callArgs: unknown[]): Promise<unknown> => {
-        const record: RawQueryRecord = readCall(callArgs);
+        const seen = readCall(callArgs);
+        const record: RawQueryRecord = { ...seen, hash: hashNormalizedSql(seen.sql) };
         records.push(record);
         // A single-argument `then` passes a rejection straight through, so a
         // failing statement propagates the real Prisma error untouched while the

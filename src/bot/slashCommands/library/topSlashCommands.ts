@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { SettingService } from '@bot/services/system/settingService';
@@ -9,7 +9,6 @@ import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { TopBuilders } from '@bot/builders/library/topBuilders';
 import { resolveTopBuildersDeps } from '@bot/builders/library/topBuildersDeps';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 
 const periodChoices = [
@@ -23,6 +22,7 @@ const periodChoices = [
 
 import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class TopSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -66,8 +66,8 @@ export class TopSlashCommands implements ISlashCommandModule {
       if (info) return { userNameLastFm: info.userNameLastFm, displayName: lfm, userId: info.userId, userObj: info };
       return { userNameLastFm: lfm, displayName: lfm };
     }
-    const self = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!self) return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet. Use `/register` first.');
+    const self = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in self) return self;
     return { userNameLastFm: self.userNameLastFm, displayName: context.guild?.members.cache.get(context.discordUserId)?.displayName ?? self.userNameLastFm, userId: self.userId, userObj: self };
   }
 

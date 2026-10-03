@@ -63,6 +63,15 @@ const orDatabaseUnavailable = async <T>(label: string, run: () => Promise<T>): P
 
 const CACHE_TTL_SECONDS = 3600;
 
+/**
+ * Last.fm no-image placeholder hash for the SQL NOT LIKE filter below.
+ * Canonical predicate: isPlaceholderImageUrl in src/domain/lastfm/lastfmPlaceholder.ts.
+ * SQL cannot call that predicate, so this constant mirrors its hash and the
+ * invariant test in src/bot/services/media/__tests__/artworkService.rungs.test.ts
+ * keeps the two in sync. Do not re-inline the literal into the query.
+ */
+const LASTFM_PLACEHOLDER_HASH_FOR_SQL = '2a96cbd8b46e442fc41c2b86b821562f';
+
 export interface ArtistSearchResult {
   artistName: string;
   artistUrl?: string;
@@ -418,7 +427,7 @@ export class ArtistsService {
         FROM albums al
         JOIN artists ar ON ar.artist_id = al.artist_id
         WHERE LOWER(ar.name) = LOWER($1)
-          AND (al.deezer_image_url IS NOT NULL OR al.spotify_image_url IS NOT NULL OR (al.image_url IS NOT NULL AND al.image_url NOT LIKE '%2a96cbd8b46e442fc41c2b86b821562f%'))
+          AND (al.deezer_image_url IS NOT NULL OR al.spotify_image_url IS NOT NULL OR (al.image_url IS NOT NULL AND al.image_url NOT LIKE '%' || '${LASTFM_PLACEHOLDER_HASH_FOR_SQL}' || '%'))
         LIMIT $2
       `, artistName, limit);
       return rows.map((r) => r.cover).filter(Boolean);

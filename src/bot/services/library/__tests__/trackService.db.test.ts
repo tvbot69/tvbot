@@ -405,4 +405,51 @@ suite('TrackService raw queries against a real database', () => {
       { artistName: 'Boards', trackName: 'Roygbiv' },
     ]);
   });
+
+  it('uses the (user_id, lower(artist)) index for the artist track list', async () => {
+    // Mirrors getArtistUserTracks. Mutation check: dropping the migration
+    // removes the index name from the plan.
+    await seedPlays(prisma!, plays('Radiohead', 'Airbag', 2));
+    const sql =
+      'SELECT track_name, COUNT(*)::bigint AS playcount FROM user_plays ' +
+      'WHERE user_id = $1 AND LOWER(artist_name) = LOWER($2) AND track_name IS NOT NULL ' +
+      'GROUP BY track_name ORDER BY playcount DESC LIMIT 50';
+    const rows = await prisma!.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = OFF');
+      return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+        `EXPLAIN (COSTS OFF) ${sql}`,
+        userId,
+        'Radiohead',
+      );
+    });
+    const plan = rows.map((r) => r['QUERY PLAN']).join('\n');
+    expect(plan).toContain('user_plays_user_lower_artist_idx');
+    expect(plan).not.toContain('Seq Scan');
+  });
+
+  it('uses the (user_id, lower(artist), lower(track)) index for the track week/month window', async () => {
+    // Same week/month window shape as PlayRepository.getRecentEntityPlaycounts
+    // with trackName supplied. Proves the track composite serves it here too.
+    await seedPlays(prisma!, plays('Radiohead', 'Airbag', 2));
+    const monthAgo = new Date('2024-02-01T00:00:00.000Z');
+    const weekAgo = new Date('2024-02-20T00:00:00.000Z');
+    const sql =
+      'SELECT (COUNT(*) FILTER (WHERE time_played >= $5))::int AS week, COUNT(*)::int AS month ' +
+      'FROM user_plays WHERE user_id = $1 AND time_played >= $2 AND LOWER(artist_name) = LOWER($3) ' +
+      'AND LOWER(track_name) = LOWER($4)';
+    const rows = await prisma!.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = OFF');
+      return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+        `EXPLAIN (COSTS OFF) ${sql}`,
+        userId,
+        monthAgo,
+        'Radiohead',
+        'Airbag',
+        weekAgo,
+      );
+    });
+    const plan = rows.map((r) => r['QUERY PLAN']).join('\n');
+    expect(plan).toContain('user_plays_user_lower_artist_track_idx');
+    expect(plan).not.toContain('Seq Scan');
+  });
 });

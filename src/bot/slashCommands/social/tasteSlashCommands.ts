@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { TasteService } from '@bot/services/library/tasteService';
 import type { TasteData } from '@bot/services/library/tasteService';
@@ -14,6 +14,7 @@ import { isLastFmUnavailable } from '@domain/models/errors/lastfmUnavailableErro
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class TasteSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -40,13 +41,8 @@ export class TasteSlashCommands implements ISlashCommandModule {
   }
 
   private async tasteAsync(context: ContextModel): Promise<ResponseModel> {
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use `/register` first.',
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in caller) return caller;
 
     if (UpdateService.needsUpdate(caller, 2)) {
       void this.updateService.updateUser(caller.userId, { accurateTotal: true });

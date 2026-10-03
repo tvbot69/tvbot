@@ -398,20 +398,44 @@ describe('handleNodeFailover — the session snapshot that must survive the move
     expect(player.seek).not.toHaveBeenCalled();
   });
 
-  it('a transfer that REJECTS is an ERROR with the guild id, and no second attempt', async () => {
+  it('a transfer that REJECTS with a single backup is an ERROR with the guild id, cools the refuser, and tells the guild', async () => {
     const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const player = makePlayer({ transferNode: vi.fn(async () => Promise.reject(new Error('voice 400'))) });
     const { manager } = onePlayer(player);
+    const notices: Array<{ guildId: string; message: string }> = [];
+    manager.setUnavailableNotifier((guildId, message) => notices.push({ guildId, message }));
 
     manager.handleNodeFailover({ identifier: 'Home' } as never);
     await settle();
 
+    // Only one backup exists, so no second candidate to try.
     expect(player.transferNode).toHaveBeenCalledTimes(1);
     const payload = error.mock.calls[0]?.[0] as { guildId?: string };
     expect(payload.guildId).toBe('g1');
-    // The state restore is inside the `.then()`, so a rejected transfer must
-    // not have re-applied anything to a player that never moved.
+    // The state restore runs only after a successful transfer, so a rejected
+    // transfer must not have re-applied anything to a player that never moved.
     expect(player.setVolume).not.toHaveBeenCalled();
+    // The refusing target is re-cooled so searches route past it.
+    expect(manager.isNodeCoolingDown('PublicA')).toBe(true);
+    // The guild is told instead of sitting in silence on the dead node.
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.guildId).toBe('g1');
+    expect(notices[0]!.message).toMatch(/could not be moved/);
+  });
+
+  it('a throwing notifier never breaks the failover', async () => {
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    const player = makePlayer({ transferNode: vi.fn(async () => Promise.reject(new Error('voice 400'))) });
+    const { manager } = onePlayer(player);
+    manager.setUnavailableNotifier(() => {
+      throw new Error('channel gone');
+    });
+
+    expect(() => manager.handleNodeFailover({ identifier: 'Home' } as never)).not.toThrow();
+    await settle();
+
+    expect(player.transferNode).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalled();
   });
 
   it('a restore step that THROWS is a WARN, not a rejection out of the failover', async () => {
@@ -443,6 +467,86 @@ describe('handleNodeFailover — the session snapshot that must survive the move
 
     expect(() => manager.handleNodeFailover({ identifier: 'Home' } as never)).not.toThrow();
     expect(said(error, 'Error during node failover')).toBe(true);
+  });
+});
+
+describe('handleNodeFailover — a refusing backup is retried once, then the guild is told', () => {
+  const twoBackups = (player: PlayerDouble) => {
+    const nodes = new Map<string, unknown>([
+      ['Home', statNode('Home', 1)],
+      ['First', statNode('First', 0)],
+      ['Second', statNode('Second', 1)],
+    ]);
+    const manager = harness(nodes, [player]);
+    return { manager, first: nodes.get('First'), second: nodes.get('Second') };
+  };
+
+  it('2-node pool, first transfer rejects: second node tried and state restored there', async () => {
+    // The strand: one transferNode refusal left the guild on the dead node.
+    // Now the refuser is cooled and the next-healthy node gets one attempt.
+    const player = makePlayer({
+      volume: 35,
+      transferNode: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('voice 400'))
+        .mockResolvedValueOnce(undefined),
+    });
+    const { manager, first, second } = twoBackups(player);
+    const notices: Array<{ guildId: string; message: string }> = [];
+    manager.setUnavailableNotifier((guildId, message) => notices.push({ guildId, message }));
+
+    manager.handleNodeFailover({ identifier: 'Home' } as never);
+    await settle();
+
+    expect(player.transferNode).toHaveBeenCalledTimes(2);
+    expect(player.transferNode).toHaveBeenNthCalledWith(1, first);
+    expect(player.transferNode).toHaveBeenNthCalledWith(2, second);
+    // Refuser cooled so searches and the next failover route past it.
+    expect(manager.isNodeCoolingDown('First')).toBe(true);
+    expect(manager.isNodeCoolingDown('Second')).toBe(false);
+    // Success on retry restores session state and tells nobody.
+    expect(player.setVolume).toHaveBeenCalledWith(35);
+    expect(notices).toHaveLength(0);
+  });
+
+  it('2-node pool, both transfers reject: both cooled, guild told once, ERROR carries guild id', async () => {
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    const player = makePlayer({ transferNode: vi.fn(async () => Promise.reject(new Error('voice 400'))) });
+    const { manager, first, second } = twoBackups(player);
+    const notices: Array<{ guildId: string; message: string }> = [];
+    manager.setUnavailableNotifier((guildId, message) => notices.push({ guildId, message }));
+
+    manager.handleNodeFailover({ identifier: 'Home' } as never);
+    await settle();
+
+    expect(player.transferNode).toHaveBeenCalledTimes(2);
+    expect(player.transferNode).toHaveBeenNthCalledWith(1, first);
+    expect(player.transferNode).toHaveBeenNthCalledWith(2, second);
+    expect(manager.isNodeCoolingDown('First')).toBe(true);
+    expect(manager.isNodeCoolingDown('Second')).toBe(true);
+    const payload = error.mock.calls[0]?.[0] as { guildId?: string };
+    expect(payload.guildId).toBe('g1');
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.message).toMatch(/could not be moved/);
+    expect(player.setVolume).not.toHaveBeenCalled();
+  });
+
+  it('never a third attempt: two refusals stop after the one retry', async () => {
+    const player = makePlayer({ transferNode: vi.fn(async () => Promise.reject(new Error('voice 400'))) });
+    const nodes = new Map<string, unknown>([
+      ['Home', statNode('Home', 1)],
+      ['A', statNode('A', 0)],
+      ['B', statNode('B', 0)],
+      ['C', statNode('C', 0)],
+    ]);
+    const manager = harness(nodes, [player]);
+    manager.setUnavailableNotifier(() => undefined);
+
+    manager.handleNodeFailover({ identifier: 'Home' } as never);
+    await settle();
+
+    // "Try the next healthy node once" — not walk the whole pool.
+    expect(player.transferNode).toHaveBeenCalledTimes(2);
   });
 });
 

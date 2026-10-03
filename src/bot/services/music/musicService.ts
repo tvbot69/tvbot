@@ -848,7 +848,7 @@ export class MusicService {
           resolution.title,
           resolution.totalTracks,
           resolution.tracks.length,
-          String((requester as unknown as { id?: string })?.id ?? (requester as unknown as string) ?? 'unknown'),
+          String(requester?.id ?? 'unknown'),
           player.textChannelId ?? '',
         );
       }

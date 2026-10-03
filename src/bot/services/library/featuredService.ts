@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '@persistence/prismaClient';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
+import { SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 
 export interface FeaturedEntry {
   userId: number;
@@ -15,6 +17,35 @@ export interface FeaturedEntry {
   imageUrl?: string;
   featuredAt: Date;
 }
+
+/**
+ * The single place the featured-pool read becomes a caller-visible result.
+ *
+ * Same rule as `orDatabaseUnavailable` in `countryService`, `playHistoryService`
+ * and `guildAdminService`: a query that returns NO ROWS is a real answer and stays
+ * an empty pool (rendered as `null`, "nobody featured"), but a query that THROWS
+ * is a failure and is raised rather than returned. An aggregate over `users` with
+ * no matching rows succeeds with an empty list - it never errors. So empty IS the
+ * answer, and an error is always an error.
+ *
+ * Every caller sits behind a boundary that replies on a throw, so raising surfaces
+ * as a visible error rather than a lie, and records nothing in `historyLog`.
+ */
+const orDatabaseUnavailable = async <T>(
+  method: string,
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: `${method}:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${method} (${label}); refusing to render the featured pool as empty`,
+    );
+    throw new SourceUnavailableError(`featuredService.${method}:${label}`, err, 'Database unavailable');
+  }
+};
 
 @injectable()
 export class FeaturedService {
@@ -41,24 +72,26 @@ export class FeaturedService {
   }
 
   public async pickNewFeatured(): Promise<FeaturedEntry | null> {
-    // Select an active user who has scrobbles
-    // CORRECT AS IS: the `[]` is returned to the caller as `null` ("nobody is
-    // featured right now"), which is a truthful statement about what is
-    // rendered, and the command has no way to say "the database is down"
-    // without inventing a second card. `user.findMany` is one read with no
-    // partial result to get wrong.
-    const users = await this.db.user.findMany({
-      where: {
-        totalPlayCount: { gt: 0 },
-      },
-      select: {
-        userId: true,
-        discordUserId: true,
-        userNameLastFm: true,
-      },
-      take: 50,
-      orderBy: { lastUsed: 'desc' },
-    }).catch(() => []);
+    // A pool read that THROWS is an outage, not an empty pool. Degrading it to
+    // `[]` renders a confident "nobody featured" card for a dropped connection,
+    // and a pool that silently empties is what lets a later retry publish an
+    // "Unknown Artist" history entry for a real user. `pickNewFeatured` is only
+    // reached from commands whose boundary already catches and replies, so the
+    // raise costs one visible error and records nothing.
+    const users = await orDatabaseUnavailable('pickNewFeatured', 'user.findMany', () =>
+      this.db.user.findMany({
+        where: {
+          totalPlayCount: { gt: 0 },
+        },
+        select: {
+          userId: true,
+          discordUserId: true,
+          userNameLastFm: true,
+        },
+        take: 50,
+        orderBy: { lastUsed: 'desc' },
+      }),
+    );
 
     if (users.length === 0) return null;
 

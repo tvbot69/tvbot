@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { FeaturedService } from '@bot/services/library/featuredService';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { LastFmUnavailableError } from '@domain/models/errors/lastfmUnavailableError';
+import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * The Prisma surface this suite drives. The real `PrismaClient` carries 27
@@ -128,6 +130,31 @@ describe('FeaturedService', () => {
     );
 
     await expect(service.pickNewFeatured()).rejects.toBeInstanceOf(LastFmUnavailableError);
+    expect(service.getFeaturedLog()).toHaveLength(0);
+  });
+
+  /**
+   * The pool read used to end in `.catch(() => [])`, which made a dropped
+   * Postgres connection and an empty user base the same value: `null`,
+   * "nobody featured". Forcing the read to throw must raise rather than render
+   * that confident empty card, and record nothing.
+   */
+  it('raises rather than reporting nobody featured when the pool read fails', async () => {
+    vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    mockPrisma.user.findMany.mockRejectedValue(
+      new Error("Can't reach database server at `host.docker.internal:5432`"),
+    );
+
+    const err = await service.pickNewFeatured().catch((e: unknown) => e);
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('featuredService.pickNewFeatured');
+    expect(service.getFeaturedLog()).toHaveLength(0);
+  });
+
+  it('still returns null when the pool query ran and nobody has scrobbles', async () => {
+    mockPrisma.user.findMany.mockResolvedValue([]);
+
+    await expect(service.pickNewFeatured()).resolves.toBeNull();
     expect(service.getFeaturedLog()).toHaveLength(0);
   });
 });

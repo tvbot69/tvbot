@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AutopostService } from '@bot/services/charts/autopostService';
-import type { AutopostConfig } from '@bot/services/charts/autopostService';
+import type { AutopostConfig, AutopostTopRow } from '@bot/services/charts/autopostService';
 import { SourceUnavailableError, isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
 import { Logger } from '@domain/logging/logger';
 
@@ -49,10 +49,10 @@ const repo = (over: Repo = {}) => ({
   ...over,
 });
 
-const build = (over: { repo?: unknown; noRepo?: boolean; crown?: Repo; telemetry?: Repo } = {}) => {
-  const artistsService = { getTopArtists: vi.fn(async () => []) };
-  const albumService = { getTopAlbums: vi.fn(async () => []) };
-  const trackService = { getTopTracks: vi.fn(async () => []) };
+const build = (over: { repo?: unknown; noRepo?: boolean; crown?: Repo; telemetry?: Repo; ranking?: Repo } = {}) => {
+  const artistsService = {};
+  const albumService = {};
+  const trackService = {};
   const crownService = {
     getGuildLeaderboard: vi.fn(async () => ({ entries: [], totalActiveCrowns: 0 })),
     ...(over.crown as Repo),
@@ -63,6 +63,12 @@ const build = (over: { repo?: unknown; noRepo?: boolean; crown?: Repo; telemetry
   };
   const guildRepository = {};
   const autopostRepository = over.noRepo ? undefined : repo(over.repo as Repo);
+  const guildRankingService = {
+    getGuildTopArtists: vi.fn(async (): Promise<AutopostTopRow[]> => []),
+    getGuildTopAlbums: vi.fn(async (): Promise<AutopostTopRow[]> => []),
+    getGuildTopTracks: vi.fn(async (): Promise<AutopostTopRow[]> => []),
+    ...(over.ranking as Repo),
+  };
   const service = new AutopostService(
     artistsService as never,
     albumService as never,
@@ -71,6 +77,7 @@ const build = (over: { repo?: unknown; noRepo?: boolean; crown?: Repo; telemetry
     telemetryService as never,
     guildRepository as never,
     autopostRepository as never,
+    guildRankingService as never,
   );
   return {
     service,
@@ -80,6 +87,7 @@ const build = (over: { repo?: unknown; noRepo?: boolean; crown?: Repo; telemetry
     artistsService,
     albumService,
     trackService,
+    guildRankingService,
   };
 };
 
@@ -107,6 +115,39 @@ const clientWith = (channel: unknown) => ({
 const clientThrowing = (err: unknown) => ({
   channels: { fetch: vi.fn(async () => { throw err; }) },
 });
+
+/** Real-shaped guild rows: the GuildRankingService shape the embed must carry verbatim. */
+const ARTIST_ROWS: AutopostTopRow[] = [
+  { name: 'Radiohead', totalPlaycount: 120, listenerCount: 4 },
+  { name: 'Boards of Canada', totalPlaycount: 90, listenerCount: 3 },
+];
+const ALBUM_ROWS: AutopostTopRow[] = [
+  { name: 'OK Computer', secondaryName: 'Radiohead', totalPlaycount: 60, listenerCount: 3 },
+  { name: 'Music Has the Right to Children', secondaryName: 'Boards of Canada', totalPlaycount: 45, listenerCount: 2 },
+];
+const TRACK_ROWS: AutopostTopRow[] = [
+  { name: 'Paranoid Android', secondaryName: 'Radiohead', totalPlaycount: 30, listenerCount: 2 },
+  { name: 'Roygbiv', secondaryName: 'Boards of Canada', totalPlaycount: 25, listenerCount: 2 },
+];
+
+/** Point the ranking mock at real rows; the default is `[]` (no rows). */
+const withTopRows = (
+  guildRankingService: {
+    getGuildTopArtists: (...a: never[]) => Promise<AutopostTopRow[]>;
+    getGuildTopAlbums: (...a: never[]) => Promise<AutopostTopRow[]>;
+    getGuildTopTracks: (...a: never[]) => Promise<AutopostTopRow[]>;
+  },
+): void => {
+  vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
+  vi.mocked(guildRankingService.getGuildTopAlbums).mockResolvedValue(ALBUM_ROWS);
+  vi.mocked(guildRankingService.getGuildTopTracks).mockResolvedValue(TRACK_ROWS);
+};
+
+/** The embed description of the sent payload, or '' when nothing was sent. */
+const sentDescription = (sent: unknown[]): string => {
+  const payload = sent[0] as { embeds?: Array<{ data?: { description?: string } }> } | undefined;
+  return payload?.embeds?.[0]?.data?.description ?? '';
+};
 
 /** A `DiscordAPIError` shape: a numeric JSON error code, which is what the fix reads. */
 const discordError = (code: number, message: string) =>
@@ -274,16 +315,97 @@ describe('AutopostService.isAutopostDue', () => {
 });
 
 describe('AutopostService.postAutopost', () => {
-  it('posts a recap embed to the channel', async () => {
-    const { service } = build();
+  it('posts a recap embed with real artist rows to the channel', async () => {
+    const { service, guildRankingService } = build();
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
     const { channel, sent } = textChannel();
 
     await expect(service.postAutopost(config(), clientWith(channel) as never)).resolves.toBe(true);
     expect(sent).toHaveLength(1);
+    expect(guildRankingService.getGuildTopArtists).toHaveBeenCalledWith('900', expect.objectContaining({ amountOfDays: 1 }));
+    const desc = sentDescription(sent);
+    expect(desc).toContain('Radiohead');
+    expect(desc).toContain('120');
+    expect(desc).toContain('Boards of Canada');
+  });
+
+  it('posts real album rows for the album content type', async () => {
+    const { service, guildRankingService } = build();
+    vi.mocked(guildRankingService.getGuildTopAlbums).mockResolvedValue(ALBUM_ROWS);
+    const { channel, sent } = textChannel();
+
+    await expect(
+      service.postAutopost(config({ contentType: 'TopAlbums' }), clientWith(channel) as never),
+    ).resolves.toBe(true);
+    expect(guildRankingService.getGuildTopAlbums).toHaveBeenCalledWith('900', expect.anything());
+    const desc = sentDescription(sent);
+    expect(desc).toContain('OK Computer');
+    expect(desc).toContain('Radiohead');
+    expect(desc).toContain('60');
+  });
+
+  it('posts real track rows for the track content type', async () => {
+    const { service, guildRankingService } = build();
+    vi.mocked(guildRankingService.getGuildTopTracks).mockResolvedValue(TRACK_ROWS);
+    const { channel, sent } = textChannel();
+
+    await expect(
+      service.postAutopost(config({ contentType: 'TopTracks' }), clientWith(channel) as never),
+    ).resolves.toBe(true);
+    expect(guildRankingService.getGuildTopTracks).toHaveBeenCalledWith('900', expect.anything());
+    const desc = sentDescription(sent);
+    expect(desc).toContain('Paranoid Android');
+    expect(desc).toContain('30');
+  });
+
+  it('fails the Top post when the leaderboard read throws, without stamping', async () => {
+    const { service, guildRankingService } = build();
+    vi.mocked(guildRankingService.getGuildTopArtists).mockRejectedValue(new Error('db down'));
+    const autopost = config({ lastPosted: null });
+    const { channel, sent } = textChannel();
+
+    await expect(service.postAutopost(autopost, clientWith(channel) as never)).resolves.toBe(false);
+    expect(autopost.lastPosted).toBeNull();
+    expect(sent).toHaveLength(0);
+  });
+
+  it('fails the Top post when the leaderboard is empty, without stamping or sending', async () => {
+    // The old code posted a title-only "Music Recap" and stamped success. An
+    // empty read is a genuine zero only when the read RAN; posting nothing and
+    // returning false keeps the sweep retrying instead of stamping an empty card.
+    // MUTATION-CHECK: emptying the rows above must turn this red, and must turn
+    // the three success tests above red as well (they assert row content).
+    const { service, guildRankingService } = build();
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue([]);
+    const autopost = config({ contentType: 'TopArtists', lastPosted: null });
+    const { channel, sent } = textChannel();
+
+    await expect(service.postAutopost(autopost, clientWith(channel) as never)).resolves.toBe(false);
+    expect(autopost.lastPosted).toBeNull();
+    expect(sent).toHaveLength(0);
+  });
+
+  it('fails the Top post when no guild ranking source is wired, without stamping', async () => {
+    const { service } = build({
+      ranking: {
+        getGuildTopArtists: undefined,
+        getGuildTopAlbums: undefined,
+        getGuildTopTracks: undefined,
+      },
+    });
+    // Simulate a build without the ranking collaborator at all.
+    (service as unknown as { guildRankingService: unknown }).guildRankingService = undefined;
+    const autopost = config({ lastPosted: null });
+    const { channel, sent } = textChannel();
+
+    await expect(service.postAutopost(autopost, clientWith(channel) as never)).resolves.toBe(false);
+    expect(autopost.lastPosted).toBeNull();
+    expect(sent).toHaveLength(0);
   });
 
   it('stamps lastPosted only after the send succeeded', async () => {
-    const { service } = build();
+    const { service, guildRankingService } = build();
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
     const { channel } = textChannel();
     const autopost = config({ lastPosted: null });
 
@@ -495,7 +617,8 @@ describe('AutopostService.postAutopost — a missing capability is not a missing
     // So the four-line assertion above cannot pass by the service warning more
     // than it should.
     captureWarns();
-    const { service } = build();
+    const { service, guildRankingService } = build();
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
     const { channel } = textChannel();
 
     await expect(service.postAutopost(config(), clientWith(channel) as never)).resolves.toBe(true);
@@ -508,9 +631,10 @@ describe('AutopostService.runScheduledAutoposts — the sweep', () => {
   const due = (over: Partial<AutopostConfig> = {}) => config({ id: '10', lastPosted: null, ...over });
 
   it('posts every due autopost and reports the count', async () => {
-    const { service } = build({
+    const { service, guildRankingService } = build({
       repo: { getAllActiveAutoposts: vi.fn(async () => [due({ id: '10' }), due({ id: '11' })]) },
     });
+    withTopRows(guildRankingService as never);
     const { channel, sent } = textChannel();
 
     const result = await service.runScheduledAutoposts(clientWith(channel) as never);
@@ -531,12 +655,13 @@ describe('AutopostService.runScheduledAutoposts — the sweep', () => {
 
   it('claims the post atomically before sending, so two runners cannot double-post', async () => {
     const order: string[] = [];
-    const { service } = build({
+    const { service, guildRankingService } = build({
       repo: {
         getAllActiveAutoposts: vi.fn(async () => [due()]),
         claimDueAutopost: vi.fn(async () => { order.push('claim'); return undefined; }),
       },
     });
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
     const channel = {
       isTextBased: () => true,
       guild: { name: 'G' },
@@ -647,9 +772,10 @@ describe('AutopostService.runScheduledAutoposts — the sweep', () => {
   it('does not claim at all for an id the database did not mint', async () => {
     // A non-numeric id cannot be claimed safely, so the post runs unclaimed
     // rather than being silently dropped.
-    const { service, autopostRepository } = build({
+    const { service, autopostRepository, guildRankingService } = build({
       repo: { getAllActiveAutoposts: vi.fn(async () => [due({ id: 'local-1' })]) },
     });
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
     const { channel, sent } = textChannel();
 
     const result = await service.runScheduledAutoposts(clientWith(channel) as never);
@@ -660,9 +786,10 @@ describe('AutopostService.runScheduledAutoposts — the sweep', () => {
   });
 
   it('records telemetry for a successful post', async () => {
-    const { service, telemetryService } = build({
+    const { service, telemetryService, guildRankingService } = build({
       repo: { getAllActiveAutoposts: vi.fn(async () => [due()]) },
     });
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
     const { channel } = textChannel();
 
     await service.runScheduledAutoposts(clientWith(channel) as never);
@@ -681,7 +808,8 @@ describe('AutopostService.runScheduledAutoposts — the sweep', () => {
   });
 
   it('uses the in-memory list when no repository is wired', async () => {
-    const { service } = build({ noRepo: true });
+    const { service, guildRankingService } = build({ noRepo: true });
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
     service.setAutopost(config({ id: '1', lastPosted: null }));
     const { channel, sent } = textChannel();
 
@@ -692,9 +820,10 @@ describe('AutopostService.runScheduledAutoposts — the sweep', () => {
   });
 
   it('continues the sweep after one guild fails', async () => {
-    const { service } = build({
+    const { service, guildRankingService } = build({
       repo: { getAllActiveAutoposts: vi.fn(async () => [due({ id: '10' }), due({ id: '11' })]) },
     });
+    vi.mocked(guildRankingService.getGuildTopArtists).mockResolvedValue(ARTIST_ROWS);
     let n = 0;
     const channel = {
       isTextBased: () => true,

@@ -13,6 +13,7 @@ export interface ReconcileReport {
   checkedUsers: number;
   healedUsers: number;
   escalatedUsers: number;
+  truncated: boolean;
   entityDupes: { artists: number; albums: number; tracks: number };
   details: ReconcileUserResult[];
 }
@@ -33,6 +34,10 @@ export interface ReconcileReport {
 export class ReconcileService {
   private static readonly ABS_TOLERANCE = 10;
   private static readonly REL_TOLERANCE = 0.02;
+  /** Users listed per page. Keeps one findMany bounded on slow-DB nights. */
+  private static readonly USER_BATCH_SIZE = 500;
+  /** Hard cap per 9am run so 6 queries/user cannot overrun pump cadence. */
+  private static readonly MAX_USERS_PER_RUN = 2000;
 
   constructor(private readonly indexService: IndexService) {}
 
@@ -45,6 +50,7 @@ export class ReconcileService {
       checkedUsers: 0,
       healedUsers: 0,
       escalatedUsers: 0,
+      truncated: false,
       entityDupes: { artists: 0, albums: 0, tracks: 0 },
       details: [],
     };
@@ -70,70 +76,113 @@ export class ReconcileService {
       Logger.warn({ err }, '[Reconcile] Entity-duplicate check failed');
     }
 
-    let users: Array<{ userId: number; totalPlayCount: number | null }>;
-    try {
-      users = await prisma.user.findMany({ select: { userId: true, totalPlayCount: true } });
-    } catch (err) {
-      Logger.error({ err }, '[Reconcile] Cannot list users, aborting run');
-      return report;
+    let cursor: number | undefined;
+    let scanned = 0;
+    while (scanned < ReconcileService.MAX_USERS_PER_RUN) {
+      let users: Array<{ userId: number; totalPlayCount: number | null }>;
+      try {
+        users = await prisma.user.findMany({
+          select: { userId: true, totalPlayCount: true },
+          orderBy: { userId: 'asc' },
+          take: ReconcileService.USER_BATCH_SIZE,
+          ...(cursor !== undefined ? { cursor: { userId: cursor }, skip: 1 } : {}),
+        });
+      } catch (err) {
+        Logger.error({ err }, '[Reconcile] Cannot list users, aborting run');
+        return report;
+      }
+      if (users.length === 0) break;
+
+      for (const user of users) {
+        if (scanned >= ReconcileService.MAX_USERS_PER_RUN) {
+          report.truncated = true;
+          Logger.warn(
+            { scanned, max: ReconcileService.MAX_USERS_PER_RUN },
+            '[Reconcile] User cap reached, deferring remainder to next run',
+          );
+          return report;
+        }
+        scanned++;
+        cursor = user.userId;
+        try {
+          // Each aggregate is checked against its own countable base: plays
+          // without an album (or track) name legitimately contribute to the
+          // raw total but to no album/track aggregate.
+          const [artistSum, albumSum, trackSum, rawPlays, rawAlbumPlays, rawTrackPlays] = await Promise.all([
+            prisma.userArtist.aggregate({ _sum: { playcount: true }, where: { userId: user.userId } }),
+            prisma.userAlbum.aggregate({ _sum: { playcount: true }, where: { userId: user.userId } }),
+            prisma.userTrack.aggregate({ _sum: { playcount: true }, where: { userId: user.userId } }),
+            prisma.userPlay.count({ where: { userId: user.userId } }),
+            prisma.userPlay.count({ where: { userId: user.userId, albumName: { not: null } } }),
+            prisma.userPlay.count({ where: { userId: user.userId, trackName: { not: null } } }),
+          ]);
+          if (rawPlays === 0) continue;
+          report.checkedUsers++;
+
+          const artistTotal = artistSum._sum.playcount ?? 0;
+          const detail: ReconcileUserResult = {
+            userId: user.userId,
+            action: 'healthy',
+            artistDrift: rawPlays - artistTotal,
+            historyGap:
+              user.totalPlayCount != null && user.totalPlayCount > rawPlays
+                ? user.totalPlayCount - rawPlays
+                : 0,
+          };
+
+          const albumTotal = albumSum._sum.playcount ?? 0;
+          const trackTotal = trackSum._sum.playcount ?? 0;
+          if (
+            ReconcileService.exceeds(artistTotal, rawPlays) ||
+            ReconcileService.exceeds(albumTotal, rawAlbumPlays) ||
+            ReconcileService.exceeds(trackTotal, rawTrackPlays)
+          ) {
+            await this.indexService.recalculateTopLists(user.userId);
+            detail.action = 'healed-aggregates';
+            report.healedUsers++;
+            Logger.warn(
+              { userId: user.userId, artistTotal, albumTotal, trackTotal, rawPlays },
+              '[Reconcile] Aggregate drift — rebuilt top lists',
+            );
+          } else if (
+            user.totalPlayCount != null &&
+            rawPlays < user.totalPlayCount - Math.max(20, user.totalPlayCount * 0.02)
+          ) {
+            const queued = this.indexService.enqueueUser(user.userId);
+            detail.action = 'escalated-full-index';
+            report.escalatedUsers++;
+            Logger.warn(
+              { userId: user.userId, rawPlays, lastfmTotal: user.totalPlayCount, queued },
+              '[Reconcile] History gap vs Last.fm — enqueued full index',
+            );
+          }
+          report.details.push(detail);
+        } catch (err) {
+          Logger.warn({ err, userId: user.userId }, '[Reconcile] Per-user check failed');
+        }
+      }
+
+      if (users.length < ReconcileService.USER_BATCH_SIZE) break;
     }
 
-    for (const user of users) {
+    if (scanned >= ReconcileService.MAX_USERS_PER_RUN && cursor !== undefined) {
       try {
-        // Each aggregate is checked against its own countable base: plays
-        // without an album (or track) name legitimately contribute to the
-        // raw total but to no album/track aggregate.
-        const [artistSum, albumSum, trackSum, rawPlays, rawAlbumPlays, rawTrackPlays] = await Promise.all([
-          prisma.userArtist.aggregate({ _sum: { playcount: true }, where: { userId: user.userId } }),
-          prisma.userAlbum.aggregate({ _sum: { playcount: true }, where: { userId: user.userId } }),
-          prisma.userTrack.aggregate({ _sum: { playcount: true }, where: { userId: user.userId } }),
-          prisma.userPlay.count({ where: { userId: user.userId } }),
-          prisma.userPlay.count({ where: { userId: user.userId, albumName: { not: null } } }),
-          prisma.userPlay.count({ where: { userId: user.userId, trackName: { not: null } } }),
-        ]);
-        if (rawPlays === 0) continue;
-        report.checkedUsers++;
-
-        const artistTotal = artistSum._sum.playcount ?? 0;
-        const detail: ReconcileUserResult = {
-          userId: user.userId,
-          action: 'healthy',
-          artistDrift: rawPlays - artistTotal,
-          historyGap:
-            user.totalPlayCount != null && user.totalPlayCount > rawPlays
-              ? user.totalPlayCount - rawPlays
-              : 0,
-        };
-
-        const albumTotal = albumSum._sum.playcount ?? 0;
-        const trackTotal = trackSum._sum.playcount ?? 0;
-        if (
-          ReconcileService.exceeds(artistTotal, rawPlays) ||
-          ReconcileService.exceeds(albumTotal, rawAlbumPlays) ||
-          ReconcileService.exceeds(trackTotal, rawTrackPlays)
-        ) {
-          await this.indexService.recalculateTopLists(user.userId);
-          detail.action = 'healed-aggregates';
-          report.healedUsers++;
+        const rest = await prisma.user.findMany({
+          select: { userId: true },
+          orderBy: { userId: 'asc' },
+          cursor: { userId: cursor },
+          skip: 1,
+          take: 1,
+        });
+        if (rest.length > 0) {
+          report.truncated = true;
           Logger.warn(
-            { userId: user.userId, artistTotal, albumTotal, trackTotal, rawPlays },
-            '[Reconcile] Aggregate drift — rebuilt top lists',
-          );
-        } else if (
-          user.totalPlayCount != null &&
-          rawPlays < user.totalPlayCount - Math.max(20, user.totalPlayCount * 0.02)
-        ) {
-          const queued = this.indexService.enqueueUser(user.userId);
-          detail.action = 'escalated-full-index';
-          report.escalatedUsers++;
-          Logger.warn(
-            { userId: user.userId, rawPlays, lastfmTotal: user.totalPlayCount, queued },
-            '[Reconcile] History gap vs Last.fm — enqueued full index',
+            { scanned, max: ReconcileService.MAX_USERS_PER_RUN },
+            '[Reconcile] User cap reached, deferring remainder to next run',
           );
         }
-        report.details.push(detail);
       } catch (err) {
-        Logger.warn({ err, userId: user.userId }, '[Reconcile] Per-user check failed');
+        Logger.warn({ err }, '[Reconcile] Cap probe failed');
       }
     }
 

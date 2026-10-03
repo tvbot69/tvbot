@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { ProfileService } from '@bot/services/user/profileService';
 import { ProfileBuilders } from '@bot/builders/user/profileBuilders';
@@ -10,6 +10,7 @@ import { DiscordConstants } from '@bot/resources/discordConstants';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { User } from '@domain/interfaces/ports/iuserRepository';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class ProfileCommands implements ITextCommandModule {
@@ -30,13 +31,8 @@ export class ProfileCommands implements ITextCommandModule {
   }
 
   private async profileAsync(context: ContextModel, rawOptions: string): Promise<ResponseModel> {
-    const callerUser = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!callerUser) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `You have not connected your Last.fm account yet. Use the \`${context.prefix}register\` command first.`,
-      );
-    }
+    const callerUser = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in callerUser) return callerUser;
 
     let targetUser: User = callerUser;
     let displayName = context.member?.displayName ?? callerUser.userNameLastFm;

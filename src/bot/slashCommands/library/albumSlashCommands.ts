@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { AlbumBuilders } from '@bot/builders/library/albumBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
@@ -11,6 +11,7 @@ import { CommandResponse } from '@domain/enums/commandResponse';
 
 
 import { ColorService } from '@bot/services/system/colorService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class AlbumSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -72,16 +73,16 @@ export class AlbumSlashCommands implements ISlashCommandModule {
     searchValue?: string | null,
     targetDiscordId?: string | null,
   ): Promise<ResponseModel> {
-    const lookupId = targetDiscordId || context.discordUserId;
-    const user = await this.userService.getUserByDiscordId(lookupId);
-    if (!user) {
+    const target = targetDiscordId ? await this.userService.getUserByDiscordId(targetDiscordId) : null;
+    if (targetDiscordId && !target) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NotFound,
-        targetDiscordId
-          ? 'That user has not connected their Last.fm account yet.'
-          : 'You have not connected your Last.fm account yet. Use `/login` first.',
+        'That user has not connected their Last.fm account yet.',
       );
     }
+    const linked = target ?? await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in linked) return linked;
+    const user = linked;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });
@@ -113,16 +114,16 @@ export class AlbumSlashCommands implements ISlashCommandModule {
     searchValue?: string | null,
     targetDiscordId?: string | null,
   ): Promise<ResponseModel> {
-    const lookupId = targetDiscordId || context.discordUserId;
-    const user = await this.userService.getUserByDiscordId(lookupId);
-    if (!user) {
+    const target = targetDiscordId ? await this.userService.getUserByDiscordId(targetDiscordId) : null;
+    if (targetDiscordId && !target) {
       return GenericEmbedService.buildCommandErrorResponse(
         CommandResponse.NotFound,
-        targetDiscordId
-          ? 'That user has not connected their Last.fm account yet.'
-          : 'You have not connected your Last.fm account yet. Use `/login` first.',
+        'That user has not connected their Last.fm account yet.',
       );
     }
+    const linked = target ?? await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in linked) return linked;
+    const user = linked;
 
     if (UpdateService.needsUpdate(user, 2)) {
       void this.updateService.updateUser(user.userId, { accurateTotal: true });

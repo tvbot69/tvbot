@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UserIndexQueueService } from '@bot/services/lastfm/userIndexQueueService';
 import { UserUpdateQueueService } from '@bot/services/lastfm/userUpdateQueueService';
+import { Logger } from '@domain/logging/logger';
 
 /**
  * The durable full-index queue, and the one branch that decides whether a
@@ -118,6 +119,29 @@ describe('UserIndexQueueService.rehydration', () => {
     expect(cache.listLength).toHaveBeenCalledWith('queue:user-index');
   });
 
+  it('REPORTS total loss when Redis claimed items but popped none', async () => {
+    // Extreme short read: before>0, popped==0. Without the before/popped
+    // comparison this arrives as a silent empty restore.
+    const cache = redis([], {
+      listLength: vi.fn(async () => 2),
+      listPopCount: vi.fn(async () => []),
+    });
+    const queue = new UserIndexQueueService(cache as never);
+    queue.registerProcessor(async () => undefined);
+    const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    try {
+      await queue.pump();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queuedInRedis: 2, restored: 0 }),
+        expect.stringContaining('shorter'),
+      );
+      expect(queue.size()).toBe(0);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('stays quiet when Redis genuinely held nothing', async () => {
     // The other direction of the same pairing: `listLength` also answers 0 when
     // Redis is DOWN, so `before === 0` is not evidence of anything and must not
@@ -125,10 +149,15 @@ describe('UserIndexQueueService.rehydration', () => {
     const cache = redis([]);
     const queue = new UserIndexQueueService(cache as never);
     queue.registerProcessor(async () => undefined);
+    const errorSpy = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
+    try {
+      await queue.pump();
 
-    await queue.pump();
-
-    expect(queue.size()).toBe(0);
+      expect(queue.size()).toBe(0);
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('does not read Redis when the queue already holds items', async () => {

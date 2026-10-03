@@ -16,6 +16,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  *     to disk) exactly when the process is already in trouble. The comment in
  *     `startup.ts` that says so is only worth anything if the count is checked,
  *     which is what the "exactly one" tests below do;
+ *  2b. the process fate: `unhandledRejection` stays log-only but bumps
+ *     `processHealth.unhandledRejectionCount` (mirrored to
+ *     `globalThis.__tvbotProcessHealth` for `/health` without importing the
+ *     entrypoint); `uncaughtException` flushes the log then drains through
+ *     `ShutdownService.shutdown('uncaughtException', 1)` with a hard
+ *     `UNCAUGHT_EXCEPTION_FALLBACK_MS` fallback to `exit(1)`;
  *  3. the sharding branch, so a single-process deploy never spawns a manager and
  *     a sharded one never runs two gateways in one process;
  *  4. `Logger.fatal` + `process.exit(1)` when the boot cannot complete.
@@ -138,17 +144,19 @@ beforeEach(() => {
 
 afterEach(() => {
   process.exit = originalExit;
+  vi.useRealTimers();
   drainAddedListeners();
 });
 
 /** Import the entrypoint fresh and let its unawaited `bootstrap()` settle. */
-const boot = async (): Promise<void> => {
-  await import('..');
+const boot = async (): Promise<typeof import('..')> => {
+  const entry = await import('..');
   captureListeners();
   // One macrotask is enough for `await import(...)` inside `bootstrap`, and a
   // fixed wait beats a polling `waitFor` here: `waitFor` retries for a second
   // before failing, which turns a clean assertion into a one-second stall.
   await new Promise((resolve) => setTimeout(resolve, 0));
+  return entry;
 };
 
 const addedListenerFor = (event: ProcessEvent): Listener | undefined =>
@@ -179,7 +187,7 @@ describe('index.ts — the fatal handlers', () => {
   });
 
   it('reports an unhandled rejection to the log and the error feed', async () => {
-    await boot();
+    const entry = await boot();
     const listener = addedListenerFor('unhandledRejection');
     expect(listener).toBeDefined();
 
@@ -188,13 +196,15 @@ describe('index.ts — the fatal handlers', () => {
 
     expect(Logger.error).toHaveBeenCalledWith({ err: reason }, 'Unhandled promise rejection intercepted in process');
     expect(reportFatalToDiscord).toHaveBeenCalledWith('unhandledRejection', reason);
+    expect(entry.getUnhandledRejectionCount()).toBe(1);
   });
 
   it('reports an uncaught exception AND flushes the buffered log before the process dies', async () => {
     // Log lines are buffered and flushed on an interval. A hard exit that does
     // not flush loses the tail that explains WHY the process died — which is
     // the only part anyone reads.
-    await boot();
+    const entry = await boot();
+    entry.processFateSeams.shutdown = vi.fn().mockResolvedValue(undefined);
     const listener = addedListenerFor('uncaughtException');
     expect(listener).toBeDefined();
 
@@ -204,6 +214,7 @@ describe('index.ts — the fatal handlers', () => {
     expect(Logger.fatal).toHaveBeenCalledWith({ err: error }, 'Uncaught exception intercepted in process');
     expect(reportFatalToDiscord).toHaveBeenCalledWith('uncaughtException', error);
     expect(Logger.flushLogFile).toHaveBeenCalledTimes(1);
+    expect(entry.processFateSeams.shutdown).toHaveBeenCalledWith('uncaughtException', 1);
   });
 
   it('does not flush the log for an unhandled rejection', async () => {
@@ -218,13 +229,70 @@ describe('index.ts — the fatal handlers', () => {
   it('lets a throwing error feed surface instead of swallowing the crash', async () => {
     // `reportFatalToDiscord` runs inside the handler for an already-fatal event.
     // If it throws, the throw is what propagates — which is the honest outcome,
-    // because a swallowed crash is an unreported one.
-    await boot();
+    // because a swallowed crash is an unreported one. The drain is still
+    // attempted via finally, so a dead webhook never keeps a corrupt process up.
+    const entry = await boot();
+    entry.processFateSeams.shutdown = vi.fn().mockResolvedValue(undefined);
     vi.mocked(reportFatalToDiscord).mockImplementationOnce(() => {
       throw new Error('the webhook is down');
     });
 
     expect(() => addedListenerFor('uncaughtException')?.(new Error('boom'))).toThrow('the webhook is down');
+    expect(entry.processFateSeams.shutdown).toHaveBeenCalledWith('uncaughtException', 1);
+  });
+
+  it('counts unhandled rejections for health without shutting down or exiting', async () => {
+    const entry = await boot();
+    entry.processFateSeams.shutdown = vi.fn().mockResolvedValue(undefined);
+    const listener = addedListenerFor('unhandledRejection');
+    expect(listener).toBeDefined();
+
+    listener?.(new Error('one'));
+    listener?.(new Error('two'));
+
+    expect(entry.getUnhandledRejectionCount()).toBe(2);
+    expect(entry.processHealth.unhandledRejectionCount).toBe(2);
+    expect(
+      (globalThis as { __tvbotProcessHealth?: unknown }).__tvbotProcessHealth,
+    ).toBe(entry.processHealth);
+    expect(entry.processFateSeams.shutdown).not.toHaveBeenCalled();
+    expect(Logger.flushLogFile).not.toHaveBeenCalled();
+    expect(exitCalls).toEqual([]);
+  });
+
+  it('hard-exits 5s after an uncaught exception when the drain hangs', async () => {
+    // Mutation guard: deleting the `setTimeout(exit)` fallback leaves a hung
+    // drain with no exit, and this test fails because nothing calls exit.
+    const entry = await boot();
+    entry.processFateSeams.shutdown = vi.fn().mockImplementation(() => new Promise(() => undefined));
+    vi.useFakeTimers();
+    try {
+      addedListenerFor('uncaughtException')?.(new Error('boom'));
+      expect(entry.processFateSeams.shutdown).toHaveBeenCalledWith('uncaughtException', 1);
+      expect(exitCalls).toEqual([]);
+
+      vi.advanceTimersByTime(entry.UNCAUGHT_EXCEPTION_FALLBACK_MS);
+
+      expect(exitCalls).toEqual([1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels the hard-exit fallback when the drain succeeds', async () => {
+    const entry = await boot();
+    entry.processFateSeams.shutdown = vi.fn().mockResolvedValue(undefined);
+    vi.useFakeTimers();
+    try {
+      addedListenerFor('uncaughtException')?.(new Error('boom'));
+      // Let the resolved drain run its `.then(clearTimeout)` continuation.
+      await Promise.resolve();
+      vi.advanceTimersByTime(entry.UNCAUGHT_EXCEPTION_FALLBACK_MS);
+
+      expect(exitCalls).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

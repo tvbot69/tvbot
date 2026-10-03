@@ -222,7 +222,7 @@ describe('GenreSlashCommands target resolution: an unregistered user is never a 
     const response = await run(cmd, makeCtx());
 
     expect(response.commandResponse).toBe(CommandResponse.NotFound);
-    expect(cardText(response)).toContain('/login');
+    expect(cardText(response)).toContain('/register');
     expect(genreService.getTopGenresForUserAllTime).not.toHaveBeenCalled();
   });
 });

@@ -91,4 +91,52 @@ describe('HelpBuilders', () => {
       expect(selected?.data.default).toBe(true);
     }
   });
+
+  it('advertises nowplaying without np in music, keeps np in stats', () => {
+    const musicDesc = HelpBuilders.buildHelpResponse('music', '.', 'u1').embed.data.description ?? '';
+    expect(musicDesc).toContain('`.nowplaying`');
+    expect(musicDesc).not.toContain('`.np`');
+
+    const statsDesc = HelpBuilders.buildHelpResponse('stats', '.', 'u1').embed.data.description ?? '';
+    expect(statsDesc).toContain('`.fm`');
+    expect(statsDesc).toContain('`.np`');
+  });
+
+  it('advertises librarysearch with searchdb alias, not music search', () => {
+    const desc = HelpBuilders.buildHelpResponse('stats', '.', 'u1').embed.data.description ?? '';
+    expect(desc).toContain('`.librarysearch`');
+    expect(desc).toContain('`.searchdb`');
+    expect(desc).not.toContain('`.search`');
+  });
+
+  it('uses real aliases instead of doubled names', () => {
+    const chartsDesc = HelpBuilders.buildHelpResponse('charts', '.', 'u1').embed.data.description ?? '';
+    expect(chartsDesc).toContain('`.artistchart`');
+    expect(chartsDesc).toContain('`.ac`');
+    expect(chartsDesc).toContain('`.trackchart`');
+    expect(chartsDesc).not.toContain('`.artistchart` or **`.artistchart`');
+    expect(chartsDesc).not.toContain('`.trackchart` or **`.trackchart`');
+
+    const topDesc = HelpBuilders.buildHelpResponse('top', '.', 'u1').embed.data.description ?? '';
+    expect(topDesc).toContain('`.topartists`');
+    expect(topDesc).toContain('`.ta`');
+    expect(topDesc).toContain('`.overview`');
+    expect(topDesc).toContain('`.o`');
+    expect(topDesc).not.toContain('`.topartists` or **`.topartists`');
+
+    const whoDesc = HelpBuilders.buildHelpResponse('whoknows', '.', 'u1').embed.data.description ?? '';
+    expect(whoDesc).toContain('`.serverartists`');
+    expect(whoDesc).toContain('`.sa`');
+    expect(whoDesc).not.toContain('`.serverartists` or **`.serverartists`');
+
+    const socialDesc = HelpBuilders.buildHelpResponse('social', '.', 'u1').embed.data.description ?? '';
+    expect(socialDesc).toContain('`.genre`');
+    expect(socialDesc).toContain('`.g`');
+    expect(socialDesc).not.toContain('`.genre` or **`.genre`');
+
+    const settingsDesc = HelpBuilders.buildHelpResponse('settings', '.', 'u1').embed.data.description ?? '';
+    expect(settingsDesc).toContain('`.login`');
+    expect(settingsDesc).toContain('`.connect`');
+    expect(settingsDesc).not.toContain('`.login` or **`.login`');
+  });
 });

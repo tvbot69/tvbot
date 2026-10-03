@@ -1,7 +1,7 @@
 import { inject, injectable } from 'tsyringe';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { PlaycountBuilders } from '@bot/builders/library/playcountBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
@@ -18,7 +18,8 @@ import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmReposito
 import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import { isSourceUnavailable } from '@domain/models/errors/sourceUnavailableError';
+import { isSourceUnavailable, SourceUnavailableError } from '@domain/models/errors/sourceUnavailableError';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 interface TargetResolution {
   targetUser: User;
@@ -126,13 +127,8 @@ export class PlaycountCommands implements ITextCommandModule {
     context: ContextModel,
     rawOptions: string,
   ): Promise<TargetResolution | ResponseModel> {
-    const callerUser = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!callerUser) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `You have not connected your Last.fm account yet. Use the \`${context.prefix}register\` command first.`,
-      );
-    }
+    const callerUser = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in callerUser) return callerUser;
 
     let cleanOptions = rawOptions;
     let targetUser = callerUser;
@@ -284,7 +280,23 @@ export class PlaycountCommands implements ITextCommandModule {
       ? await this.playHistoryService.getRecentTrackPlaycounts(target.targetUser.userId, trackSearch.artistName, trackSearch.trackName)
       : { week: 0, month: 0 };
 
-    let totalPlays = trackSearch.userPlaycount ?? 0;
+    let totalPlays = trackSearch.userPlaycount;
+    if (totalPlays === undefined && target.targetUser.userId > 0) {
+      totalPlays = await this.playHistoryService.getTrackTotalPlays(
+        target.targetUser.userId,
+        trackSearch.artistName,
+        trackSearch.trackName,
+      );
+    }
+    if (totalPlays === undefined) {
+      // No Last.fm count and no local identity to consult (userId 0 sentinel):
+      // printing 0 would be a claim about plays nobody measured.
+      throw new SourceUnavailableError(
+        'playcountCommands.trackPlaysAsync',
+        'no user playcount from Last.fm and no local user to consult',
+        'Track playcount unavailable',
+      );
+    }
     if (totalPlays === 0 && target.targetUser.userId > 0) {
       const dbTotal = await this.playHistoryService.getTrackTotalPlays(
         target.targetUser.userId,

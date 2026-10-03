@@ -2,7 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import { container } from 'tsyringe';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { FriendsService } from '@bot/services/social/friendsService';
@@ -12,6 +12,7 @@ import { ColorService } from '@bot/services/system/colorService';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { FriendType } from '@domain/enums/friendType';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class FriendSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -64,10 +65,8 @@ export class FriendSlashCommands implements ISlashCommandModule {
   }
 
   private async friendsFmAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     const allFriends = await this.friendsService.getFriendsByUserId(user.userId);
     const visibleFriends = allFriends.filter((f) => f.friendType >= FriendType.VisibleInNowPlaying);
@@ -163,10 +162,8 @@ export class FriendSlashCommands implements ISlashCommandModule {
   }
 
   private async addFriendAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     const rawUsername = context.interaction?.options.getString('username')?.trim();
     if (!rawUsername) {
@@ -212,10 +209,8 @@ export class FriendSlashCommands implements ISlashCommandModule {
   }
 
   private async removeFriendAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     const rawUsername = context.interaction?.options.getString('username')?.trim();
     if (!rawUsername) {

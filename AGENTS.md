@@ -45,7 +45,17 @@ plausible falsehood. Concretely, three properties:
   - **Cache**: `ioredis` with automatic in-memory LRU fallback (`src/bot/services/system/cacheService.ts`)
   - **Music**: `moonlink.js` v5 (Lavalink v4, auto-failover) + `fluent-ffmpeg` + `essentia.js` WASM (BPM/key)
   - **Graphics**: `puppeteer` 25.9 (ephemeral in dev, persistent in prod) for chart collages
-- **Scale**: 388 production TypeScript files, ~82k lines, 431 test files. Commands are dual-mode: 77 slash commands and ~658 text triggers over shared builders.
+- **Scale**: <!-- metrics:start -->
+| Metric | Count |
+|---|---|
+| Production files | 395 |
+| Production lines | 84385 |
+| Slash top-level commands | 76 |
+| Text commands | 158 |
+| Text triggers + aliases | 575 |
+| Test files | 442 |
+| Repositories | 19 |
+<!-- metrics:end --> See [docs/METRICS.md](docs/METRICS.md) for current counts.
 
 ---
 
@@ -57,16 +67,21 @@ plausible falsehood. Concretely, three properties:
 5. Commit only files the task touched (`git add <specific paths>`). Never `git add -A`.
 6. Push **only** when asked.
 
-Current baseline, measured on `main` (2026-10-01, post Apple-link consolidation and render
-pixel assertions): **430 test files (413 passed + 17 skipped files), 9,201 unit passing + 517 db
-skipped = 9,718**. The real-Postgres suite is **519/519** and the render suite is **3 files, 9/9**.
-Coverage is **91.61% lines / 87.18% branches /
-87.75% functions** over 57,318 statements, and the ratchet in `vitest.config.ts` sits at 91.5 / 86.9 /
-87.5 — deliberately just *below* reality so a 0.1% regression trips the build. Measure, then set the
-ratchet. `npm run lint` reports **0 errors / 370 warnings**. `npm run debt` reads `explicit-any 0`,
+<!-- metrics:start -->
+| Metric | Count |
+|---|---|
+| Production files | 395 |
+| Production lines | 84385 |
+| Slash top-level commands | 76 |
+| Text commands | 158 |
+| Text triggers + aliases | 575 |
+| Test files | 442 |
+| Repositories | 19 |
+<!-- metrics:end -->
+See [docs/METRICS.md](docs/METRICS.md) for current counts. `npm run debt` reads `explicit-any 0`,
 `as-unknown-as 75/101`, `silent-failure-default 443/604`, `container-resolve-outside-root 154/155`,
-`prisma-client-import-in-bot 15/17`, and every other kind at budget. If the numbers in this file drift
-from reality, **the file is wrong** — check the gate output and fix the number here.
+`prisma-client-import-in-bot 15/17`, and every other kind at budget. If the generated numbers drift
+from reality, **the generator is wrong** — check the gate output and fix `scripts/generate-metrics.ts`.
 
 The db suite reads `TEST_DATABASE_URL`, not `DATABASE_URL`, and `dbHarness` **refuses** to run
 against any database whose name is not a scratch one. It skips locally (no Docker, no local

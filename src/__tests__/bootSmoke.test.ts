@@ -1,9 +1,13 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { container } from 'tsyringe';
+import { readFileSync, readdirSync, statSync } from 'fs';
+import { join } from 'path';
+import ts from 'typescript';
 import { configureContainer } from '@bot/startup';
-import { getSlashCommandPayloads, getSlashCommand } from '@bot/slashCommands';
+import { getSlashCommandPayloads, getSlashCommand, getSlashCommandDuplicates } from '@bot/slashCommands';
 import { getTextCommand, getTextCommands } from '@bot/textCommands';
+import { SRC_ROOT } from '../testSupport/repoRoot';
 
 /**
  * Boot smoke test: build the REAL dependency graph and the REAL command
@@ -57,6 +61,53 @@ interface ChatInputPayload {
 
 let slashPayloads: ChatInputPayload[];
 let textNames: string[];
+
+const walkTextFiles = (dir: string, out: string[] = []): string[] => {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) walkTextFiles(full, out);
+    else if (full.endsWith('.ts') && !full.endsWith('.test.ts') && !full.endsWith('.d.ts')) out.push(full);
+  }
+  return out;
+};
+
+/**
+ * Canonical text names straight from source. Runtime maps dedupe, so a
+ * duplicate name still leaves unique keys behind — only source sees both
+ * owners. Same extractor shape as commandRegistryInvariants: executor plus no
+ * spread, literal name or throw.
+ */
+const collectTextCanonicalNames = (): string[] => {
+  const names: string[] = [];
+  for (const file of walkTextFiles(join(SRC_ROOT, 'bot', 'textCommands'))) {
+    const sf = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node): void => {
+      if (ts.isObjectLiteralExpression(node)) {
+        const prop = (key: string) =>
+          node.properties.find(
+            (p): p is ts.PropertyAssignment =>
+              ts.isPropertyAssignment(p) &&
+              ((ts.isIdentifier(p.name) && p.name.text === key) ||
+                (ts.isStringLiteral(p.name) && p.name.text === key)),
+          );
+        const isCommand = !!prop('executeAsync') || !!prop('execute');
+        const isDerived = node.properties.some((p) => ts.isSpreadAssignment(p));
+        if (isCommand && !isDerived) {
+          const nameProp = prop('name');
+          if (!nameProp) throw new Error(`${file}: executor without name`);
+          const init = nameProp.initializer;
+          if (!ts.isStringLiteral(init) && !ts.isNoSubstitutionTemplateLiteral(init)) {
+            throw new Error(`${file}: computed text command name`);
+          }
+          names.push(init.text.toLowerCase());
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  return names;
+};
 
 beforeAll(() => {
   configureContainer();
@@ -120,6 +171,20 @@ describe('boot smoke: slash command payloads Discord will accept', () => {
     expect([...seen.entries()].filter(([, n]) => n > 1).map(([name]) => name)).toEqual([]);
   });
 
+  it('reports no silent overwrites via duplicate tracker', () => {
+    // Payloads alone cannot prove this: the registry map dedupes, so a
+    // collided name still deploys once. The tracker sees the overwrite.
+    expect(getSlashCommandDuplicates()).toEqual([]);
+  });
+
+  it('every deployed payload resolves via getSlashCommand', () => {
+    const missing: string[] = [];
+    for (const p of slashPayloads) {
+      if (!getSlashCommand(p.name)) missing.push(p.name);
+    }
+    expect(missing).toEqual([]);
+  });
+
   it('every name and description satisfies Discord limits', () => {
     const problems: string[] = [];
     for (const p of slashPayloads) {
@@ -174,6 +239,34 @@ describe('boot smoke: text command registry resolves', () => {
       if (typeof command.executeAsync !== 'function') {
         broken.push(`${key}: executeAsync is not a function`);
       }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it('no two text commands share a canonical name', () => {
+    // Runtime keys dedupe, so only source sees both owners of a collision.
+    const counts = new Map<string, number>();
+    for (const name of collectTextCanonicalNames()) counts.set(name, (counts.get(name) ?? 0) + 1);
+    expect([...counts.entries()].filter(([, n]) => n > 1).map(([name]) => name)).toEqual([]);
+  });
+
+  it('every source canonical name resolves at runtime', () => {
+    const missing: string[] = [];
+    for (const name of new Set(collectTextCanonicalNames())) {
+      const cmd = getTextCommand(name);
+      if (!cmd || cmd.name.toLowerCase() !== name) missing.push(name);
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it('every runtime text key resolves to its owning definition', () => {
+    const broken: string[] = [];
+    for (const [key, command] of getTextCommands()) {
+      if (getTextCommand(key) !== command) broken.push(`${key}: lookup misses live entry`);
+      const owns =
+        command.name.toLowerCase() === key ||
+        (command.aliases ?? []).some((a) => a.toLowerCase() === key);
+      if (!owns) broken.push(`${key}: owned by '${command.name}'`);
     }
     expect(broken).toEqual([]);
   });

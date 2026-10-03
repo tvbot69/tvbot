@@ -236,6 +236,17 @@ describe('ArtistInteractions.handle — a source outage is not a silently dead c
 
     expect(ArtistTrackBuilders.buildArtistTopTracksResponse).toHaveBeenCalledTimes(1);
     expect(press.update).toHaveBeenCalledTimes(1);
+    // The rendered payload, not merely "an update happened": the empty list has
+    // to reach the card as the Components V2 container the builder returned.
+    expect(press.update).toHaveBeenCalledWith({
+      components: [V2_CONTAINER],
+      flags: MessageFlags.IsComponentsV2,
+    });
+    // The builder really received the EMPTY reads — name, empty row list, and
+    // zeroed counts — not a stale row from a previous card.
+    expect(ArtistTrackBuilders.buildArtistTopTracksResponse).toHaveBeenCalledWith(
+      'Radiohead', 'Tester', [], 0, 0, 0, 0xff0000, 0, 'u1', 'u1',
+    );
   });
 
   it('aab pagination still renders an empty album list', async () => {
@@ -251,5 +262,12 @@ describe('ArtistInteractions.handle — a source outage is not a silently dead c
 
     expect(ArtistBuilders.buildArtistTopAlbumsResponse).toHaveBeenCalledTimes(1);
     expect(press.update).toHaveBeenCalledTimes(1);
+    expect(press.update).toHaveBeenCalledWith({
+      components: [V2_CONTAINER],
+      flags: MessageFlags.IsComponentsV2,
+    });
+    expect(ArtistBuilders.buildArtistTopAlbumsResponse).toHaveBeenCalledWith(
+      'Radiohead', 0, 'Tester', 'u1', 'u1', [], 0, 0, 0, 0xff0000,
+    );
   });
 });

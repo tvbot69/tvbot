@@ -421,3 +421,115 @@ describe('preheatAsync', () => {
     expect(h.launches).toBe(1);
   });
 });
+
+describe('retry skips when a slot waiter is queued', () => {
+  type SlotInternals = {
+    acquireRenderSlot: () => Promise<void>;
+    releaseRenderSlot: () => void;
+    renderWaiters: Array<() => void>;
+  };
+
+  beforeEach(() => {
+    harness = makeService();
+  });
+
+  const waitFor = async (cond: () => boolean, label: string): Promise<void> => {
+    const deadline = Date.now() + 2000;
+    while (!cond()) {
+      if (Date.now() > deadline) throw new Error(label);
+      await new Promise((r) => setImmediate(r));
+    }
+  };
+
+  it('screenshotHtml skips the second attempt when a waiter is queued, releases the slot, waiter proceeds', async () => {
+    const internals = harness.svc as unknown as SlotInternals;
+    let attempts = 0;
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((r) => {
+      releaseGate = r;
+    });
+    harness.setContent(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        await gate;
+        throw new Error('Target closed');
+      }
+    });
+
+    const first = harness.svc.screenshotHtml('<html>skip-a</html>', 100, 200);
+    await waitFor(() => attempts === 1, 'first attempt never started');
+
+    // Fill the second slot so the next render queues behind the two slots.
+    await internals.acquireRenderSlot();
+    const second = harness.svc.screenshotHtml('<html>skip-b</html>', 100, 200);
+    await waitFor(() => internals.renderWaiters.length === 1, 'waiter never queued');
+    expect(internals.renderWaiters.length).toBe(1);
+
+    releaseGate();
+
+    await expect(first).rejects.toThrow(/Target closed/);
+    // Second attempt of the failed render never ran: one page for the failed
+    // first attempt plus one for the waiter that proceeded.
+    await expect(second).resolves.toBeDefined();
+    expect(attempts).toBe(2);
+    expect(harness.pages).toHaveLength(2);
+    const debugText = vi.mocked(Logger.debug).mock.calls.map((c) => JSON.stringify(c)).join(' ');
+    expect(debugText.toLowerCase()).toContain('waiter');
+    expect(debugText).toContain('1');
+    expect(internals.renderWaiters.length).toBe(0);
+
+    internals.releaseRenderSlot();
+  });
+
+  it('screenshotHtmlWithRainbowSort skips the second attempt when a waiter is queued', async () => {
+    const internals = harness.svc as unknown as SlotInternals;
+    let attempts = 0;
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((r) => {
+      releaseGate = r;
+    });
+    harness.setContent(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        await gate;
+        throw new Error('Target closed');
+      }
+    });
+
+    const first = harness.svc.screenshotHtmlWithRainbowSort('<html>rainbow-skip-a</html>', 100, 200);
+    await waitFor(() => attempts === 1, 'first rainbow attempt never started');
+
+    await internals.acquireRenderSlot();
+    const second = harness.svc.screenshotHtmlWithRainbowSort('<html>rainbow-skip-b</html>', 100, 200);
+    await waitFor(() => internals.renderWaiters.length === 1, 'rainbow waiter never queued');
+    expect(internals.renderWaiters.length).toBe(1);
+
+    releaseGate();
+
+    await expect(first).rejects.toThrow(/Target closed/);
+    await expect(second).resolves.toBeDefined();
+    expect(attempts).toBe(2);
+    expect(harness.pages).toHaveLength(2);
+    const debugText = vi.mocked(Logger.debug).mock.calls.map((c) => JSON.stringify(c)).join(' ');
+    expect(debugText.toLowerCase()).toContain('waiter');
+    expect(debugText).toContain('1');
+    expect(internals.renderWaiters.length).toBe(0);
+
+    internals.releaseRenderSlot();
+  });
+
+  it('screenshotHtmlWithRainbowSort still retries once when no waiters are queued', async () => {
+    let attempts = 0;
+    harness.setContent(async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error('Target closed');
+    });
+
+    const buffer = await harness.svc.screenshotHtmlWithRainbowSort('<html>rainbow-retry</html>', 100, 200);
+
+    expect([...buffer]).toEqual([1, 2, 3]);
+    expect(attempts).toBe(2);
+    expect(harness.pages).toHaveLength(2);
+    expect(Logger.warn).toHaveBeenCalledTimes(1);
+  });
+});

@@ -8,11 +8,11 @@ import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { ImportService } from '@bot/services/library/importService';
 import { DiscogsAndImportBuilders } from '@bot/builders/apple/discogsAndImportBuilders';
-import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { ContainerBuilder, TextDisplayBuilder } from 'discord.js';
 import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { errorMessage } from '@domain/errors/discordErrors';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class ImportSlashCommands implements ISlashCommandModule {
@@ -72,12 +72,8 @@ export class ImportSlashCommands implements ISlashCommandModule {
 
   public async importSlashAsync(ctx: ContextModel): Promise<ResponseModel> {
     const accentColor = await this.getAccentColor(ctx);
-    const user = await this.userService.getUserByDiscordId(ctx.discordUserId);
-    if (!user || !user.userNameLastFm) {
-      return GenericEmbedService.buildWrongInputResponse(
-        'You have not connected your Last.fm account yet. Connect it with `/login`.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, ctx.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     const attachment = ctx.interaction?.options.getAttachment('file');
     if (attachment) {
@@ -129,12 +125,8 @@ export class ImportSlashCommands implements ISlashCommandModule {
 
   public async modifyImportSlashAsync(ctx: ContextModel): Promise<ResponseModel> {
     const accentColor = await this.getAccentColor(ctx);
-    const user = await this.userService.getUserByDiscordId(ctx.discordUserId);
-    if (!user || !user.userNameLastFm) {
-      return GenericEmbedService.buildWrongInputResponse(
-        'You have not connected your Last.fm account yet. Connect it with `/login`.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, ctx.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     const success = await this.importService.resetImport(user.userId);
     return DiscogsAndImportBuilders.buildImportModifyResponse({

@@ -2,7 +2,7 @@ import { AppleMusicSearchApi } from '@applemusic/api/appleMusicSearchApi';
 import { DeezerApi } from '@deezer/api/deezerApi';
 import { SpotifyScraperService } from '@bot/services/music/spotifyScraperService';
 import { CacheService } from '@bot/services/system/cacheService';
-import { matchesTrackTitle } from '@bot/services/media/artworkService';
+import { matchesArtistName, matchesTrackTitle } from '@bot/services/media/artworkService';
 import { Logger } from '@domain/logging/logger';
 import type { ITunesSearchResult } from '@applemusic/models/itunesModels';
 import type { DeezerTrack } from '@deezer/models/deezerModels';
@@ -40,6 +40,13 @@ export class PreviewResolverService {
 
   private static readonly DEEZER_TTL_SECONDS = 600;
   private static readonly STABLE_TTL_SECONDS = 3600;
+  /**
+   * Miss backoff mirroring art:track INCONCLUSIVE_TTL (90s). Every miss
+   * re-ran scraper HTML plus Apple plus Deezer, so a miss writes
+   * `preview:miss:<key>` = 'inconclusive' for 90s. Success TTL split untouched.
+   */
+  private static readonly MISS_TTL_SECONDS = 90;
+  private static readonly MISS_VALUE = 'inconclusive';
 
   constructor(
     private readonly appleApi: AppleMusicSearchApi,
@@ -53,17 +60,20 @@ export class PreviewResolverService {
     return `preview:v3:${artist.toLowerCase()}|${track.toLowerCase()}`;
   }
 
+  private missKey(artist: string, track: string): string {
+    return `preview:miss:${artist.toLowerCase()}|${track.toLowerCase()}`;
+  }
+
   private clean(s: string): string {
     return s.toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
+  /**
+   * Strict artist guard reusing matchesArtistName (normalized equality plus
+   * feat-split). Both-ways includes accepted Blur vs Blur Band; now fails.
+   */
   private validateArtist(expected: string, actual: string): boolean {
-    const clean = (n: string) => n.toLowerCase().replace(/&/g, 'and').replace(/[^\p{L}\p{N}]/gu, '');
-    const e = clean(expected);
-    const a = clean(actual);
-    if (e === a) return true;
-    if (e.length > 3 && (a.includes(e) || e.includes(a))) return true;
-    return false;
+    return matchesArtistName(actual, expected);
   }
 
   /**
@@ -102,6 +112,9 @@ export class PreviewResolverService {
     const key = this.cacheKey(artist, track);
     const cached = await this.cache.get<ResolvedPreview>(key);
     if (cached) return cached;
+    const missKey = this.missKey(artist, track);
+    const missed = await this.cache.get<string>(missKey);
+    if (missed) return null;
 
     // Spotify scraper first — p.scdn.co preview (silent, no logs)
     if (this.spotifyScraper) {
@@ -118,8 +131,8 @@ export class PreviewResolverService {
             // publishes it or falls through to Apple/Deezer below.
           } catch { /* ignore */ }
         }
-        if (sp?.previewUrl && !this.validateTrack(track, sp.trackName, 'spotify')) {
-          // A preview the scraper attributed to the right artist but the wrong
+        if (sp?.previewUrl && (!this.validateTrack(track, sp.trackName, 'spotify') || !this.validateArtist(artist, sp.artistName ?? ''))) {
+          // A preview the scraper attributed to the wrong artist or the wrong
           // recording. Falling through to Apple/Deezer is strictly better than
           // handing the user a button that plays a different song.
           sp = null;
@@ -159,8 +172,14 @@ export class PreviewResolverService {
           if (m?.[1]) sp = await this.spotifyScraper.getPreviewById(m[1]);
         }
         if (sp?.previewUrl) {
-          result.previewUrl = sp.previewUrl;
-          if (!result.storeUrl) result.storeUrl = sp.spotifyUrl ?? result.storeUrl;
+          if (!this.validateTrack(result.trackName, sp.trackName, 'spotify-donor') || !this.validateArtist(result.artistName, sp.artistName ?? '')) {
+            // Donor for a different song: keep metadata, leave preview null
+            // so cross-provider fallback below still runs. Never attach
+            // wrong-song audio to a right-song row.
+          } else {
+            result.previewUrl = sp.previewUrl;
+            if (!result.storeUrl) result.storeUrl = sp.spotifyUrl ?? result.storeUrl;
+          }
         }
         // CORRECT AS IS: enrichment of an already-resolved result. A throw
         // leaves previewUrl null, and the cross-provider block right below
@@ -178,7 +197,11 @@ export class PreviewResolverService {
       }
     }
 
-    if (result) await this.cache.set(key, result, PreviewResolverService.ttlForSource(result));
+    if (result) {
+      await this.cache.set(key, result, PreviewResolverService.ttlForSource(result));
+    } else {
+      await this.cache.set(missKey, PreviewResolverService.MISS_VALUE, PreviewResolverService.MISS_TTL_SECONDS);
+    }
     return result;
   }
 
@@ -231,23 +254,25 @@ export class PreviewResolverService {
       const valid = scored.filter((r) => r.score >= 0);
       if (valid.length === 0) return null;
       valid.sort((a, b) => b.score - a.score);
-      const chosen = valid[0]!.item;
-      if (!chosen) return null;
-      // Extra guard: reject if artist validation fails
-      if (!this.validateArtist(artist, chosen.artistName ?? '')) return null;
-      if (!this.validateTrack(track, chosen.trackName, 'apple')) return null;
-      return {
-        trackName: chosen.trackName ?? track,
-        artistName: chosen.artistName ?? artist,
-        albumName: chosen.collectionName ?? null,
-        // trackTimeMillis is a NUMBER in the iTunes response, measured. The
-      // Number() was defensive against a type that did not exist yet.
-      durationMs: chosen.trackTimeMillis ?? 0,
-        previewUrl: chosen.previewUrl ?? null,
-        storeUrl: chosen.trackViewUrl ?? null,
-        artworkUrl: chosen.artworkUrl100 ? chosen.artworkUrl100.replace('100x100bb', '600x600bb') : null,
-        source: 'apple',
-      };
+      // Runner-up re-pick: a bad index-0 row no longer discards the set.
+      for (const { item: chosen } of valid) {
+        if (!chosen) continue;
+        if (!this.validateArtist(artist, chosen.artistName ?? '')) continue;
+        if (!this.validateTrack(track, chosen.trackName, 'apple')) continue;
+        return {
+          trackName: chosen.trackName ?? track,
+          artistName: chosen.artistName ?? artist,
+          albumName: chosen.collectionName ?? null,
+          // trackTimeMillis is a NUMBER in the iTunes response, measured. The
+        // Number() was defensive against a type that did not exist yet.
+        durationMs: chosen.trackTimeMillis ?? 0,
+          previewUrl: chosen.previewUrl ?? null,
+          storeUrl: chosen.trackViewUrl ?? null,
+          artworkUrl: chosen.artworkUrl100 ? chosen.artworkUrl100.replace('100x100bb', '600x600bb') : null,
+          source: 'apple',
+        };
+      }
+      return null;
     } catch (err) {
       Logger.debug({ err }, '[PreviewResolver] Apple search failed');
       return null;
@@ -295,20 +320,23 @@ export class PreviewResolverService {
       const valid = scored.filter((r) => r.score >= 0);
       if (valid.length === 0) return null;
       valid.sort((a, b) => b.score - a.score);
-      const chosen = valid[0]!.item;
-      if (!chosen) return null;
-      if (!this.validateArtist(artist, chosen.artist?.name ?? '')) return null;
-      if (!this.validateTrack(track, chosen.title, 'deezer')) return null;
-      return {
-        trackName: chosen.title ?? track,
-        artistName: chosen.artist?.name ?? artist,
-        albumName: chosen.album?.title ?? null,
-        durationMs: Number(chosen.duration ?? 0) * 1000,
-        previewUrl: chosen.preview ?? null,
-        storeUrl: chosen.link ?? `https://www.deezer.com/track/${chosen.id}`,
-        artworkUrl: chosen.album?.cover_xl ?? chosen.album?.cover_big ?? null,
-        source: 'deezer',
-      };
+      // Runner-up re-pick (Deezer has no wrong-artist scorer penalty).
+      for (const { item: chosen } of valid) {
+        if (!chosen) continue;
+        if (!this.validateArtist(artist, chosen.artist?.name ?? '')) continue;
+        if (!this.validateTrack(track, chosen.title, 'deezer')) continue;
+        return {
+          trackName: chosen.title ?? track,
+          artistName: chosen.artist?.name ?? artist,
+          albumName: chosen.album?.title ?? null,
+          durationMs: Number(chosen.duration ?? 0) * 1000,
+          previewUrl: chosen.preview ?? null,
+          storeUrl: chosen.link ?? `https://www.deezer.com/track/${chosen.id}`,
+          artworkUrl: chosen.album?.cover_xl ?? chosen.album?.cover_big ?? null,
+          source: 'deezer',
+        };
+      }
+      return null;
     } catch (err) {
       Logger.debug({ err }, '[PreviewResolver] Deezer search failed');
       return null;

@@ -1,6 +1,7 @@
 import { container } from 'tsyringe';
 import type { RESTPostAPIApplicationCommandsJSONBody } from 'discord.js';
 import type { SlashCommandDefinition } from '@bot/models/commandModels';
+import { Logger } from '@domain/logging/logger';
 import { UserSlashCommands } from '@bot/slashCommands/user/userSlashCommands';
 import { StaticSlashCommands } from '@bot/slashCommands/meta/staticSlashCommands';
 import { ChartSlashCommands } from '@bot/slashCommands/charts/chartSlashCommands';
@@ -35,6 +36,7 @@ import { HelpSlashCommands } from '@bot/slashCommands/meta/helpSlashCommands';
 import { ExposedSlashCommands } from '@bot/slashCommands/social/exposedSlashCommands';
 
 let commandCache: Map<string, SlashCommandDefinition> | null = null;
+let duplicateNamesCache: string[] | null = null;
 
 const buildCommands = (): Map<string, SlashCommandDefinition> => {
   const modules = [
@@ -72,11 +74,25 @@ const buildCommands = (): Map<string, SlashCommandDefinition> => {
     container.resolve(CrownSlashCommands),
   ];
   const map = new Map<string, SlashCommandDefinition>();
+  const duplicates: string[] = [];
+  const claim = (name: string, command: SlashCommandDefinition): void => {
+    const k = name.toLowerCase();
+    const previous = map.get(k);
+    if (previous && previous !== command) {
+      duplicates.push(k);
+      Logger.warn(
+        { command: k, kept: command.data.name, dropped: previous.data.name },
+        'Slash command name collision — the later registration wins',
+      );
+    }
+    map.set(k, command);
+  };
   for (const module of modules) {
     for (const command of module.commands) {
-      map.set(command.data.name, command);
+      claim(command.data.name, command);
     }
   }
+  duplicateNamesCache = duplicates;
   return map;
 };
 
@@ -92,4 +108,16 @@ export const getSlashCommandPayloads = (): RESTPostAPIApplicationCommandsJSONBod
     commandCache = buildCommands();
   }
   return [...commandCache.values()].map((c) => c.data.toJSON());
+};
+
+/**
+ * Top-level slash names that collided during the last build. Later wins at
+ * runtime, same as the text registry. Empty when collision-free. Exists so
+ * deploy and tests see overwrites `getSlashCommandPayloads()` hides.
+ */
+export const getSlashCommandDuplicates = (): string[] => {
+  if (!commandCache) {
+    commandCache = buildCommands();
+  }
+  return [...(duplicateNamesCache ?? [])];
 };

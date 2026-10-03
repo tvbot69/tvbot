@@ -2,7 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import crypto from 'crypto';
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
@@ -12,6 +12,7 @@ import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/system/colorService';
 import { storeGenreQuery } from '@bot/interactions/library/genreInteractions';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class GenreCommands implements ITextCommandModule {
@@ -88,13 +89,8 @@ export class GenreCommands implements ITextCommandModule {
       }
     }
 
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `You have not connected your Last.fm account yet. Use the \`${context.prefix}register\` command first.`,
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
     const member = context.guild?.members.cache.get(context.discordUserId);
     return {
       userNameLastFm: caller.userNameLastFm,
@@ -167,13 +163,8 @@ export class GenreCommands implements ITextCommandModule {
 
     if (!query) {
       // Pick current playing / recent track
-      const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-      if (!caller) {
-        return GenericEmbedService.buildCommandErrorResponse(
-          CommandResponse.NotFound,
-          `You have not connected your Last.fm account yet. Use the \`${context.prefix}register\` command first.`,
-        );
-      }
+      const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
 
       const recent = await this.lastfmRepository.getUserRecentTracks(caller.userNameLastFm, 1);
       if (!recent || recent.length === 0) {
@@ -296,13 +287,8 @@ export class GenreCommands implements ITextCommandModule {
     let artistName = rawArgs.trim();
 
     if (!artistName) {
-      const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-      if (!caller) {
-        return GenericEmbedService.buildCommandErrorResponse(
-          CommandResponse.NotFound,
-          `You have not connected your Last.fm account yet. Use the \`${context.prefix}register\` command first.`,
-        );
-      }
+      const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
 
       const recent = await this.lastfmRepository.getUserRecentTracks(caller.userNameLastFm, 1);
       if (!recent || recent.length === 0) {

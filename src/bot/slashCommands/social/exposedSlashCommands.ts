@@ -2,12 +2,13 @@ import { SlashCommandBuilder } from 'discord.js';
 import { inject, injectable } from 'tsyringe';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ExposedService } from '@bot/services/social/exposedService';
 import { ExposedBuilders } from '@bot/builders/social/exposedBuilders';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class ExposedSlashCommands implements ISlashCommandModule {
@@ -31,13 +32,8 @@ export class ExposedSlashCommands implements ISlashCommandModule {
   }
 
   private async exposedSlashAsync(context: ContextModel): Promise<ResponseModel> {
-    const callerUser = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!callerUser) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `You have not connected your Last.fm account yet. Use the \`/register\` command first.`,
-      );
-    }
+    const callerUser = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in callerUser) return callerUser;
 
     const targetOption = context.interaction?.isChatInputCommand()
       ? context.interaction.options.getUser('user')

@@ -233,16 +233,41 @@ describe('LastFmRepository.getUserRecentTracksWithMetadata', () => {
     expect(result.tracks).toHaveLength(1);
   });
 
-  it('degrades to an empty list once the retries are exhausted', async () => {
-    // errorRetries 0 keeps this off the backoff clock; the exhausted-retry
-    // return value is what is under test, not the waiting.
+  it('throws Unavailable once retries exhaust instead of empty impersonating genuine', async () => {
     const { repo, api } = makeRepo(() => {
       throw new Error('error 6');
     });
     await expect(
       repo.getUserRecentTracksWithMetadata('DreadRock', 1, 1, undefined, undefined, 0),
-    ).resolves.toEqual({ tracks: [], totalPages: 0, totalScrobbles: 0 });
+    ).rejects.toBeInstanceOf(LastFmUnavailableError);
     expect(api.call).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns empty for genuine total=0 rather than throwing', async () => {
+    const { repo } = makeRepo(() => recentEnvelope([], { total: '0', totalPages: '0' }));
+    await expect(
+      repo.getUserRecentTracksWithMetadata('DreadRock', 1, 1, undefined, undefined, 0),
+    ).resolves.toEqual({ tracks: [], totalPages: 0, totalScrobbles: 0 });
+  });
+
+  it('clamps limit/page so caller bugs cannot produce 400{error:6}', async () => {
+    const { repo, api } = makeRepo(() => recentEnvelope([]));
+    await repo.getUserRecentTracksWithMetadata('DreadRock', 0, -3, undefined, undefined, 0);
+    expect(api.call).toHaveBeenCalledWith('user.getrecenttracks', {
+      user: 'DreadRock', limit: '1', page: '1',
+    });
+    await repo.getUserRecentTracksWithMetadata('DreadRock', 5000, 1, undefined, undefined, 0);
+    const params = (api.call as unknown as { mock: { calls: Array<Array<Record<string, string>>> } }).mock.calls[1]?.[1];
+    expect(params?.limit).toBe('1000');
+  });
+
+  it('surfaces code 26 distinct from generic Unavailable', async () => {
+    const { repo } = makeRepo(() => {
+      throw new LastfmApiError(26, 'Suspended API key');
+    });
+    const err = await repo.getUserRecentTracksWithMetadata('DreadRock', 1, 1, undefined, undefined, 0).then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(LastfmApiError);
+    expect((err as LastfmApiError).code).toBe(26);
   });
 });
 

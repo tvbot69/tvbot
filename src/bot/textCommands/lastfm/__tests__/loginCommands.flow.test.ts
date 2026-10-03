@@ -551,7 +551,7 @@ describe('unlink — a delete, so the confirmation is load-bearing', () => {
     const response = await run(built.cmd, 'unlink', ['confirm']);
 
     expect(response.commandResponse).toBe(CommandResponse.NotFound);
-    expect(textOf(response)).toContain("don't have any data from you");
+    expect(textOf(response)).toContain('have not connected');
     expect(built.removeUser).not.toHaveBeenCalled();
   });
 });

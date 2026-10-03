@@ -200,6 +200,9 @@ describe('TopInteractions.handle — a Last.fm outage is not an empty page', () 
     );
     expect(press.update).toHaveBeenCalledTimes(1);
     expect(press.deferUpdate).not.toHaveBeenCalled();
+    // The VALUE that reached Discord, so the count above cannot be satisfied by
+    // an update carrying anything other than the built page.
+    expect(press.update).toHaveBeenCalledWith({ components: [], embeds: { embeds: [] } });
   });
 
   it('overview still renders when getOverview ran and returned no daily blocks', async () => {
@@ -213,5 +216,11 @@ describe('TopInteractions.handle — a Last.fm outage is not an empty page', () 
     await expect(service.handle(press)).resolves.toBeUndefined();
 
     expect(press.update).toHaveBeenCalledTimes(1);
+    // The rendered card CONTENT: a real overview for user1, not an ack. JSON
+    // comparison because the overview builder returns a Components V2 container.
+    expect(JSON.stringify(press.update.mock.calls[0]?.[0])).toContain('Daily overview for');
+    // An overview with no blocks must NOT fall back to the top-list ack: the
+    // empty has to reach the card the user is looking at.
+    expect(press.deferUpdate).not.toHaveBeenCalled();
   });
 });

@@ -1,13 +1,12 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { IndexService } from '@bot/services/lastfm/indexService';
 import { UpdateBuilders } from '@bot/builders/meta/updateBuilders';
-import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateType, parseUpdateType } from '@domain/enums/updateType';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class UpdateCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -27,13 +26,8 @@ export class UpdateCommands implements ITextCommandModule {
   }
 
   private async updateAsync(context: ContextModel, rawOptions: string): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     const { updateType, optionPicked } = parseUpdateType(rawOptions);
 

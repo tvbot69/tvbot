@@ -183,4 +183,24 @@ describe('LastfmApi error contract', () => {
     expect(err.code).toBe(429);
     expect(calls.length).toBeGreaterThan(1);
   });
+
+  it('retries JSON code 29 like HTTP 429 and succeeds', async () => {
+    const { calls } = makeFetch((_u, attempt) =>
+      attempt < 1
+        ? { status: 200, json: { error: 29, message: 'Rate limit exceeded' } }
+        : { status: 200, json: { user: { name: 'slow' } } },
+    );
+    const p = api.call<{ user: { name: string } }>('user.getInfo', { user: 'slow' });
+    for (let i = 0; i < 12; i++) await vi.advanceTimersByTimeAsync(20_000);
+    const result = await p;
+    expect(result.user.name).toBe('slow');
+    expect(calls.length).toBe(2);
+  });
+
+  it('preserves code 26 distinct from outage and does not retry it', async () => {
+    const { calls } = makeFetch(() => ({ status: 200, json: { error: 26, message: 'Suspended API key' } }));
+    const err = (await captureError(() => api.call('user.getInfo', { user: 'x' }))) as LastfmApiError;
+    expect(err.code).toBe(26);
+    expect(calls.length).toBe(1);
+  });
 });

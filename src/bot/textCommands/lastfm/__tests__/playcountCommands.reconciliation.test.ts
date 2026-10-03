@@ -345,6 +345,17 @@ describe('.trackplays — the same arithmetic, a third entity', () => {
     await expect(trackPlays(commands)).rejects.toThrow(/Database unavailable/);
     expect(PlaycountBuilders.buildTrackPlaysResponse).not.toHaveBeenCalled();
   });
+
+  it('raises rather than printing 0 when no source measured the count (userId 0 sentinel)', async () => {
+    const { commands, playHistoryService, trackService } = build({ byLfmName: null });
+    (trackService.searchTrack as ReturnType<typeof vi.fn>).mockResolvedValue({
+      artistName: 'A', trackName: 'B',
+    });
+
+    await expect(trackPlays(commands, 'lfm:ghost')).rejects.toThrow(/Track playcount unavailable/);
+    expect(playHistoryService.getTrackTotalPlays).not.toHaveBeenCalled();
+    expect(PlaycountBuilders.buildTrackPlaysResponse).not.toHaveBeenCalled();
+  });
 });
 
 describe('the playcount triggers reach those bodies through the registry', () => {

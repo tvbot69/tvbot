@@ -1,6 +1,9 @@
 # ==============================================================================
 # Stage 1: Build & Dependencies
 # ==============================================================================
+# Node major pinned to 22 to match .nvmrc (single source of truth) and
+# package.json engines (">=22 <23"). Tag kept without digest pin: no digest
+# on hand, so digest intentionally omitted rather than guessed.
 FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
@@ -33,11 +36,13 @@ RUN npm prune --omit=dev
 # ==============================================================================
 # Stage 2: Production Runner
 # ==============================================================================
+# Same pin as builder stage above; see note there.
 FROM node:22-bookworm-slim AS runner
 
 WORKDIR /app
 
 # Set container environment variables
+# Prod uses system binaries via the paths below; bundled npm binaries are local-dev/Windows fallbacks only.
 ENV NODE_ENV=production
 ENV ENVIRONMENT=production
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
@@ -46,6 +51,7 @@ ENV FFMPEG_PATH=/usr/bin/ffmpeg
 ENV FFPROBE_PATH=/usr/bin/ffprobe
 
 # Install Chromium, fonts (CJK, Arabic, Emojis for music stats), ffmpeg, and openssl
+# System chromium/ffmpeg win in prod via the env paths above; bundled npm builds stay dev/Windows fallbacks.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     fonts-freefont-ttf \

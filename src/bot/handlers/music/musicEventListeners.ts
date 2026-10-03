@@ -16,6 +16,8 @@ import type { ChapterCard } from '@bot/services/music/videoChapters';
 import {
   artTimingNumber,
   artTimingOutcome,
+  asDeletableChannel,
+  asSendableChannel,
   moonlinkArtTiming,
   moonlinkClock,
   moonlinkSourceName,
@@ -153,11 +155,9 @@ export class MusicEventListeners {
 
       // Update voice channel status to the song name
       if (player.voiceChannelId && this.voiceChannelStatusService) {
-        void this.voiceChannelStatusService.setStatus(
-          player.voiceChannelId,
-          currentTrack.title,
-          currentTrack.author,
-        );
+        void this.voiceChannelStatusService
+          .setStatus(player.voiceChannelId, currentTrack.title, currentTrack.author)
+          .catch(() => undefined);
       }
 
       // Record voice track for bot scrobbling
@@ -185,17 +185,18 @@ export class MusicEventListeners {
         // absence, never a card with wrong content. The next trackStart posts
         // its own.
         (await this.client.channels.fetch(player.textChannelId).catch(() => null));
-      if (!channel || !channel.isTextBased() || !('send' in channel)) return;
+      if (!channel || !channel.isTextBased()) return;
+      const sendable = asSendableChannel(channel);
+      if (!sendable) return;
 
       // Delete previous Now Playing card to keep chat clean
       const prevMsgId = player.get<string>('nowPlayingMessageId');
-      if (prevMsgId && 'messages' in channel) {
+      const deletable = asDeletableChannel(channel);
+      if (prevMsgId && deletable) {
         // CORRECT AS IS: a card that will not delete is cosmetic clutter. The
         // new card is posted either way, and the new message id overwrites the
         // stored one below, so nothing is re-pointed at a dead message.
-        await (channel as unknown as { messages: { delete: (id: string) => Promise<unknown> } })
-          .messages.delete(prevMsgId)
-          .catch(() => undefined);
+        await deletable.messages.delete(prevMsgId).catch(() => undefined);
       }
 
       const queue = this.queueService.getQueueInfo(player);
@@ -250,26 +251,22 @@ export class MusicEventListeners {
       }
 
       const payload = response.toMessagePayload();
-      const sent = await (
-        channel as unknown as { send: (p: unknown) => Promise<{ id: string }> }
-      )
-        .send(payload)
-        .catch(async (err) => {
-          Logger.warn(
-            { err, guildId: player.guildId },
-            'Failed to dispatch trackStart Now Playing card via toMessagePayload, falling back to embeds',
-          );
-          return (channel as unknown as { send: (p: unknown) => Promise<{ id: string }> })
-            .send({
-              embeds: response.buildEmbed(),
-              components: response.buildComponents(),
-            })
-            // CORRECT AS IS: no card at all is the only outcome left. `sent`
-            // stays null, so the fingerprint sync and the boundary timers are
-            // skipped rather than armed against a card nobody can see — the
-            // card is decoration and must not drive playback state.
-            .catch(() => null);
-        });
+      const sent = await sendable.send(payload).catch(async (err) => {
+        Logger.warn(
+          { err, guildId: player.guildId },
+          'Failed to dispatch trackStart Now Playing card via toMessagePayload, falling back to embeds',
+        );
+        return sendable
+          .send({
+            embeds: response.buildEmbed(),
+            components: response.buildComponents(),
+          })
+          // CORRECT AS IS: no card at all is the only outcome left. `sent`
+          // stays null, so the fingerprint sync and the boundary timers are
+          // skipped rather than armed against a card nobody can see — the
+          // card is decoration and must not drive playback state.
+          .catch(() => null);
+      });
 
       if (sent && sent.id) {
         player.set('nowPlayingMessageId', sent.id);
@@ -346,11 +343,7 @@ export class MusicEventListeners {
           // stale embed, not a wrong one. The state that matters
           // (forgetNowPlaying above) has already been cleared either way.
           const channel = await this.client.channels.fetch(endChannelId).catch(() => null);
-          if (channel && 'messages' in channel) {
-            await (channel as unknown as { messages: { delete: (id: string) => Promise<unknown> } })
-              .messages.delete(endMsgId)
-              .catch(() => undefined);
-          }
+          await asDeletableChannel(channel)?.messages.delete(endMsgId).catch(() => undefined);
         } catch {
           // Card already gone — state is clean regardless.
         }
@@ -377,7 +370,9 @@ export class MusicEventListeners {
     }
 
     if (player.voiceChannelId && this.botScrobblingService) {
-      void this.botScrobblingService.handleTrackEnd(this.client, player.guildId, player.voiceChannelId);
+      void this.botScrobblingService
+        .handleTrackEnd(this.client, player.guildId, player.voiceChannelId)
+        .catch(() => undefined);
     }
   }
 
@@ -701,7 +696,7 @@ export class MusicEventListeners {
     this.host.clearFallbackState(player.guildId);
 
     if (player.voiceChannelId && this.voiceChannelStatusService) {
-      void this.voiceChannelStatusService.clearStatus(player.voiceChannelId);
+      void this.voiceChannelStatusService.clearStatus(player.voiceChannelId).catch(() => undefined);
     }
 
     const is247 = this.queueService.is247(player.guildId);
@@ -736,7 +731,7 @@ export class MusicEventListeners {
     this.inFlightFallbacks.delete(player.guildId);
 
     if (player.voiceChannelId && this.voiceChannelStatusService) {
-      void this.voiceChannelStatusService.clearStatus(player.voiceChannelId);
+      void this.voiceChannelStatusService.clearStatus(player.voiceChannelId).catch(() => undefined);
     }
 
     const timeout = this.emptyChannelTimeouts.get(player.guildId);
@@ -753,11 +748,7 @@ export class MusicEventListeners {
         // nothing here can resurrect it or alter what is played. A surviving
         // card is stale, not wrong.
         const channel = await this.client.channels.fetch(player.textChannelId).catch(() => null);
-        if (channel && 'messages' in channel) {
-          await (channel as unknown as { messages: { delete: (id: string) => Promise<unknown> } })
-            .messages.delete(prevMsgId)
-            .catch(() => undefined);
-        }
+        await asDeletableChannel(channel)?.messages.delete(prevMsgId).catch(() => undefined);
       } catch {
         // ignore
       }

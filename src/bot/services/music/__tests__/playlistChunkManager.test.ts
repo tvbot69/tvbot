@@ -367,3 +367,201 @@ describe('PlaylistChunkManager queueEnd drain & integrity', () => {
     expect(notices).toHaveLength(0);
   });
 });
+
+describe('PlaylistChunkManager unknown-total cap', () => {
+  const makeProbeChunk = (opts: {
+    total: number;
+    nextOffset: number;
+    totalKnown?: boolean;
+    page: unknown;
+    resolver?: ChunkTrackResolver;
+    guildId?: string;
+  }) => {
+    const guildId = opts.guildId ?? 'g-probe';
+    const added: unknown[] = [];
+    const player = {
+      guildId,
+      playing: false,
+      paused: false,
+      play: vi.fn(async () => true),
+      queue: {
+        add: (t: unknown) => {
+          added.push(t);
+        },
+        get size() {
+          return added.length;
+        },
+      },
+    };
+    const handlers = new Map<string, EventHandler>();
+    const manager = {
+      search: vi.fn(async () => ({ tracks: [{ identifier: 'yt1', duration: 180000, title: 'raw', author: 'raw' }] })),
+      players: { get: (id: string) => (id === guildId ? player : undefined) },
+      on: vi.fn((ev: string, cb: EventHandler) => {
+        handlers.set(ev, cb);
+      }),
+    };
+    const scraper = { fetchPlaylistPage: vi.fn(async () => opts.page) };
+    const chunk = new PlaylistChunkManager({ getManager: () => manager } as never, scraper as never);
+    chunk.setTrackResolver(
+      (opts.resolver ?? (async () => ({ lavalinkTrack: { identifier: 'r-probe' } as Track, rung: 'soundcloud' }))) as never,
+    );
+    chunk.bindEvents();
+    const notices: Array<{ guildId: string; message: string }> = [];
+    chunk.setUnavailableNotifier((g, m) => notices.push({ guildId: g, message: m }));
+    chunk.register(guildId, 'pl-big', 'Big Playlist', opts.total, opts.nextOffset, 'u1', 'tc1', opts.totalKnown ?? true);
+    return { chunk, player, added, handlers, scraper, notices, guildId };
+  };
+
+  it('register with unknown total schedules nothing and tells the channel', async () => {
+    // Shard-as-floor: total 100, offset 100, totalKnown false. The initial
+    // 0-100 page was the single probe — no offset>0 fetch may be scheduled.
+    const { chunk, player, handlers, scraper, notices, guildId } = makeProbeChunk({
+      total: 100,
+      nextOffset: 100,
+      totalKnown: false,
+      page: { tracks: [{ name: 'X', artist: 'A', durationMs: 1000 }], nextOffset: null, total: 100, totalKnown: false },
+    });
+    expect(chunk.getState(guildId)).toBeUndefined();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.message).toContain('does not report the full playlist size');
+    expect(notices[0]!.message).toContain('Big Playlist');
+    await handlers.get('trackStart')!(player as never);
+    expect(scraper.fetchPlaylistPage).not.toHaveBeenCalled();
+  });
+
+  it('a known register still schedules, so the cap above is not vacuous', async () => {
+    const { chunk, guildId, notices } = makeProbeChunk({
+      total: 347,
+      nextOffset: 100,
+      totalKnown: true,
+      page: { tracks: [], nextOffset: null, total: 347, totalKnown: true },
+    });
+    expect(chunk.getState(guildId)).toBeDefined();
+    expect(notices).toHaveLength(0);
+  });
+
+  it('an unknown page caps at one probe and never chains a second fetch', async () => {
+    // Real count at register (347) but the scraper page admits it never knew
+    // the size. One probe appends, then deletes — the low-queue chain must not
+    // fire a second offset>0 fetch that would burn ladder searches.
+    const { chunk, player, added, handlers, scraper, notices, guildId } = makeProbeChunk({
+      total: 347,
+      nextOffset: 100,
+      totalKnown: true,
+      page: {
+        tracks: [
+          { name: 'U1', artist: 'A', durationMs: 1000 },
+          { name: 'U2', artist: 'A', durationMs: 1000 },
+        ],
+        nextOffset: 200,
+        total: 100,
+        totalKnown: false,
+      },
+    });
+    await handlers.get('trackStart')!(player as never);
+    expect(added).toHaveLength(2);
+    expect(scraper.fetchPlaylistPage).toHaveBeenCalledTimes(1);
+    expect(scraper.fetchPlaylistPage).toHaveBeenCalledWith('pl-big', 100, 100);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.message).toContain('does not report the full playlist size');
+    expect(chunk.getState(guildId)).toBeUndefined();
+    await handlers.get('trackEnd')!(player as never);
+    expect(scraper.fetchPlaylistPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('a same-offset page caps instead of looping forever', async () => {
+    // Embed returns the same shard for any offset: nextOffset comes back 100
+    // when we asked 100. Without the no-progress guard this re-requests 100
+    // forever (same/dupe/empty) while burning ladder searches.
+    const { chunk, player, added, handlers, scraper, notices, guildId } = makeProbeChunk({
+      total: 347,
+      nextOffset: 100,
+      totalKnown: true,
+      page: {
+        tracks: [{ name: 'S1', artist: 'A', durationMs: 1000 }],
+        nextOffset: 100,
+        total: 347,
+        totalKnown: true,
+      },
+    });
+    await handlers.get('trackStart')!(player as never);
+    expect(added).toHaveLength(1);
+    expect(scraper.fetchPlaylistPage).toHaveBeenCalledTimes(1);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.message).toContain('does not report the full playlist size');
+    expect(chunk.getState(guildId)).toBeUndefined();
+  });
+});
+
+describe('PlaylistChunkManager fetch throw notice', () => {
+  it('tells the channel when the chunk fetch throws, keeping state for retry', async () => {
+    const added: unknown[] = [];
+    const player = {
+      guildId: 'g-throw',
+      playing: false,
+      paused: false,
+      play: vi.fn(async () => true),
+      queue: {
+        add: (t: unknown) => {
+          added.push(t);
+        },
+        get size() {
+          return added.length;
+        },
+      },
+    };
+    const handlers = new Map<string, EventHandler>();
+    const manager = {
+      players: { get: (id: string) => (id === 'g-throw' ? player : undefined) },
+      on: vi.fn((ev: string, cb: EventHandler) => {
+        handlers.set(ev, cb);
+      }),
+    };
+    const scraper = {
+      fetchPlaylistPage: vi.fn(async () => {
+        throw new Error('ladder down');
+      }),
+    };
+    const chunk = new PlaylistChunkManager({ getManager: () => manager } as never, scraper as never);
+    chunk.setTrackResolver((async () => ({ lavalinkTrack: { identifier: 'r-t' } as Track, rung: 'soundcloud' })) as never);
+    chunk.bindEvents();
+    chunk.register('g-throw', 'pl1', 'Throw Playlist', 347, 100, 'u1', 'tc1');
+    const notices: Array<{ guildId: string; message: string }> = [];
+    chunk.setUnavailableNotifier((guildId, message) => notices.push({ guildId, message }));
+    await handlers.get('trackStart')!(player as never);
+    expect(added).toHaveLength(0);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.guildId).toBe('g-throw');
+    expect(notices[0]!.message).toContain('Throw Playlist');
+    // Known-total throw keeps the chunk so the drain/backoff retry can still
+    // land it — deleting here would turn one blip into a truncated playlist.
+    expect(chunk.getState('g-throw')).toBeDefined();
+    expect(chunk.getState('g-throw')?.isFetching).toBe(false);
+  });
+});
+
+describe('PlaylistChunkManager requester shape', () => {
+  it('stamps resolver tracks with an object requester, not a string', async () => {
+    const resolver = vi.fn<ChunkTrackResolver>(
+      async () => ({ lavalinkTrack: { identifier: 'r-req' } as Track, rung: 'soundcloud' }),
+    );
+    const { player, added, handlers } = makeChunk({ resolver });
+    await handlers.get('trackStart')!(player as never);
+    expect(added).toHaveLength(2);
+    for (const t of added as Array<Record<string, unknown>>) {
+      expect(t.requester).toEqual({ id: 'u1' });
+      expect(typeof t.requester).not.toBe('string');
+    }
+  });
+
+  it('stamps fallback tracks with an object requester, not a string', async () => {
+    const { player, added, handlers } = makeChunk();
+    await handlers.get('trackStart')!(player as never);
+    expect(added).toHaveLength(2);
+    for (const t of added as Array<Record<string, unknown>>) {
+      expect(t.requester).toEqual({ id: 'u1' });
+      expect(typeof t.requester).not.toBe('string');
+    }
+  });
+});

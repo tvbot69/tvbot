@@ -145,10 +145,11 @@ describe('CrownService: an unreachable Last.fm must not become a stored crown', 
     expect(replaceCrown).toHaveBeenCalledTimes(1);
   });
 
-  it('still fails open on a NON-source failure from the live recheck', async () => {
-    // The other half of the pair. Narrowing to `isSourceUnavailable` must not
-    // have turned an ordinary driver error into a raised one - the rest of the
-    // crown logic is sound and the steal is still justified by our own index.
+  it('keeps the standing crown on a NON-source failure from the live recheck', async () => {
+    // Deliberate flip of the old proceed-on-generic-error pin: an unanswered
+    // transient (socket hang up) is not answered-absent (null). Null still
+    // fails open above; a throw the source did not answer keeps the holder
+    // like the elevated-rate kill switch. Fails if the catch returns null.
     const { service, replaceCrown } = build(() => Promise.reject(new Error('socket hang up')));
     const res = await service.getAndUpdateCrownForArtist(
       challenger() as never,
@@ -156,8 +157,9 @@ describe('CrownService: an unreachable Last.fm must not become a stored crown', 
       GUILD,
       'Mond',
     );
-    expect(res?.stolen).toBe(true);
-    expect(replaceCrown).toHaveBeenCalledTimes(1);
+    expect(res?.stolen).toBeFalsy();
+    expect(res?.crown.userId).toBe(1);
+    expect(replaceCrown).not.toHaveBeenCalled();
   });
 
   it('keeps the holder when Last.fm answers that they are ahead', async () => {

@@ -15,6 +15,16 @@ export interface ImportSummary {
   uniqueArtistsCount: number;
   dateRange: { from: Date; to: Date } | null;
   topArtists: Array<{ name: string; count: number }>;
+  /**
+   * Rows stored but missing from `users.totalPlayCount` because the increment
+   * failed. Re-upload repairs nothing (deduplicated to 0 new rows), so the
+   * caller must surface this instead of reporting clean success.
+   */
+  counterShortBy?: number;
+  /** Human-readable retry note accompanying `counterShortBy`. */
+  counterWarning?: string;
+  /** True when the post-import aggregate rebuild failed and charts are stale. */
+  aggregatesStale?: boolean;
 }
 
 export interface ParsedScrobble {
@@ -185,6 +195,8 @@ export class ImportService {
     // counter only moves by actually-inserted rows, never by re-uploads.
     const reposWired = container.isRegistered(PlayRepository);
     const inserted = reposWired ? await this.persistScrobbles(userId, scrobbles, source) : 0;
+    let counterShortBy = 0;
+    let aggregatesStale = false;
     if (inserted > 0) {
       // NOT swallowed. The rows are in `user_plays`; this counter is a
       // denormalised total that every leaderboard reads, and nothing repairs it:
@@ -194,39 +206,47 @@ export class ImportService {
       // re-uploading the file inserts 0 new rows, so the increment never runs
       // again. That is a confidently wrong number with no user-visible cause.
       //
-      // It is logged rather than raised on purpose: the plays WERE stored, and a
-      // thrown error would render as "nothing was imported", which is the
-      // opposite lie. ERROR is what makes the drift diagnosable and repairable.
+      // The shortfall is surfaced on the returned summary (counterShortBy plus
+      // a retry note) rather than raised: the plays WERE stored, and a thrown
+      // error would render as "nothing was imported", which is the opposite
+      // lie. ERROR is what makes the drift diagnosable and repairable.
+      let counterFailed = false;
       await this.db.user.update({
         where: { userId },
         data: { totalPlayCount: { increment: inserted } },
       }).catch((err: unknown) => {
+        counterFailed = true;
         Logger.error(
           { err, userId, missing: inserted },
           '[ImportService] Plays were stored but totalPlayCount could not be incremented; the total is now short',
         );
       });
+      if (counterFailed) counterShortBy = inserted;
       try {
         if (container.isRegistered(IndexService)) {
           await container.resolve(IndexService).recalculateTopLists(userId);
         }
       } catch (err) {
+        aggregatesStale = true;
         Logger.warn({ err, userId }, '[ImportService] aggregate rebuild failed after import');
       }
     } else if (!reposWired) {
       // No repos wired (unit-test context) — preserve legacy counter behavior.
       // CORRECT AS IS: this branch is unreachable in production (PlayRepository
       // is always registered) and holds no rows of its own, so the same counter
-      // drift as above is logged rather than swallowed for the same reason.
+      // drift as above is surfaced on the summary rather than swallowed.
+      let counterFailed = false;
       await this.db.user.update({
         where: { userId },
         data: { totalPlayCount: { increment: scrobbles.length } },
       }).catch((err: unknown) => {
+        counterFailed = true;
         Logger.error(
           { err, userId, missing: scrobbles.length },
           '[ImportService] totalPlayCount could not be incremented (no repositories wired)',
         );
       });
+      if (counterFailed) counterShortBy = scrobbles.length;
     }
 
     const stored = reposWired ? inserted : scrobbles.length;
@@ -240,6 +260,16 @@ export class ImportService {
       uniqueArtistsCount: artistCounts.size,
       dateRange: { from: minDate, to: maxDate },
       topArtists,
+      ...(counterShortBy > 0
+        ? {
+            counterShortBy,
+            counterWarning:
+              `Plays were stored but the total play count is short by ${counterShortBy}. ` +
+              `Re-uploading this file will not fix it (it is already deduplicated). ` +
+              `Please try again later or contact an admin to repair the counter.`,
+          }
+        : {}),
+      ...(aggregatesStale ? { aggregatesStale: true } : {}),
     };
   }
 
@@ -328,17 +358,19 @@ export class ImportService {
       await this.db.userPlay.deleteMany({
         where: { userId, playSource: { in: ['SpotifyImport', 'AppleMusicImport'] } },
       });
+      let recalcFailed = false;
       try {
         if (container.isRegistered(IndexService)) {
           await container.resolve(IndexService).recalculateTopLists(userId);
         }
       } catch (err) {
-        // CORRECT AS IS is not available, and the old comment here was wrong
-        // about why. "Counter reset below still applies" is true of
-        // `totalPlayCount` and of nothing else: the per-artist, per-album and
-        // per-track rollups this rebuild exists to refresh still count the
-        // imported plays that were just deleted above, so every weekly/all-time
-        // chart for this user stays inflated until something else recalculates.
+        // The per-artist, per-album and per-track rollups this rebuild exists
+        // to refresh still count the imported plays that were just deleted
+        // above, so every weekly/all-time chart for this user stays inflated
+        // until something else recalculates. Reporting true here would claim
+        // success while rollups still count deleted plays, so report false
+        // (partial) and let the caller render the failure instead.
+        recalcFailed = true;
         Logger.warn(
           { err, userId },
           '[ImportService] Rollup rebuild failed after reset; this user\'s artist/album/track charts are stale',
@@ -348,7 +380,7 @@ export class ImportService {
         where: { userId },
         data: { totalPlayCount: 0 },
       });
-      return true;
+      return !recalcFailed;
     } catch (err) {
       // CORRECT AS IS: the boolean IS the visible report — both `/resetimport`
       // callers render `false` to the user, so the failure is not silent to the

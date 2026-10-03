@@ -3,9 +3,9 @@
   "typed-catch": 0,
   "container-resolve-outside-root": 155,
   "container-resolve-in-constructor": 0,
-  "as-unknown-as": 101,
+  "as-unknown-as": 38,
   "process-env-outside-config": 0,
-  "prisma-client-import-in-bot": 17,
+  "prisma-client-import-in-bot": 14,
   "raw-query-without-db-test": 0,
-  "silent-failure-default": 604
+  "silent-failure-default": 432
 }

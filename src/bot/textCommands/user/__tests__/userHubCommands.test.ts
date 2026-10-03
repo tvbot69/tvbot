@@ -265,10 +265,10 @@ describe('UserHubCommands.botscrobbling — an unreadable opt-in store is not "o
     const built = build({ caller: null });
     const response = await run(built.cmd, 'botscrobbling', ['enable']);
 
-    expect(response.commandResponse).toBe(CommandResponse.WrongInput);
-    // `!login`, not `.login`: the prefix is read from the server, and a hardcoded
+    expect(response.commandResponse).toBe(CommandResponse.NotFound);
+    // `!register`, not `.register`: the prefix is read from the server, and a hardcoded
     // one sends the user to a command that does not exist here.
-    expect(textOf(response)).toContain('`!login`');
+    expect(textOf(response)).toContain('`!register`');
     // And no write happened on an account that does not exist.
     expect(built.toggleUserOptIn).not.toHaveBeenCalled();
   });

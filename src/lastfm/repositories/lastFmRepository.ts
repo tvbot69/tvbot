@@ -120,6 +120,14 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * Last.fm.
  */
 const NOT_FOUND_CODES = new Set([6, 7, 8]);
+const SUSPENDED_KEY_CODE = 26;
+
+// Caller bugs must not become code 6: Last.fm answers 400 {error:6} for a
+// missing/out-of-bounds limit/page, which reads as genuine not-found.
+const clampLimit = (n: number): number =>
+  !Number.isFinite(n) ? 10 : Math.min(1000, Math.max(1, Math.floor(n)));
+const clampPage = (n: number): number =>
+  !Number.isFinite(n) ? 1 : Math.max(1, Math.floor(n));
 
 /**
  * TRUE when Last.fm answered, and the answer was "no such thing".
@@ -141,6 +149,10 @@ const isNotFound = (err: unknown): boolean =>
  * empty list that looks like real data.
  */
 const orUnavailable = <T>(method: string, err: unknown, absent: T): T => {
+  if (err instanceof LastfmApiError && err.code === SUSPENDED_KEY_CODE) {
+    Logger.error({ method, err: err.message }, `Last.fm API key suspended (code 26) for ${method} — distinct from outage`);
+    throw err;
+  }
   if (isNotFound(err)) return absent;
   Logger.error({ method, err: (err as Error)?.message ?? String(err) }, `Last.fm ${method} failed and was not a "not found" answer`);
   throw new LastFmUnavailableError(method, err);
@@ -172,6 +184,10 @@ export class LastFmRepository implements ILastfmRepository {
       try {
         return await fn();
       } catch (err) {
+        if (err instanceof LastfmApiError && err.code === SUSPENDED_KEY_CODE) {
+          Logger.error({ context }, `Last.fm API key suspended (code 26) — distinct from outage`);
+          throw err;
+        }
         lastError = err;
         Logger.warn(
           { err: String(err).slice(0, 140) },
@@ -258,8 +274,8 @@ export class LastFmRepository implements ILastfmRepository {
     try {
       const params: Record<string, string> = {
         user: userName,
-        limit: String(count),
-        page: String(page),
+        limit: String(clampLimit(count)),
+        page: String(clampPage(page)),
         ...(fromUnixTimestamp ? { from: String(fromUnixTimestamp) } : {}),
         ...(sessionKey ? { sk: sessionKey } : {}),
       };
@@ -294,8 +310,8 @@ export class LastFmRepository implements ILastfmRepository {
   ): Promise<RecentTrackList> {
     const params: Record<string, string> = {
       user: userName,
-      limit: String(count),
-      page: String(page),
+      limit: String(clampLimit(count)),
+      page: String(clampPage(page)),
       ...(fromUnixTimestamp ? { from: String(fromUnixTimestamp) } : {}),
       ...(sessionKey ? { sk: sessionKey } : {}),
     };
@@ -314,6 +330,9 @@ export class LastFmRepository implements ILastfmRepository {
     );
 
     if (!response?.recenttracks) {
+      if (response === null) {
+        throw new LastFmUnavailableError('user.getrecenttracks', new Error('Last.fm unavailable after retries'));
+      }
       return { tracks: [], totalPages: 0, totalScrobbles: 0 };
     }
 
@@ -322,8 +341,8 @@ export class LastFmRepository implements ILastfmRepository {
       : [];
     return {
       tracks: raw.map((t) => TrackConverter.convertRecentTrack(t)),
-      totalPages: Number(response.recenttracks['@attr'].totalPages) || 0,
-      totalScrobbles: Number(response.recenttracks['@attr'].total) || 0,
+      totalPages: Number(response.recenttracks['@attr']?.totalPages) || 0,
+      totalScrobbles: Number(response.recenttracks['@attr']?.total) || 0,
     };
   }
 
@@ -441,8 +460,8 @@ export class LastFmRepository implements ILastfmRepository {
         friends?: { user?: UserInfoResponseLfm['user'][] };
       }>('user.getfriends', {
         user: userName,
-        limit: String(limit),
-        page: String(page),
+        limit: String(clampLimit(limit)),
+        page: String(clampPage(page)),
       });
       const friends = Array.isArray(response.friends?.user)
         ? response.friends?.user
@@ -485,7 +504,7 @@ export class LastFmRepository implements ILastfmRepository {
           user: userName,
           from: String(fromSec),
           to: String(toSec),
-          limit: String(count),
+          limit: String(clampLimit(count)),
           ...(sessionKey ? { sk: sessionKey } : {}),
         };
         const response = sessionKey
@@ -518,8 +537,8 @@ export class LastFmRepository implements ILastfmRepository {
       const params: Record<string, string> = {
         user: userName,
         period: TimePeriodToLastfmApiPeriod[period] ?? 'overall',
-        limit: String(count),
-        page: String(page),
+        limit: String(clampLimit(count)),
+        page: String(clampPage(page)),
         ...(sessionKey ? { sk: sessionKey } : {}),
       };
       const response = sessionKey
@@ -561,7 +580,7 @@ export class LastFmRepository implements ILastfmRepository {
           user: userName,
           from: String(fromSec),
           to: String(toSec),
-          limit: String(count),
+          limit: String(clampLimit(count)),
           ...(sessionKey ? { sk: sessionKey } : {}),
         };
         const response = sessionKey
@@ -592,8 +611,8 @@ export class LastFmRepository implements ILastfmRepository {
       const params: Record<string, string> = {
         user: userName,
         period: TimePeriodToLastfmApiPeriod[period] ?? 'overall',
-        limit: String(count),
-        page: String(page),
+        limit: String(clampLimit(count)),
+        page: String(clampPage(page)),
         ...(sessionKey ? { sk: sessionKey } : {}),
       };
       const response = sessionKey
@@ -637,7 +656,7 @@ export class LastFmRepository implements ILastfmRepository {
           user: userName,
           from: String(fromSec),
           to: String(toSec),
-          limit: String(count),
+          limit: String(clampLimit(count)),
           ...(sessionKey ? { sk: sessionKey } : {}),
         };
         const response = sessionKey
@@ -668,8 +687,8 @@ export class LastFmRepository implements ILastfmRepository {
       const params: Record<string, string> = {
         user: userName,
         period: TimePeriodToLastfmApiPeriod[period] ?? 'overall',
-        limit: String(count),
-        page: String(page),
+        limit: String(clampLimit(count)),
+        page: String(clampPage(page)),
         ...(sessionKey ? { sk: sessionKey } : {}),
       };
       const response = sessionKey
@@ -806,8 +825,8 @@ export class LastFmRepository implements ILastfmRepository {
     try {
       const params: Record<string, string> = {
         user: userName,
-        limit: String(limit),
-        page: String(page),
+        limit: String(clampLimit(limit)),
+        page: String(clampPage(page)),
       };
       if (sessionKey) {
         params.sk = sessionKey;

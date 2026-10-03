@@ -8,6 +8,12 @@ export class WhoKnowsPlayService {
     this.cache = cache;
   }
 
+  private static isPrivacyExcluded(user: FullGuildUserDetails): boolean {
+    if (user.selfBlockFromWhoKnows) return true;
+    if (user.privacyLevel === 'Hide') return true;
+    return false;
+  }
+
   public async getGuildAlsoPlayingArtist(
     currentUserId: number,
     guildUsers: Map<number, FullGuildUserDetails>,
@@ -19,6 +25,7 @@ export class WhoKnowsPlayService {
 
     for (const [userId, user] of guildUsers.entries()) {
       if (userId === currentUserId) continue;
+      if (WhoKnowsPlayService.isPrivacyExcluded(user)) continue;
       const key = `${userId}-lp-artist-${artistName.toLowerCase()}`;
       const play = await this.cache.get<{ timePlayed?: string; nowPlaying?: boolean }>(key);
       if (play) {
@@ -42,6 +49,7 @@ export class WhoKnowsPlayService {
 
     for (const [userId, user] of guildUsers.entries()) {
       if (userId === currentUserId) continue;
+      if (WhoKnowsPlayService.isPrivacyExcluded(user)) continue;
       const key = `${userId}-lp-album-${artistName.toLowerCase()}-${albumName.toLowerCase()}`;
       const play = await this.cache.get<{ timePlayed?: string; nowPlaying?: boolean }>(key);
       if (play) {
@@ -65,6 +73,7 @@ export class WhoKnowsPlayService {
 
     for (const [userId, user] of guildUsers.entries()) {
       if (userId === currentUserId) continue;
+      if (WhoKnowsPlayService.isPrivacyExcluded(user)) continue;
       const key = `${userId}-lp-track-${artistName.toLowerCase()}-${trackName.toLowerCase()}`;
       const play = await this.cache.get<{ timePlayed?: string; nowPlaying?: boolean }>(key);
       if (play) {

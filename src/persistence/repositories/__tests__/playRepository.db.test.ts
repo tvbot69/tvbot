@@ -135,4 +135,95 @@ suite('PlayRepository against a real database', () => {
     const since = await repo!.getPlayCountSince(userId, new Date('2024-03-01T00:00:00.000Z'));
     expect(since).toBe(1);
   });
+
+  it('uses the (user_id, lower(artist)) index for the artist-only week/month window', async () => {
+    // Mirrors getRecentEntityPlaycounts artist-only shape. Mutation check:
+    // dropping the migration removes the index name from the plan.
+    await repo!.batchInsertPlays([
+      play({ artistName: 'Radiohead', timePlayed: new Date('2024-02-10T12:00:00.000Z') }),
+      play({ artistName: 'Radiohead', timePlayed: new Date('2024-02-10T12:00:01.000Z') }),
+    ]);
+    const monthAgo = new Date('2024-02-01T00:00:00.000Z');
+    const weekAgo = new Date('2024-02-20T00:00:00.000Z');
+    const sql =
+      'SELECT (COUNT(*) FILTER (WHERE time_played >= $4))::int AS week, COUNT(*)::int AS month ' +
+      'FROM user_plays WHERE user_id = $1 AND time_played >= $2 AND LOWER(artist_name) = LOWER($3)';
+    const rows = await prisma!.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = OFF');
+      return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+        `EXPLAIN (COSTS OFF) ${sql}`,
+        userId,
+        monthAgo,
+        'Radiohead',
+        weekAgo,
+      );
+    });
+    const plan = rows.map((r) => r['QUERY PLAN']).join('\n');
+    expect(plan).toContain('user_plays_user_lower_artist_idx');
+    expect(plan).not.toContain('Seq Scan');
+  });
+
+  it('uses the (user_id, lower(artist), lower(album)) index for the album week/month window', async () => {
+    // Mirrors getRecentEntityPlaycounts with albumName supplied.
+    await repo!.batchInsertPlays([
+      play({
+        artistName: 'Radiohead',
+        albumName: 'OK Computer',
+        timePlayed: new Date('2024-02-10T12:00:00.000Z'),
+      }),
+      play({
+        artistName: 'Radiohead',
+        albumName: 'OK Computer',
+        timePlayed: new Date('2024-02-10T12:00:01.000Z'),
+      }),
+    ]);
+    const monthAgo = new Date('2024-02-01T00:00:00.000Z');
+    const weekAgo = new Date('2024-02-20T00:00:00.000Z');
+    const sql =
+      'SELECT (COUNT(*) FILTER (WHERE time_played >= $5))::int AS week, COUNT(*)::int AS month ' +
+      'FROM user_plays WHERE user_id = $1 AND time_played >= $2 AND LOWER(artist_name) = LOWER($3) ' +
+      'AND LOWER(album_name) = LOWER($4)';
+    const rows = await prisma!.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = OFF');
+      return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+        `EXPLAIN (COSTS OFF) ${sql}`,
+        userId,
+        monthAgo,
+        'Radiohead',
+        'OK Computer',
+        weekAgo,
+      );
+    });
+    const plan = rows.map((r) => r['QUERY PLAN']).join('\n');
+    expect(plan).toContain('user_plays_user_lower_artist_album_idx');
+    expect(plan).not.toContain('Seq Scan');
+  });
+
+  it('uses the (user_id, lower(artist), lower(track)) index for the track week/month window', async () => {
+    // Mirrors getRecentEntityPlaycounts with trackName supplied.
+    await repo!.batchInsertPlays([
+      play({ artistName: 'Radiohead', trackName: 'Airbag', timePlayed: new Date('2024-02-10T12:00:00.000Z') }),
+      play({ artistName: 'Radiohead', trackName: 'Airbag', timePlayed: new Date('2024-02-10T12:00:01.000Z') }),
+    ]);
+    const monthAgo = new Date('2024-02-01T00:00:00.000Z');
+    const weekAgo = new Date('2024-02-20T00:00:00.000Z');
+    const sql =
+      'SELECT (COUNT(*) FILTER (WHERE time_played >= $5))::int AS week, COUNT(*)::int AS month ' +
+      'FROM user_plays WHERE user_id = $1 AND time_played >= $2 AND LOWER(artist_name) = LOWER($3) ' +
+      'AND LOWER(track_name) = LOWER($4)';
+    const rows = await prisma!.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = OFF');
+      return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+        `EXPLAIN (COSTS OFF) ${sql}`,
+        userId,
+        monthAgo,
+        'Radiohead',
+        'Airbag',
+        weekAgo,
+      );
+    });
+    const plan = rows.map((r) => r['QUERY PLAN']).join('\n');
+    expect(plan).toContain('user_plays_user_lower_artist_track_idx');
+    expect(plan).not.toContain('Seq Scan');
+  });
 });

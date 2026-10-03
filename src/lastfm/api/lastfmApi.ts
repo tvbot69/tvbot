@@ -11,6 +11,11 @@ const LASTFM_API_URL = 'https://ws.audioscrobbler.com/2.0/';
 const REQUEST_TIMEOUT_MS = 12000;
 const MAX_RETRIES = 3;
 
+// JSON error 29 is Last.fm's rate-limit-as-200: same backoff as HTTP 429.
+// Code 26 is a suspended API key: distinct alarm, never generic Unavailable.
+const RATE_LIMIT_JSON_CODE = 29;
+const SUSPENDED_KEY_CODE = 26;
+
 const isTransientStatus = (status: number): boolean =>
   status === 500 || status === 502 || status === 503 || status === 504 || status === 429;
 
@@ -146,15 +151,16 @@ export class LastfmApi {
   }
 
   public async call<T>(method: string, params: Record<string, string> = {}): Promise<T> {
-    const url = new URL(LASTFM_API_URL);
-    url.searchParams.set('method', method);
-    url.searchParams.set('api_key', this.apiKey);
-    url.searchParams.set('format', 'json');
-    for (const [key, value] of Object.entries(params)) {
-      url.searchParams.set(key, value);
-    }
+    for (let jsonAttempt = 0; jsonAttempt < MAX_RETRIES; jsonAttempt++) {
+      const url = new URL(LASTFM_API_URL);
+      url.searchParams.set('method', method);
+      url.searchParams.set('api_key', this.apiKey);
+      url.searchParams.set('format', 'json');
+      for (const [key, value] of Object.entries(params)) {
+        url.searchParams.set(key, value);
+      }
 
-    const response = await this.fetchWithRetry(url.toString(), { method: 'GET' }, method);
+      const response = await this.fetchWithRetry(url.toString(), { method: 'GET' }, method);
 
     // The body is read BEFORE the status is judged, and this ordering is the
     // whole fix. Verified against live Last.fm on 2026-09-30:
@@ -184,9 +190,18 @@ export class LastfmApi {
     }
 
     if (json && 'error' in json && typeof json.error === 'number') {
+      if (json.error === RATE_LIMIT_JSON_CODE && jsonAttempt < MAX_RETRIES - 1) {
+        const delayMs = Math.min(300 * Math.pow(2, jsonAttempt) + Math.random() * 100, 2000);
+        Logger.warn(`Last.fm rate limit (code 29) for ${method}, backing off ${Math.round(delayMs)}ms (attempt ${jsonAttempt + 1}/${MAX_RETRIES})...`);
+        await sleep(delayMs);
+        continue;
+      }
       const message =
         typeof json.message === 'string' ? json.message : 'Unknown Last.fm error';
       const lfmError = new LastfmApiError(json.error, message);
+      if (json.error === SUSPENDED_KEY_CODE) {
+        Logger.error(`Last.fm API key suspended (code 26) for ${method} — distinct from outage`);
+      }
       this.errorTracker.trackError(lfmError);
       throw lfmError;
     }
@@ -203,6 +218,8 @@ export class LastfmApi {
 
     this.errorTracker.trackSuccess();
     return json as T;
+    }
+    throw new LastfmApiError(29, 'Last.fm rate limit exceeded');
   }
 
   public async callSigned<T>(
@@ -210,57 +227,69 @@ export class LastfmApi {
     params: Record<string, string> = {},
     httpMethod: 'GET' | 'POST' = 'POST',
   ): Promise<T> {
-    const signedParams: Record<string, string> = {
-      method: method,
-      api_key: this.apiKey,
-      ...params,
-    };
-    signedParams.api_sig = createLastfmSignature(signedParams, this.apiSecret);
+    for (let jsonAttempt = 0; jsonAttempt < MAX_RETRIES; jsonAttempt++) {
+      const signedParams: Record<string, string> = {
+        method: method,
+        api_key: this.apiKey,
+        ...params,
+      };
+      signedParams.api_sig = createLastfmSignature(signedParams, this.apiSecret);
 
-    const query = new URLSearchParams(signedParams);
-    query.set('format', 'json');
+      const query = new URLSearchParams(signedParams);
+      query.set('format', 'json');
 
-    const requestInit: RequestInit =
-      httpMethod === 'POST'
-        ? {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: query.toString(),
-          }
-        : { method: 'GET' };
-    const requestUrl =
-      httpMethod === 'POST' ? LASTFM_API_URL : `${LASTFM_API_URL}?${query.toString()}`;
+      const requestInit: RequestInit =
+        httpMethod === 'POST'
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: query.toString(),
+            }
+          : { method: 'GET' };
+      const requestUrl =
+        httpMethod === 'POST' ? LASTFM_API_URL : `${LASTFM_API_URL}?${query.toString()}`;
 
-    const response = await this.fetchWithRetry(requestUrl, requestInit, method);
+      const response = await this.fetchWithRetry(requestUrl, requestInit, method);
 
-    // Same ordering as `call`, and for the same verified reason: a JSON body is
-    // authoritative over the HTTP status, because Last.fm returns "no such
-    // thing" as 404 on some methods and 200 on others. See the comment there.
-    const raw = await response.text();
-    let json: Record<string, unknown> | null = null;
-    try {
-      json = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
-    } catch {
-      json = null;
+      // Same ordering as `call`, and for the same verified reason: a JSON body is
+      // authoritative over the HTTP status, because Last.fm returns "no such
+      // thing" as 404 on some methods and 200 on others. See the comment there.
+      const raw = await response.text();
+      let json: Record<string, unknown> | null = null;
+      try {
+        json = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+      } catch {
+        json = null;
+      }
+
+      if (json && 'error' in json && typeof json.error === 'number') {
+        if (json.error === RATE_LIMIT_JSON_CODE && jsonAttempt < MAX_RETRIES - 1) {
+          const delayMs = Math.min(300 * Math.pow(2, jsonAttempt) + Math.random() * 100, 2000);
+          Logger.warn(`Last.fm rate limit (code 29) for ${method}, backing off ${Math.round(delayMs)}ms (attempt ${jsonAttempt + 1}/${MAX_RETRIES})...`);
+          await sleep(delayMs);
+          continue;
+        }
+        const message =
+          typeof json.message === 'string' ? json.message : 'Unknown Last.fm error';
+        const lfmError = new LastfmApiError(json.error, message);
+        if (json.error === SUSPENDED_KEY_CODE) {
+          Logger.error(`Last.fm API key suspended (code 26) for ${method} — distinct from outage`);
+        }
+        this.errorTracker.trackError(lfmError);
+        throw lfmError;
+      }
+
+      if (!response.ok) {
+        throw new LastfmApiError(response.status, `Last.fm returned HTTP ${response.status}`);
+      }
+
+      if (!json) {
+        throw new LastfmApiError(response.status, 'Last.fm returned an unparseable body');
+      }
+
+      this.errorTracker.trackSuccess();
+      return json as T;
     }
-
-    if (json && 'error' in json && typeof json.error === 'number') {
-      const message =
-        typeof json.message === 'string' ? json.message : 'Unknown Last.fm error';
-      const lfmError = new LastfmApiError(json.error, message);
-      this.errorTracker.trackError(lfmError);
-      throw lfmError;
-    }
-
-    if (!response.ok) {
-      throw new LastfmApiError(response.status, `Last.fm returned HTTP ${response.status}`);
-    }
-
-    if (!json) {
-      throw new LastfmApiError(response.status, 'Last.fm returned an unparseable body');
-    }
-
-    this.errorTracker.trackSuccess();
-    return json as T;
+    throw new LastfmApiError(29, 'Last.fm rate limit exceeded');
   }
 }

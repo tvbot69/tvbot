@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { container } from 'tsyringe';
-import { Client, GatewayIntentBits, ActivityType } from 'discord.js';
+import { Client, GatewayIntentBits, ActivityType, version as discordJsVersion } from 'discord.js';
 import { PrismaClient } from '@prisma/client';
 import { ConfigData } from '@bot/configurations/configData';
 import { Logger } from '@domain/logging/logger';
@@ -215,6 +215,143 @@ import { ICACHE } from '@domain/interfaces/ports/icache';
 import type { ITelemetry } from '@domain/interfaces/ports/telemetry';
 import { ITELEMETRY } from '@domain/interfaces/ports/telemetry';
 
+/**
+ * Consecutive per-shard send failures. The first few are DEBUG (a reconnecting
+ * shard is routine); a sustained run is WARN (the bot is not reaching Discord).
+ */
+export const BROADCAST_PATCH_WARN_AFTER = 5;
+
+let broadcastShardFailureCount = 0;
+
+export function getBroadcastShardFailureCount(): number {
+  return broadcastShardFailureCount;
+}
+
+export function resetBroadcastShardFailureCountForTest(): void {
+  broadcastShardFailureCount = 0;
+}
+
+type BroadcastSendFn = (shardId: number, packet: unknown) => unknown;
+
+interface BroadcastManagerLike {
+  broadcast?: unknown;
+  shards?: unknown;
+  _ws?: unknown;
+}
+
+function recordBroadcastShardFailure(err: unknown, shardId: number): void {
+  broadcastShardFailureCount += 1;
+  if (broadcastShardFailureCount >= BROADCAST_PATCH_WARN_AFTER) {
+    Logger.warn(
+      { err, shardId, failures: broadcastShardFailureCount },
+      'Repeated shard broadcast failure',
+    );
+  } else {
+    Logger.debug({ err, shardId, failures: broadcastShardFailureCount }, 'Failed to broadcast packet to shard');
+  }
+}
+
+/**
+ * Replace discord.js WebSocketManager.broadcast with a per-shard _ws.send loop
+ * so one missing/reconnecting shard cannot reject the whole broadcast.
+ *
+ * Gated on version AND shape: discord.js v14 with a function broadcast and a
+ * shards map. A _ws that is PRESENT but has no function send is drift (a
+ * discord.js upgrade renamed the private field): keep the native broadcast and
+ * log a WARN so it fails loudly instead of silently running unpatched. A _ws
+ * that is ABSENT is the normal pre-connect state (measured: null on a fresh
+ * Client, set on connect): still patch, resolving send live per call and
+ * skipping unconnected shards at DEBUG.
+ */
+export function patchWebSocketBroadcast(manager: unknown): boolean {
+  if (typeof discordJsVersion !== 'string' || !discordJsVersion.startsWith('14.')) {
+    Logger.warn(
+      { discordJsVersion },
+      'Skipping WebSocket broadcast patch: unsupported discord.js version, using native broadcast',
+    );
+    return false;
+  }
+  const candidate = manager as BroadcastManagerLike | null | undefined;
+  if (!candidate || typeof candidate !== 'object' || typeof candidate.broadcast !== 'function') {
+    Logger.warn('Skipping WebSocket broadcast patch: broadcast shape mismatch, using native broadcast');
+    return false;
+  }
+  const shards = candidate.shards as { keys?: unknown } | null | undefined;
+  if (!shards || typeof shards.keys !== 'function') {
+    Logger.warn('Skipping WebSocket broadcast patch: shards shape mismatch, using native broadcast');
+    return false;
+  }
+  if (candidate._ws !== null && candidate._ws !== undefined) {
+    const present = candidate._ws as { send?: unknown };
+    if (typeof present.send !== 'function') {
+      Logger.warn('Skipping WebSocket broadcast patch: _ws.send shape mismatch, using native broadcast');
+      return false;
+    }
+  }
+  const shardKeys = shards.keys as () => Iterable<number>;
+  const target = candidate as { broadcast: (packet: unknown) => void };
+  const holder = candidate;
+  target.broadcast = (packet: unknown) => {
+    try {
+      for (const shardId of shardKeys.call(shards)) {
+        const live = holder._ws as { send?: unknown } | null | undefined;
+        if (!live || typeof live.send !== 'function') {
+          Logger.debug({ shardId }, 'Skipping shard broadcast: transport not connected');
+          continue;
+        }
+        let result: unknown;
+        try {
+          result = (live.send as BroadcastSendFn).call(live, shardId, packet);
+        } catch (err) {
+          recordBroadcastShardFailure(err, shardId);
+          continue;
+        }
+        Promise.resolve(result).then(
+          () => {
+            broadcastShardFailureCount = 0;
+          },
+          (err: unknown) => {
+            recordBroadcastShardFailure(err, shardId);
+          },
+        );
+      }
+    } catch (err) {
+      Logger.debug({ err }, 'Error in WebSocketManager broadcast safe wrapper');
+    }
+  };
+  return true;
+}
+
+/**
+ * Boot self-test: exercise the same patch path against a fake manager with no
+ * network. Returns true when a packet reaches _ws.send. Never throws, never
+ * touches the real client, so configureContainer can run it every boot and
+ * tests can call it directly.
+ */
+export function selfTestBroadcastPatch(): boolean {
+  try {
+    resetBroadcastShardFailureCountForTest();
+    const seen: number[] = [];
+    const fake = {
+      broadcast(_packet: unknown): void {
+        // Replaced by the patch under test.
+      },
+      shards: new Map<number, unknown>([[0, {}]]),
+      _ws: {
+        send(shardId: number): Promise<string> {
+          seen.push(shardId);
+          return Promise.resolve('ok');
+        },
+      },
+    };
+    if (!patchWebSocketBroadcast(fake)) return false;
+    fake.broadcast({ op: 1 });
+    return seen.length === 1 && seen[0] === 0 && getBroadcastShardFailureCount() === 0;
+  } catch {
+    return false;
+  }
+}
+
 export const configureContainer = (): void => {
   const settings = ConfigData.Data;
   void settings;
@@ -240,19 +377,9 @@ export const configureContainer = (): void => {
 
   // Guard against unhandled promise rejections from discord.js WebSocketManager.broadcast
   // when shards are reconnecting or not yet found in the sharding strategy.
-  const wsManager = client.ws as unknown as { broadcast?: (packet: unknown) => void; shards: Map<number, unknown>; _ws?: { send: (shardId: number, packet: unknown) => unknown } };
-  if (wsManager && typeof wsManager.broadcast === 'function') {
-    wsManager.broadcast = (packet: unknown) => {
-      try {
-        for (const shardId of wsManager.shards.keys()) {
-          Promise.resolve(wsManager._ws?.send(shardId, packet)).catch((err: unknown) => {
-            Logger.debug({ err, shardId }, 'Failed to broadcast packet to shard');
-          });
-        }
-      } catch (err) {
-        Logger.debug({ err }, 'Error in WebSocketManager broadcast safe wrapper');
-      }
-    };
+  patchWebSocketBroadcast(client.ws);
+  if (!selfTestBroadcastPatch()) {
+    Logger.warn('WebSocket broadcast self-test failed, using native broadcast');
   }
   container.registerInstance(Client, client);
 
@@ -441,9 +568,6 @@ export const configureContainer = (): void => {
   const reconcileService = new ReconcileService(indexService);
 
   container.registerInstance(HealthServer, healthServer);
-  container.registerInstance(CacheService, cache);
-  container.registerInstance(LastfmErrorRateTracker, errorRateTracker);
-  container.registerInstance(SettingService, settingService);
 
   container.registerInstance(UserRepository, userRepository);
   container.registerInstance(GuildRepository, guildRepository);
@@ -482,8 +606,6 @@ export const configureContainer = (): void => {
   container.registerInstance(AlbumService, albumService);
   container.registerInstance(TrackService, trackService);
 
-  container.registerInstance(ComponentInteractionTracker, componentTracker);
-  container.registerInstance(ComponentPaginatorService, componentPaginatorService);
   container.registerInstance(PaginationService, paginationService);
   container.registerInstance(ColorService, colorService);
   container.registerInstance(FmSettingService, fmSettingService);
@@ -503,28 +625,13 @@ export const configureContainer = (): void => {
   container.registerInstance(WhoKnowsAlbumService, whoKnowsAlbumService);
   container.registerInstance(WhoKnowsPlayService, whoKnowsPlayService);
 
-  const telemetryService = new TelemetryService();
-  const autopostRepository = new AutopostRepository(prisma);
-  container.registerInstance(AutopostRepository, autopostRepository);
-  const autopostService = new AutopostService(
-    artistsService,
-    albumService,
-    trackService,
-    crownService,
-    telemetryService,
-    guildRepository,
-    autopostRepository,
-  );
   container.registerInstance('IGuildRepository', guildRepository);
   container.registerInstance('IUserRepository', userRepository);
   container.registerInstance('ILastfmRepository', lastFmRepository);
   container.registerInstance(TimerService, timerService);
   container.registerInstance(ReconcileService, reconcileService);
-  container.registerInstance(TelemetryService, telemetryService);
   // Bind the narrow port too, so src/lastfm can inject a capability rather than
   // resolve a class out of the container from a lower layer (plan 3.2/3.3).
-  container.registerInstance<ITelemetry>(ITELEMETRY, telemetryService);
-  container.registerInstance(AutopostService, autopostService);
 
   const lyricsService = new LyricsService();
   const nowPlayingInteractions = new NowPlayingInteractions(
@@ -553,7 +660,6 @@ export const configureContainer = (): void => {
   container.registerInstance(WhoKnowsGenerator, whoKnowsGenerator);
   container.registerInstance(ImageUploadService, imageUploadService);
   container.registerInstance(BotChartService, chartService);
-  container.registerInstance(TimerService, timerService);
 
   container.registerInstance(
     WhoKnowsCommands,
@@ -631,7 +737,6 @@ export const configureContainer = (): void => {
   container.registerInstance(QueueService, queueService);
   container.registerInstance(MusicService, musicService);
 
-  container.registerInstance(LyricsService, lyricsService);
   container.registerInstance(VoiceChannelStatusService, voiceChannelStatusService);
   container.registerInstance(MusicInteractions, musicInteractions);
   container.registerInstance(MusicCommands, musicCommands);
@@ -702,12 +807,9 @@ export const configureContainer = (): void => {
   container.registerInstance(EssentiaService, essentiaService);
   container.registerInstance(PreviewResolverService, previewResolverService);
   container.registerInstance(TrackDetailsService, trackDetailsService);
-  container.registerInstance(TrackService, trackService);
-  container.registerInstance(VoiceMessageService, voiceMessageService);
   container.registerInstance(TrackSlashCommands, trackSlashCommands);
   container.registerInstance(TrackCommands, trackCommands);
   container.registerInstance(TrackPreviewInteractions, trackPreviewInteractions);
-  container.registerInstance(ArtistTrackService, artistTrackService);
   container.registerInstance(ArtistTrackSlashCommands, artistTrackSlashCommands);
   container.registerInstance(ArtistTrackCommands, artistTrackCommands);
   container.registerInstance(ArtistTrackInteractions, artistTrackInteractions);
@@ -734,7 +836,6 @@ export const configureContainer = (): void => {
   container.registerInstance(OverviewCommands, overviewCommands);
   container.registerInstance(UpdateSlashCommands, updateSlashCommands);
   container.registerInstance(UpdateCommands, updateCommands);
-  container.registerInstance(MusicBrainzService, musicBrainzService);
   container.registerInstance(ArtistCommands, artistCommands);
   container.registerInstance(ArtistSlashCommands, artistSlashCommands);
   container.registerInstance(ArtistInteractions, artistInteractions);
@@ -833,11 +934,33 @@ export const configureContainer = (): void => {
   container.registerInstance(ServerCommands, serverCommands);
   container.registerInstance(ServerSlashCommands, serverSlashCommands);
 
+  // Built here rather than with the telemetry block above: Top autoposts read
+  // real guild leaderboards through GuildRankingService, which is constructed
+  // just above. Moving this down keeps the positional wiring honest — the
+  // eighth argument is a real service, not a structural guess.
+  const telemetryService = new TelemetryService();
+  const autopostRepository = new AutopostRepository(prisma);
+  container.registerInstance(AutopostRepository, autopostRepository);
+  const autopostService = new AutopostService(
+    artistsService,
+    albumService,
+    trackService,
+    crownService,
+    telemetryService,
+    guildRepository,
+    autopostRepository,
+    guildRankingService,
+  );
+  container.registerInstance(TelemetryService, telemetryService);
+  // Bind the narrow port too, so src/lastfm can inject a capability rather than
+  // resolve a class out of the container from a lower layer (plan 3.2/3.3).
+  container.registerInstance<ITelemetry>(ITELEMETRY, telemetryService);
+  container.registerInstance(AutopostService, autopostService);
+
   const genreInteractions = new GenreInteractions(genreService, userService);
   const genreCommands = new GenreCommands(userService, settingService, lastFmRepository, genreService, colorService);
   const genreSlashCommands = new GenreSlashCommands(userService, settingService, lastFmRepository, genreService, colorService);
 
-  container.registerInstance(GenreService, genreService);
   container.registerInstance(GenreInteractions, genreInteractions);
   container.registerInstance(GenreCommands, genreCommands);
   container.registerInstance(GenreSlashCommands, genreSlashCommands);

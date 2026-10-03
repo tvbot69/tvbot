@@ -5,6 +5,7 @@ import { MusicBuilders } from '@bot/builders/music/musicBuilders';
 import { resolveDisplayedChapter } from '@bot/services/music/videoChapters';
 import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { chapterKeyFor, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
+import { asMessageChannel } from '@bot/services/music/moonlinkTypes';
 import type { LyricWindow } from '@bot/services/music/syncedLyrics';
 
 import {
@@ -123,16 +124,11 @@ export class NowPlayingCardPublisher {
         // seek, chapter attach) re-derives and edits once the channel is
         // back. forgetNowPlaying is reserved for a 10008/unknown MESSAGE.
         (await this.host.client.channels.fetch(player.textChannelId).catch(() => null));
-      if (!channel || !channel.isTextBased() || !('messages' in channel)) return;
+      if (!channel || !channel.isTextBased()) return;
+      const msgChannel = asMessageChannel(channel);
+      if (!msgChannel) return;
 
-      const msgManager = (
-        channel as unknown as {
-          messages: {
-            cache: { get: (id: string) => unknown };
-            fetch: (id: string) => Promise<unknown>;
-          };
-        }
-      ).messages;
+      const msgManager = msgChannel.messages;
 
       let unknownMessage = false;
       const msg = (msgManager.cache.get(msgId) ??
@@ -163,7 +159,7 @@ export class NowPlayingCardPublisher {
       let editTimer: NodeJS.Timeout | undefined;
       try {
         await Promise.race([
-          msg.edit(response.toMessagePayload() as unknown as Record<string, unknown>),
+          msg.edit(response.toMessagePayload()),
           new Promise<never>((_, reject) => {
             editTimer = setTimeout(() => reject(new Error('Now-playing edit timed out')), EDIT_TIMEOUT_MS);
           }),
@@ -258,8 +254,13 @@ export class NowPlayingCardPublisher {
     const existing = this.progressNudgeTimers.get(guildId);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
+      if (this.progressNudgeTimers.get(guildId) !== timer) return;
       this.progressNudgeTimers.delete(guildId);
-      void this.host.publishProgress(player);
+      if (this.progressPublishing.has(guildId)) {
+        this.pendingPublish.add(guildId);
+        return;
+      }
+      void this.host.publishProgress(player).catch(() => undefined);
     }, delayMs);
     this.progressNudgeTimers.set(guildId, timer);
   }

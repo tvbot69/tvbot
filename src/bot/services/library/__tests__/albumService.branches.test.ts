@@ -727,14 +727,52 @@ describe('AlbumService.filterAlbumsToReleasePeriod', () => {
     expect(r).toEqual([{ artistName: 'Radiohead', albumName: 'OK Computer' }]);
   });
 
-  it('returns the input unchanged when the query fails', async () => {
+  it('raises rather than returning the input UNFILTERED when the query fails', async () => {
+    // REPLACED. `resolves.toBe(albums)` pinned the defect: a dead database
+    // rendered a decade filter as doing nothing, the exact shape
+    // `getUserAllTimeTopAlbumsByReleasePrefix` had before it raised. Throw
+    // (not `[]`) because the caller asked for a FILTERED list: `[]` would
+    // render an outage as "nothing from that decade", unfiltered renders it
+    // as "everything counts". Both lie; an error is the honest answer.
+    const error = vi.spyOn(Logger, 'error').mockImplementation(() => undefined);
     const { service, deps } = build();
     mockOf(deps.prisma).album.findMany.mockRejectedValue(new Error('db down'));
     const albums = [{ artistName: 'Radiohead', albumName: 'OK Computer' }];
 
+    const err = await service
+      .filterAlbumsToReleasePeriod(albums, new Date(Date.UTC(1997, 0, 1)), new Date(Date.UTC(1998, 0, 1)))
+      .catch((e: unknown) => e);
+
+    expect(isSourceUnavailable(err)).toBe(true);
+    expect((err as Error).message).toContain('albumService.filterAlbumsToReleasePeriod');
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('still returns an empty array when the query RAN and matched nothing', async () => {
+    // The other half of the pair: a decade with no matching releases is a
+    // real answer and must stay a plain empty array.
+    const { service, deps } = build();
+    mockOf(deps.prisma).album.findMany.mockResolvedValue([]);
+
     await expect(
-      service.filterAlbumsToReleasePeriod(albums, new Date(Date.UTC(1997, 0, 1)), new Date(Date.UTC(1998, 0, 1))),
-    ).resolves.toBe(albums);
+      service.filterAlbumsToReleasePeriod(
+        [{ artistName: 'Radiohead', albumName: 'OK Computer' }],
+        new Date(Date.UTC(1997, 0, 1)),
+        new Date(Date.UTC(1998, 0, 1)),
+      ),
+    ).resolves.toEqual([]);
+    expect(mockOf(deps.prisma).album.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an empty list without a query for empty input', async () => {
+    // Empty in, empty out: no rows can match, so no query is issued and no
+    // error is raised. Pins the method as not-always-throwing.
+    const { service, deps } = build();
+
+    await expect(
+      service.filterAlbumsToReleasePeriod([], new Date(Date.UTC(1997, 0, 1)), new Date(Date.UTC(1998, 0, 1))),
+    ).resolves.toEqual([]);
+    expect(mockOf(deps.prisma).album.findMany).not.toHaveBeenCalled();
   });
 });
 

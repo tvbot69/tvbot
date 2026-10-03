@@ -1,14 +1,13 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 import { IndexService } from '@bot/services/lastfm/indexService';
 import { UpdateBuilders } from '@bot/builders/meta/updateBuilders';
-import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateType, parseUpdateType } from '@domain/enums/updateType';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 const updateChoices = [
   { name: 'Recent Plays (Delta)', value: 'recent' },
@@ -44,13 +43,8 @@ export class UpdateSlashCommands implements ISlashCommandModule {
   }
 
   private async updateAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use `/register` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     const rawOption = context.interaction?.options.getString('type') ?? 'recent';
     const { updateType, optionPicked } = parseUpdateType(rawOption === 'recent' ? '' : rawOption);

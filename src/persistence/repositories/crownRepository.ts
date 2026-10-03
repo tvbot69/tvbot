@@ -336,10 +336,12 @@ export class CrownRepository {
         ua.playcount as "playcount"
       FROM user_artists ua
       JOIN guild_users gu ON gu.user_id = ua.user_id
+      JOIN users u ON u.user_id = ua.user_id
       WHERE gu.guild_id = ${gid}
         AND ua.playcount >= ${minPlaycount}
         AND gu.blocked_from_crowns = false
         AND gu.who_knows_banned = false
+        AND u.privacy_level::text != 'Hide'
       ORDER BY LOWER(ua.name), ua.playcount DESC
     `;
 

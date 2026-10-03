@@ -80,6 +80,20 @@ export interface TopCountryItem {
   playcount: number;
   artistCount?: number;
   artists?: { name: string; playcount: number }[];
+  /**
+   * Coverage signal, present only when partial.
+   *
+   * `getTopCountriesForTopArtists` drops input artists with no mapped country,
+   * and the card renders whatever is returned as the whole answer
+   * ("N countries · M total scrobbles" with no coverage note), so a partial
+   * aggregate presented bare is a confident undercount. When any contributing
+   * artist (playcount > 0) had no country, every item carries `isPartial: true`
+   * plus the dropped totals; when everything mapped the three keys are absent,
+   * so a complete result keeps its exact existing shape.
+   */
+  isPartial?: boolean;
+  unmappedArtistCount?: number;
+  unmappedPlaycount?: number;
 }
 
 export interface GuildCountryItem {
@@ -437,7 +451,25 @@ export class CountryService {
       });
     }
 
-    // Aggregate playcounts and optionally group artists by country
+    // Aggregate playcounts and optionally group artists by country.
+    //
+    // Artists with no mapped country are dropped from the totals, which is only
+    // honest if the result says so: the card presents the list as complete, so
+    // the dropped artists and their plays ride along as a partial signal on the
+    // existing result shape. A genuinely unknown artist (no country anywhere) is
+    // still dropped rather than raising - there is no country to show - but the
+    // caller can now tell "everything mapped" (keys absent) from "some plays
+    // had no country" (`isPartial: true`).
+    const unmappedPlays = new Map<string, number>();
+    for (const item of topArtists) {
+      if (artistCountryMap.has(item.name.toLowerCase()) || item.playcount <= 0) continue;
+      const key = item.name.toLowerCase();
+      unmappedPlays.set(key, (unmappedPlays.get(key) ?? 0) + item.playcount);
+    }
+    const unmappedArtistCount = unmappedPlays.size;
+    const unmappedPlaycount = [...unmappedPlays.values()].reduce((sum, n) => sum + n, 0);
+    const isPartial = unmappedArtistCount > 0;
+
     const countryPlaycounts = new Map<string, number>();
     const countryArtists = new Map<string, { name: string; playcount: number }[]>();
 
@@ -466,6 +498,7 @@ export class CountryService {
         playcount,
         artistCount: artists ? artists.length : undefined,
         artists: addArtists ? (artists ?? []) : undefined,
+        ...(isPartial ? { isPartial: true, unmappedArtistCount, unmappedPlaycount } : {}),
       });
     }
 
@@ -494,6 +527,8 @@ export class CountryService {
     if (userArtists.length > 0) {
       const aggregated = await this.getTopCountriesForTopArtists(userArtists, true);
       if (aggregated.length > 0) {
+        // The slice keeps the partial signal on the items: a partial aggregate
+        // stays visibly partial, it is never trimmed into a complete-looking one.
         return aggregated.slice(0, limit);
       }
     }

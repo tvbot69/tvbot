@@ -1,5 +1,5 @@
 import { Logger } from '@domain/logging/logger';
-import { spotifyUriToUrl } from '@domain/models/music/musicTrack';
+import { spotifyUriToUrl, type MusicTrackRequester } from '@domain/models/music/musicTrack';
 import type { Manager, Player, Track } from 'moonlink.js';
 import { MAX_QUEUE_TRACKS } from '@bot/services/music/musicConstants';
 import type { SpotifyScraperService, ScrapedTrack } from '@bot/services/music/spotifyScraperService';
@@ -23,6 +23,8 @@ interface ChunkState {
   playlistName: string;
   nextOffset: number;
   total: number;
+  /** False when total is shard floor, not count — cap at single probe. */
+  totalKnown: boolean;
   isFetching: boolean;
   skipped: number;
   guildId: string;
@@ -179,8 +181,20 @@ export class PlaylistChunkManager {
     }
   }
 
-  public register(guildId: string, playlistId: string, playlistName: string, total: number, nextOffset: number, requesterId: string, textChannelId: string): void {
+  public register(guildId: string, playlistId: string, playlistName: string, total: number, nextOffset: number, requesterId: string, textChannelId: string, totalKnown: boolean = true): void {
     if (nextOffset === null || nextOffset >= total) {
+      // Unknown-total: total is the shard floor, so this branch is the normal
+      // case, not completion. The initial page was the single probe — never
+      // schedule offset>0 fetches — but say so via the channel notice.
+      if (totalKnown === false) {
+        this.chunks.delete(guildId);
+        Logger.info({ guildId, playlistId, nextOffset, total }, 'Playlist chunk capped — total unknown, no further fetches');
+        this.notifyUnavailable(
+          guildId,
+          `⚠️ Spotify does not report the full playlist size — stopped loading **${playlistName}**.`,
+        );
+        return;
+      }
       this.chunks.delete(guildId);
       return;
     }
@@ -190,6 +204,7 @@ export class PlaylistChunkManager {
       playlistName,
       nextOffset,
       total,
+      totalKnown,
       isFetching: false,
       skipped: 0,
       guildId,
@@ -197,7 +212,7 @@ export class PlaylistChunkManager {
       textChannelId,
     });
 
-    Logger.info({ guildId, playlistId, nextOffset, total }, 'Playlist chunk manager registered');
+    Logger.info({ guildId, playlistId, nextOffset, total, totalKnown }, 'Playlist chunk manager registered');
   }
 
   public clear(guildId: string): void {
@@ -256,6 +271,17 @@ export class PlaylistChunkManager {
         return;
       }
       if (!page || page.tracks.length === 0) {
+        // An empty probe on an unknown total means rest exists but unreachable —
+        // "no more tracks" would be false, so say unknown instead.
+        if (state.totalKnown === false || page?.totalKnown === false) {
+          Logger.warn({ guildId, playlistId: state.playlistId }, 'Playlist chunk probe capped — total unknown');
+          this.chunks.delete(guildId);
+          this.notifyUnavailable(
+            guildId,
+            `⚠️ Spotify does not report the full playlist size — stopped loading **${state.playlistName}**.`,
+          );
+          return;
+        }
         Logger.warn({ guildId, playlistId: state.playlistId }, 'Scraper returned no more tracks');
         this.chunks.delete(guildId);
         // The third stop, and the only one that was silent. The two siblings at
@@ -368,7 +394,8 @@ export class PlaylistChunkManager {
               const src = String(trackRecord.sourceName ?? '');
               if (src === 'youtube' || src === '') trackRecord._sourceVideoId = lavalinkTrack.identifier;
             }
-            trackRecord.requester = { id: state.requesterId } as unknown as string;
+            const requester: MusicTrackRequester = { id: state.requesterId };
+            lavalinkTrack.requester = requester;
             trackRecord.title = item.t.name;
             trackRecord.author = item.t.artist;
             if (item.t.artworkUrl) {
@@ -398,7 +425,8 @@ export class PlaylistChunkManager {
           if (typeof trackRecord._sourceVideoId !== 'string' && /^[\w-]{11}$/.test(lavalinkTrack.identifier ?? '')) {
             trackRecord._sourceVideoId = lavalinkTrack.identifier;
           }
-          trackRecord.requester = { id: state.requesterId } as unknown as string;
+          const requester: MusicTrackRequester = { id: state.requesterId };
+          lavalinkTrack.requester = requester;
           trackRecord.title = item.t.name;
           trackRecord.author = item.t.artist;
           if (item.t.artworkUrl) {
@@ -415,6 +443,36 @@ export class PlaylistChunkManager {
       }
 
       Logger.info({ guildId, added, nextOffset: page.nextOffset, total: state.total }, 'Chunk appended to queue');
+
+      // Unknown-total: this probe was the single allowed offset>0 fetch. Never
+      // store another offset — the embed rung returns the same shard for any
+      // offset, so a second fetch yields same/dupe/empty while burning ladder
+      // searches. Delete plus rest-unavailable notice caps at 1 probe.
+      if (state.totalKnown === false || page.totalKnown === false) {
+        this.chunks.delete(guildId);
+        Logger.info({ guildId, playlistId: state.playlistId }, 'Playlist chunk capped — total unknown, single probe done');
+        this.notifySkipped(state);
+        this.notifyUnavailable(
+          guildId,
+          `⚠️ Spotify does not report the full playlist size — stopped loading **${state.playlistName}**.`,
+        );
+        return;
+      }
+      // No forward progress (same offset back): retrying it forever loops on
+      // the same shard. Cap like unknown — rest unavailable, not complete.
+      if (page.nextOffset !== null && page.nextOffset <= state.nextOffset) {
+        this.chunks.delete(guildId);
+        Logger.warn(
+          { guildId, playlistId: state.playlistId, nextOffset: page.nextOffset },
+          'Playlist chunk capped — no forward progress',
+        );
+        this.notifySkipped(state);
+        this.notifyUnavailable(
+          guildId,
+          `⚠️ Spotify does not report the full playlist size — stopped loading **${state.playlistName}**.`,
+        );
+        return;
+      }
 
       if (page.nextOffset === null || page.nextOffset >= state.total) {
         this.chunks.delete(guildId);
@@ -434,6 +492,24 @@ export class PlaylistChunkManager {
       }
     } catch (err) {
       Logger.warn({ err, guildId }, 'Playlist chunk fetch failed');
+      // Siblings notify the channel on every stop; this warn-only path left a
+      // failed chunk silent. Mirror the notice so the user hears the failure.
+      if (this.chunks.get(guildId) === state) {
+        if (state.totalKnown === false) {
+          // Unknown-total probe that throws still caps at 1 — retrying an
+          // offset the vendor cannot page only burns ladder searches.
+          this.chunks.delete(guildId);
+          this.notifyUnavailable(
+            guildId,
+            `⚠️ Spotify does not report the full playlist size — stopped loading **${state.playlistName}**.`,
+          );
+        } else {
+          this.notifyUnavailable(
+            guildId,
+            `⚠️ Could not fetch more tracks for **${state.playlistName}** — will retry shortly.`,
+          );
+        }
+      }
     }
 
     const s = this.chunks.get(guildId);

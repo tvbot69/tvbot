@@ -295,6 +295,17 @@ describe('PlaycountSlashCommands.trackPlaysSlashAsync', () => {
 
     expect(PlaycountBuilders.buildTrackPlaysResponse).toHaveBeenCalledWith('Caller', 'Radiohead', 'Airbag', 88, 0, 0);
   });
+
+  it('raises rather than printing 0 when no source measured the count', async () => {
+    const { service, playHistoryService, trackService } = build({
+      mentioned: mkUser({ userId: 0, userNameLastFm: 'Ghost' }),
+    });
+    (trackService.searchTrack as ReturnType<typeof vi.fn>).mockResolvedValue({ artistName: 'A', trackName: 'B' });
+
+    await expect(call(service, 'trackPlaysSlashAsync', mkContext(), 'airbag', '999')).rejects.toThrow(/Track playcount unavailable/);
+    expect(playHistoryService.getTrackTotalPlays).not.toHaveBeenCalled();
+    expect(PlaycountBuilders.buildTrackPlaysResponse).not.toHaveBeenCalled();
+  });
 });
 
 describe('PlaycountSlashCommands command table', () => {

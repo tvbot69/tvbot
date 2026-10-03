@@ -5,6 +5,7 @@ import { Client } from 'discord.js';
 import { Logger } from '@domain/logging/logger';
 import { checkDatabaseHealth } from '@persistence/prismaClient';
 import { PuppeteerService } from '@images/generators/puppeteerService';
+import { TelemetryService } from '@bot/services/system/telemetryService';
 import { healthPort } from '@config/runtimeEnv';
 
 export class HealthServer {
@@ -56,6 +57,54 @@ export class HealthServer {
         const readiness = await this.checkReadiness();
         res.writeHead(readiness.ready ? 200 : 503, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(readiness));
+        return;
+      }
+
+      if (url === '/metrics') {
+        // Sanitized telemetry snapshot. Fixed shape, aggregate counters only:
+        // no per-user/per-guild labels, no error message strings (they can
+        // embed tokens or PII from provider bodies), service keys are the
+        // bounded telemetry set. Note: 384MB heap — no raw latency arrays,
+        // topCommands stays capped at 10, nothing cached per request.
+        try {
+          // Same resolve pattern as Client/Puppeteer above: try resolve,
+          // fail closed on throw. No isRegistered guard: TelemetryService is
+          // `@singleton()` so the token stays registered after import and the
+          // guard would never fire; a fresh resolve is an empty zero-traffic
+          // report, which is truthful, not fabricated.
+          const telemetry = container.resolve(TelemetryService);
+          const report = telemetry.getHealthMetrics();
+          const externalApis: Record<
+            string,
+            { totalCalls: number; successCalls: number; errorCalls: number; rateLimitedCalls: number }
+          > = {};
+          for (const [service, metric] of Object.entries(report.externalApis)) {
+            externalApis[service] = {
+              totalCalls: metric.totalCalls,
+              successCalls: metric.successCalls,
+              errorCalls: metric.errorCalls,
+              rateLimitedCalls: metric.rateLimitedCalls,
+            };
+          }
+          this.writeJson(res, 200, {
+            status: report.status,
+            uptimeSeconds: report.uptimeSeconds,
+            memoryUsageMb: { ...report.memoryUsageMb },
+            totalCommandExecutions: report.totalCommandExecutions,
+            totalCommandFailures: report.totalCommandFailures,
+            commandFailureRate: report.commandFailureRate,
+            topCommands: report.topCommands.slice(0, 10).map((c) => ({
+              command: c.command,
+              calls: c.calls,
+              avgMs: c.avgMs,
+              p95Ms: c.p95Ms,
+            })),
+            externalApis,
+          });
+        } catch (err) {
+          Logger.debug({ err }, '[Health] TelemetryService not resolvable yet');
+          this.writeJson(res, 503, { status: 'unavailable' });
+        }
         return;
       }
 

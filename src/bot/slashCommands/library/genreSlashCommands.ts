@@ -3,7 +3,7 @@ import { inject, injectable } from 'tsyringe';
 import crypto from 'crypto';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
@@ -13,6 +13,7 @@ import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { ColorService } from '@bot/services/system/colorService';
 import { storeGenreQuery } from '@bot/interactions/library/genreInteractions';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 const periodChoices = [
   { name: 'Weekly (7 days)', value: 'weekly' },
@@ -135,13 +136,8 @@ export class GenreSlashCommands implements ISlashCommandModule {
       return { userNameLastFm: lfm, displayName: lfm, userId: u?.userId };
     }
 
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use `/login` first.',
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in caller) return caller;
     const member = context.guild?.members.cache.get(context.discordUserId);
     return {
       userNameLastFm: caller.userNameLastFm,
@@ -211,13 +207,8 @@ export class GenreSlashCommands implements ISlashCommandModule {
     let query = context.interaction?.options.getString('search')?.trim();
 
     if (!query) {
-      const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-      if (!caller) {
-        return GenericEmbedService.buildCommandErrorResponse(
-          CommandResponse.NotFound,
-          'You have not connected your Last.fm account yet. Use `/login` first.',
-        );
-      }
+      const caller = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in caller) return caller;
       const recent = await this.lastfmRepository.getUserRecentTracks(caller.userNameLastFm, 1);
       if (!recent || recent.length === 0) {
         return GenericEmbedService.buildCommandErrorResponse(

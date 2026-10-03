@@ -23,6 +23,21 @@ import type { VideoChapter } from '@bot/services/music/videoChapters';
 import { escapeInline, escapeLinkLabel } from '@domain/text/markdown';
 import { pluralise } from '@bot/builders/common/pluralise';
 
+export type FallbackRow = ActionRowBuilder<MessageActionRowComponentBuilder>;
+
+/**
+ * Single choke point for legacy fallback rows.
+ *
+ * `ResponseModel.addButtonRow` takes `ActionRowBuilder<MessageActionRowComponentBuilder>`
+ * while `ContainerBuilder.addActionRowComponents` accepts any narrow row, so a
+ * `ActionRowBuilder<ButtonBuilder>` needed an `as unknown as` at every call
+ * site (9 of them). Building the row directly at the wide type keeps ONE
+ * instance serving both the V2 container and the fallback embed — a V2-only
+ * edit can no longer drift from its fallback because there is no second row.
+ */
+export const fallbackRow = (...components: MessageActionRowComponentBuilder[]): FallbackRow =>
+  new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(...components);
+
 export const MUSIC_SOURCE_BADGES = {
   spotify: '<:sp:1496297132381048995>',
   youtube: '<:yt:1496297072201040094>',
@@ -276,7 +291,7 @@ export class MusicBuilders {
     const legacyMeta = metaLine.replace(/^-# /, '');
 
     // Single Row of 5 Square Icon Playback Controls (Mobile-perfect, zero text squishing)
-    const row0 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const row0 = fallbackRow(
       new ButtonBuilder()
         .setCustomId('music:control:previous')
         .setLabel('⏮️')
@@ -331,7 +346,7 @@ export class MusicBuilders {
     response.setComponentsV2Container(container);
 
     // Backward-compatible fallback embed & button row
-    response.addButtonRow(0, row0 as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    response.addButtonRow(0, row0);
     const legacyBody = chapterLine ? `${header}\n${chapterLine}` : header;
     const legacyDesc = legacyLyricSection ? `${legacyBody}\n\n${legacyLyricSection}` : legacyBody;
     response.embed.setDescription(`${legacyDesc}\n\n${legacyMeta}`);
@@ -396,7 +411,7 @@ export class MusicBuilders {
 
     // Row 0: Pagination Buttons
     if (totalPages > 1) {
-      const row0 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      const row0 = fallbackRow(
         new ButtonBuilder()
           .setCustomId(`music:queue:first:${currentPage}`)
           .setLabel('⏮️')
@@ -423,11 +438,11 @@ export class MusicBuilders {
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(currentPage >= totalPages),
       );
-      response.addButtonRow(0, row0 as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+      response.addButtonRow(0, row0);
     }
 
     // Row 1: Queue Actions
-    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const row1 = fallbackRow(
       new ButtonBuilder()
         .setCustomId('music:control:pause_resume')
         .setLabel(queue.isPaused ? '▶️ Resume' : '⏸️ Pause')
@@ -452,7 +467,7 @@ export class MusicBuilders {
         .setLabel('🎵 Now Playing')
         .setStyle(ButtonStyle.Secondary),
     );
-    response.addButtonRow(1, row1 as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    response.addButtonRow(1, row1);
 
     // Row 2: Quick Remove Dropdown (if current page has tracks)
     if (currentTracks.length > 0) {
@@ -466,13 +481,13 @@ export class MusicBuilders {
           .setEmoji('🗑️');
       });
 
-      const removeSelectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      const removeSelectRow = fallbackRow(
         new StringSelectMenuBuilder()
           .setCustomId('music:queue:quick_remove')
           .setPlaceholder('Select a track to remove from queue...')
           .addOptions(removeOptions),
       );
-      response.addButtonRow(2, removeSelectRow as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+      response.addButtonRow(2, removeSelectRow);
     }
 
     return response;
@@ -521,21 +536,21 @@ export class MusicBuilders {
         .setEmoji('🎵');
     });
 
-    const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    const selectRow = fallbackRow(
       new StringSelectMenuBuilder()
         .setCustomId('music:search:select')
         .setPlaceholder('Choose a track to play...')
         .addOptions(options),
     );
-    response.addButtonRow(0, selectRow as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    response.addButtonRow(0, selectRow);
 
-    const cancelRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const cancelRow = fallbackRow(
       new ButtonBuilder()
         .setCustomId('music:search:cancel')
         .setLabel('Cancel')
         .setStyle(ButtonStyle.Danger),
     );
-    response.addButtonRow(1, cancelRow as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    response.addButtonRow(1, cancelRow);
 
     return response;
   }
@@ -575,7 +590,7 @@ export class MusicBuilders {
 
     const header = `### [${track.title}](${track.uri})\n-# ${track.author} • ${chapters.length} ${pluralise(chapters.length, 'chapter')}`;
 
-    const rows: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+    const rows: FallbackRow[] = [];
     for (let start = 0; start < shown.length; start += 25) {
       const options = shown.slice(start, start + 25).map((ch, offset) => {
         const idx = start + offset;
@@ -589,7 +604,7 @@ export class MusicBuilders {
       // Discord requires custom_id unique per MESSAGE, not per row — suffix
       // the chunk index so 26+ chapters (two rows) don't collide.
       rows.push(
-        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        fallbackRow(
           new StringSelectMenuBuilder()
             .setCustomId(`music:chapters:seek:${start / 25}`)
             .setPlaceholder('Jump to a chapter...')
@@ -618,7 +633,7 @@ export class MusicBuilders {
       .setDescription(`${header}\n\n${list}`.slice(0, 4000))
       .setFooter({ text: 'Pick a chapter from the menu to jump to it' });
     for (const row of rows) {
-      response.addButtonRow(0, row as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+      response.addButtonRow(0, row);
     }
 
     return response;
@@ -689,15 +704,15 @@ export class MusicBuilders {
         .setEmoji(isEnabled ? '🟢' : '⚪');
     });
 
-    const selectRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    const selectRow = fallbackRow(
       new StringSelectMenuBuilder()
         .setCustomId('music:filter:select')
         .setPlaceholder('Toggle an audio filter...')
         .addOptions(options),
     );
-    response.addButtonRow(0, selectRow as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    response.addButtonRow(0, selectRow);
 
-    const resetRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const resetRow = fallbackRow(
       new ButtonBuilder()
         .setCustomId('music:filter:reset')
         .setLabel('Reset All Filters')
@@ -708,7 +723,7 @@ export class MusicBuilders {
         .setLabel('Back to Player')
         .setStyle(ButtonStyle.Secondary),
     );
-    response.addButtonRow(1, resetRow as unknown as ActionRowBuilder<MessageActionRowComponentBuilder>);
+    response.addButtonRow(1, resetRow);
 
     return response;
   }

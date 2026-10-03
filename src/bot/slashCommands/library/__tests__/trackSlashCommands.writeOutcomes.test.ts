@@ -524,7 +524,7 @@ describe('/loved', () => {
     const response = await h(cmd).lovedAsync(makeCtx());
 
     expect(response.commandResponse).toBe(CommandResponse.NotFound);
-    expect(cardText(response)).toContain('Use `/login` first');
+    expect(cardText(response)).toContain('Use `/register` first');
   });
 });
 

@@ -1,6 +1,6 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { SettingService } from '@bot/services/system/settingService';
@@ -8,11 +8,11 @@ import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { TopBuilders } from '@bot/builders/library/topBuilders';
 import { resolveTopBuildersDeps } from '@bot/builders/library/topBuildersDeps';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 
 import { ColorService } from '@bot/services/system/colorService';
 import { ArtworkService, isPlaceholderImageUrl } from '@bot/services/media/artworkService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class TopCommands implements ITextCommandModule {
   public commands: TextCommandDefinition[];
@@ -66,8 +66,8 @@ export class TopCommands implements ITextCommandModule {
       const byLfm = await this.userService.getUserByLastFmName(rawUser.trim());
       if (byLfm) return { userNameLastFm: byLfm.userNameLastFm, displayName: rawUser.trim(), userId: byLfm.userId, userObj: byLfm };
     }
-    const self = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!self) return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet. Use the register command first.');
+    const self = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in self) return self;
     return { userNameLastFm: self.userNameLastFm, displayName: context.guild?.members.cache.get(context.discordUserId)?.displayName ?? self.userNameLastFm, userId: self.userId, userObj: self };
   }
 

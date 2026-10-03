@@ -13,7 +13,7 @@ import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
 import { UserService } from '@bot/services/user/userService';
-import { CommandResponse } from '@domain/enums/commandResponse';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class SettingsSlashCommands implements ISlashCommandModule {
@@ -65,15 +65,12 @@ export class SettingsSlashCommands implements ISlashCommandModule {
   }
 
   private async settingsAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) {
       if (context.userIsGuildAdmin) {
         return buildSettingsPage(context, this.prefixService);
       }
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `/login` or `.login` first.',
-      );
+      return user;
     }
 
     return UserSettingsBuilders.buildUserSettingsResponse(
@@ -86,46 +83,26 @@ export class SettingsSlashCommands implements ISlashCommandModule {
   }
 
   private async modeAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `/login` or `.login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
     return UserSettingsBuilders.buildModePickResponse(context, context.accentColor);
   }
 
   private async responseModeAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `/login` or `.login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
     return UserSettingsBuilders.buildResponseModeResponse(context, user, context.accentColor);
   }
 
   private async coverModeAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `/login` or `.login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
     return UserSettingsBuilders.buildCoverModeResponse(context, user, context.accentColor);
   }
 
   private async localizationAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not registered with tvbot yet. Use `/login` or `.login` first.',
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     const tzOption = context.interaction?.isChatInputCommand()
       ? context.interaction.options.getString('timezone')

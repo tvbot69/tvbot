@@ -9,7 +9,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/Node-22_LTS-5FA04E?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-PostgreSQL-2D3748?style=flat-square)](https://www.prisma.io/)
-[![Vitest](https://img.shields.io/badge/tests-9%2C201-passing-brightgreen?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev/)
+[![Vitest](https://img.shields.io/badge/tests-passing-brightgreen?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev/)
 
 </div>
 
@@ -19,7 +19,18 @@ A complete alternative to [fmbot](https://github.com/derpie/fmbot) for Last.fm
 statistics, plus a full music player that fmbot does not have. Every feature
 ships as both a slash command and a `.`-prefixed text command.
 
-**158 commands** · **415 aliases** · **395 source files** · **9,201 tests**
+<!-- metrics:start -->
+| Metric | Count |
+|---|---|
+| Production files | 395 |
+| Production lines | 84385 |
+| Slash top-level commands | 76 |
+| Text commands | 158 |
+| Text triggers + aliases | 575 |
+| Test files | 442 |
+| Repositories | 19 |
+<!-- metrics:end -->
+See [docs/METRICS.md](docs/METRICS.md) for current counts.
 
 ---
 
@@ -111,7 +122,7 @@ audio through its own crawler, so a LAN address will not serve images.
 ## Commands
 
 <details>
-<summary><b>All 158 canonical commands</b></summary>
+<summary><b>All canonical commands</b></summary>
 
 **Now playing** — `fm` `np` `nowplaying` `lastlistened` `mode` `fmmode`
 `scrobble` `love` `unlove` `lyric` `lyrics` `refresh`
@@ -150,12 +161,13 @@ audio through its own crawler, so a LAN address will not serve images.
 **Account** — `user` `profile` `login` `logout` `unlink` `register` `settings`
 `shortcuts` `prefix`
 
-**Meta** — `help` `ping` `join`
+**Meta** — `help` `ping`
 
 </details>
 
-415 aliases are also registered — `ap` for `artistplays`, `abp` for
-`albumplays`, `tp` for `trackplays`, `ryw` for `rateyourmusic`, and so on. Run
+Aliases are also registered — `ap` for `artistplays`, `abp` for
+`albumplays`, `tp` for `trackplays`, `ryw` for `rateyourmusic`, and so on. See
+[docs/METRICS.md](docs/METRICS.md) for the current alias count. Run
 `/help` in Discord for the full list.
 
 ---
@@ -177,8 +189,12 @@ src/
 └── __tests__/         repo-wide invariant tests
 ```
 
-Dependency injection is manual. Every service is constructed positionally in
-`src/bot/startup.ts` — no reflection, no container scanning. Playback is a
+Dependency injection is a hybrid. Services carry `@injectable()` and
+`reflect-metadata` stays imported, but there is no container scanning:
+almost every service is constructed positionally with `new` in
+`src/bot/startup.ts` and registered via `container.registerInstance`,
+then read back with `container.resolve` (a handful of handler/interaction
+tokens are resolved via reflection). Playback is a
 strict DAG, enforced by `npm run deps:cycles`.
 
 ---
@@ -187,15 +203,15 @@ strict DAG, enforced by `npm run deps:cycles`.
 
 ```bash
 npm run build          # typecheck and compile
-npm test               # 9,201 unit tests
+npm test               # unit tests, see docs/METRICS.md for current count
 npm run lint
-npm run test:db        # 519 tests against real PostgreSQL
+npm run test:db        # real PostgreSQL, see docs/METRICS.md for current count
 npm run test:render    # headless Chromium, real pixels
 npm run test:coverage
 npm run debt           # code-quality ratchets
 ```
 
-Coverage is 91.6% of lines. The Postgres and render suites are split out because
+Coverage is tracked in [docs/METRICS.md](docs/METRICS.md). The Postgres and render suites are split out because
 they need a real database and a real browser respectively.
 
 [`AGENTS.md`](./AGENTS.md) is the engineering manual: architectural rules, the

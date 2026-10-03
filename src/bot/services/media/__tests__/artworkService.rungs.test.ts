@@ -1,7 +1,11 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ArtworkService } from '@bot/services/media/artworkService';
+import { isPlaceholderImageUrl } from '@domain/lastfm/lastfmPlaceholder';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
+import { SRC_ROOT } from '../../../../testSupport/repoRoot';
 
 /**
  * The four provider rungs, rung by rung.
@@ -383,16 +387,46 @@ describe('album cascade — what gets written to the cache', () => {
     expect(h.cache.store.get('art:album:daft punk|homework')).toBe('none');
   });
 
-  it('writes nothing at all when Spotify was rate-limited', async () => {
+  it('writes an inconclusive backoff when Spotify was rate-limited, never a definitive none', async () => {
     // The single most damaging version of a confident miss: a global 429 would
     // otherwise write "no cover exists" for every album in every chart.
+    // The backoff marker stops the 30s chapter retry re-sweeping providers.
     SpotifySearchApi.noteTransportFailure();
     SpotifySearchApi.noteTransportFailure();
     SpotifySearchApi.noteTransportFailure();
     SpotifySearchApi.noteTransportFailure();
     const h = harness();
     await h.service.getAlbumCoverUrl('Homework', 'Daft Punk');
-    expect(h.cache.store.get('art:album:daft punk|homework')).toBeUndefined();
+    expect(h.cache.store.get('art:album:daft punk|homework')).toBe('inconclusive');
+  });
+
+  it('serves a stored inconclusive marker without re-running the cascade', async () => {
+    // Mutation check: if the album ladder wrote nothing on inconclusive, this
+    // second lookup would re-sweep Spotify and calls would be 1, not 0.
+    let calls = 0;
+    const h = harness({ spotify: { searchAlbums: async () => { calls++; return []; } } });
+    h.cache.store.set('art:album:daft punk|homework', 'inconclusive');
+
+    await expect(h.service.getAlbumCoverUrl('Homework', 'Daft Punk')).resolves.toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  it('backs off rather than re-sweeping after an inconclusive album run', async () => {
+    let calls = 0;
+    const h = harness({
+      spotify: {
+        searchAlbums: async () => {
+          calls++;
+          throw new Error('boom');
+        },
+      },
+    });
+    await expect(h.service.getAlbumCoverUrl('Homework', 'Daft Punk')).resolves.toBeNull();
+    expect(h.cache.store.get('art:album:daft punk|homework')).toBe('inconclusive');
+    const afterFirst = calls;
+    expect(afterFirst).toBeGreaterThan(0);
+    await expect(h.service.getAlbumCoverUrl('Homework', 'Daft Punk')).resolves.toBeNull();
+    expect(calls).toBe(afterFirst);
   });
 
   it('serves a stored none without re-running the cascade', async () => {
@@ -631,10 +665,43 @@ describe('artist cascade — the name-based rung', () => {
     expect(h.cache.store.get('art:artist:nobody at all')).toBe('none');
   });
 
-  it('writes nothing when a provider threw', async () => {
+  it('writes an inconclusive backoff when a provider threw, never a definitive none', async () => {
     const h = harness({ spotify: { searchArtists: async () => { throw new Error('429'); } } });
     await h.service.getArtistImageUrl('Kanye West');
-    expect(h.cache.store.get('art:artist:kanye west')).toBeUndefined();
+    expect(h.cache.store.get('art:artist:kanye west')).toBe('inconclusive');
+  });
+
+  it('serves a stored artist inconclusive marker without re-running the cascade', async () => {
+    // Mutation check: if the artist ladder wrote nothing on inconclusive, the
+    // second lookup would re-sweep Spotify and calls would be 1, not 0.
+    let calls = 0;
+    const h = harness({
+      spotify: {
+        searchArtists: async () => {
+          calls++;
+          return [];
+        },
+      },
+    });
+    h.cache.store.set('art:artist:kanye west', 'inconclusive');
+    await expect(h.service.getArtistImageUrl('Kanye West')).resolves.toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  it('backs off rather than re-sweeping after an inconclusive artist run', async () => {
+    let calls = 0;
+    const h = harness({
+      spotify: {
+        searchArtists: async () => {
+          calls++;
+          throw new Error('boom');
+        },
+      },
+    });
+    await expect(h.service.getArtistImageUrl('Kanye West')).resolves.toBeNull();
+    expect(h.cache.store.get('art:artist:kanye west')).toBe('inconclusive');
+    await expect(h.service.getArtistImageUrl('Kanye West')).resolves.toBeNull();
+    expect(calls).toBe(1);
   });
 
   it('keeps going when persisting a Spotify cover fails', async () => {
@@ -850,5 +917,31 @@ describe('getTrackCoverBySpotifyId — one GET, no matching risk', () => {
       broken as never,
     );
     await expect(service.getTrackCoverBySpotifyId('4mF0aVVHtmHQSIdem2Wh0g')).resolves.toBe('https://img/x.jpg');
+  });
+});
+
+describe('artistsService SQL placeholder filter — stays in sync with the canonical predicate', () => {
+  it('SQL NOT LIKE pattern contains the canonical Last.fm placeholder hash', async () => {
+    // The canonical hash lives in src/domain/lastfm/lastfmPlaceholder.ts and
+    // the SQL filter cannot call that predicate, so artistsService mirrors the
+    // hash in LASTFM_PLACEHOLDER_HASH_FOR_SQL with a comment link. This test
+    // keeps the two in sync: mutating either side fails it.
+    const domainSrc = readFileSync(join(SRC_ROOT, 'domain', 'lastfm', 'lastfmPlaceholder.ts'), 'utf8');
+    const hashMatch = domainSrc.match(/['"]([0-9a-f]{32})['"]/);
+    expect(hashMatch?.[1]).toBeTruthy();
+    const canonicalHash = hashMatch![1]!;
+
+    // Sanity: the extracted string is the hash the predicate actually checks.
+    expect(isPlaceholderImageUrl(`https://lastfm.example/${canonicalHash}.png`)).toBe(true);
+    expect(isPlaceholderImageUrl('https://i.scdn.co/image/ab67616d0000b273abcdef0123456789')).toBe(false);
+
+    const serviceSrc = readFileSync(
+      join(SRC_ROOT, 'bot', 'services', 'library', 'artistsService.ts'),
+      'utf8',
+    );
+    expect(serviceSrc).toContain('LASTFM_PLACEHOLDER_HASH_FOR_SQL');
+    expect(serviceSrc).toContain('NOT LIKE');
+    expect(serviceSrc).toContain(canonicalHash);
+    expect(serviceSrc).toContain('lastfmPlaceholder');
   });
 });

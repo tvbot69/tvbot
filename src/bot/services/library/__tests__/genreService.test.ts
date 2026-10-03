@@ -306,16 +306,36 @@ describe('GenreService.getGenresForArtist', () => {
     expect(built.cache.set).toHaveBeenCalledWith('genres:nobody', [], 600);
   });
 
-  it('caches an empty result for ten minutes when the Last.fm call throws an UNCLASSIFIED error', async () => {
-    // Deliberately narrower than it looks. `lastFmRepository` is contracted to
-    // return null for a real "no such artist" and to RAISE for anything else,
-    // so a bare Error reaching here is a defect in some other collaborator, not
-    // a Last.fm verdict. The empty answer is a safe fallback for that; the
-    // classified case below is the one that used to lie.
+  it('throws without caching when the Last.fm call throws an UNCLASSIFIED error', async () => {
+    // Any throw inside the try (not just source-unavailable) must not cache
+    // `[]`: caching would chart "no genres" for 10 minutes on a transient
+    // failure. Only a clean run with no tags caches empty.
     const built = build();
     built.lastfmRepo.getArtistInfo.mockRejectedValue(new Error('lastfm down'));
-    await expect(built.service.getGenresForArtist('Nobody')).resolves.toEqual([]);
-    expect(built.cache.set).toHaveBeenCalledWith('genres:nobody', [], 600);
+    const err = await built.service.getGenresForArtist('Nobody').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(built.cache.set).not.toHaveBeenCalled();
+  });
+
+  it('mutation: throw mid-try (persist path) must not cache empty', async () => {
+    const built = build({
+      getArtistInfo: { name: 'Radiohead', tags: ['Art Rock'] },
+    });
+    built.artistRepo.getOrCreateArtist.mockRejectedValue(new Error('db down'));
+    const err = await built.service.getGenresForArtist('Radiohead').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(built.cache.set).not.toHaveBeenCalled();
+  });
+
+  it('outage throws without caching, second call re-attempts Last.fm', async () => {
+    const built = build();
+    built.lastfmRepo.getArtistInfo.mockRejectedValue(new Error('lastfm down'));
+    await expect(built.service.getGenresForArtist('Nobody')).rejects.toThrow('lastfm down');
+    expect(built.cache.set).not.toHaveBeenCalled();
+    expect(built.lastfmRepo.getArtistInfo).toHaveBeenCalledTimes(1);
+    await expect(built.service.getGenresForArtist('Nobody')).rejects.toThrow('lastfm down');
+    expect(built.lastfmRepo.getArtistInfo).toHaveBeenCalledTimes(2);
+    expect(built.cache.set).not.toHaveBeenCalled();
   });
 
   it('propagates a classified Last.fm outage and refuses to cache it as "no genres"', async () => {

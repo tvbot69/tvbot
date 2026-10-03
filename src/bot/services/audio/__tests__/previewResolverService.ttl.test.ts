@@ -118,11 +118,42 @@ describe('PreviewResolverService — the cache TTL follows the rung that produce
     expect(set.mock.calls[0]?.[2]).toBe(3600);
   });
 
-  it('nothing resolved means nothing cached', async () => {
-    // The cache decision must not fire on an absence.
+  it('a miss writes preview:miss inconclusive 90s (art:track INCONCLUSIVE_TTL gate)', async () => {
+    // Formerly nothing cached, so every miss re-ran scraper HTML plus Apple
+    // plus Deezer. Now mirrors art:track inconclusive backoff.
     const { svc, set } = build({ apple: [], deezer: [] });
 
     await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
-    expect(set).not.toHaveBeenCalled();
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set.mock.calls[0]?.[0]).toBe('preview:miss:radiohead|creep');
+    expect(set.mock.calls[0]?.[1]).toBe('inconclusive');
+    expect(set.mock.calls[0]?.[2]).toBe(90);
+  });
+
+  it('a miss hits cache: second resolve returns null without re-running providers', async () => {
+    const store = new Map<string, unknown>();
+    const get = vi.fn(async (...args: unknown[]) => store.get(args[0] as string) ?? null);
+    const set = vi.fn(async (...args: unknown[]) => {
+      store.set(args[0] as string, args[1]);
+    });
+    const cache = { get, set } as unknown as CacheService;
+    const searchSongs = vi.fn(async () => []);
+    const searchTracks = vi.fn(async () => []);
+    const svc = new PreviewResolverService(
+      { searchSongs } as unknown as AppleMusicSearchApi,
+      { searchTracks } as unknown as DeezerApi,
+      cache,
+    );
+
+    await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
+    expect(searchSongs).toHaveBeenCalledTimes(1);
+    expect(searchTracks).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledTimes(1);
+
+    searchSongs.mockClear();
+    searchTracks.mockClear();
+    await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
+    expect(searchSongs).not.toHaveBeenCalled();
+    expect(searchTracks).not.toHaveBeenCalled();
   });
 });

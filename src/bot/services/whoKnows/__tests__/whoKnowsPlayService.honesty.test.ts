@@ -287,3 +287,77 @@ describe('WhoKnowsPlayService: how it renders one, two, three and many', () => {
     expect(line).toContain('lfm_2');
   });
 });
+
+describe('WhoKnowsPlayService: privacy opt-outs are never named', () => {
+  const hidden = (userId: number): FullGuildUserDetails => ({
+    ...member(userId, `hidden_${userId}`),
+    privacyLevel: 'Hide',
+  });
+  const selfBlocked = (userId: number): FullGuildUserDetails => ({
+    ...member(userId, `blocked_${userId}`),
+    selfBlockFromWhoKnows: true,
+  });
+
+  it('never names a Hide user on the artist line, even when they are playing it', async () => {
+    const { cache, get } = cacheOf(new Set(['2-lp-artist-radiohead', '3-lp-artist-radiohead']));
+    const service = new WhoKnowsPlayService(cache);
+
+    const line = await service.getGuildAlsoPlayingArtist(
+      1,
+      guildUsers(hidden(2), member(3)),
+      ARTIST,
+    );
+
+    expect(line).not.toContain('hidden_2');
+    expect(line).toContain('lfm_3');
+    expect(get.mock.calls.map((c) => c[0])).not.toContain('2-lp-artist-radiohead');
+  });
+
+  it('never names a self-blocked user on the artist line', async () => {
+    const { cache } = cacheOf(new Set(['2-lp-artist-radiohead', '3-lp-artist-radiohead']));
+    const service = new WhoKnowsPlayService(cache);
+
+    const line = await service.getGuildAlsoPlayingArtist(
+      1,
+      guildUsers(selfBlocked(2), member(3)),
+      ARTIST,
+    );
+
+    expect(line).not.toContain('blocked_2');
+    expect(line).toContain('lfm_3');
+  });
+
+  it('returns null when the only listener hid, rather than an empty sentence', async () => {
+    const { cache } = cacheOf(new Set(['2-lp-artist-radiohead']));
+    const service = new WhoKnowsPlayService(cache);
+
+    await expect(service.getGuildAlsoPlayingArtist(1, guildUsers(hidden(2)), ARTIST)).resolves.toBeNull();
+  });
+
+  it('still names a visible listener alongside hidden ones on album and track lines', async () => {
+    const albumCache = cacheOf(new Set(['2-lp-album-radiohead-ok computer', '3-lp-album-radiohead-ok computer']));
+    const trackCache = cacheOf(new Set(['2-lp-track-radiohead-creep', '3-lp-track-radiohead-creep']));
+    const users = guildUsers(hidden(2), member(3));
+
+    const albumLine = await new WhoKnowsPlayService(albumCache.cache).getGuildAlsoPlayingAlbum(
+      1, users, ARTIST, ALBUM,
+    );
+    const trackLine = await new WhoKnowsPlayService(trackCache.cache).getGuildAlsoPlayingTrack(
+      1, users, ARTIST, TRACK,
+    );
+
+    expect(albumLine).not.toContain('hidden_2');
+    expect(albumLine).toContain('lfm_3');
+    expect(trackLine).not.toContain('hidden_2');
+    expect(trackLine).toContain('lfm_3');
+  });
+
+  it('CONTROL: a visible listener is still named, so the filter cannot hide everyone', async () => {
+    const { cache } = cacheOf(new Set(['2-lp-artist-radiohead']));
+    const service = new WhoKnowsPlayService(cache);
+
+    const line = await service.getGuildAlsoPlayingArtist(1, guildUsers(member(2)), ARTIST);
+
+    expect(line).toContain('lfm_2');
+  });
+});

@@ -215,16 +215,18 @@ export class GenreService {
         await this.cache.set(key, top, 3600);
         return top;
       }
+
+      await this.cache.set(key, [], 600);
+      return [];
     } catch (err) {
       // `lastfmRepo.getArtistInfo` already draws this line for us: a real "no
       // such artist" comes back as null, and anything else - a 5xx, a dropped
       // connection - is RAISED as LastFmUnavailableError precisely so no caller
-      // can mistake it for an artist with no tags. This catch used to swallow
-      // that and cache `[]` for ten minutes, so a Last.fm outage told the world
-      // the artist has no genres, and `.genre <artist>` then charted an artist
-      // as a genre because it branches on `genres.length === 0`. Overruling a
-      // deliberately raised signal is the bug; anything genuinely unexpected
-      // still falls through to the empty answer below.
+      // can mistake it for an artist with no tags. Only a clean run with no
+      // tags above caches `[]`; any throw here propagates without caching so a
+      // Last.fm outage or an unexpected mid-try failure never poisons the cache
+      // as "no genres", and `.genre <artist>` never charts an artist as a genre
+      // because it branches on `genres.length === 0`.
       if (isSourceUnavailable(err)) {
         Logger.error(
           { artist: artistName, err: (err as Error)?.message ?? String(err) },
@@ -232,10 +234,12 @@ export class GenreService {
         );
         throw err;
       }
+      Logger.error(
+        { artist: artistName, err: (err as Error)?.message ?? String(err) },
+        'Unexpected failure while resolving artist genres; not caching as "no genres"',
+      );
+      throw err;
     }
-
-    await this.cache.set(key, [], 600);
-    return [];
   }
 
   public async getGenresForArtistNames(artistNames: string[]): Promise<Map<string, string[]>> {

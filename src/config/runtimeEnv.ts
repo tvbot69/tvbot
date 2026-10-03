@@ -117,6 +117,7 @@ const finiteNumber = (env: NodeJS.ProcessEnv, key: string): EnvCount => {
  * FFMPEG_PATH - path to the ffmpeg binary, or undefined to let the caller fall
  * back to its own candidate list (`audioSignalService` tries the packaged
  * `ffmpeg-static` build and the usual Linux/Windows locations next).
+ * Fallback order: FFMPEG_PATH, then ffmpeg-static, then system locations.
  */
 export function ffmpegPath(env: NodeJS.ProcessEnv = currentEnv()): BinaryPath {
   return trimmed(env, 'FFMPEG_PATH');
@@ -262,6 +263,7 @@ export function isProduction(env: NodeJS.ProcessEnv = currentEnv()): boolean {
 /**
  * PUPPETEER_EXECUTABLE_PATH, trimmed. Undefined means "let Puppeteer find its
  * own bundled Chromium", which is the normal case.
+ * Fallback order: PUPPETEER_EXECUTABLE_PATH (system chromium in prod), then bundled Chromium.
  */
 export function puppeteerExecutablePath(env: NodeJS.ProcessEnv = currentEnv()): EnvString {
   return trimmed(env, 'PUPPETEER_EXECUTABLE_PATH');

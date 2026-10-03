@@ -72,7 +72,7 @@ export class VoiceLifecycle {
         if (!newState.channelId) {
           Logger.info(`[Music] Bot was disconnected from voice in guild ${guildId} — starting 3-min rejoin grace`);
           if (oldState.channelId && this.host.voiceChannelStatusService) {
-            void this.host.voiceChannelStatusService.clearStatus(oldState.channelId);
+            void this.host.voiceChannelStatusService.clearStatus(oldState.channelId).catch(() => undefined);
           }
           player.set('kickedWhilePlaying', player.playing && !player.paused);
           if (player.current) {
@@ -146,14 +146,12 @@ export class VoiceLifecycle {
         if (oldState.channelId && newState.channelId && oldState.channelId !== newState.channelId) {
           Logger.info(`[Music] Bot moved to voice channel ${newState.channelId} in guild ${guildId}`);
           if (this.host.voiceChannelStatusService) {
-            void this.host.voiceChannelStatusService.clearStatus(oldState.channelId);
+            void this.host.voiceChannelStatusService.clearStatus(oldState.channelId).catch(() => undefined);
             if (player.current) {
               const currentTrack = mapMoonlinkTrack(player.current);
-              void this.host.voiceChannelStatusService.setStatus(
-                newState.channelId,
-                currentTrack.title,
-                currentTrack.author,
-              );
+              void this.host.voiceChannelStatusService
+                .setStatus(newState.channelId, currentTrack.title, currentTrack.author)
+                .catch(() => undefined);
             }
           }
           player.setVoiceChannelId(newState.channelId);

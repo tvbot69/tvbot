@@ -1,4 +1,6 @@
 import { inject, injectable } from 'tsyringe';
+// sharp stays in dependencies: prod accent-color extraction needs it after `npm prune --omit=dev`.
+// Moving it to devDependencies would break production color extraction.
 import sharp from 'sharp';
 import crypto from 'crypto';
 import { CacheService } from '@bot/services/system/cacheService';

@@ -14,6 +14,7 @@ import { ComponentInteractionTracker } from '@bot/services/system/componentInter
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { isUnknownInteraction } from '@domain/errors/discordErrors';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 const linkRow = (
   url: string,
@@ -174,13 +175,8 @@ export class LoginCommands implements ITextCommandModule {
   }
 
   private async removeAsync(context: ContextModel, args: string[]): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        "Sorry, but we don't have any data from you in our database.",
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     if (args[0]?.toLowerCase() !== 'confirm') {
       const response = new ResponseModel(context.accentColor ?? DiscordConstants.WarningColorOrange);

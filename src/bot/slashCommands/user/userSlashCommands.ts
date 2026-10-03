@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { PlayBuilders } from '@bot/builders/library/playBuilders';
 import { RecentBuilders } from '@bot/builders/library/recentBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
@@ -20,6 +20,7 @@ import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import type { UserFmSetting } from '@domain/interfaces/ports/iuserFmSettingRepository';
 import { ColorService } from '@bot/services/system/colorService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 async function enrichFmTracks(tracks: RecentTrack[]): Promise<void> {
   if (!tracks[0]) return;
@@ -108,10 +109,8 @@ export class UserSlashCommands implements ISlashCommandModule {
     const rawEmbed = context.interaction?.options.getString('embed-type') ?? null;
     const inlineEmbedType = rawEmbed !== null ? (Number(rawEmbed) as FmEmbedType) : null;
 
-    const targetUser = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!targetUser) {
-      return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet. Use `/register` first.');
-    }
+    const targetUser = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in targetUser) return targetUser;
     let displayUser = targetUser;
     let differentUser = false;
 
@@ -239,8 +238,8 @@ export class UserSlashCommands implements ISlashCommandModule {
   }
 
   private async fmModeAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'Connect with `/register` first.');
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
     const fmService = container.resolve(FmSettingService);
     const setting = await fmService.getOrCreate(user.userId);
     const embed = PlayBuilders.buildFmModeResponse(setting, context.accentColor);
@@ -267,13 +266,8 @@ export class UserSlashCommands implements ISlashCommandModule {
   }
 
   private async recentAsync(context: ContextModel): Promise<ResponseModel> {
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use `/register` first.',
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in caller) return caller;
 
     if (UpdateService.needsUpdate(caller, 2)) {
       void this.updateService.updateUser(caller.userId, { accurateTotal: true });

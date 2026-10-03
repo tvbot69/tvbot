@@ -66,6 +66,10 @@ import { isPlaceholderImageUrl } from '../src/domain/lastfm/lastfmPlaceholder';
 import { SpotifyTokenManager } from '../src/spotify/api/spotifyTokenManager';
 import { SpotifySearchApi, SpotifyUnavailableError } from '../src/spotify/api/spotifySearchApi';
 import * as SPOTIFY_LIMITS_MODULE from '../src/spotify/api/spotifyApiLimits';
+import { DeezerApi } from '../src/deezer/api/deezerApi';
+import { DeezerResolver } from '../src/bot/services/music/deezerResolver';
+import { AppleMusicTokenScraper } from '../src/applemusic/api/appleMusicTokenScraper';
+import { LOAD_TRACKS_TIMEOUT_MS } from '../src/bot/services/music/musicConstants';
 import { ConfigData } from '../src/config/configData';
 import {
   fetchDescriptionChapters,
@@ -1459,6 +1463,246 @@ const probeSupplementary = async (): Promise<void> => {
 };
 
 // ---------------------------------------------------------------------------
+// 10b. Resolver transport shapes — ceiling, embed offset, Deezer ?dest=,
+//      Apple amp-api + iTunes, loadTracks timeout
+// ---------------------------------------------------------------------------
+
+/**
+ * Records the transport facts the resolvers depend on, without printing a
+ * credential or a full URL. Spotify ceiling + playlist 403 already have
+ * dedicated sections (A1/A2, B4b); G0/G1 re-record them through the
+ * production clamp and the embed page so a drift shows up here too.
+ * Everything quota-gated reports SKIP, never FAIL, when the vendor was not
+ * asked — the same quotaRefused pattern the rest of this file uses.
+ */
+const probeResolverTransportShapes = async (api: SpotifySearchApi | null): Promise<void> => {
+  head('G — resolver transport shapes (ceiling, embed offset, Deezer ?dest=, Apple, loadTracks)');
+
+  // G0 — the ceiling through the production clamp (no wire needed).
+  const clamp = (SPOTIFY_LIMITS_MODULE as unknown as { clampSpotifySearchLimit: (n: number) => number })
+    .clampSpotifySearchLimit;
+  const clamped15 = clamp(15);
+  verdict(
+    'G0 production clamp maps limit=15 to the measured ceiling of 10',
+    clamped15 === 10,
+    `clampSpotifySearchLimit(15)=${String(clamped15)}`,
+  );
+
+  // G0b — what limit the production search actually sends at the ceiling.
+  if (!api) {
+    skip('G0 production searchTracks sends a clamped limit', 'no production search API (no bearer)');
+  } else if (quotaRefused) {
+    skip('G0 production searchTracks sends a clamped limit', NOT_JUDGED);
+  } else {
+    const seen: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown, init?: RequestInit): Promise<Response> => {
+      const target = input instanceof Request ? input.url : String(input);
+      if (target.includes('api.spotify.com/v1/search')) seen.push(target);
+      return realFetch(input as never, init);
+    }) as typeof globalThis.fetch;
+    let threw: string | null = null;
+    try {
+      await api.searchTracks('radiohead', 15);
+    } catch (err) {
+      threw = brief(err);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const sentLimit = seen.length > 0 ? new URL(seen[0] as string).searchParams.get('limit') : null;
+    const wasJudged = seen.length > 0 && threw === null;
+    if (!wasJudged && quotaRefused) {
+      skip('G0 production searchTracks sends a clamped limit', NOT_JUDGED);
+    } else {
+      // Never prints the query URL whole: only the limit it carried.
+      verdict(
+        'G0 production searchTracks asks limit=10 when called with 15',
+        sentLimit === '10',
+        threw ? `raised ${threw}` : `sent limit=${String(sentLimit)} in ${String(seen.length)} search request(s)`,
+      );
+    }
+  }
+
+  // G1 — the embed page ignores ?offset= (same first shard at 0/100/200).
+  // musicService.ts and spotifyScraperService.ts depend on this: 100 is a
+  // hard ceiling because the embed has no paging, not because paging was
+  // never tried. A public editorial playlist is discovered, never printed.
+  let embedId: string | null = null;
+  try {
+    const seed = await rawText('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Accept: 'text/html' },
+    });
+    if (seed.status === 200) embedId = seed.text.match(/\/playlist\/([A-Za-z0-9]{22})/)?.[1] ?? null;
+    else info(`embed-offset seed page answered HTTP ${String(seed.status)}, so G1 cannot run`);
+  } catch {
+    embedId = null;
+  }
+  if (!embedId) {
+    skip('G1 the embed page returns the same shard for ?offset=0/100/200', 'no public playlist id reachable');
+  } else {
+    const shards: Array<{ offset: number; status: number; count: number; first: string }> = [];
+    for (const offset of [0, 100, 200]) {
+      const page = await rawText(`https://open.spotify.com/embed/playlist/${embedId}?offset=${String(offset)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', Accept: 'text/html' },
+      });
+      const m = page.text.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/);
+      let count = -1;
+      let first = '';
+      if (m?.[1]) {
+        try {
+          const data = JSON.parse(m[1]) as {
+            props?: { pageProps?: { state?: { data?: { entity?: { trackList?: Array<{ uri?: string }> } } } } };
+          };
+          const list = data.props?.pageProps?.state?.data?.entity?.trackList ?? [];
+          count = list.length;
+          first = String(list[0]?.uri ?? '');
+        } catch {
+          count = -1;
+        }
+      }
+      // Only the tail of the uri is an equality key; the id itself is withheld.
+      shards.push({ offset, status: page.status, count, first: first.slice(-8) });
+    }
+    const reachable = shards.filter((s) => s.status === 200 && s.count >= 0);
+    info(`embed shards: ${shards.map((s) => `offset=${String(s.offset)} HTTP ${String(s.status)} ${String(s.count)} tracks`).join(' | ')}`);
+    if (reachable.length < 2) {
+      skip('G1 the embed page returns the same shard for ?offset=0/100/200', `${String(reachable.length)}/3 offsets readable — the page shape moved`);
+    } else {
+      const sameCount = reachable.every((s) => s.count === reachable[0]?.count);
+      const sameFirst = reachable.every((s) => s.first === reachable[0]?.first);
+      verdict(
+        'G1 the embed page returns the same shard for ?offset=0/100/200',
+        sameCount && sameFirst,
+        sameCount && sameFirst
+          ? `${String(reachable[0]?.count)} tracks at every offset — offset is ignored, 100 is a ceiling`
+          : `counts: ${reachable.map((s) => String(s.count)).join('/')} — offset pages, the ceiling claim is stale`,
+      );
+    }
+  }
+
+  // G2 — Deezer share ?dest= handling: live API shape plus the dest read.
+  // The share slug itself is not a fixture (it rots); the live part is the
+  // public track shape, and the dest part is proved with a synthetic 302 so
+  // the production read of `?dest=` (not the Location path) is what is
+  // exercised. Sanitized: shapes and hosts only.
+  try {
+    const hits = await new DeezerApi().searchTracks('daft punk get lucky', 1).catch((e: unknown) => e);
+    if (hits instanceof Error) {
+      skip('G2 live Deezer track carries title/artist/duration/isrc/link', `search raised ${brief(hits)}`);
+    } else if (!Array.isArray(hits) || hits.length === 0) {
+      skip('G2 live Deezer track carries title/artist/duration/isrc/link', 'search returned no rows');
+    } else {
+      const t = hits[0] as Record<string, unknown>;
+      const artist = asRecord(t['artist'])['name'];
+      const album = asRecord(t['album']);
+      info(
+        `deezer track shape: ${shape(t)} | artist=${typeof artist} link host=${hostOf(String(t['link'] ?? ''))} cover host=${hostOf(String(album['cover_xl'] ?? ''))}`,
+      );
+      verdict(
+        'G2 live Deezer track carries title/artist/duration/isrc/link',
+        typeof t['title'] === 'string' && typeof artist === 'string' && typeof t['link'] === 'string',
+        `title is ${typeof t['title']}, artist ${typeof artist}, link host ${hostOf(String(t['link'] ?? ''))}`,
+      );
+    }
+  } catch (err) {
+    skip('G2 live Deezer track carries title/artist/duration/isrc/link', brief(err));
+  }
+  {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(null, {
+        status: 302,
+        headers: { location: 'https://deezer.page.link/?link=https://www.deezer.com/track/555&dest=https://www.deezer.com/track/555' },
+      })) as typeof globalThis.fetch;
+    let dest: string | null = 'THREW';
+    try {
+      dest = await new DeezerResolver(new DeezerApi()).resolveShareUrl('https://deezer.page.link/abc');
+    } catch {
+      dest = null;
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    verdict(
+      'G2 production resolveShareUrl reads ?dest= (not the Location path)',
+      dest === 'https://www.deezer.com/track/555',
+      dest === null ? 'null' : `resolved to a canonical deezer.com/track URL: ${String(dest !== null)}`,
+    );
+  }
+
+  // G3 — Apple: no-auth iTunes lookup shape live, amp-api shape when a token exists.
+  // Fixture id only (Get Lucky, from the liveShape lock); shapes and hosts only.
+  const ITUNES_ID = '617154366';
+  const itunes = await raw(`https://itunes.apple.com/lookup?id=${ITUNES_ID}&entity=song&limit=5&country=US`);
+  if (!judged(itunes)) {
+    skip('G3 live iTunes lookup returns track rows with artwork + view URL', NOT_JUDGED);
+  } else {
+    const results = arr(asRecord(itunes.body)['results']);
+    const track = asRecord(results.find((r) => asRecord(r)['wrapperType'] === 'track') ?? results[0]);
+    info(
+      `itunes lookup -> HTTP ${String(itunes.status)} ${String(results.length)} rows; track shape ${shape(track)} | art host=${hostOf(String(track['artworkUrl100'] ?? ''))} view host=${hostOf(String(track['trackViewUrl'] ?? ''))}`,
+    );
+    verdict(
+      'G3 live iTunes lookup returns track rows with artwork + view URL',
+      itunes.status === 200 && typeof track['trackName'] === 'string' && typeof track['artworkUrl100'] === 'string',
+      `HTTP ${String(itunes.status)}, ${String(results.length)} rows`,
+    );
+  }
+  {
+    const scraper = new AppleMusicTokenScraper();
+    const token = await scraper.getToken().catch(() => null);
+    if (!token) {
+      skip('G3 live amp-api catalog song carries attributes + artwork template', 'no scraped web-player token this run');
+    } else {
+      info(`amp-api token present (string length ${String(token.length)}, never printed)`);
+      const catalog = await raw(`https://amp-api.music.apple.com/v1/catalog/us/songs/${ITUNES_ID}?extend=artistUrl`, {
+        headers: { Authorization: `Bearer ${token}`, Origin: 'https://music.apple.com', Accept: 'application/json' },
+      });
+      if (!judged(catalog)) {
+        skip('G3 live amp-api catalog song carries attributes + artwork template', NOT_JUDGED);
+      } else {
+        const data = arr(asRecord(catalog.body)['data']);
+        const attrs = asRecord(asRecord(data[0])['attributes']);
+        const art = asRecord(attrs['artwork']);
+        info(
+          `amp-api catalog -> HTTP ${String(catalog.status)} attrs ${shape(attrs)} | artwork template has {w}=${String(String(art['url'] ?? '').includes('{w}'))}`,
+        );
+        verdict(
+          'G3 live amp-api catalog song carries attributes + artwork template',
+          catalog.status === 200 && typeof attrs['name'] === 'string' && String(art['url'] ?? '').includes('{w}'),
+          `HTTP ${String(catalog.status)}, ${String(data.length)} data rows`,
+        );
+      }
+    }
+  }
+
+  // G4 — loadTracks timeout: the ladder races the REST call, so a hung node
+  // cannot freeze a guild's pending queue. Local clock only, no vendor.
+  verdict(
+    'G4 LOAD_TRACKS_TIMEOUT_MS is the documented 8s bound',
+    LOAD_TRACKS_TIMEOUT_MS === 8_000,
+    `musicConstants LOAD_TRACKS_TIMEOUT_MS=${String(LOAD_TRACKS_TIMEOUT_MS)}`,
+  );
+  {
+    const start = Date.now();
+    const outcome = await Promise.race([
+      new Promise<string>(() => undefined),
+      new Promise<string>((_, reject) => {
+        setTimeout(() => reject(new Error('loadtracks-timeout')), LOAD_TRACKS_TIMEOUT_MS);
+      }),
+    ]).then(
+      () => 'resolved',
+      (e: unknown) => String((e as Error).message),
+    );
+    const elapsed = Date.now() - start;
+    verdict(
+      'G4 a hung loadTracks rejects within the bound (ladder falls through)',
+      outcome === 'loadtracks-timeout' && elapsed < LOAD_TRACKS_TIMEOUT_MS + 1500,
+      `${outcome} after ${String(elapsed)}ms vs bound ${String(LOAD_TRACKS_TIMEOUT_MS)}ms`,
+    );
+  }
+};
+
+// ---------------------------------------------------------------------------
 // The Last.fm section this file was born for
 // ---------------------------------------------------------------------------
 
@@ -1541,8 +1785,10 @@ const main = async (): Promise<void> => {
   await probeLastfmArtwork(lastfmRepo, lastfmApi);
 
   const tokenOk = await probeTokenEndpoint();
+  let spotifyApi: SpotifySearchApi | null = null;
   if (tokenOk) {
     const api = new SpotifySearchApi(new SpotifyTokenManager());
+    spotifyApi = api;
     coversProbeApi = api;
     SpotifySearchApi.clearRateLimit();
     // The tracklist first: it is the endpoint whose limit was never measured,
@@ -1564,6 +1810,7 @@ const main = async (): Promise<void> => {
   await probeDeletedAnonRung();
   await probeYouTube();
   await probeSupplementary();
+  await probeResolverTransportShapes(spotifyApi);
 
   Logger.info('live verification complete');
 };

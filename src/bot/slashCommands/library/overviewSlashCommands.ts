@@ -1,18 +1,18 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import type { User } from '@domain/interfaces/ports/iuserRepository';
 import { OverviewService } from '@bot/services/library/overviewService';
 import { OverviewBuilders } from '@bot/builders/library/overviewBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class OverviewSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -55,8 +55,8 @@ export class OverviewSlashCommands implements ISlashCommandModule {
           targetUserId = info.userId;
           targetUserObj = info;
         } else {
-          const u = await this.userService.getUserByDiscordId(context.discordUserId);
-          if (!u) return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet.');
+          const u = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in u) return u;
           userNameLastFm = u.userNameLastFm;
           displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? u.userNameLastFm;
           targetUserId = u.userId;
@@ -64,8 +64,8 @@ export class OverviewSlashCommands implements ISlashCommandModule {
         }
       }
     } else {
-      const u = await this.userService.getUserByDiscordId(context.discordUserId);
-      if (!u) return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet.');
+      const u = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in u) return u;
       userNameLastFm = u.userNameLastFm;
       displayName = context.guild?.members.cache.get(context.discordUserId)?.displayName ?? u.userNameLastFm;
       targetUserId = u.userId;

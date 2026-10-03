@@ -1,6 +1,6 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { PlayBuilders } from '@bot/builders/library/playBuilders';
 import { RecentBuilders } from '@bot/builders/library/recentBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
@@ -20,6 +20,7 @@ import { FmFooterOption } from '@domain/enums/fmFooterOption';
 import { ColorService } from '@bot/services/system/colorService';
 import { ExposedService } from '@bot/services/social/exposedService';
 import type { RecentTrack } from '@domain/models/recentTrack';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 async function enrichFmTracks(tracks: RecentTrack[]): Promise<void> {
   if (!tracks[0]) return;
@@ -136,10 +137,8 @@ export class PlayCommands implements ITextCommandModule {
       : trimmedOptions.slice(0, trimmedOptions.length - tailToken.length).trim();
     // mention <@123> or <@!123>
     const mentionMatch = cleanOptions.match(/<@!?(\d+)>/);
-    const targetUser = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!targetUser) {
-      return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet. Use the register command first.');
-    }
+    const targetUser = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in targetUser) return targetUser;
     let displayUser = targetUser;
     let differentUser = false;
     if (mentionMatch) {
@@ -289,25 +288,15 @@ export class PlayCommands implements ITextCommandModule {
   }
 
   private async fmModeAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `Connect your Last.fm account first with \`${context.prefix}register <username>\`.`,
-      );
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
     const setting = await container.resolve(FmSettingService).getOrCreate(user.userId);
     return PlayBuilders.buildFmModeResponse(setting, context.accentColor);
   }
 
   private async recentAsync(context: ContextModel, argsStr: string): Promise<ResponseModel> {
-    const caller = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!caller) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        'You have not connected your Last.fm account yet. Use the register command first.',
-      );
-    }
+    const caller = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in caller) return caller;
 
     if (UpdateService.needsUpdate(caller, 2)) {
       void this.updateService.updateUser(caller.userId, { accurateTotal: true });

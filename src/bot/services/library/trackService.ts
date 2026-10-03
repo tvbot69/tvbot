@@ -13,6 +13,29 @@ import type { PrismaClient } from '@prisma/client';
 
 const CACHE_TTL_SECONDS = 1800;
 
+/**
+ * A query that returns NO ROWS is a real answer and stays an empty array, but
+ * a query that THROWS is a failure and raises. Same rule as
+ * `orDatabaseUnavailable` in `albumService`, `genreService` and
+ * `countryService`. Narrow: covers the query only, so a cache failure never
+ * becomes "you have no plays".
+ */
+const orDatabaseUnavailable = async <T>(
+  method: string,
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> => {
+  try {
+    return await run();
+  } catch (err) {
+    Logger.error(
+      { query: `${method}:${label}`, err: (err as Error)?.message ?? String(err) },
+      `Database unavailable in ${method} (${label}); refusing to render it as an empty track list`,
+    );
+    throw new SourceUnavailableError(`trackService.${method}:${label}`, err, 'Database unavailable');
+  }
+};
+
 export interface TrackSearchResult {
   trackName: string;
   artistName: string;
@@ -23,6 +46,12 @@ export interface TrackSearchResult {
   coverUrl?: string;
   trackId?: number;
   durationSeconds?: number;
+  /**
+   * Indexed-DB or Last.fm user total. `undefined` means no source RAN (Last.fm
+   * gave no count AND the DB fallback was unavailable/unconfigured) — the card
+   * must omit the line, never render it as 0. A genuine 0 from a query that ran
+   * stays 0.
+   */
   userPlaycount?: number;
   globalPlaycount?: number;
   globalListeners?: number;
@@ -175,6 +204,14 @@ export class TrackService {
     const finalArtist = info?.artistName ?? searchArtist;
     const finalTrack = info?.name ?? searchTrack;
 
+    // Last.fm is the primary user-playcount source. When it did not run
+    // (`info` missing or the field absent), fall back to the indexed DB total —
+    // same match semantics as `getLastMonthPlays` without the date bound. An
+    // unread source stays `undefined` so the builder omits the line; a genuine
+    // 0 from either source stays 0.
+    const userPlaycount =
+      info?.userPlayCount ?? (await this.getUserTotalPlays(user.userId, finalTrack, finalArtist));
+
     const lastMonthPlays = await this.getLastMonthPlays(user.userId, finalTrack, finalArtist);
 
     return {
@@ -195,7 +232,7 @@ export class TrackService {
       coverUrl,
       trackId,
       durationSeconds: info?.durationSeconds,
-      userPlaycount: info?.userPlayCount ?? 0,
+      userPlaycount,
       globalPlaycount: info?.playCount,
       globalListeners: info?.listeners,
       summary: info?.summary,
@@ -231,6 +268,33 @@ export class TrackService {
       );
       throw new SourceUnavailableError('trackService.getLastMonthPlays', err, 'Database unavailable');
     }
+  }
+
+  /**
+   * Indexed-DB total plays for one user + track, without the 30-day bound of
+   * `getLastMonthPlays`. Fallback for `searchTrack` when Last.fm supplied no
+   * user count.
+   *
+   * Returns `undefined` only when there is no database to ask (no prisma). A
+   * query that THREW raises via `orDatabaseUnavailable` — catching it here and
+   * returning `undefined` would turn a database outage into an omitted line the
+   * reader parses as "no data", one quiet step from a printed 0.
+   */
+  public async getUserTotalPlays(
+    userId: number,
+    trackName: string,
+    artistName: string,
+  ): Promise<number | undefined> {
+    if (!this.prisma) return undefined;
+    return orDatabaseUnavailable('getUserTotalPlays', 'userPlaysTotal', () =>
+      this.prisma!.userPlay.count({
+        where: {
+          userId,
+          artistName: { equals: artistName, mode: 'insensitive' },
+          trackName: { equals: trackName, mode: 'insensitive' },
+        },
+      }),
+    );
   }
 
   // Scrobble reference storage matching C# StoreScrobbleReference
@@ -315,32 +379,11 @@ export class TrackService {
   }
 
   /**
-   * User's all-time top tracks with optional 10-minute caching
+   * User's all-time top tracks with optional 10-minute caching.
    *
-   * CORRECT AS IS TODAY, AND THE REASON IS DEADNESS, NOT SAFETY. Verified: this
-   * method has no production caller. A whole-repo grep for
-   * `getUserAllTimeTopTracks` returns this definition plus `trackService.test.ts`
-   * and `trackService.db.test.ts`; nothing in `startup.ts`, no builder, no
-   * command, no interaction reaches it. So `catch { return [] }` cannot put a
-   * wrong number in front of anyone right now, and `[]` here is indistinguishable
-   * from "this user has never pressed play" to every caller that exists.
-   *
-   * THAT IS THE TRAP, and it is why this comment is long rather than absent. The
-   * moment a command wires this up it becomes exactly the bug the phase was
-   * opened for: `.toptracks` would render an empty leaderboard for a user with
-   * 40 million indexed plays, and every other number on the card would stay
-   * real, which is the shape a user cannot distrust. The sibling method
-   * `artistsService.getUserAllTimeTopArtists` - the same query on `user_plays`,
-   * the same `[]` - was fixed for precisely this reason and raises
-   * `SourceUnavailableError` via `orDatabaseUnavailable`.
-   *
-   * NOT FIXED HERE ON PURPOSE, and the reason is the blast radius, not the
-   * principle: there is no user-visible behaviour to change, so a raise would
-   * alter nothing observable while rewriting four pinned tests. The rule to
-   * apply when this is wired up is the one `artistsService` already follows -
-   * wrap the query in `orDatabaseUnavailable` and keep the honest empty for a
-   * query that RAN and matched nothing. `getLastMonthPlays` in this same file
-   * shows that shape, and its comment explains why the empty must survive.
+   * A query that RAN and matched nothing stays `[]`; a query that THREW raises
+   * `SourceUnavailableError` via `orDatabaseUnavailable`, so wiring this to a
+   * card can never render an outage as "no plays".
    */
   public async getUserAllTimeTopTracks(userId: number, useCache: boolean = false): Promise<TopTrack[]> {
     const cacheKey = `user-${userId}-toptracks-alltime`;
@@ -349,9 +392,11 @@ export class TrackService {
       if (cached) return cached;
     }
 
-    try {
-      if (!this.prisma) return [];
-      const rows = await this.prisma.$queryRawUnsafe<Array<{
+    if (!this.prisma) return [];
+    const rows = await orDatabaseUnavailable(
+      'getUserAllTimeTopTracks',
+      'userPlaysTopTracks',
+      () => this.prisma!.$queryRawUnsafe<Array<{
         track_name: string;
         artist_name: string;
         playcount: bigint;
@@ -362,31 +407,34 @@ export class TrackService {
         GROUP BY track_name, artist_name
         ORDER BY playcount DESC
         LIMIT 1000
-      `, userId);
+      `, userId),
+    );
 
-      const tracks: TopTrack[] = rows.map((r) => ({
-        name: r.track_name,
-        artistName: r.artist_name,
-        playcount: Number(r.playcount),
-      }));
+    const tracks: TopTrack[] = rows.map((r) => ({
+      name: r.track_name,
+      artistName: r.artist_name,
+      playcount: Number(r.playcount),
+    }));
 
-      if (tracks.length > 100) {
-        await this.cache.set(cacheKey, tracks, 600);
-      }
-
-      return tracks;
-    } catch {
-      // See the method doc: correct as is because nothing calls this yet, and
-      // `[]` is a lie the moment someone does. The fix, when that happens, is
-      // `orDatabaseUnavailable` exactly as in artistsService.
-      return [];
+    // Cache write stays OUTSIDE the guarded block: rows are in hand, and a
+    // cache failure must not turn a correct chart into an error.
+    if (tracks.length > 100) {
+      await this.cache.set(cacheKey, tracks, 600);
     }
+
+    return tracks;
   }
 
+  /**
+   * Tracks by one artist for one user. A query that RAN and matched nothing
+   * stays `[]`; a query that THREW raises via `orDatabaseUnavailable`.
+   */
   public async getArtistUserTracks(userId: number, artistName: string): Promise<Array<{ name: string; playcount: number }>> {
-    try {
-      if (!this.prisma) return [];
-      const rows = await this.prisma.$queryRawUnsafe<Array<{
+    if (!this.prisma) return [];
+    const rows = await orDatabaseUnavailable(
+      'getArtistUserTracks',
+      'userTracksByArtist',
+      () => this.prisma!.$queryRawUnsafe<Array<{
         track_name: string;
         playcount: bigint;
       }>>(`
@@ -396,21 +444,13 @@ export class TrackService {
         GROUP BY track_name
         ORDER BY playcount DESC
         LIMIT 50
-      `, userId, artistName);
+      `, userId, artistName),
+    );
 
-      return rows.map((r) => ({
-        name: r.track_name,
-        playcount: Number(r.playcount),
-      }));
-    } catch {
-      // CORRECT AS IS for the same reason as `getUserAllTimeTopTracks` above and
-      // verified the same way: no production caller reaches this method, only the
-      // two test files. Unlike that one, this query has no sibling that was
-      // fixed, so if it is ever wired to an "artist top tracks" card the empty
-      // list is what the user would read as "you have no plays for this artist"
-      // - which is why the note belongs here rather than in a shared helper.
-      return [];
-    }
+    return rows.map((r) => ({
+      name: r.track_name,
+      playcount: Number(r.playcount),
+    }));
   }
 
   /**

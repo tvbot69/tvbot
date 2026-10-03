@@ -11,6 +11,7 @@ import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmReposito
 import { CacheService } from '@bot/services/system/cacheService';
 import { UpdateType } from '@domain/enums/updateType';
 import { Logger } from '@domain/logging/logger';
+import { isLastFmUnavailable } from '@domain/models/errors/lastfmUnavailableError';
 import { prisma } from '@persistence/prismaClient';
 import { TimePeriod } from '@domain/enums/timePeriod';
 import { normalizeStoredName } from '@domain/text/textNormalize';
@@ -306,14 +307,27 @@ export class IndexService {
     let pagesSinceFlush = 0;
 
     while (page <= MAX_INDEX_PAGES) {
-      const list = await this.lastfmRepository.getUserRecentTracksWithMetadata(
-        userName,
-        RECENT_TRACKS_PAGE_SIZE,
-        page,
-        undefined,
-        sessionKey,
-        RECENT_TRACKS_ERROR_RETRIES,
-      );
+      let list;
+      try {
+        list = await this.lastfmRepository.getUserRecentTracksWithMetadata(
+          userName,
+          RECENT_TRACKS_PAGE_SIZE,
+          page,
+          undefined,
+          sessionKey,
+          RECENT_TRACKS_ERROR_RETRIES,
+        );
+      } catch (err) {
+        if (isLastFmUnavailable(err)) {
+          Logger.warn(`Index: Last.fm unavailable for ${userName} — aborting page loop`);
+          if (pendingPlays.length > 0) {
+            totalInserted += await this.flushPendingPlays(userId, pendingPlays);
+            pendingPlays.length = 0;
+          }
+          throw err;
+        }
+        throw err;
+      }
       const tracks = list.tracks;
 
       if (tracks.length === 0) {

@@ -154,31 +154,30 @@ describe('an explicit argument short-circuits every resolver', () => {
 });
 
 describe('an unlinked account is refused before any provider call', () => {
-  it('names the command and the fix for a track search', async () => {
+  it('refuses with the canonical register message for a track search', async () => {
     const { commands, lastFmRepository } = build({ caller: null });
 
     const result = await trackQuery(commands, []);
 
     expect(codeOf(result)).toBe(CommandResponse.NotFound);
-    expect(messageOf(result)).toContain('.spotify');
-    expect(messageOf(result)).toContain('.login');
+    expect(messageOf(result)).toContain('.register');
     expect(lastFmRepository.getUserRecentTracks).not.toHaveBeenCalled();
   });
 
-  it('names the album command instead for an album search', async () => {
+  it('refuses with the canonical register message for an album search', async () => {
     const { commands } = build({ caller: null });
 
     const result = await albumQuery(commands, []);
 
-    expect(messageOf(result)).toContain('.spotifyalbum');
+    expect(messageOf(result)).toContain('.register');
   });
 
-  it('names the artist command instead for an artist search', async () => {
+  it('refuses with the canonical register message for an artist search', async () => {
     const { commands } = build({ caller: null });
 
     const result = await artistQuery(commands, []);
 
-    expect(messageOf(result)).toContain('.spotifyartist');
+    expect(messageOf(result)).toContain('.register');
   });
 
   it('treats a user row with a BLANK Last.fm name as unlinked', async () => {

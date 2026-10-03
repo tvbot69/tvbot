@@ -348,6 +348,26 @@ const KINDS: Record<string, KindFn> = {
    *
    * Files with no test at all contribute their full count, so deleting a
    * `*.db.test.ts` is caught too.
+   *
+   * PER-QUERY ON TOP OF PER-FILE. Count-vs-allowance alone still misses the
+   * shape mutation: a file at exact allowance can swap one query for a
+   * different untested shape, or grow under slack, and the count does not move.
+   * So each site also carries a hash (normalised SQL, FNV-1a, same function as
+   * `hashNormalizedSql` in src/testSupport/dbRawQueryObserver.ts) and an owning
+   * method, and the matching `*.db.test.ts` must prove each one:
+   *
+   * - every query-owning method must be named in its db test, except the four
+   *   legacy gaps in KNOWN_UNPROVEN below (mocked elsewhere, never parsed by a
+   *   real Postgres - the list may only shrink);
+   * - where the db test goes through the observer (`recordRawQueries`), every
+   *   production hash must appear among the test's SQL literals, so a rewritten
+   *   predicate fails even at the same count. Files not on the observer yet
+   *   prove execution by calling each method against a real database; migrating
+   *   them to hash assertions is the direction, not a second mechanism.
+   *
+   * A new untested query in an at-allowance file fails at least one layer: a
+   * new site in a covered method fails the count, a new method fails the method
+   * check, and a swapped shape in an observer file fails the hash check.
    */
   'raw-query-without-db-test': (program) => {
     // `fs` and `path` are already imported at the top of this file - a local
@@ -355,22 +375,157 @@ const KINDS: Record<string, KindFn> = {
     const fsmod = fs;
     const pathmod = path;
 
-    const hasDbTest = (stem: string): boolean => {
-      let found = false;
+    const RAW_NAMES = new Set(['$queryRawUnsafe', '$queryRaw', '$executeRaw', '$executeRawUnsafe']);
+
+    // Duplicated from src/testSupport/dbRawQueryObserver.ts on purpose:
+    // importing `src/` from `scripts/` would drag a file outside `rootDir`
+    // into `tsc` and break `npm run build`. The two copies must stay
+    // identical or production and test will disagree about a shape.
+    const normaliseForHash = (sql: string): string => sql.replace(/\s+/g, ' ').trim();
+    const hashForRatchet = (sql: string): string => {
+      const s = normaliseForHash(sql);
+      let h = 0x811c9dc5;
+      for (let i = 0; i < s.length; i += 1) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+      }
+      return (h >>> 0).toString(16).padStart(8, '0');
+    };
+
+    // Legacy gaps: query-owning methods with no real-database execution proof.
+    // Each is covered by a mocked unit test instead, so its SQL has never been
+    // parsed by Postgres. Grandfathered visibly so the list can only shrink;
+    // a new method missing from its db test is debt, not legacy.
+    const KNOWN_UNPROVEN: Record<string, string[]> = {
+      'bot/services/library/artistsService.ts': ['getIndexedAlbumCoversForArtist', 'getRecentTopArtists'],
+      'bot/services/library/playHistoryService.ts': ['getGuildPlayLeaderboard', 'getGuildTimeLeaderboard'],
+    };
+
+    const OBSERVER_MARKERS = [
+      'dbRawQueryObserver',
+      'recordRawQueries',
+      'hashNormalizedSql',
+      'queryHashes',
+      'assertExpectedQueries',
+    ];
+
+    const findDbTestPath = (stem: string): string | null => {
+      const want = `${stem.replace(/\.ts$/, '')}.db.test.ts`;
+      let found: string | null = null;
       const walk = (dir: string): void => {
         if (found) return;
         for (const e of fsmod.readdirSync(dir, { withFileTypes: true })) {
           if (found) return;
           const full = pathmod.join(dir, e.name);
           if (e.isDirectory()) walk(full);
-          else if (e.name === `${stem.replace(/\.ts$/, '')}.db.test.ts`) found = true;
+          else if (e.name === want) found = full;
         }
       };
       walk('src');
       return found;
     };
 
-let baseline: Record<string, number> = {};
+    // `hasDbTest` is subsumed by `findDbTestPath` (which returns the path
+    // instead of a boolean); the orphan-key check below is the part that must
+    // stay a hard error.
+
+    interface ProdQuery {
+      hash: string;
+      method: string;
+      line: number;
+      preview: string;
+      dynamic: boolean;
+    }
+
+    const templateToSql = (template: ts.TemplateLiteral | ts.NoSubstitutionTemplateLiteral): string | null => {
+      if (ts.isNoSubstitutionTemplateLiteral(template)) return template.text;
+      // Tagged/call template: static head plus one `?` per interpolation,
+      // which is exactly what Prisma builds and what the observer records.
+      return template.head.text + template.templateSpans.map((s) => `?${s.literal.text}`).join('');
+    };
+
+    const callArgToSql = (arg: ts.Expression | undefined): string | null => {
+      if (!arg) return null;
+      if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) return arg.text;
+      if (ts.isTemplateExpression(arg)) {
+        return arg.head.text + arg.templateSpans.map((s) => `?${s.literal.text}`).join('');
+      }
+      // Interpolated `$queryRawUnsafe('...' + x)` and other computed shapes
+      // cannot be fingerprinted statically; the count and method checks still
+      // apply, and the hash check skips the file rather than guessing.
+      if (ts.isBinaryExpression(arg) && arg.operatorToken.kind === ts.SyntaxKind.PlusToken) return null;
+      return null;
+    };
+
+    const extractProductionQueries = (sf: ts.SourceFile): ProdQuery[] => {
+      const out: ProdQuery[] = [];
+      const visit = (node: ts.Node, currentMethod: string): void => {
+        let next = currentMethod;
+        if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name)) next = node.name.text;
+        else if (ts.isFunctionDeclaration(node) && node.name) next = node.name.text;
+        let sql: string | null = null;
+        let isRaw = false;
+        if (ts.isTaggedTemplateExpression(node) && ts.isPropertyAccessExpression(node.tag)) {
+          if (RAW_NAMES.has(node.tag.name.text)) {
+            isRaw = true;
+            sql = templateToSql(node.template);
+          }
+        } else if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+          if (RAW_NAMES.has(node.expression.name.text)) {
+            isRaw = true;
+            sql = callArgToSql(node.arguments[0]);
+          }
+        }
+        if (isRaw) {
+          const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+          if (sql === null) {
+            out.push({ hash: `dynamic:${line + 1}`, method: next, line: line + 1, preview: '<dynamic sql>', dynamic: true });
+          } else {
+            const norm = normaliseForHash(sql);
+            out.push({
+              hash: hashForRatchet(norm),
+              method: next,
+              line: line + 1,
+              preview: norm.slice(0, 60),
+              dynamic: false,
+            });
+          }
+        }
+        node.forEachChild((child) => visit(child, next));
+      };
+      visit(sf, '<top>');
+      return out;
+    };
+
+    const evalConstString = (node: ts.Node): string | null => {
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+      if (ts.isParenthesizedExpression(node)) return evalConstString(node.expression);
+      if (ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) return evalConstString(node.expression);
+      if (
+        ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.PlusToken
+      ) {
+        const left = evalConstString(node.left);
+        const right = evalConstString(node.right);
+        return left === null || right === null ? null : left + right;
+      }
+      return null;
+    };
+
+    const extractTestSqlHashes = (testSf: ts.SourceFile): Set<string> => {
+      const hashes = new Set<string>();
+      const visit = (node: ts.Node): void => {
+        const value = evalConstString(node);
+        if (value !== null && /\b(SELECT|INSERT|UPDATE|DELETE|WITH)\b/i.test(value)) {
+          hashes.add(hashForRatchet(normaliseForHash(value)));
+        }
+        node.forEachChild(visit);
+      };
+      visit(testSf);
+      return hashes;
+    };
+
+    let baseline: Record<string, number> = {};
     try {
       baseline = JSON.parse(fsmod.readFileSync('scripts/raw-query-baseline.json', 'utf8'));
     } catch {
@@ -406,36 +561,55 @@ let baseline: Record<string, number> = {};
       const p = path.resolve(sf.fileName).replace(/\\/g, '/');
       if (p.includes('/dbHarness')) continue;
       const rel = p.split('/src/')[1] ?? p;
-      let count = 0;
-      const visit = (node: ts.Node): void => {
-        // BOTH forms, and missing one is the whole bug this ratchet exists to fix.
-        // A bare `p.$queryRaw`...`` is a CallExpression. But `p.$queryRaw<T>`...`` -
-        // a tagged template carrying a type argument, which is how almost every
-        // call in this repo is written - is a TaggedTemplateExpression, and
-        // isCallExpression is FALSE for it. My first version checked only
-        // CallExpression and reported ZERO raw queries in a file that has five.
-        // A ratchet that reports zero is worse than no ratchet.
-        let callee: ts.Node | null = null;
-        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-          callee = node.expression;
-        } else if (ts.isTaggedTemplateExpression(node) && ts.isPropertyAccessExpression(node.tag)) {
-          callee = node.tag;
-        }
-        if (callee) {
-          const m = (callee as ts.PropertyAccessExpression).name.text;
-          if (m === '$queryRawUnsafe' || m === '$queryRaw' || m === '$executeRaw' || m === '$executeRawUnsafe') {
-            count += 1;
-          }
-        }
-        node.forEachChild(visit);
-      };
-      visit(sf);
+      const queries = extractProductionQueries(sf);
+      const count = queries.length;
       if (count === 0) continue;
-      const allowed = hasDbTest(pathmod.basename(p)) ? (baseline[rel] ?? 0) : 0;
+      const testPath = findDbTestPath(pathmod.basename(p));
+      const allowed = testPath !== null ? (baseline[rel] ?? 0) : 0;
       const over = count - allowed;
-      if (over <= 0) continue;
-      n += over;
-      record(`${rel} (${count} queries, allowance ${allowed})`, 0);
+      if (over > 0) {
+        n += over;
+        record(`${rel} (${count} queries, allowance ${allowed})`, 0);
+        continue;
+      }
+      // At or under allowance: prove each query shape, not just the total.
+      // A new untested query in an at-allowance file must fail here even
+      // though the count did not grow past the budget.
+      if (testPath === null) continue;
+      let testText = '';
+      try {
+        testText = fsmod.readFileSync(testPath, 'utf8');
+      } catch {
+        continue;
+      }
+      const grandfathered = new Set(KNOWN_UNPROVEN[rel] ?? []);
+      const methods = [...new Set(queries.map((q) => q.method))].filter(
+        (m) => m !== '<top>' && !grandfathered.has(m),
+      );
+      for (const method of methods) {
+        if (!testText.includes(method)) {
+          n += 1;
+          record(`${rel} (query in ${method} has no db-test execution proof)`, 0);
+        }
+      }
+      // Shape proof where the test states the SQL: every production hash must
+      // appear among the test's SQL literals. Dynamic shapes skip this layer
+      // rather than guessing; the count and method checks still apply.
+      if (queries.some((q) => q.dynamic)) continue;
+      if (!OBSERVER_MARKERS.some((marker) => testText.includes(marker))) continue;
+      let testSf: ts.SourceFile;
+      try {
+        testSf = ts.createSourceFile(testPath, testText, ts.ScriptTarget.ES2022, true);
+      } catch {
+        continue;
+      }
+      const proven = extractTestSqlHashes(testSf);
+      for (const q of queries) {
+        if (!proven.has(q.hash)) {
+          n += 1;
+          record(`${rel}:${q.line} (query hash ${q.hash} in ${q.method} not proven by db test; ${q.preview})`, 0);
+        }
+      }
     }
     return n;
   },

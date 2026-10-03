@@ -10,7 +10,7 @@ import { AlternateTrackFinder } from '@bot/handlers/music/alternateTrackFinder';
 import { VoiceLifecycle, type VoiceLifecycleHost } from '@bot/handlers/music/voiceLifecycle';
 import { ChapterTimeline, type ChapterTimelineHost } from '@bot/handlers/music/chapterTimeline';
 import { MusicEventListeners, type EventListenerHost } from '@bot/handlers/music/musicEventListeners';
-import { buildFallbackQuery, chapterKeyFor, clientFailuresText, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
+import { chapterKeyFor, clientFailuresText, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { QueueService } from '@bot/services/music/queueService';
 import type { ColorService } from '@bot/services/system/colorService';
@@ -30,15 +30,40 @@ import { cleanTrackTitle } from '@domain/models/music/musicTrack';
 
 import type { Client } from 'discord.js';
 
-export class MusicHandler {
-  private readonly client: Client;
-  private readonly moonlinkManager: MoonlinkManager;
-  private readonly queueService: QueueService;
-  private readonly colorService?: ColorService;
-  private readonly voiceChannelStatusService?: VoiceChannelStatusService;
-  private readonly botScrobblingService?: BotScrobblingService;
-  private readonly lyricsService?: LyricsService;
-  private readonly artworkService?: ArtworkService;
+/**
+ * The playback presentation host.
+ *
+ * Every collaborator below was extracted out of this class and is handed
+ * `this` as its host, which is why the handler `implements` all six host
+ * interfaces rather than being cast into them. The `this as unknown as X`
+ * casts this replaces were load-bearing lies: they silenced the one check that
+ * would have caught a renamed delegate at compile time, and every one of them
+ * sat on a constructor line where a mismatch produced a collaborator pointing
+ * at a method the handler no longer had — a `TypeError` at the first event,
+ * not at build.
+ *
+ * The widened members are exactly the six hosts' surfaces. They stay the SAME
+ * delegates on the SAME object, which is the part the suite depends on: tests
+ * reach privates through `as unknown as {...}` casts and replace methods or
+ * services as own properties, and every collaborator calls back through
+ * `host.<member>` so those shadows still intercept. Nothing here moved, was
+ * wrapped, or started being captured by value.
+ */
+export class MusicHandler implements
+  CardPublisherHost,
+  VoiceLifecycleHost,
+  ChapterArtHost,
+  KaraokeHost,
+  EventListenerHost,
+  ChapterTimelineHost {
+  public readonly client: Client;
+  public readonly moonlinkManager: MoonlinkManager;
+  public readonly queueService: QueueService;
+  public readonly colorService?: ColorService;
+  public readonly voiceChannelStatusService?: VoiceChannelStatusService;
+  public readonly botScrobblingService?: BotScrobblingService;
+  public readonly lyricsService?: LyricsService;
+  public readonly artworkService?: ArtworkService;
   private readonly emptyChannelTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly inactivityTimeouts = new Map<string, NodeJS.Timeout>();
   private readonly kickGraceTimeouts = new Map<string, NodeJS.Timeout>();
@@ -85,7 +110,7 @@ export class MusicHandler {
     this.artworkService = artworkService;
 
     this.cards = new NowPlayingCardPublisher(
-      this as unknown as CardPublisherHost,
+      this,
       this.progressNudgeTimers,
       this.progressPublishing,
       this.progressFingerprints,
@@ -93,19 +118,13 @@ export class MusicHandler {
       this.pendingPublish,
     );
     this.voice = new VoiceLifecycle(
-      this as unknown as VoiceLifecycleHost,
+      this,
       this.kickGraceTimeouts,
       this.emptyChannelTimeouts,
       this.inactivityTimeouts,
     );
-    this.chapterArt = new ChapterArtController(
-      this as unknown as ChapterArtHost,
-      this.chapterArtRetryTimers,
-    );
-    this.karaoke = new KaraokeController(
-      this as unknown as KaraokeHost,
-      this.karaokeTimers,
-    );
+    this.chapterArt = new ChapterArtController(this, this.chapterArtRetryTimers);
+    this.karaoke = new KaraokeController(this, this.karaokeTimers);
     this.fallbackBudget = new FallbackBudget(
       this.fallbackAttempts,
       this.guildFallbackBudget,
@@ -113,7 +132,7 @@ export class MusicHandler {
       this.songFailureCounts,
     );
     this.listeners = new MusicEventListeners(
-      this as unknown as EventListenerHost,
+      this,
       this.moonlinkManager,
       this.queueService,
       this.client,
@@ -128,10 +147,7 @@ export class MusicHandler {
       this.pendingPublish,
       this.progressPublishing,
     );
-    this.chapters3 = new ChapterTimeline(
-      this as unknown as ChapterTimelineHost,
-      this.chapterArt,
-    );
+    this.chapterTimeline = new ChapterTimeline(this, this.chapterArt);
     this.fallbacks = new AlternateTrackFinder({
       moonlinkManager: this.moonlinkManager,
       queueService: this.queueService,
@@ -182,18 +198,18 @@ export class MusicHandler {
   /** Chapter timeline — see music/chapterTimeline.ts. Takes the art
    * controller directly; the boundary timer and the card publisher stay on the
    * handler and are reached through the host. */
-  private readonly chapters3: ChapterTimeline;
+  private readonly chapterTimeline: ChapterTimeline;
 
-  private resolveVideoChapters(player: Player, track: Track | null | undefined): void {
-    this.chapters3.resolveVideoChapters(player, track);
+  public resolveVideoChapters(player: Player, track: Track | null | undefined): void {
+    this.chapterTimeline.resolveVideoChapters(player, track);
   }
 
-  private chapterCardFor(player: Player, positionMs: number): ChapterCard | null {
-    return this.chapters3.chapterCardFor(player, positionMs);
+  public chapterCardFor(player: Player, positionMs: number): ChapterCard | null {
+    return this.chapterTimeline.chapterCardFor(player, positionMs);
   }
 
-  private swapChapterOnSeek(player: Player, positionMs: number): void {
-    this.chapters3.swapChapterOnSeek(player, positionMs);
+  public swapChapterOnSeek(player: Player, positionMs: number): void {
+    this.chapterTimeline.swapChapterOnSeek(player, positionMs);
   }
 
   private readonly progressFingerprints = new Map<string, string>();
@@ -226,15 +242,47 @@ export class MusicHandler {
   private static fingerprintFor = fingerprintFor;
   private static clientFailuresText = clientFailuresText;
 
-  /** See cardFingerprint.buildFallbackQuery. */
-  private buildFallbackQuery(track: Track | null | undefined): string | null {
-    return buildFallbackQuery(track);
-  }
-
   /** 15s node-health survival probe, armed on trackStart. */
   private readonly okTimers = new Map<string, NodeJS.Timeout>();
 
-  private clearCardTimers(guildId: string): void {
+  /**
+   * Live read-only views for tests. Maps stay owned here — no copy, so
+   * `forgetGuild` sweeps and timer identity stay intact. Tests read through
+   * these instead of `as unknown as` casts reaching privates.
+   */
+  public get progressPublishingView(): Map<string, number> {
+    return this.progressPublishing;
+  }
+
+  public get progressFingerprintsView(): Map<string, string> {
+    return this.progressFingerprints;
+  }
+
+  public get karaokeTimersView(): Map<string, NodeJS.Timeout> {
+    return this.karaokeTimers;
+  }
+
+  public get chapterTimersView(): Map<string, NodeJS.Timeout> {
+    return this.chapterTimers;
+  }
+
+  public get publishRetriesView(): Map<string, number> {
+    return this.publishRetries;
+  }
+
+  public get progressNudgeTimersView(): Map<string, NodeJS.Timeout> {
+    return this.progressNudgeTimers;
+  }
+
+  public get okTimersView(): Map<string, NodeJS.Timeout> {
+    return this.okTimers;
+  }
+
+  public get songFailureCountsView(): Map<string, { count: number; firstAt: number }> {
+    return this.songFailureCounts;
+  }
+
+  public clearCardTimers(guildId: string): void {
     const nudge = this.progressNudgeTimers.get(guildId);
     if (nudge) {
       clearTimeout(nudge);
@@ -251,11 +299,11 @@ export class MusicHandler {
    * tests can still read it and forgetGuild still sweeps it. */
   private readonly karaoke: KaraokeController;
 
-  private lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
+  public lyricWindowFor(player: Player, positionMs: number): LyricWindow | null {
     return this.karaoke.lyricWindowFor(player, positionMs);
   }
 
-  private async resolveKaraokeLines(
+  public async resolveKaraokeLines(
     player: Player,
     title: string,
     artist: string,
@@ -268,7 +316,7 @@ export class MusicHandler {
     this.karaoke.clearKaraokeTimer(guildId);
   }
 
-  private armKaraokeTimer(player: Player): void {
+  public armKaraokeTimer(player: Player): void {
     this.karaoke.armKaraokeTimer(player);
   }
 
@@ -285,7 +333,7 @@ export class MusicHandler {
    * Arms a one-shot to the next chapter start so live shows follow
    * themselves with zero polling. Same recheck rules as karaoke.
    */
-  private armChapterTimer(player: Player): void {
+  public armChapterTimer(player: Player): void {
     this.clearChapterTimer(player.guildId);
     try {
       const chapters = player.get<VideoChapter[] | null>('chapters');
@@ -320,7 +368,7 @@ export class MusicHandler {
    * (one REST call per chapter, never per tick). Falls back to the track
    * when the card clears (generic chapter) so the status never goes stale.
    */
-  private updateChapterStatus(player: Player): void {
+  public updateChapterStatus(player: Player): void {
     try {
       const svc = this.voiceChannelStatusService;
       if (!svc || !player.voiceChannelId) return;
@@ -377,7 +425,7 @@ export class MusicHandler {
     }
   }
 
-  private clearOkTimer(guildId: string): void {
+  public clearOkTimer(guildId: string): void {
     const timer = this.okTimers.get(guildId);
     if (timer) {
       clearTimeout(timer);
@@ -413,15 +461,15 @@ export class MusicHandler {
    * can still read them and clearCardTimers/forgetGuild still sweep them. */
   private readonly cards: NowPlayingCardPublisher;
 
-  private async publishProgress(player: Player): Promise<void> {
+  public async publishProgress(player: Player): Promise<void> {
     return this.cards.publishProgress(player);
   }
 
-  private forgetNowPlaying(player: Player): void {
+  public forgetNowPlaying(player: Player): void {
     this.cards.forgetNowPlaying(player);
   }
 
-  private scheduleImmediateProgress(player: Player, delayMs = 300): void {
+  public scheduleImmediateProgress(player: Player, delayMs = 300): void {
     this.cards.scheduleImmediateProgress(player, delayMs);
   }
 
@@ -451,7 +499,7 @@ export class MusicHandler {
    * forgetGuild still sweeps them and the tests can still read them here. */
   private readonly fallbackBudget: FallbackBudget;
 
-  private checkFallbackBudget(guildId: string, failedKey: string): boolean {
+  public checkFallbackBudget(guildId: string, failedKey: string): boolean {
     return this.fallbackBudget.checkFallbackBudget(guildId, failedKey);
   }
 
@@ -459,34 +507,22 @@ export class MusicHandler {
     return this.fallbackBudget.recordFallbackAttempt(guildId, failedKey, fallbackId);
   }
 
-  private clearFallbackState(guildId: string): void {
+  public clearFallbackState(guildId: string): void {
     return this.fallbackBudget.clearFallbackState(guildId);
   }
 
-  private isSongExhausted(guildId: string, track: Track): boolean {
+  public isSongExhausted(guildId: string, track: Track): boolean {
     return this.fallbackBudget.isSongExhausted(guildId, track);
-  }
-
-  private matchesFallbackDuration(failedTrack: Track, duration?: number): boolean {
-    return this.fallbackBudget.matchesFallbackDuration(failedTrack, duration);
-  }
-
-  private isFreshCandidate(failedTrack: Track, guildId: string, t: Track): boolean {
-    return this.fallbackBudget.isFreshCandidate(failedTrack, guildId, t);
   }
 
   /** Alternate-track ladder — see music/alternateTrackFinder.ts. */
   private readonly fallbacks: AlternateTrackFinder;
 
-  public adoptFallbackMetadata(fallback: Track, failedTrack: Track, source: string): void {
-    this.fallbacks.adoptFallbackMetadata(fallback, failedTrack, source);
-  }
-
-  private frozenPosition(player: Player): number {
+  public frozenPosition(player: Player): number {
     return this.fallbacks.frozenPosition(player);
   }
 
-  private async resumeFallbackAt(player: Player, fallback: Track, resumeMs: number): Promise<void> {
+  public async resumeFallbackAt(player: Player, fallback: Track, resumeMs: number): Promise<void> {
     return this.fallbacks.resumeFallbackAt(player, fallback, resumeMs);
   }
 
@@ -510,7 +546,7 @@ export class MusicHandler {
     return this.fallbacks.tryResolver(player, src);
   }
 
-  private async findAlternatePlayableTrack(
+  public async findAlternatePlayableTrack(
     manager: Manager,
     player: Player,
     failedTrack: Track | null | undefined,
@@ -534,11 +570,11 @@ export class MusicHandler {
    * The three timer Maps stay owned here and are passed in by reference. */
   private readonly voice: VoiceLifecycle;
 
-  private clearKickGrace(guildId: string): void {
+  public clearKickGrace(guildId: string): void {
     this.voice.clearKickGrace(guildId);
   }
 
-  private clearInactivityTimeout(guildId: string): void {
+  public clearInactivityTimeout(guildId: string): void {
     this.voice.clearInactivityTimeout(guildId);
   }
 
@@ -552,7 +588,7 @@ export class MusicHandler {
    * status memo, the publish bookkeeping and the coalescing sets behind, so a
    * bot that churns through guilds accumulates them for the process lifetime.
    */
-  private forgetGuild(guildId: string): void {
+  public forgetGuild(guildId: string): void {
     this.clearCardTimers(guildId);
     this.clearFallbackState(guildId);
     this.clearKickGrace(guildId);

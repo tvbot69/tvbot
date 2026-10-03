@@ -17,6 +17,7 @@ export class CacheService implements ICache {
   private readonly maxEntries: number;
   private readonly sweepInterval: NodeJS.Timeout | null = null;
   private redis: Redis | null = null;
+  private redisFailureLogged = false;
 
   constructor(maxEntries = DEFAULT_MAX_ENTRIES) {
     this.maxEntries = maxEntries;
@@ -86,11 +87,12 @@ export class CacheService implements ICache {
           if (remaining !== undefined) this.setMemory(key, parsed, remaining ?? undefined);
           return parsed;
         }
-      } catch {
+      } catch (err) {
         // A Redis read failure is a cache MISS, not an absence: the caller
         // recomputes and re-populates. Returning null here never writes a
         // negative marker, so it cannot freeze "no cover / disabled" for a
         // later reader.
+        Logger.debug({ err }, 'Cache get: Redis read failed, treating as miss');
         return null;
       }
     }
@@ -114,8 +116,9 @@ export class CacheService implements ICache {
       // -1 = genuinely no expiry. -2 = key already gone: nothing was read, so
       // report "unknown" rather than "permanent" and let the value stand.
       return ttl === -1 ? null : undefined;
-    } catch {
+    } catch (err) {
       // Redis unreachable between the GET and the TTL: unknown, not permanent.
+      Logger.debug({ err }, 'Cache TTL: read failed, expiry unknown, not caching');
       return undefined;
     }
   }
@@ -130,10 +133,11 @@ export class CacheService implements ICache {
         } else {
           await this.redis.set(key, JSON.stringify(value));
         }
-      } catch {
+      } catch (err) {
         // CORRECT AS IS: memory already holds the value (setMemory above ran
         // first, unconditionally). A failed Redis write costs cross-process
         // visibility until the key's TTL, not correctness in this process.
+        Logger.debug({ err }, 'Cache set: Redis write failed, memory holds value');
         return;
       }
     }
@@ -167,8 +171,9 @@ export class CacheService implements ICache {
       try {
         const ok = await this.redis.set(key, JSON.stringify(value), 'EX', ttlSeconds, 'NX');
         return ok === 'OK';
-      } catch {
+      } catch (err) {
         // Redis is unreachable; trust the memory answer rather than guessing.
+        Logger.debug({ err }, 'Cache setNX: Redis write failed, trusting memory');
       }
     }
     return true;
@@ -179,12 +184,13 @@ export class CacheService implements ICache {
     if (this.redis && this.redis.status === 'ready') {
       try {
         await this.redis.del(key);
-      } catch {
+      } catch (err) {
         // CORRECT AS IS: the local delete above already happened, so this
         // process is consistent. A surviving Redis key can only be re-read by
         // another shard, and only until its own TTL expires — the
         // alternative (throwing) would make callers treat a delete as failed
         // and re-cache the same value.
+        Logger.debug({ err }, 'Cache delete: Redis del failed, local delete done');
         return;
       }
     }
@@ -201,8 +207,17 @@ export class CacheService implements ICache {
   private async redisExec<T>(fn: (client: Redis) => Promise<T>, fallback: T): Promise<T> {
     if (!this.isRedisReady()) return fallback;
     try {
-      return await fn(this.redis as Redis);
-    } catch {
+      const result = await fn(this.redis as Redis);
+      this.redisFailureLogged = false;
+      return result;
+    } catch (err) {
+      // Lost capability is WARN: the mirror/counter read did not happen and the
+      // caller is running on the in-memory fallback. Logged once per episode so
+      // a sustained outage costs one line, not one per command.
+      if (!this.redisFailureLogged) {
+        this.redisFailureLogged = true;
+        Logger.warn({ err }, 'Redis command failed, using in-memory fallback');
+      }
       return fallback;
     }
   }
@@ -224,8 +239,9 @@ export class CacheService implements ICache {
         if (raw === null || raw === undefined) break;
         try {
           out.push(JSON.parse(raw) as T);
-        } catch {
+        } catch (err) {
           // corrupt entry — drop it
+          Logger.debug({ err }, 'Cache listPop: corrupt entry dropped');
         }
       }
       return out;
@@ -245,11 +261,16 @@ export class CacheService implements ICache {
         // dedup answer depends on. A failed EXPIRE only means the KEY outlives
         // its ttl, so the member stays de-duplicated; the opposite (ignoring a
         // failed SADD) would report "already seen" for something never stored.
-        await r.expire(key, ttlSeconds).catch(() => undefined);
+        await r.expire(key, ttlSeconds).catch((err: unknown) => {
+          Logger.debug({ err }, 'Cache setAddNX: expire failed, dedup holds');
+        });
         return true;
       }
       return false;
-    }, true);
+      // Fail CLOSED: a Redis outage must not claim cross-process dedup succeeded.
+      // `true` here would let a caller believe the member is recorded and skip
+      // the queue mirror, silently dropping work. `false` forces the safe path.
+    }, false);
   }
 
   public async setRemove(key: string, member: string): Promise<void> {
@@ -294,15 +315,23 @@ export class CacheService implements ICache {
     if (this.redis) {
       try {
         if (this.redis.status === 'ready' || this.redis.status === 'connecting') {
-          await this.redis.quit().catch(() => this.redis?.disconnect());
+          await this.redis.quit().catch((err: unknown) => {
+            // CORRECT AS IS: QUIT rejects when the socket dies mid-shutdown, and
+            // the hard DISCONNECT is the documented fallback — it costs a TCP RST
+            // on a connection that is being abandoned either way. Transport rung,
+            // not a lost capability, so DEBUG.
+            Logger.debug({ err }, 'Cache disconnect: Redis quit rejected, forcing disconnect');
+            return this.redis?.disconnect();
+          });
         } else {
           this.redis.disconnect();
         }
-      } catch {
+      } catch (err) {
         // CORRECT AS IS: shutdown. The connection is being abandoned anyway
         // and `this.redis = null` below drops the reference, so nothing this
         // process believes can outlive it.
         // ignore disconnect errors during shutdown
+        Logger.debug({ err }, 'Cache disconnect: Redis quit failed, abandoning');
       }
       this.redis = null;
     }

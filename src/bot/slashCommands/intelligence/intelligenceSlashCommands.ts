@@ -2,7 +2,7 @@ import { SlashCommandBuilder } from 'discord.js';
 import { inject, injectable, container } from 'tsyringe';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
@@ -36,6 +36,7 @@ interface TargetResolution {
 
 import { IcebergGenerator } from '@images/generators/icebergGenerator';
 import { Logger } from '@domain/logging/logger';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 @injectable()
 export class IntelligenceSlashCommands implements ISlashCommandModule {
@@ -134,13 +135,8 @@ export class IntelligenceSlashCommands implements ISlashCommandModule {
     context: ContextModel,
     targetDiscordUserId?: string,
   ): Promise<TargetResolution | ResponseModel> {
-    const callerUser = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!callerUser) {
-      return GenericEmbedService.buildCommandErrorResponse(
-        CommandResponse.NotFound,
-        `You have not connected your Last.fm account yet. Use the \`/register\` command first.`,
-      );
-    }
+    const callerUser = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in callerUser) return callerUser;
 
     let targetUser = callerUser;
     let displayName = context.discordDisplayName;

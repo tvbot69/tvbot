@@ -233,7 +233,7 @@ describe('FriendsCommands.friended: whose name each row shows', () => {
 
     const text = textOf(await friendedOf(cmd).executeAsync(makeContext(), []));
 
-    expect(text).toContain('Last.fm username');
+    expect(text).toContain('have not connected');
     expect(friendsService.getFriended).not.toHaveBeenCalled();
   });
 });

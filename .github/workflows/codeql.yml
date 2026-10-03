@@ -1,0 +1,46 @@
+# CodeQL analysis for javascript-typescript.
+#
+# No secrets. No env vars. Public repo, keyless default GITHUB_TOKEN only.
+
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  security-events: write
+  contents: read
+  actions: read
+
+# Never let two runs of the same ref compete; cancel the older one.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action@7999b86c43a865dc79d8923397f35af22de63401 # v4
+        with:
+          languages: javascript-typescript
+
+      - name: Autobuild
+        uses: github/codeql-action@7999b86c43a865dc79d8923397f35af22de63401 # v4
+
+      - name: Analyze
+        uses: github/codeql-action@7999b86c43a865dc79d8923397f35af22de63401 # v4

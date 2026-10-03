@@ -171,4 +171,13 @@ export class WhoKnowsTrackService {
       discordName: r.discordName ?? r.userNameLastFm,
     }));
   }
+
+  /**
+   * Guild members that must never be named, via the already-injected guild-user
+   * repository — so command modules never resolve one out of the container.
+   */
+  public async getGuildHiddenUserIds(discordGuildId: string): Promise<Set<number>> {
+    const guildUsers = await this.guildUserRepository.getGuildUsers(discordGuildId);
+    return WhoKnowsService.hiddenGuildUserIds(guildUsers);
+  }
 }

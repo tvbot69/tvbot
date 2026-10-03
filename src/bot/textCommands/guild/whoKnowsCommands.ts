@@ -1,6 +1,6 @@
 import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { UserService } from '@bot/services/user/userService';
 import { SettingService } from '@bot/services/system/settingService';
@@ -22,6 +22,9 @@ import { WhoKnowsMode } from '@domain/enums/whoKnowsMode';
 import { container } from 'tsyringe';
 import { ArtistTrackService } from '@bot/services/library/artistTrackService';
 import { GenreService } from '@bot/services/library/genreService';
+import type { WhoKnowsUser } from '@bot/models/whoKnowsModels';
+import type { Friend } from '@persistence/models/user';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 const lastfmArtistUrl = (artist: string): string =>
   `https://www.last.fm/music/${encodeURIComponent(artist).replace(/%20/g, '+')}`;
@@ -118,15 +121,35 @@ export class WhoKnowsCommands implements ITextCommandModule {
     }
   }
 
+  private filterHiddenFriends(
+    users: WhoKnowsUser[],
+    friends: Friend[],
+    caller: User,
+    hiddenGuildUserIds: Set<number>,
+  ): WhoKnowsUser[] {
+    const hiddenIds = new Set<number>(hiddenGuildUserIds);
+    for (const f of friends) {
+      const level = f.friendUser?.privacyLevel as unknown;
+      if (String(level) === 'Hide') {
+        if (typeof f.friendUserId === 'number') hiddenIds.add(f.friendUserId);
+        const nestedId = f.friendUser?.userId;
+        if (typeof nestedId === 'number') hiddenIds.add(nestedId);
+      }
+    }
+    let filtered = hiddenIds.size > 0 ? users.filter((u) => !hiddenIds.has(u.userId)) : users;
+    if (String(caller.privacyLevel as unknown) === 'Hide') {
+      filtered = filtered.filter((u) => u.userId !== caller.userId);
+    }
+    return filtered;
+  }
+
   public async whoKnowsArtistAsync(context: ContextModel, rawArgs: string): Promise<ResponseModel> {
     if (!context.guild) {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
 
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -154,10 +177,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
     if (!context.guild) {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
     this.checkSync(user);
     const mode = (user.whoKnowsMode as WhoKnowsMode) ?? WhoKnowsMode.Default;
     return this.buildWhoKnowsArtist(context, user, artistName, {
@@ -296,10 +317,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
 
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -384,10 +403,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
       return GenericEmbedService.buildWrongInputResponse('This command can only be used in a server.');
     }
 
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -474,10 +491,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
   }
 
   private async friendsWhoKnowArtistAsync(context: ContextModel, rawArgs: string): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -510,11 +525,17 @@ export class WhoKnowsCommands implements ITextCommandModule {
     );
 
     const requesterMember = context.guild?.members.cache.get(user.discordUserId);
-    const usersWithCaller = WhoKnowsService.addOrReplaceUserToIndexList(
+    const withCallerArtist = WhoKnowsService.addOrReplaceUserToIndexList(
       friendUsers,
       user,
       requesterMember?.displayName,
       artistInfo?.userPlayCount,
+    );
+    const usersWithCaller = this.filterHiddenFriends(
+      withCallerArtist,
+      friends,
+      user,
+      context.guild ? await this.whoKnowsArtistService.getGuildHiddenUserIds(context.guild.id) : new Set<number>(),
     );
 
     const [imgUrl, closeFriends] = await Promise.all([
@@ -545,10 +566,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
   }
 
   private async friendsWhoKnowTrackAsync(context: ContextModel, rawArgs: string): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -594,11 +613,17 @@ export class WhoKnowsCommands implements ITextCommandModule {
     );
 
     const requesterMember = context.guild?.members.cache.get(user.discordUserId);
-    const usersWithCaller = WhoKnowsService.addOrReplaceUserToIndexList(
+    const withCallerTrack = WhoKnowsService.addOrReplaceUserToIndexList(
       friendUsers,
       user,
       requesterMember?.displayName,
       trackInfo?.userPlayCount,
+    );
+    const usersWithCaller = this.filterHiddenFriends(
+      withCallerTrack,
+      friends,
+      user,
+      context.guild ? await this.whoKnowsTrackService.getGuildHiddenUserIds(context.guild.id) : new Set<number>(),
     );
 
     const [imgUrl, closeFriends] = await Promise.all([
@@ -629,10 +654,8 @@ export class WhoKnowsCommands implements ITextCommandModule {
   }
 
   private async friendsWhoKnowAlbumAsync(context: ContextModel, rawArgs: string): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) {
-      return GenericEmbedService.buildNotFoundResponse('You need to set your Last.fm username first. Use `/register` or `.register`.');
-    }
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { prefix: context.prefix });
+    if ('commandResponse' in user) return user;
 
     this.checkSync(user);
 
@@ -681,11 +704,17 @@ export class WhoKnowsCommands implements ITextCommandModule {
     );
 
     const requesterMember = context.guild?.members.cache.get(user.discordUserId);
-    const usersWithCaller = WhoKnowsService.addOrReplaceUserToIndexList(
+    const withCallerAlbum = WhoKnowsService.addOrReplaceUserToIndexList(
       friendUsers,
       user,
       requesterMember?.displayName,
       albumInfo?.userPlayCount,
+    );
+    const usersWithCaller = this.filterHiddenFriends(
+      withCallerAlbum,
+      friends,
+      user,
+      context.guild ? await this.whoKnowsAlbumService.getGuildHiddenUserIds(context.guild.id) : new Set<number>(),
     );
 
     const [imgUrl, closeFriends] = await Promise.all([

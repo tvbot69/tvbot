@@ -814,37 +814,35 @@ export class AlbumService {
   /**
    * Filters guild albums to release period
    */
+  /**
+   * Filters albums to a release period. A query that RAN and matched nothing
+   * stays `[]`; a query that THREW raises via `orDatabaseUnavailable`. Throw
+   * (not `[]`, not unfiltered) because the caller asked for a FILTERED list:
+   * returning the input unfiltered renders a decade filter as doing nothing,
+   * and returning `[]` renders an outage as "nothing from that decade". Both
+   * are confident wrong answers; an error is the only honest one.
+   */
   public async filterAlbumsToReleasePeriod<T extends { artistName: string; albumName: string }>(
     albums: T[],
     periodStart: Date,
     periodEnd: Date,
   ): Promise<T[]> {
     if (albums.length === 0) return [];
-    try {
-      const albumNames = albums.map((a) => a.albumName);
-      const rows = await this.prisma.album.findMany({
+    const albumNames = albums.map((a) => a.albumName);
+    const rows = await orDatabaseUnavailable(
+      'filterAlbumsToReleasePeriod',
+      'albumsByReleasePeriod',
+      () => this.prisma.album.findMany({
         where: {
           name: { in: albumNames, mode: 'insensitive' },
           releaseDate: { gte: periodStart, lt: periodEnd },
         },
         select: { name: true, artist: { select: { name: true } } },
-      });
+      }),
+    );
 
-      const matched = new Set(rows.map((r) => `${r.artist.name.toLowerCase()}|${r.name.toLowerCase()}`));
-      return albums.filter((a) => matched.has(`${a.artistName.toLowerCase()}|${a.albumName.toLowerCase()}`));
-    } catch (err) {
-      // NOT correct in the abstract, and NOT fixed here on purpose. Returning
-      // `albums` means the period filter silently did nothing, which is the very
-      // bug `getUserAllTimeTopAlbumsByReleasePrefix` above had and no longer has.
-      // It is left as-is for one reason that is verifiable rather than hopeful:
-      // `filterAlbumsToReleasePeriod` has ZERO production callers (grep the name
-      // outside `*.test.ts`), so no user can be shown a wrong decade today. That
-      // is an omission of the caller graph, not a property of the code — whoever
-      // wires this up must raise instead. The WARN exists so the shape is not
-      // mistaken for an endorsed default.
-      Logger.warn({ err }, 'filterAlbumsToReleasePeriod query failed; returning the input UNFILTERED');
-      return albums;
-    }
+    const matched = new Set(rows.map((r) => `${r.artist.name.toLowerCase()}|${r.name.toLowerCase()}`));
+    return albums.filter((a) => matched.has(`${a.artistName.toLowerCase()}|${a.albumName.toLowerCase()}`));
   }
 
   /**

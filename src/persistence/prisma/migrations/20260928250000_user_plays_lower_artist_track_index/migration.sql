@@ -1,0 +1,24 @@
+-- LOWER artist plus track play lookup index.
+--
+-- playRepository getRecentEntityPlaycounts adds LOWER(track_name) = LOWER(param)
+-- when a track is supplied and trackService getArtistUserTracks filters on
+-- LOWER(artist_name) with a track GROUP BY. No functional index covered
+-- LOWER(track_name) at all so every track crown and playcount card
+-- full-scanned user_plays. The leading (user_id, lower(artist_name)) prefix
+-- keeps the artist-only shape usable here too while the third column serves
+-- the track predicate.
+--
+-- CONCURRENTLY so the build does not block writes to user_plays. Reads are
+-- unaffected either way.
+--
+-- READ THIS BEFORE EDITING. This file must contain EXACTLY ONE STATEMENT.
+-- Prisma decides transaction wrapping by statement arity. One statement runs
+-- outside a transaction so CREATE INDEX CONCURRENTLY works. Two statements get
+-- wrapped and CONCURRENTLY then fails. Keep each index in its own file.
+--
+-- A functional index cannot be expressed in schema.prisma so it lives here
+-- only and this file is the source of truth. Do not run prisma migrate dev
+-- expecting parity for it.
+--
+-- Idempotent via IF NOT EXISTS for safe re-application.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "user_plays_user_lower_artist_track_idx" ON "user_plays" ("user_id", lower("artist_name"), lower("track_name"));

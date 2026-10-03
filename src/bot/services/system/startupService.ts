@@ -10,7 +10,7 @@ import { TimerService } from '@bot/services/lastfm/timerService';
 import { HealthServer } from '@bot/services/system/healthServer';
 import { GuildService } from '@bot/services/guild/guildService';
 import { PuppeteerService } from '@images/generators/puppeteerService';
-import { getSlashCommandPayloads } from '@bot/slashCommands';
+import { getSlashCommandDuplicates, getSlashCommandPayloads } from '@bot/slashCommands';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import { MusicHandler } from '@bot/handlers/music/musicHandler';
 import { LyricStatusService } from '@bot/services/music/lyricStatusService';
@@ -177,6 +177,15 @@ export class StartupService {
     if (skipSlashRegister()) {
       Logger.info('SKIP_SLASH_REGISTER=true — skipping slash command registration');
       return;
+    }
+    // No silent overwrite: a duplicate top-level name means one command would
+    // steal another at runtime and Discord would reject the whole deployment.
+    // Throw before the PUT so deploy never ships a collided set.
+    const duplicates = getSlashCommandDuplicates();
+    if (duplicates.length > 0) {
+      throw new Error(
+        `Duplicate slash command names: ${[...new Set(duplicates)].sort().join(', ')}`,
+      );
     }
     const payloads = getSlashCommandPayloads();
     // Skip the PUT entirely when nothing changed (global commands propagate

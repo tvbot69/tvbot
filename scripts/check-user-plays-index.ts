@@ -27,10 +27,22 @@ const main = async (): Promise<void> => {
   console.log(`rows in user_plays: ${rows[0]?.n.toString() ?? 'unknown'}`);
 
   const dupes = await prisma.$queryRawUnsafe<{ n: bigint }[]>(
+    // Identity mirrors the index exactly: raw "play_source" with no cast and
+    // no coalesce. The index is ("user_id", "time_played",
+    // lower("artist_name"), coalesce(lower("track_name"), ''), "play_source")
+    // NULLS NOT DISTINCT (see
+    // src/persistence/prisma/migrations/20260928010000_user_plays_dedup_index/migration.sql).
+    // A SELECT may cast (enum_out is STABLE, which SELECT allows), but an index
+    // expression may not: enum -> text goes through enum_out, which is STABLE,
+    // so coalesce("play_source"::text, '') in an index fails with 42P17. The
+    // previous probe used that cast, which grouped the same rows here but
+    // taught the wrong expression to the next migrator. GROUP BY already treats
+    // NULLs as equal, which is exactly what NULLS NOT DISTINCT means for the
+    // index, so the bare column is both correct and instructive.
     `SELECT count(*) AS n FROM (
        SELECT 1 FROM user_plays
         GROUP BY "user_id", "time_played", lower("artist_name"),
-                 coalesce(lower("track_name"), ''), coalesce("play_source"::text, '')
+                 coalesce(lower("track_name"), ''), "play_source"
        HAVING count(*) > 1
      ) d`,
   );

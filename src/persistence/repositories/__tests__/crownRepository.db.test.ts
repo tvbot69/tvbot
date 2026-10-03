@@ -555,6 +555,20 @@ suite('CrownRepository raw queries against a real database', () => {
       expect((await prisma!.userCrown.findMany()).map((c) => c.artistName)).toEqual(['AllowedArtist']);
     });
 
+    it('skips a privacy-Hide member but still seeds a visible member', async () => {
+      const hidden = userId + 5000;
+      const visible = userId + 6000;
+      await seedUser(prisma!, hidden);
+      await seedUser(prisma!, visible);
+      await prisma!.user.update({ where: { userId: hidden }, data: { privacyLevel: 'Hide' } });
+      await seedGuildMember(hidden);
+      await seedGuildMember(visible);
+      await seedUserArtist(hidden, 'HiddenArtist', 100);
+      await seedUserArtist(visible, 'VisibleArtist', 100);
+      expect(await repo!.seedCrownsForGuild(guildId, 30)).toBe(1);
+      expect((await prisma!.userCrown.findMany()).map((c) => c.artistName)).toEqual(['VisibleArtist']);
+    });
+
     it('gives one artist to one user: the highest playcount wins, whichever name it is stored under', async () => {
       // DISTINCT ON (LOWER(name)) with ORDER BY LOWER(name), playcount DESC. Two
       // guild members both listening to the same artist must produce ONE crown,

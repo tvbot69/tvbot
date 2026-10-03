@@ -79,13 +79,36 @@ describe('autopostService.createAutopost: the per-guild cap guard', () => {
 
     expect(repo.countForGuild).toHaveBeenCalledWith('g1');
     expect(created?.id).toBe('77');
+    // The row the caller gets back is the one it will edit and re-schedule.
+    expect(created).toMatchObject({
+      id: '77',
+      guildId: 'g1',
+      channelId: 'c1',
+      schedule: 'Weekly',
+      contentType: 'TopArtists',
+      enabled: true,
+    });
+    // The write is the columns the schema has, not the caller's whole object:
+    // `enabled` is a service-side default, and forwarding it here would create
+    // a row the migration never defined.
+    expect(repo.createAutopost).toHaveBeenCalledWith({
+      guildId: 'g1',
+      channelId: 'c1',
+      contentType: 'TopArtists',
+      schedule: 'Weekly',
+    });
     expect(service.getAutopostsForGuild('g1')).toHaveLength(1);
   });
 
   it('(b2) still refuses at the cap, because a count that RAN is a real answer', async () => {
-    const service = makeService(makeRepo(AutopostService.MAX_AUTOPOSTS_PER_GUILD));
+    const repo = makeRepo(AutopostService.MAX_AUTOPOSTS_PER_GUILD);
+    const service = makeService(repo);
 
     await expect(service.createAutopost(config)).resolves.toBeNull();
+    // The refusal is a refusal to WRITE: a cap hit that still inserted the row
+    // would report the cap and blow past it.
+    expect(repo.createAutopost).not.toHaveBeenCalled();
+    expect(service.getAutopostsForGuild('g1')).toHaveLength(0);
   });
 });
 
@@ -203,11 +226,15 @@ describe('SpotifySearchApi.getArtistIdViaTrackSample', () => {
   });
 
   it('(b) still answers null when the search RAN and no artist matched exactly', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       okResponse({ tracks: { items: [{ name: 'Esme', artists: [{ name: 'Someone Else', id: 'other-id' }] }] } }),
     );
 
     await expect(api.getArtistIdViaTrackSample('Mond', 'Esme')).resolves.toBeNull();
+    // The search really ran, with BOTH names — a null from a request that never
+    // left would look identical and would cache 'none' for an artist that does
+    // have a Spotify id.
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('q=Mond+Esme');
   });
 
   it('(b2) still resolves the id when the search ran and matched', async () => {
@@ -265,6 +292,24 @@ describe('SpotifySearchApi.getAlbumTrackNames', () => {
 
     await expect(api.getAlbumTrackNames('Geogaddi', 'Boards of Canada')).resolves.toEqual([]);
   });
+
+  it('(b3) still returns the REAL tracklist when the search ran and the album matched', async () => {
+    // The direction both tests above are paired with. Raising is not "be strict",
+    // it is "do not answer when nothing was read": a fix that returned `[]`
+    // everywhere would satisfy (a), (b) and (b2) and hide every album's
+    // tracklist. The names are what `albumService` renders.
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    fetchMock.mockResolvedValueOnce(okResponse({ albums: { items: [{ id: 'alb1', name: 'Geogaddi' }] } }));
+    fetchMock.mockResolvedValueOnce(okResponse({ items: [{ name: 'Alpha' }, { name: 'Beta' }] }));
+
+    await expect(api.getAlbumTrackNames('Geogaddi', 'Boards of Canada')).resolves.toEqual([
+      'Alpha',
+      'Beta',
+    ]);
+    // The second leg asked the album Spotify actually matched, for the whole
+    // tracklist — a guessed album id would return another album's songs.
+    expect(String(fetchMock.mock.calls[1]![0])).toContain('/v1/albums/alb1/tracks');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -304,5 +349,13 @@ describe('UserUpdateQueueService.rehydrate', () => {
 
     expect(seen.sort()).toEqual([7, 8]);
     expect(cache.listLength).toHaveBeenCalledTimes(1);
+    // …against the list this service owns, not some other key: the same
+    // measurement against the wrong key would prove nothing about the backlog
+    // that was just restored.
+    expect(cache.listLength).toHaveBeenCalledWith('queue:user-updates');
+    // The trim is the ACKNOWLEDGEMENT, and it trims exactly the batch the
+    // processor just ran — two items, on this service's list. A trim of 0 (or of
+    // the whole restored backlog) would replay or lose work in equal measure.
+    expect(cache.listPopCount).toHaveBeenCalledWith('queue:user-updates', 2);
   });
 });

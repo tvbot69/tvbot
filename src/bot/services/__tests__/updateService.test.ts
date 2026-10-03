@@ -172,6 +172,19 @@ describe('UpdateService delta sync (Phase 0.5)', () => {
     const stamped = (setLastUpdate.mock.calls[0] as unknown as [number, Date])[1];
     expect(Date.now() - stamped.getTime()).toBeLessThan(60 * 1000);
   });
+
+  it('stamps retry without cursor advance on outage throw', async () => {
+    const { LastFmUnavailableError } = await import('@domain/models/errors/lastfmUnavailableError');
+    const setLastUpdate = vi.fn(async () => undefined);
+    const { service, lastfmRepository } = makeService({ setLastUpdate });
+    (lastfmRepository.getUserRecentTracksWithMetadata as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new LastFmUnavailableError('user.getrecenttracks', new Error('down')),
+    );
+    const res = await service.updateUser(9);
+    expect(res.newPlays).toBe(0);
+    const stamped = (setLastUpdate.mock.calls[0] as unknown as [number, Date])[1];
+    expect(Date.now() - stamped.getTime()).toBeGreaterThan(40 * 3600 * 1000);
+  });
 });
 
 describe('UpdateService chunked top-list maintenance', () => {
@@ -361,6 +374,20 @@ describe('UpdateService.updateUserAndGetRecentTracks', () => {
     expect(lastfmRepository.getUserRecentTracksWithMetadata).toHaveBeenCalled();
     expect(res.recentTracks.map((t) => t.name)).toEqual(['X']);
     expect(res.updateResult.newPlays).toBe(1);
+  });
+
+  it('does not throw on outage in recent-tracks path, returns fallback', async () => {
+    const { LastFmUnavailableError } = await import('@domain/models/errors/lastfmUnavailableError');
+    const { service, lastfmRepository, user, fallbackTracks } = makeRecentSvc({
+      deltaTracks: [],
+      fallbackTracks: [{ name: 'F', artistName: 'A', albumName: '', nowPlaying: false }],
+    });
+    (lastfmRepository.getUserRecentTracksWithMetadata as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new LastFmUnavailableError('user.getrecenttracks', new Error('down')),
+    );
+    const res = await service.updateUserAndGetRecentTracks(user);
+    expect(res.updateResult.newPlays).toBe(0);
+    expect(res.recentTracks).toEqual(fallbackTracks);
   });
 });
 

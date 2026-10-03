@@ -460,23 +460,62 @@ describe('scoring — a wrong-artist candidate is refused, however good its titl
     await expect(svc.resolve('Blur', 'Song 2')).resolves.toBeNull();
   });
 
-  it('a DIFFERENT act whose name merely EXTENDS the requested one is accepted — a known leniency', async () => {
-    // The mirror of the test above, and it resolves rather than refusing. Both
-    // `clean()` and `validateArtist` treat a name as a match when one contains
-    // the other, so asking for "Blur" is satisfied by a row credited to
-    // "Blur Band", and asking for a tribute act is satisfied by the act it
-    // covers. Pinned as CHARACTERISATION, not endorsement: it is the same
-    // substring rule that makes the guards work at all (see the "and" /
-    // "Simon & Garfunkel" test), and it is looser than a user would want when
-    // a row is a cover rather than the original. See BUG REPORT item 5.
+  it('a DIFFERENT act whose name merely EXTENDS the requested one is now refused — Blur vs Blur Band', async () => {
+    // INVERTED: both-ways includes accepted Blur Band for Blur. Strict guard
+    // reuses matchesArtistName (normalized equality plus feat-split), so an
+    // extending name fails. Mutation-check for the tightening.
     const { svc } = build({
       apple: [appleRow({ artistName: 'Blur Band', trackName: 'Song 2', previewUrl: 'https://a/blur-band.m4a' })],
     });
 
-    const result = await svc.resolve('Blur', 'Song 2');
+    await expect(svc.resolve('Blur', 'Song 2')).resolves.toBeNull();
+  });
 
-    expect(result?.artistName).toBe('Blur Band');
-    expect(result?.trackName).toBe('Song 2');
+  it('feat-split still passes — Drake feat. Future answers for Drake', async () => {
+    // The strict guard keeps feat-split: a feature credit is not a different act.
+    const { svc } = build({
+      apple: [appleRow({ artistName: 'Drake feat. Future', trackName: 'Song 2', previewUrl: 'https://a/feat.m4a' })],
+    });
+
+    const result = await svc.resolve('Drake', 'Song 2');
+
+    expect(result?.artistName).toBe('Drake feat. Future');
+  });
+
+  it('APPLE runner-up: bad index-0 (wrong track, album-boosted) falls through to remaster', async () => {
+    // Row0 right-artist/wrong-track with exact album hint outscores Row1
+    // right-artist/remaster without hint, so chosen-only returns null while
+    // runner-up returns the remaster. Proves iteration, not chosen-only.
+    const { svc } = build({
+      apple: [
+        appleRow({ trackName: 'Karma Police', collectionName: 'OK Computer', previewUrl: 'https://a/karma.m4a' }),
+        appleRow({ trackName: 'Creep (Remastered)', collectionName: 'Pablo Honey', previewUrl: 'https://a/remaster.m4a' }),
+      ],
+    });
+
+    const result = await svc.resolve('Radiohead', 'Creep', 'OK Computer');
+
+    expect(result?.trackName).toBe('Creep (Remastered)');
+    expect(result?.previewUrl).toBe('https://a/remaster.m4a');
+  });
+
+  it('DEEZER runner-up: bad index-0 (wrong artist, album-boosted) falls through to remaster', async () => {
+    // Deezer has no wrong-artist scorer penalty, so Oasis/Creep exact plus
+    // exact album hint outscores Radiohead/Creep (Remastered) without hint.
+    // Chosen-only discards the set; runner-up re-picks the valid remaster.
+    const { svc } = build({
+      apple: null,
+      deezer: [
+        deezerRow({ id: 1, title: 'Creep', artist: { id: 9, name: 'Oasis' }, album: { id: 1, title: 'Morning Glory' }, preview: 'https://dz/oasis.mp3' }),
+        deezerRow({ id: 2, title: 'Creep (Remastered)', artist: { id: 1, name: 'Radiohead' }, album: { id: 2, title: 'OK Computer' }, preview: 'https://dz/remaster.mp3' }),
+      ],
+    });
+
+    const result = await svc.resolve('Radiohead', 'Creep', 'Morning Glory');
+
+    expect(result?.artistName).toBe('Radiohead');
+    expect(result?.trackName).toBe('Creep (Remastered)');
+    expect(result?.previewUrl).toBe('https://dz/remaster.mp3');
   });
 
   it('a mismatched-artist row with a NEAR-MISS title is refused once an album hint lifts it', async () => {
@@ -551,16 +590,18 @@ describe('scoring — a right-artist candidate is only returned if it is the rig
     await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
   });
 
-  it('APPLE: a refused wrong-track row is not cached as an answer', async () => {
+  it('APPLE: a refused wrong-track row is not cached as an answer, only as miss backoff', async () => {
     // A1. A wrong answer cached for an hour is an hour of wrong buttons; the
-    // resolver must write nothing when it refuses.
+    // resolver must never write preview:v3 on refuse, only preview:miss 90s.
     const { svc, set } = build({
       apple: [appleRow({ trackName: 'Karma Police', collectionName: 'OK Computer', previewUrl: 'https://a/karma.m4a' })],
     });
 
     await svc.resolve('Radiohead', 'Creep');
 
-    expect(set).not.toHaveBeenCalled();
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set.mock.calls[0]?.[0]).toBe('preview:miss:radiohead|creep');
+    expect(set.mock.calls[0]?.[2]).toBe(90);
   });
 
   it('BOTH DIRECTIONS: adding the right-track row restores the resolution', async () => {
@@ -1090,15 +1131,15 @@ describe('scoring — every candidate below zero yields a clean null', () => {
     await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
   });
 
-  it('nothing resolved means nothing cached', async () => {
-    // The cache must not record a null: doing so would make the absence
-    // permanent for the full TTL. (The TTL file covers the values; this covers
-    // the decision not to write at all.)
+  it('nothing resolved writes miss backoff, not a success answer', async () => {
+    // Miss writes preview:miss inconclusive 90s (art:track gate), never preview:v3.
     const { svc, set } = build({ apple: [appleRow({ artistName: 'Oasis' })], deezer: [] });
 
     await svc.resolve('Radiohead', 'Creep');
 
-    expect(set).not.toHaveBeenCalled();
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set.mock.calls[0]?.[0]).toBe('preview:miss:radiohead|creep');
+    expect(set.mock.calls[0]?.[2]).toBe(90);
   });
 });
 
@@ -1269,15 +1310,11 @@ describe('mapping — the chosen row is mapped onto ResolvedPreview', () => {
     expect((await deezer.svc.resolve('Radiohead', 'Creep'))?.durationMs).toBe(0);
   });
 
-  it('a row missing its artist object does not throw', async () => {
-    // A malformed Deezer row. It must degrade, not take the voice-message
-    // path down with it.
+  it('a row missing its artist object is refused, not thrown', async () => {
+    // A malformed Deezer row. Strict artist guard has no evidence, so refuse.
     const { svc } = build({ apple: null, deezer: [{ id: 1, title: 'Creep' } as DeezerTrack] });
 
-    const result = await svc.resolve('Radiohead', 'Creep');
-
-    expect(result?.source).toBe('deezer');
-    expect(result?.trackName).toBe('Creep');
+    await expect(svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
   });
 
   it('a row with NO title at all falls back to the requested track name', async () => {
@@ -1309,27 +1346,14 @@ describe('mapping — the chosen row is mapped onto ResolvedPreview', () => {
     expect(result?.albumName).toBeNull();
   });
 
-  it('APPLE: an ABSENT artistName falls back to the requested artist — but an EMPTY one does not', async () => {
-    // The `?? artist` on line 201, and the sharp edge of BUG 2 right beside it.
-    // Two rows, both of which the scoring accepts (an artistless row scores
-    // 2000 for the exact title, minus the 2000 wrong-artist penalty, which
-    // lands it at +150 — still above zero), and both of which pass
-    // `validateArtist` because the empty string is a substring of everything.
-    // The difference is entirely in the `??`:
-    //   undefined -> the REQUESTED artist is substituted
-    //   ''        -> the empty string is passed straight through
-    // A row the provider simply omitted its artist on and a row that sent an
-    // empty one are the same absence, and they must not resolve differently.
+  it('APPLE: ABSENT or EMPTY artistName is refused by strict guard', async () => {
+    // INVERTED BUG 2: empty string was substring of everything, so passed.
+    // Strict matchesArtistName fails absent/empty — no evidence, refuse.
     const absent = build({ apple: [appleRow({ artistName: undefined })] });
     const empty = build({ apple: [appleRow({ artistName: '' })] });
 
-    const absentResult = await absent.svc.resolve('Radiohead', 'Creep');
-    const emptyResult = await empty.svc.resolve('Radiohead', 'Creep');
-
-    expect(absentResult?.artistName).toBe('Radiohead');
-    // CHARACTERISATION of the bug, not an endorsement: this is what the card
-    // would render today, with no artist at all.
-    expect(emptyResult?.artistName).toBe('');
+    await expect(absent.svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
+    await expect(empty.svc.resolve('Radiohead', 'Creep')).resolves.toBeNull();
   });
 
   it('a row with no trackName falls back to the requested name, and no artwork maps to null', async () => {
@@ -1379,6 +1403,60 @@ describe('mapping — the chosen row is mapped onto ResolvedPreview', () => {
     // re-searches on every call while the cache looks populated.
     expect(get.mock.calls[0]?.[0]).toBe(set.mock.calls[0]?.[0]);
     expect(String(get.mock.calls[0]?.[0])).toContain('radiohead');
+  });
+
+  it('SPOTIFY top rung: right-track/wrong-artist preview refused, Apple still answers', async () => {
+    const scraper = {
+      getTrackPreview: vi.fn(async (..._a: unknown[]) => ({
+        trackName: 'Creep', artistName: 'Oasis', previewUrl: 'https://p.scdn.co/mp3-preview/oasis-creep',
+      })),
+      getPreviewById: vi.fn(async (..._a: unknown[]) => null),
+    };
+    const { svc } = build({ apple: [appleRow({ previewUrl: 'https://a/creep.m4a' })], deezer: [], scraper });
+
+    const result = await svc.resolve('Radiohead', 'Creep');
+
+    expect(result?.source).toBe('apple');
+    expect(result?.previewUrl).toBe('https://a/creep.m4a');
+  });
+
+  it('SPOTIFY donor: wrong-track audio never attaches to a right-song row', async () => {
+    let calls = 0;
+    const scraper = {
+      getTrackPreview: vi.fn(async (..._a: unknown[]) => {
+        calls += 1;
+        return calls === 1
+          ? null
+          : { trackName: 'Karma Police', artistName: 'Radiohead', previewUrl: 'https://p.scdn.co/mp3-preview/karma' };
+      }),
+      getPreviewById: vi.fn(async (..._a: unknown[]) => null),
+    };
+    const { svc } = build({ apple: [appleRow({ previewUrl: null })], deezer: [], scraper });
+
+    const result = await svc.resolve('Radiohead', 'Creep');
+
+    expect(result?.source).toBe('apple');
+    expect(result?.trackName).toBe('Creep');
+    expect(result?.previewUrl).toBeNull();
+  });
+
+  it('SPOTIFY donor: wrong-artist audio never attaches to a right-song row', async () => {
+    let calls = 0;
+    const scraper = {
+      getTrackPreview: vi.fn(async (..._a: unknown[]) => {
+        calls += 1;
+        return calls === 1
+          ? null
+          : { trackName: 'Creep', artistName: 'Oasis', previewUrl: 'https://p.scdn.co/mp3-preview/oasis' };
+      }),
+      getPreviewById: vi.fn(async (..._a: unknown[]) => null),
+    };
+    const { svc } = build({ apple: [appleRow({ previewUrl: null })], deezer: [], scraper });
+
+    const result = await svc.resolve('Radiohead', 'Creep');
+
+    expect(result?.trackName).toBe('Creep');
+    expect(result?.previewUrl).toBeNull();
   });
 });
 

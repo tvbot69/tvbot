@@ -327,6 +327,24 @@ describe('TimerService — shard ownership', () => {
     expect(w.autopostService.runScheduledAutoposts).toHaveBeenCalled();
   });
 
+  it('fail-closed when the shard check throws, so one shard incident cannot duplicate fan-out', async () => {
+    // Old catch returned true: a throwing resolve ran global jobs everywhere.
+    const w = registerAll();
+    container.registerInstance(Client, noShard() as never);
+    const spy = vi.spyOn(container, 'resolve').mockImplementationOnce(() => {
+      throw new Error('shard incident');
+    });
+    service.startAsync();
+
+    try {
+      await run(JOB.enqueueOutdated)?.();
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(w.userRepository.getOutdatedUsers).not.toHaveBeenCalled();
+  });
+
   it('does nothing for the autopost job when no client is registered', async () => {
     registerAll();
     service.startAsync();

@@ -554,9 +554,45 @@ describe('CountryService.getTopCountriesForTopArtists', () => {
       { name: 'Zzqx Unknown Band 9182', playcount: 500 },
       { name: 'Radiohead', playcount: 0 },
     ]);
+    // The unknown 500-play artist is dropped from the totals, so the result
+    // must say it is partial rather than present US/5 as the whole answer.
     expect(result).toEqual([
-      { countryName: 'United States', countryCode: 'US', playcount: 5, artistCount: undefined, artists: undefined },
+      {
+        countryName: 'United States',
+        countryCode: 'US',
+        playcount: 5,
+        artistCount: undefined,
+        artists: undefined,
+        isPartial: true,
+        unmappedArtistCount: 1,
+        unmappedPlaycount: 500,
+      },
     ]);
+  });
+
+  it('carries no partial flag when every contributing artist mapped', async () => {
+    const { service } = build({ findMany: [] });
+    const result = await service.getTopCountriesForTopArtists([
+      { name: 'Radiohead', playcount: 10 },
+      { name: 'Nirvana', playcount: 20 },
+    ]);
+    expect(result.length).toBeGreaterThan(0);
+    for (const item of result) {
+      expect(item.isPartial).toBeUndefined();
+      expect(item.unmappedArtistCount).toBeUndefined();
+      expect(item.unmappedPlaycount).toBeUndefined();
+    }
+  });
+
+  it('signals partial coverage with the dropped artist and play totals', async () => {
+    const { service } = build({ findMany: [] });
+    const result = await service.getTopCountriesForTopArtists([
+      { name: 'Radiohead', playcount: 10 },
+      { name: 'Zzqx Unknown Band 9182', playcount: 500 },
+      { name: 'Zzqx Unknown Band 9182', playcount: 7 },
+    ]);
+    const gb = result.find(r => r.countryCode === 'GB');
+    expect(gb).toMatchObject({ isPartial: true, unmappedArtistCount: 1, unmappedPlaycount: 507 });
   });
 
   it('resolves at most five unknown artists in the background', async () => {
@@ -670,6 +706,26 @@ describe('CountryService.getUserTopCountriesAllTime', () => {
       ],
     });
     await expect(service.getUserTopCountriesAllTime(1, 1)).resolves.toHaveLength(1);
+  });
+
+  it('keeps the partial signal on the all-time aggregate instead of trimming it into a complete card', async () => {
+    const { service, prisma } = build({
+      findMany: [],
+      userArtists: [
+        { name: 'Radiohead', playcount: 10 },
+        { name: 'Zzqx Unknown Band 9182', playcount: 500 },
+      ],
+    });
+    const result = await service.getUserTopCountriesAllTime(1);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      countryCode: 'GB',
+      isPartial: true,
+      unmappedArtistCount: 1,
+      unmappedPlaycount: 500,
+    });
+    // The partial aggregate answered, so the raw fallback was never consulted.
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('falls back to the raw query when no artist has a known country', async () => {

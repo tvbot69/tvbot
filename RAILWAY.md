@@ -7,6 +7,10 @@ This guide walks you through deploying **tvbot** on [Railway](https://railway.ap
 ## 1. Pre-Deployment Summary
 
 The codebase is now pre-configured for Railway:
+- **Node.js 22 (single source of truth: `.nvmrc`)**: `package.json` engines
+  require `>=22 <23`, `.npmrc` sets `engine-strict=true`, CI reads
+  `node-version-file: .nvmrc`, and both Dockerfile stages use
+  `node:22-bookworm-slim` (tag only, no digest pinned).
 - **Production Multi-Stage Dockerfile**: Uses `node:22-bookworm-slim` with system `chromium`, international fonts (CJK, Arabic, Emojis), `openssl`, and `ffmpeg`.
 - **Zero Missing Chrome Libraries**: Puppeteer uses Debian's system `/usr/bin/chromium` (`PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true`), so it never fails on missing `.so` dependencies and builds 3x faster.
 - **Low Memory Footprint (Free Plan Optimized)**:
@@ -103,6 +107,15 @@ already-applied migration; add a new one instead.
 ---
 
 ## 3. How It Stays Under Free Plan Limits
+
+### System-vs-bundled media
+
+Prod uses Debian system `chromium` (`PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium`)
+and system `ffmpeg`/`ffprobe` (`FFMPEG_PATH`/`FFPROBE_PATH`). Bundled npm builds
+(Puppeteer download skipped via `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true`,
+`ffmpeg-static`/`ffprobe-static`) are local-dev/Windows fallbacks only. `sharp`
+stays in `dependencies` because prod accent-color extraction needs it after
+`npm prune --omit=dev`.
 
 1. **Memory Cap**: The Node process will not exceed ~384MB heap. It is logged hourly — see [§4 Memory Observability](#4-memory-observability), which also records what is *not* measured.
 2. **Chromium Sandboxing**: Chromium runs in single-process mode, consuming ~60MB RAM only when generating image collages (`.c`, `.top`, `.wk`), releasing memory immediately when done.
@@ -208,3 +221,33 @@ constraints, not as measurements. If Railway ever reports an OOM kill, the
 hourly samples in the preceding deploy are the first thing to read: a `rssMb`
 that climbed linearly says leak, a flat `rssMb` at a high value says the cap is
 simply too small for this workload.
+
+---
+
+## 5. Strict Postgres checks on a laptop (`docker-compose.test.yml`)
+
+`scripts/verify-schema-drift.ts` runs STRICT only with a database: `SHADOW_DATABASE_URL`
+set means shadow replay (same as CI), `DATABASE_URL` alone means live diff, neither
+means DEGRADED columns-and-indexes only with types/constraints UNVERIFIED. Schema drift
+was once found by luck on the first real-Postgres run — this compose file gives a laptop
+the same strict answer as CI via a disposable `postgres:16`.
+
+Scratch names only (`tvbot_ci_test`, `tvbot_ci_shadow` — both pass the `dbHarness`
+scratch-name guard). Never point these at production; the shadow check RESETS its database.
+
+```
+docker compose -f docker-compose.test.yml up -d
+docker compose -f docker-compose.test.yml exec postgres-test psql -U tvbot -d tvbot -c "CREATE DATABASE tvbot_ci_shadow"
+docker compose -f docker-compose.test.yml exec postgres-test psql -U tvbot -d tvbot -c "CREATE DATABASE tvbot_ci_test"
+$env:DATABASE_URL = "postgresql://tvbot:tvbot@localhost:5432/tvbot_ci_test?schema=public"
+npx prisma migrate deploy --schema src/persistence/prisma/schema.prisma
+$env:SHADOW_DATABASE_URL = "postgresql://tvbot:tvbot@localhost:5432/tvbot_ci_shadow?schema=public"
+npm run db:verify-schema-drift -- --selftest
+npm run db:verify-schema-drift
+$env:TEST_DATABASE_URL = "postgresql://tvbot:tvbot@localhost:5432/tvbot_ci_test?schema=public"
+npm run test:db
+docker compose -f docker-compose.test.yml down -v
+```
+
+(Bash equivalent: prefix each command with `VAR=value`, e.g.
+`SHADOW_DATABASE_URL=... npm run db:verify-schema-drift`.)

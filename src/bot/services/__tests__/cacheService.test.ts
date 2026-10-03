@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CacheService } from '@bot/services/system/cacheService';
+import { Logger } from '@domain/logging/logger';
 
 describe('CacheService', () => {
   let cache: CacheService;
@@ -152,6 +153,64 @@ describe('CacheService', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('Redis failure visibility', () => {
+    afterEach(() => {
+      (cache as unknown as { redis: unknown }).redis = null;
+      vi.restoreAllMocks();
+    });
+
+    it('logs WARN once per episode and returns the fallback', async () => {
+      const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+      (cache as unknown as { redis: unknown }).redis = {
+        status: 'ready',
+        llen: async () => {
+          throw new Error('connection reset');
+        },
+      };
+
+      expect(await cache.listLength('q')).toBe(0);
+      expect(await cache.listLength('q')).toBe(0);
+      // One WARN for the episode, not one per command.
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
+        expect.stringContaining('in-memory fallback'),
+      );
+    });
+
+    it('logs again after a success resets the episode', async () => {
+      const warnSpy = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+      const failing = {
+        status: 'ready',
+        llen: async () => {
+          throw new Error('boom');
+        },
+      };
+      (cache as unknown as { redis: unknown }).redis = failing;
+      expect(await cache.listLength('q')).toBe(0);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      (cache as unknown as { redis: unknown }).redis = { status: 'ready', llen: async () => 5 };
+      expect(await cache.listLength('q')).toBe(5);
+
+      (cache as unknown as { redis: unknown }).redis = failing;
+      expect(await cache.listLength('q')).toBe(0);
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('setAddNX fails closed on Redis failure instead of claiming dedup', async () => {
+      vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+      (cache as unknown as { redis: unknown }).redis = {
+        status: 'ready',
+        sadd: async () => {
+          throw new Error('boom');
+        },
+      };
+
+      await expect(cache.setAddNX('k', 'm', 60)).resolves.toBe(false);
     });
   });
 });

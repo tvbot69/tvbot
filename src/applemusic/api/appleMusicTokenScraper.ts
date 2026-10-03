@@ -8,6 +8,12 @@ export interface ExtractedToken {
 
 const TOKEN_TTL_MS = 12 * 3600 * 1000;
 
+// A failed scrape fetches the landing page plus JS bundles and finds nothing.
+// Without a pause every artwork miss re-pays that cost, so hold failures
+// briefly. 3 minutes recovers fast while stopping a hot loop. Success TTL
+// stays 12h.
+export const SCRAPE_FAILURE_BACKOFF_MS = 180_000;
+
 export const extractTokenFromHtml = (html: string): string | null => {
   const jwtMatch = html.match(/(ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/);
   return jwtMatch?.[1] ?? null;
@@ -30,10 +36,19 @@ const extractTokenFromJs = (js: string): string | null => {
 export class AppleMusicTokenScraper {
   private cached: ExtractedToken | null = null;
   private inflight: Promise<string> | null = null;
+  private lastFailureAt: number | null = null;
+  private scrapeFailureCount = 0;
+
+  public get failureCount(): number {
+    return this.scrapeFailureCount;
+  }
 
   public async getToken(): Promise<string | null> {
     if (this.cached && this.cached.extractedAt + TOKEN_TTL_MS > Date.now()) {
       return this.cached.token;
+    }
+    if (this.lastFailureAt !== null && Date.now() - this.lastFailureAt < SCRAPE_FAILURE_BACKOFF_MS) {
+      return null;
     }
     if (this.inflight) {
       return this.inflight;
@@ -43,6 +58,10 @@ export class AppleMusicTokenScraper {
       .then((token) => {
         if (token) {
           this.cached = { token: token, extractedAt: Date.now() };
+          this.lastFailureAt = null;
+        } else {
+          this.lastFailureAt = Date.now();
+          this.scrapeFailureCount += 1;
         }
         return token ?? '';
       })
@@ -100,5 +119,6 @@ export class AppleMusicTokenScraper {
 
   public invalidate(): void {
     this.cached = null;
+    this.lastFailureAt = null;
   }
 }

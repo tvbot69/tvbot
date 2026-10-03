@@ -140,8 +140,7 @@ describe('WhoKnowsService', () => {
     }
   });
 
-  it('addOrReplaceUserToIndexList updates caller live playcount in list', () => {
-    const users: WhoKnowsUser[] = [
+  it('addOrReplaceUserToIndexList updates caller live playcount in list', () => {    const users: WhoKnowsUser[] = [
       { userId: 1, playcount: 10, lastFmUsername: 'alice' },
       { userId: 2, playcount: 50, lastFmUsername: 'bob' },
     ];
@@ -160,5 +159,26 @@ describe('WhoKnowsService', () => {
     expect(updated[0]!.userId).toBe(1);
     expect(updated[0]!.playcount).toBe(99);
     expect(updated[0]!.discordName).toBe('Alice Caller');
+  });
+
+  it('hiddenGuildUserIds names exactly the Hide and self-blocked members', () => {
+    const list: FullGuildUserDetails[] = [
+      {
+        userId: 1, discordUserId: 'd1', userNameLastFm: 'visible',
+        whoKnowsWhitelisted: false, whoKnowsBanned: false, lastUsed: new Date(),
+      },
+      {
+        userId: 2, discordUserId: 'd2', userNameLastFm: 'hidden',
+        whoKnowsWhitelisted: false, whoKnowsBanned: false, lastUsed: new Date(),
+        privacyLevel: 'Hide',
+      },
+      {
+        userId: 3, discordUserId: 'd3', userNameLastFm: 'selfblocked',
+        whoKnowsWhitelisted: false, whoKnowsBanned: false, lastUsed: new Date(),
+        selfBlockFromWhoKnows: true,
+      },
+    ];
+    expect(WhoKnowsService.hiddenGuildUserIds(list)).toEqual(new Set([2, 3]));
+    expect(WhoKnowsService.hiddenGuildUserIds([])).toEqual(new Set());
   });
 });

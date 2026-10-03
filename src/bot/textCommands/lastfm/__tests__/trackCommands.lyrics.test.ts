@@ -217,7 +217,7 @@ describe('.lyric — the empty argument substitutes the caller’s now-playing t
     const result = await run(commands, '');
 
     expect(result.commandResponse).toBe(CommandResponse.NotFound);
-    expect(desc(result)).toContain('.login');
+    expect(desc(result)).toContain('.register');
     expect(lastfmRepository.getUserRecentTracks).not.toHaveBeenCalled();
   });
 

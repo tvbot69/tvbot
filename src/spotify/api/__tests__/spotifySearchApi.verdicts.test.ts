@@ -491,9 +491,14 @@ describe('getTrack — token refresh, credential rotation, and never a null', ()
       .mockResolvedValueOnce(jsonResponse({}, 401))
       .mockResolvedValueOnce(jsonResponse({ id: 't1', name: 'Airbag' }));
 
-    await expect(api.getTrack('t1')).resolves.toMatchObject({ name: 'Airbag' });
+    await expect(api.getTrack('t1')).resolves.toMatchObject({ id: 't1', name: 'Airbag' });
     expect(invalidate).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Both attempts asked the SAME track, and the one that succeeded is the
+    // body that came back — a refresh that silently re-pointed the request
+    // somewhere else would pass on the count alone.
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('/v1/tracks/t1');
+    expect(String(fetchMock.mock.calls[1]![0])).toContain('/v1/tracks/t1');
   });
 
   it('does not retry a second time, so a genuinely dead token cannot hammer the API', async () => {
@@ -513,9 +518,14 @@ describe('getTrack — token refresh, credential rotation, and never a null', ()
       .mockResolvedValueOnce(jsonResponse({}, 429, { 'Retry-After': '60' }))
       .mockResolvedValueOnce(jsonResponse({ id: 't1', name: 'Airbag' }));
 
-    await expect(api.getTrack('t1')).resolves.toMatchObject({ name: 'Airbag' });
+    await expect(api.getTrack('t1')).resolves.toMatchObject({ id: 't1', name: 'Airbag' });
     expect(rotateCredential).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The retry that succeeded is the SECOND body, from the second attempt —
+    // a rotation that re-read a cached 429 body would still return `Airbag`
+    // nowhere at all, but a rotation that replayed the FIRST response would
+    // look identical on a count.
+    expect(String(fetchMock.mock.calls[1]![0])).toContain('/v1/tracks/t1');
     // A backup credential absorbs the 429, so no global cooldown is armed —
     // which is the entire point of having a pool.
     expect(SpotifySearchApi.isRateLimited()).toBe(false);
@@ -672,6 +682,40 @@ describe('the rate-limit and outage gate', () => {
     now.mockReturnValue(realNow + 20_001);
     await expect(api.searchTracks('airbag', 5)).resolves.toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    // …and it really is the SAME search that re-ran: the query, the type and
+    // the clamped limit all reach the wire.
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('q=airbag');
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('type=track');
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('limit=5');
+  });
+
+  it('CONTROL: a search that RAN and matched nothing answers the honest empty', async () => {
+    // The other direction of every raise above. A 200 with zero items is
+    // Spotify saying "no such track", and it must stay an empty list: answering
+    // `[]` is the contract, raising here would make an empty picker unreachable
+    // and every miss would report an outage.
+    const { api } = build();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ tracks: { items: [] } }));
+
+    await expect(api.searchTracks('obscure typo xyz', 5)).resolves.toEqual([]);
+    // A settled answer is not an outage, so the breaker must stay disarmed.
+    expect(SpotifySearchApi.isRateLimited()).toBe(false);
+  });
+
+  it('CONTROL: a search that ran and matched returns that row, not a bare count', async () => {
+    // The paired half of the empty above: when Spotify answers, the caller
+    // gets the ROW it can render. A method that returned `[]` for a hit as well
+    // as for a miss would satisfy both tests above and break every caller.
+    const { api } = build();
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ tracks: { items: [{ id: 't1', name: 'Airbag' }] } }));
+
+    const rows = await api.searchTracks('airbag', 5);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: 't1', name: 'Airbag' });
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('q=airbag');
   });
 
   it('noteTransportSuccess() clears the gate noteTransportFailure() armed', () => {
@@ -731,6 +775,11 @@ describe('search telemetry can never fail a search', () => {
     expect(call[1]).toBe('/v1/search?type=track');
     expect(call[3]).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The metrics call describes a search that actually happened: the query and
+    // limit on the wire, and the row the caller is about to render.
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('q=airbag');
+    expect(String(fetchMock.mock.calls[0]![0])).toContain('limit=5');
+    await expect(api.searchTracks('airbag', 5)).resolves.toMatchObject([{ id: 't1', name: 'Airbag' }]);
   });
 
   it('records the failure status too, because a 5xx is the interesting number', async () => {
@@ -757,7 +806,11 @@ describe('search telemetry can never fail a search', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(jsonResponse({ tracks: { items: [{ id: 't1', name: 'Airbag' }] } }));
 
-    await expect(api.searchTracks('airbag', 5)).resolves.toHaveLength(1);
+    // The value, not just "one row came back": the search already succeeded and
+    // was already paid for, so the row has to survive the throw.
+    await expect(api.searchTracks('airbag', 5)).resolves.toMatchObject([
+      { id: 't1', name: 'Airbag' },
+    ]);
   });
 
   it('works with no TelemetryService registered at all', async () => {
@@ -766,6 +819,8 @@ describe('search telemetry can never fail a search', () => {
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(jsonResponse({ tracks: { items: [{ id: 't1', name: 'Airbag' }] } }));
 
-    await expect(api.searchTracks('airbag', 5)).resolves.toHaveLength(1);
+    await expect(api.searchTracks('airbag', 5)).resolves.toMatchObject([
+      { id: 't1', name: 'Airbag' },
+    ]);
   });
 });

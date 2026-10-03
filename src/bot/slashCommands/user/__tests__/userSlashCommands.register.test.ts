@@ -371,7 +371,7 @@ describe('/fmmode', () => {
     const response = await h(cmd).fmModeAsync(makeCtx());
 
     expect(response.commandResponse).toBe(CommandResponse.NotFound);
-    expect(cardText(response)).toContain('Connect with `/register` first');
+    expect(cardText(response)).toContain('Use `/register` first');
   });
 
   it('renders the customise card for a registered caller', async () => {

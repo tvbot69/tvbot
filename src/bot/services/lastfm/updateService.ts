@@ -12,6 +12,7 @@ import { toDate } from '@domain/text/date';
 import type { RecentTrack } from '@domain/models/recentTrack';
 import { CacheService } from '@bot/services/system/cacheService';
 import { Logger } from '@domain/logging/logger';
+import { isLastFmUnavailable } from '@domain/models/errors/lastfmUnavailableError';
 import type { GenreService } from '@bot/services/library/genreService';
 
 const UPDATE_DEDUP_TTL_SECONDS = 2;
@@ -242,16 +243,26 @@ export class UpdateService {
     // Fetch recent tracks from Last.fm (multi-page)
     const allTracks: RecentTrack[] = [];
     let totalScrobbles: number | undefined;
+    let hadOutage = false;
 
     for (let page = 1; page <= pages; page++) {
-      const list = await this.lastfmRepository.getUserRecentTracksWithMetadata(
-        user.userNameLastFm,
-        count,
-        page,
-        timeFrom,
-        sessionKey,
-        2, // retries
-      );
+      let list;
+      try {
+        list = await this.lastfmRepository.getUserRecentTracksWithMetadata(
+          user.userNameLastFm,
+          count,
+          page,
+          timeFrom,
+          sessionKey,
+          2, // retries
+        );
+      } catch (err) {
+        if (isLastFmUnavailable(err)) {
+          hadOutage = true;
+          break;
+        }
+        throw err;
+      }
 
       if (page === 1) {
         totalScrobbles = list.totalScrobbles;
@@ -266,6 +277,17 @@ export class UpdateService {
       // Stop if we've fetched all pages or this page was short
       if (list.totalPages > 0 && page >= list.totalPages) break;
       if (list.tracks.length < count - 5) break;
+    }
+
+    if (hadOutage) {
+      await this.userRepository.setLastUpdate(
+        user.userId,
+        new Date(Date.now() - FAILURE_RETRY_AFTER_HOURS * 3600 * 1000),
+      );
+      return {
+        updateResult: { newPlays: 0, removedPlays: 0, totalScrobbles },
+        recentTracks: allTracks,
+      };
     }
 
     // Filter: only non-nowPlaying tracks with valid timestamps, normalized so

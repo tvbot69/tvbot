@@ -232,6 +232,13 @@ describe('AlbumInteractions — a null search result is an honest answer, said o
 
     expect(AlbumBuilders.buildAlbumTracksResponse).toHaveBeenCalledTimes(1);
     expect(press.editReply).toHaveBeenCalledTimes(1);
+    // The VALUE that reached Discord: the built card itself, not just "one
+    // edit happened". A handler that answered the edit with an unrelated payload
+    // (or the generic failure sentence) would satisfy the two counts above.
+    expect(press.editReply).toHaveBeenCalledWith({
+      components: [V2],
+      flags: MessageFlags.IsComponentsV2,
+    });
     expect(press.followUp).not.toHaveBeenCalled();
     expect(press.reply).not.toHaveBeenCalled();
   });

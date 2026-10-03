@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -61,7 +61,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -105,14 +105,14 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
 
       # Blocking. The error count was driven to zero before this flag was
-      # removed, and it must stay that way: 730 warnings remain (mostly
-      # no-explicit-any at the moonlink boundary) but warnings do not fail a
+      # removed, and it must stay that way: 56 warnings remain (mostly
+      # no-console in logger/tests/scripts) but warnings do not fail a
       # build, so this job is now a real gate rather than a report.
       #
       # If this starts failing, do NOT add --quiet, --fix or a blanket disable
@@ -120,6 +120,11 @@ jobs:
       # justification.
       - name: Lint
         run: npm run lint
+
+      # check:log needs a live logfile, which CI does not have, so the monitor
+      # itself is pinned here by its unit suite (already part of npm test).
+      - name: Check log invariants
+        run: npx vitest run src/__tests__/logInvariants.test.ts
 
   render:
     name: render tests (needs Chromium)
@@ -131,7 +136,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -159,7 +164,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -179,7 +184,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -188,6 +193,24 @@ jobs:
       # go down. A new `: any` fails the build.
       - name: Check debt ratchet
         run: npm run debt
+  guards:
+    name: metrics and docs guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Fail on metrics drift or oversize docs. Both scripts are check-only.
+      - name: Check metrics and docs size
+        run: npm run metrics:check && npm run docs:check
   migrations:
     name: migrations apply to a real postgres
     runs-on: ubuntu-latest
@@ -224,7 +247,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -314,3 +337,22 @@ jobs:
         run: npm run test:db
         env:
           TEST_DATABASE_URL: postgresql://tvbot:tvbot@localhost:5432/tvbot_ci_test?schema=public
+
+  # Independent and fast by design: no `needs: build`, no DATABASE_URL, no
+  # secrets. Fails on high-or-worse advisories only.
+  audit:
+    name: audit (npm audit high)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e # v4.3.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Audit
+        run: npm audit --audit-level=high

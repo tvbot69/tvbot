@@ -3,6 +3,7 @@ import { Logger } from '@domain/logging/logger';
 import { HOME_NODE, YoutubeHealth, ladderFor } from '@bot/services/music/youtubeHealth';
 import { resolveViaHome } from '@bot/services/music/ytResolver';
 import { getSourceVideoId, getVideoTitle } from '@bot/services/music/videoChapters';
+import { moonlinkChapterStash, moonlinkSourceLabels } from '@bot/services/music/moonlinkTypes';
 import type { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 import type { QueueService } from '@bot/services/music/queueService';
 import type { FallbackBudget } from '@bot/handlers/music/fallbackBudget';
@@ -36,9 +37,13 @@ export class AlternateTrackFinder {
     fallback.title = failedTrack.title;
     fallback.author = failedTrack.author;
     if (failedTrack.artworkUrl) fallback.artworkUrl = failedTrack.artworkUrl;
-    const rec = fallback as unknown as Record<string, unknown>;
-    rec.sourceName = source;
-    rec.source = source;
+    // CORRECT AS IS: a non-object fallback cannot carry the relabel, and the
+    // tracker it is queued for already has the song's own metadata above.
+    const labels = moonlinkSourceLabels(fallback);
+    if (labels) {
+      labels.sourceName = source;
+      labels.source = source;
+    }
   }
 
   /** Frozen position snapshot for resume carryover; 0 when unknowable. */
@@ -71,11 +76,7 @@ export class AlternateTrackFinder {
     try {
       const totalMs = fallback.duration || 0;
       if (!resumeMs || resumeMs < 5000 || !totalMs) return;
-      const cur = player.current as unknown as {
-        encoded?: string;
-        uri?: string | null;
-        identifier?: string;
-      } | null;
+      const cur: { encoded?: string; uri?: string | null; identifier?: string } | null = player.current;
       const key = (t: { encoded?: string; uri?: string | null; identifier?: string } | null | undefined): string =>
         String(t?.encoded ?? t?.uri ?? t?.identifier ?? '');
       if (!cur || key(cur) !== key(fallback)) return;
@@ -161,7 +162,7 @@ export class AlternateTrackFinder {
     // Skip fast when Home is REST-dead instead of burning a doomed loadTracks
     // (tolerant of partial test doubles).
     if (this.isNodeCoolingDown(player.node?.identifier ?? '')) return null;
-    const videoId = getSourceVideoId(src as unknown as { sourceName?: string; identifier?: string });
+    const videoId = getSourceVideoId(src);
     if (!videoId) return null;
     const path = await resolveViaHome(videoId, {
       title: src.title,
@@ -205,11 +206,11 @@ export class AlternateTrackFinder {
       t.artworkUrl = src.artworkUrl;
       t.uri = src.uri;
       if (!t.duration || t.isStream) t.duration = src.duration;
-      const srcRec = src as unknown as Record<string, unknown>;
-      const dstRec = t as unknown as Record<string, unknown>;
-      const rawTitle = srcRec._rawVideoTitle ?? getVideoTitle(src as unknown as { title?: string }) ?? src.title;
-      if (typeof rawTitle === 'string' && rawTitle) dstRec._rawVideoTitle = rawTitle;
-      if (videoId) dstRec._sourceVideoId = videoId;
+      const srcStash = moonlinkChapterStash(src);
+      const dstStash = moonlinkChapterStash(t);
+      const rawTitle = srcStash?._rawVideoTitle ?? getVideoTitle(src) ?? src.title;
+      if (dstStash && typeof rawTitle === 'string' && rawTitle) dstStash._rawVideoTitle = rawTitle;
+      if (dstStash && videoId) dstStash._sourceVideoId = videoId;
       return t;
     } catch (err) {
       Logger.debug(

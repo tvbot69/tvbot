@@ -1,18 +1,18 @@
 import { SlashCommandBuilder } from 'discord.js';
 import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/commandModels';
 import type { ContextModel } from '@bot/models/contextModel';
-import type { ResponseModel } from '@bot/models/responseModel';
+import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { ArtistTrackService, isArtistIndexPartial } from '@bot/services/library/artistTrackService';
 import { ArtistTrackBuilders } from '@bot/builders/library/artistTrackBuilders';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
-import { CommandResponse } from '@domain/enums/commandResponse';
 import { LastFmRepository } from '@lastfm/repositories/lastFmRepository';
 import { UpdateService } from '@bot/services/lastfm/updateService';
 
 import { container } from 'tsyringe';
 import { ArtworkService } from '@bot/services/media/artworkService';
 import { ColorService } from '@bot/services/system/colorService';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
 
 export class ArtistTrackSlashCommands implements ISlashCommandModule {
   public commands: SlashCommandDefinition[];
@@ -33,8 +33,8 @@ export class ArtistTrackSlashCommands implements ISlashCommandModule {
   }
 
   private async atAsync(context: ContextModel): Promise<ResponseModel> {
-    const user = await this.userService.getUserByDiscordId(context.discordUserId);
-    if (!user) return GenericEmbedService.buildCommandErrorResponse(CommandResponse.NotFound, 'You have not connected your Last.fm account yet. Use `/register` first.');
+    const user = await ensureLinkedUser(this.userService, context.discordUserId, { slash: true });
+    if ('commandResponse' in user) return user;
 
     // Sync latest plays to local DB if stale
     if (UpdateService.needsUpdate(user, 2)) {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { normaliseSql, recordRawQueries } from '../dbRawQueryObserver';
+import {
+  assertExpectedQueries,
+  countByQueryHash,
+  hashNormalizedSql,
+  normaliseSql,
+  queryHashes,
+  recordRawQueries,
+} from '../dbRawQueryObserver';
 import type { PrismaClient as PrismaClientType } from '@prisma/client';
 
 /**
@@ -230,6 +237,102 @@ describe('recordRawQueries', () => {
       // the one thing that could put a stale record in the next window.
       const { raw } = await recorder.run(async () => 1);
       expect(raw).toEqual([]);
+    });
+  });
+
+  describe('per-query identity: one hash per shape', () => {
+    it('is stable across whitespace, so indentation is not a new query', () => {
+      expect(hashNormalizedSql('SELECT  1')).toBe(hashNormalizedSql('SELECT 1'));
+      expect(hashNormalizedSql('SELECT\n  artist_id\nFROM artists')).toBe(
+        hashNormalizedSql('SELECT artist_id FROM artists'),
+      );
+    });
+
+    it('changes when the predicate changes, so a rewrite is a new shape', () => {
+      expect(hashNormalizedSql('SELECT 1 WHERE name = ?')).not.toBe(
+        hashNormalizedSql('SELECT 1 WHERE name ILIKE ?'),
+      );
+      expect(hashNormalizedSql('SELECT artist_id FROM artists WHERE UPPER(name) = ANY(?)')).not.toBe(
+        hashNormalizedSql('SELECT artist_id FROM artists WHERE UPPER(name) = ?'),
+      );
+    });
+
+    it('is recorded on every call, including the string form', async () => {
+      const real = stubClient([]);
+      const recorder = recordRawQueries(real);
+
+      const { raw } = await recorder.run(async () => {
+        await recorder.client.$queryRaw`SELECT 1`;
+        await recorder.client.$queryRaw`SELECT  1`;
+        await recorder.client.$queryRawUnsafe('SELECT 2', 1);
+      });
+
+      expect(raw).toHaveLength(3);
+      expect(raw[0]!.hash).toBe(hashNormalizedSql('SELECT 1'));
+      // Same shape twice: same hash, counted twice.
+      expect(raw[1]!.hash).toBe(raw[0]!.hash);
+      expect(raw[2]!.hash).toBe(hashNormalizedSql('SELECT 2'));
+      expect(queryHashes(raw)).toEqual([raw[0]!.hash, raw[2]!.hash].sort());
+      expect(countByQueryHash(raw)).toEqual({ [raw[0]!.hash]: 2, [raw[2]!.hash]: 1 });
+    });
+
+    it('is present even when the call failed, so the shape is known', async () => {
+      const real = {
+        $queryRaw: () => Promise.reject(new Error('42703 column does not exist')),
+      } as unknown as PrismaClientType;
+      const recorder = recordRawQueries(real);
+
+      await recorder.client.$queryRaw`SELECT bad`.then(
+        () => undefined,
+        () => undefined,
+      );
+
+      expect(recorder.records).toHaveLength(1);
+      expect(recorder.records[0]!.hash).toBe(hashNormalizedSql('SELECT bad'));
+      expect(recorder.records[0]!.result).toBeUndefined();
+    });
+  });
+
+  describe('assertExpectedQueries: both directions', () => {
+    it('passes for the exact set, regardless of whitespace or order', async () => {
+      const real = stubClient([]);
+      const recorder = recordRawQueries(real);
+
+      const { raw } = await recorder.run(async () => {
+        await recorder.client.$queryRaw`SELECT 2`;
+        await recorder.client.$queryRaw`SELECT
+          1`;
+      });
+
+      expect(() => assertExpectedQueries(raw, ['SELECT 1', 'SELECT 2'])).not.toThrow();
+    });
+
+    it('throws for a new untested shape, which is the mutation that matters', async () => {
+      const real = stubClient([]);
+      const recorder = recordRawQueries(real);
+
+      const { raw } = await recorder.run(async () => {
+        await recorder.client.$queryRaw`SELECT 1`;
+        await recorder.client.$queryRaw`SELECT 2`;
+      });
+
+      expect(() => assertExpectedQueries(raw, ['SELECT 1'])).toThrow(/expected queries/);
+    });
+
+    it('throws for a missing shape, so a deleted query cannot hide', async () => {
+      const real = stubClient([]);
+      const recorder = recordRawQueries(real);
+
+      const { raw } = await recorder.run(() => recorder.client.$queryRaw`SELECT 1`);
+
+      expect(() => assertExpectedQueries(raw, ['SELECT 1', 'SELECT 2'])).toThrow(
+        /expected queries/,
+      );
+    });
+
+    it('a genuine empty run still passes against an empty expectation', () => {
+      expect(() => assertExpectedQueries([], [])).not.toThrow();
+      expect(() => assertExpectedQueries([], ['SELECT 1'])).toThrow(/expected queries/);
     });
   });
 });

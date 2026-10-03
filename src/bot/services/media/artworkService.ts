@@ -258,7 +258,8 @@ export class ArtworkService {
   private isLastFmUnhealthy(): boolean {
     try {
       return this.lastFmErrorTracker?.isElevated() ?? false;
-    } catch {
+    } catch (err) {
+      Logger.debug({ err }, 'Artwork: Last.fm health probe failed, treating as healthy');
       return false;
     }
   }
@@ -270,7 +271,10 @@ export class ArtworkService {
     // unexpected throw (a cache-layer failure, say) would otherwise propagate
     // into unrelated callers that had no way to anticipate it.
     const flight = run()
-      .catch(() => null)
+      .catch((err: unknown) => {
+        Logger.debug({ err: String(err).slice(0, 80) }, 'Artwork flight: cascade failed, null to joiners');
+        return null;
+      })
       .finally(() => {
         this.inFlight.delete(flightKey);
       });
@@ -305,7 +309,7 @@ export class ArtworkService {
 
     const cached = await this.cache.get<string>(key);
     if (cached) {
-      if (cached === 'none') return null;
+      if (cached === 'none' || cached === 'inconclusive') return null;
       if (isPlaceholderImageUrl(cached)) return null;
       return cached;
     }
@@ -337,7 +341,8 @@ export class ArtworkService {
         let albums: Awaited<ReturnType<SpotifySearchApi['searchAlbums']>> = [];
         try {
           albums = await this.spotifyApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`, 10);
-        } catch {
+        } catch (err) {
+          Logger.debug({ err: String(err).slice(0, 80) }, 'Album art: spotify quoted query failed, broad retry');
           albums = [];
         }
         if (albums.length === 0) {
@@ -369,6 +374,12 @@ export class ArtworkService {
         }
       } catch (err) {
         attempts.push({ source: `spotify:${String(err).slice(0, 60)}` });
+        // Rung fallback, not a lost capability: Deezer/Apple/Last.fm still run
+        // below and the attempts push keeps the 'none' marker unreachable.
+        Logger.debug(
+          { artist: artistName, album: cleanAlbum, err: String(err).slice(0, 80) },
+          'Album art: spotify rung failed, falling to deezer',
+        );
       }
     }
 
@@ -377,7 +388,8 @@ export class ArtworkService {
         let albums: Awaited<ReturnType<DeezerApi['searchAlbums']>> = [];
         try {
           albums = await this.deezerApi.searchAlbums(`album:"${cleanAlbum}" artist:"${artistName}"`);
-        } catch {
+        } catch (err) {
+          Logger.debug({ err: String(err).slice(0, 80) }, 'Album art: deezer quoted query failed, broad retry');
           albums = [];
         }
         if (albums.length === 0) {
@@ -411,6 +423,10 @@ export class ArtworkService {
         }
       } catch (err) {
         attempts.push({ source: `deezer:${String(err).slice(0, 60)}` });
+        Logger.debug(
+          { artist: artistName, album: cleanAlbum, err: String(err).slice(0, 80) },
+          'Album art: deezer rung failed, falling to apple-web',
+        );
       }
     }
 
@@ -427,6 +443,10 @@ export class ArtworkService {
         }
       } catch (err) {
         attempts.push({ source: `am-web:${String(err).slice(0, 60)}` });
+        Logger.debug(
+          { artist: artistName, album: cleanAlbum, err: String(err).slice(0, 80) },
+          'Album art: apple-web rung failed, falling to itunes',
+        );
       }
     }
 
@@ -447,6 +467,10 @@ export class ArtworkService {
         }
       } catch (err) {
         attempts.push({ source: `itunes:${String(err).slice(0, 60)}` });
+        Logger.debug(
+          { artist: artistName, album: cleanAlbum, err: String(err).slice(0, 80) },
+          'Album art: itunes rung failed, falling to lastfm',
+        );
       }
     }
 
@@ -468,12 +492,19 @@ export class ArtworkService {
           result = lfmUrl;
           answered = true;
         }
-      } catch {
+      } catch (err) {
         // `answered` is deliberately NOT set. The cache decision below keys off
         // attempts.length, and this catch has already pushed an attempt, so the
         // run is inconclusive regardless of why it threw. Setting it would look
         // like it distinguished an outage from a miss and do nothing.
         attempts.push({ source: 'lastfm' });
+        // Last rung: nothing below can answer, so this is the end of the cascade
+        // for this album rather than a step to the next provider. Still DEBUG —
+        // no number moves and only the thumbnail is absent.
+        Logger.debug(
+          { artist: artistName, album: cleanAlbum, err: String(err).slice(0, 80) },
+          'Album art: lastfm rung failed, cascade exhausted with no cover',
+        );
       }
       if (!answered && this.isLastFmUnhealthy()) {
         // Ambiguous null during a hard outage — inconclusive, not definitive.
@@ -493,10 +524,16 @@ export class ArtworkService {
       // Definitive miss only: every provider answered no. Anything else
       // (throws, rate-limits) retries on the next lookup.
       await this.cache.set(key, 'none', NONE_TTL_SECONDS);
-    } else if (outerAttempts) {
-      // Inner lookup was inconclusive — the outer gate must not read this
-      // null as a definitive miss.
-      outerAttempts.push({ source: 'album-inner' });
+    } else {
+      // Inconclusive (outage / rate limit / timeout). Same backoff marker as
+      // the track ladder: a 90s TTL covers the 30s chapter retry, so the next
+      // tick serves this marker instead of re-sweeping all five providers.
+      await this.cache.set(key, 'inconclusive', INCONCLUSIVE_TTL_SECONDS);
+      if (outerAttempts) {
+        // Inner lookup was inconclusive — the outer gate must not read this
+        // null as a definitive miss.
+        outerAttempts.push({ source: 'album-inner' });
+      }
     }
     return result;
   }
@@ -550,7 +587,9 @@ export class ArtworkService {
       try {
         const existing = await this.artistRepository.getArtistByName(artistName);
         if (existing && existing.spotifyImageUrl !== correct) {
-          await this.artistRepository.setSpotifyImage(existing.artistId, correct, new Date()).catch(() => undefined);
+          await this.artistRepository.setSpotifyImage(existing.artistId, correct, new Date()).catch((err: unknown) => {
+            Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: jordana hotfix persist failed');
+          });
         }
       } catch (err) {
         Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: DB probe failed (jordana hotfix)');
@@ -561,7 +600,7 @@ export class ArtworkService {
 
     const cached = await this.cache.get<string>(key);
     if (cached) {
-      if (cached === 'none') return null;
+      if (cached === 'none' || cached === 'inconclusive') return null;
       if (isPlaceholderImageUrl(cached)) return null;
       return cached;
     }
@@ -602,8 +641,8 @@ export class ArtworkService {
           try {
             const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
             await this.artistRepository.setSpotifyImage(target.artistId, url, new Date());
-          } catch {
-            // ignore persistence failure
+          } catch (err) {
+            Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: spotify persist failed');
           }
         }
       } catch (err) {
@@ -645,8 +684,8 @@ export class ArtworkService {
             try {
               const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
               await this.artistRepository.setDeezerImage(target.artistId, match.id, url);
-            } catch {
-              // ignore persistence failure
+            } catch (err) {
+              Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: deezer persist failed');
             }
           }
         }
@@ -686,8 +725,8 @@ export class ArtworkService {
             try {
               const target = existing ?? (await this.artistRepository.getOrCreateArtist(artistName));
               await this.artistRepository.setAppleMusicUrl(target.artistId, url);
-            } catch {
-              // ignore persistence failure
+            } catch (err) {
+              Logger.debug({ err: String(err).slice(0, 80) }, 'Artist art: apple persist failed');
             }
           }
         }
@@ -723,10 +762,16 @@ export class ArtworkService {
           const lfmUrl = info?.imageUrl ?? null;
           if (isValidImageUrl(lfmUrl)) result = lfmUrl;
         }
-      } catch {
+      } catch (err) {
         // See the note in getAlbumCoverUrl: `answered` is not set here because
         // the cache decision keys off attempts.length, not this flag.
         attempts.push({ source: 'lastfm' });
+        // Last rung of the artist ladder, and the only artist-ladder catch with
+        // no receipt of its own — every rung above it logs at DEBUG.
+        Logger.debug(
+          { artist: artistName, err: String(err).slice(0, 80) },
+          'Artist art: lastfm rung failed, cascade exhausted with no cover',
+        );
       }
       if (!answered && this.isLastFmUnhealthy()) {
         // Ambiguous null during a hard outage — inconclusive, not definitive.
@@ -739,6 +784,11 @@ export class ArtworkService {
       await this.cache.set(key, result, MEMORY_CACHE_TTL_SECONDS);
     } else if (attempts.length === 0) {
       await this.cache.set(key, 'none', NONE_TTL_SECONDS);
+    } else {
+      // Inconclusive (outage / rate limit / timeout). Same backoff marker as
+      // the track ladder: a 90s TTL covers the 30s chapter retry, so the next
+      // tick serves this marker instead of re-sweeping the providers.
+      await this.cache.set(key, 'inconclusive', INCONCLUSIVE_TTL_SECONDS);
     }
     return result;
   }
@@ -924,8 +974,9 @@ export class ArtworkService {
       const hit = await this.cache.get<string>(key);
       if (hit === 'none' || hit === 'inconclusive') return null;
       if (hit) return isPlaceholderImageUrl(hit) ? null : hit;
-    } catch {
+    } catch (err) {
       // Treat an unreadable cache as a miss and fall through to the provider.
+      Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: spid cache read failed, falling to provider');
     }
     if (SpotifySearchApi.isRateLimited()) return null;
     try {
@@ -937,7 +988,8 @@ export class ArtworkService {
       }
       await this.cache.set(key, 'none', NONE_TTL_SECONDS);
       return null;
-    } catch {
+    } catch (err) {
+      Logger.debug({ err: String(err).slice(0, 80) }, 'Track art: spid fetch failed');
       return null;
     }
   }

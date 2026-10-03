@@ -485,7 +485,7 @@ describe('friendsfm — the visibility filter is a privacy control', () => {
     const response = await run(built.cmd, 'addfriends', ['alice']);
 
     expect(response.commandResponse).toBe(CommandResponse.NotFound);
-    expect(textOf(response)).toContain('Last.fm username');
+    expect(textOf(response)).toContain('have not connected');
     expect(built.getUserRecentTracks).not.toHaveBeenCalled();
   });
 
@@ -494,7 +494,7 @@ describe('friendsfm — the visibility filter is a privacy control', () => {
     const response = await run(built.cmd, 'friendsfm');
 
     expect(response.commandResponse).toBe(CommandResponse.NotFound);
-    expect(textOf(response)).toContain('Last.fm username');
+    expect(textOf(response)).toContain('have not connected');
     expect(built.getUserRecentTracks).not.toHaveBeenCalled();
   });
 });

@@ -120,3 +120,84 @@ describe('ReconcileService', () => {
     expect(indexService.enqueueUser).not.toHaveBeenCalled();
   });
 });
+
+describe('ReconcileService pagination and cap', () => {
+  // Mirrors USER_BATCH_SIZE 500 and MAX_USERS_PER_RUN 2000 in reconcileService.ts.
+  // If those constants move, these tests must move with them.
+  const BATCH = 500;
+  const MAX = 2000;
+
+  type ListArgs = { take?: number; cursor?: { userId: number }; skip?: number; orderBy?: unknown };
+
+  const sliceDb = (total: number) => {
+    const all = Array.from({ length: total }, (_, i) => ({ userId: i + 1, totalPlayCount: null }));
+    db.user.findMany.mockClear();
+    db.user.findMany.mockImplementation(async (args: ListArgs) => {
+      const take = args?.take ?? BATCH;
+      const cursorId = args?.cursor?.userId;
+      let start = 0;
+      if (cursorId !== undefined) {
+        const idx = all.findIndex((u) => u.userId === cursorId);
+        start = idx + 1;
+      }
+      return all.slice(start, start + take);
+    });
+  };
+
+  const healthyAggregates = () => {
+    db.userArtist.aggregate.mockResolvedValue(agg(100));
+    db.userAlbum.aggregate.mockResolvedValue(agg(100));
+    db.userTrack.aggregate.mockResolvedValue(agg(100));
+    db.userPlay.count.mockResolvedValue(100);
+    db.$queryRaw.mockResolvedValue([{ artists: 0, albums: 0, tracks: 0 }]);
+  };
+
+  it('pages user listing with take/order/cursor instead of one unbounded read', async () => {
+    sliceDb(BATCH + 100);
+    healthyAggregates();
+    const { svc } = makeSvc();
+    const report = await svc.runAsync();
+    expect(report.checkedUsers).toBe(BATCH + 100);
+    expect(report.truncated).toBe(false);
+    expect(db.user.findMany).toHaveBeenCalledTimes(2);
+    const first = db.user.findMany.mock.calls[0]?.[0] as ListArgs;
+    const second = db.user.findMany.mock.calls[1]?.[0] as ListArgs;
+    expect(first.take).toBe(BATCH);
+    expect(second.take).toBe(BATCH);
+    expect(second.cursor).toEqual({ userId: BATCH });
+    expect(second.skip).toBe(1);
+    // Removing take/cursor returns all 600 in one call: this fails.
+    expect(db.user.findMany).not.toHaveBeenCalledTimes(1);
+  });
+
+  it('caps scan at MAX and marks truncated so remainder defers', async () => {
+    sliceDb(MAX + 1);
+    healthyAggregates();
+    const { svc } = makeSvc();
+    const report = await svc.runAsync();
+    expect(report.checkedUsers).toBe(MAX);
+    expect(report.truncated).toBe(true);
+    expect(report.details).toHaveLength(MAX);
+    // Uncapped run would check all 2001 with truncated false: this fails.
+    expect(report.checkedUsers).not.toBe(MAX + 1);
+  });
+
+  it('continues past one bad user instead of aborting run', async () => {
+    db.user.findMany.mockResolvedValue([
+      { userId: 1, totalPlayCount: null },
+      { userId: 2, totalPlayCount: null },
+    ]);
+    db.$queryRaw.mockResolvedValue([{ artists: 0, albums: 0, tracks: 0 }]);
+    db.userArtist.aggregate.mockImplementation(async (args: { where?: { userId?: number } }) => {
+      if (args?.where?.userId === 1) throw new Error('aggregate down');
+      return agg(100);
+    });
+    db.userAlbum.aggregate.mockResolvedValue(agg(100));
+    db.userTrack.aggregate.mockResolvedValue(agg(100));
+    db.userPlay.count.mockResolvedValue(100);
+    const { svc } = makeSvc();
+    const report = await svc.runAsync();
+    expect(report.checkedUsers).toBe(1);
+    expect(report.details.map((d) => d.userId)).toEqual([2]);
+  });
+});
