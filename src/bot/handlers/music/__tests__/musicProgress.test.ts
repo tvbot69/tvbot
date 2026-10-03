@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MusicHandler } from '@bot/handlers/music/musicHandler';
+import { LYRIC_STARTUP_OFFSET_MS } from '@bot/services/music/musicConstants';
 
 const LINES = [
   { ms: 2000, text: 'Line one' },
@@ -49,13 +50,26 @@ describe('MusicHandler progress card', () => {
     vi.restoreAllMocks();
   });
 
-  it('lyric window follows the real clock with no startup offset', () => {
+  it('lyric window subtracts the measured node lead from the node clock', () => {
     const handler = buildHandler();
-    // First line at 2s, clock at 4s: with the old 3s offset the effective
-    // position (1s) sat before the first line (current null); now it sings.
-    expect(handler.lyricWindowFor(karaokePlayer, 4000)).toEqual({ current: 'Line one', next: 'Line two' });
+    // The node clock runs ~8.7s ahead of audible playback (measured
+    // 2026-10-03, `nodeLead` +8704..+8733 across a whole track). At a node
+    // clock of 4s only ~0s of audio has actually played, so nothing is
+    // singing yet; by 9s the first line is. Before the offset existed both
+    // read 8.7s ahead of the audio.
+    // Effective position = node clock - 8700.
+    expect(handler.lyricWindowFor(karaokePlayer, 4000)).toEqual({ current: null, next: 'Line one' });
     expect(handler.lyricWindowFor(karaokePlayer, 0)).toEqual({ current: null, next: 'Line one' });
-    expect(handler.lyricWindowFor(karaokePlayer, 9000)).toEqual({ current: 'Line two', next: null });
+    // 9000 -> 300ms effective: still before line one at 2000.
+    expect(handler.lyricWindowFor(karaokePlayer, 9000)).toEqual({ current: null, next: 'Line one' });
+    // 10800 -> 2100ms: line one is singing.
+    expect(handler.lyricWindowFor(karaokePlayer, 10800)).toEqual({ current: 'Line one', next: 'Line two' });
+    // 16800 -> 8100ms: line two.
+    expect(handler.lyricWindowFor(karaokePlayer, 16800)).toEqual({ current: 'Line two', next: null });
+  });
+
+  it('the applied offset is the measured lead, not a stale zero', () => {
+    expect(LYRIC_STARTUP_OFFSET_MS).toBe(8700);
   });
 
   it('an explicit startup offset runs the lookup behind the clock', () => {

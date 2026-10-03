@@ -49,7 +49,7 @@ plausible falsehood. Concretely, three properties:
 | Metric | Count |
 |---|---|
 | Production files | 395 |
-| Production lines | 84644 |
+| Production lines | 84653 |
 | Slash top-level commands | 76 |
 | Text commands | 158 |
 | Text triggers + aliases | 575 |
@@ -71,7 +71,7 @@ plausible falsehood. Concretely, three properties:
 | Metric | Count |
 |---|---|
 | Production files | 395 |
-| Production lines | 84644 |
+| Production lines | 84653 |
 | Slash top-level commands | 76 |
 | Text commands | 158 |
 | Text triggers + aliases | 575 |

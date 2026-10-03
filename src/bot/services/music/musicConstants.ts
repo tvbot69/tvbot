@@ -61,10 +61,19 @@ export const SEEK_REST_TIMEOUT_MS = 8_000;
 export const KARAOKE_TIMER_MIN_MS = 250;
 
 /**
- * Track-start audibility gap: the clock starts at the trackStart event but
- * the first audible frame follows later (voice join, stream buffering), so
- * an uncompensated lookup shows every line early by the gap. 0 until
- * measured — set from paired boundary-log/hearing evidence, never a guess.
- * Applied in KaraokeController.lyricWindowFor via lyricWindowAt.
+ * Node position lead: how far AHEAD of true audible playback a Lavalink
+ * node's reported position runs.
+ *
+ * Measured 2026-10-03 on the Home node (Geronimo, 123s, boundary diagnostic
+ * `nodeLead`): +8704ms at the first line, steady +8705..+8733 for the whole
+ * track — a fixed offset, not drift (92s of playback moved it 29ms). The
+ * LRC clock itself is exact: the first line is heard 15.0s after audio
+ * start and is stamped 15.32s. So the node begins counting before the audio
+ * is audible — voice handshake plus stream buffering on the node side.
+ *
+ * Subtracted from the position used for LYRIC lookups only. Chapters and the
+ * remaining-time meta line are deliberately left on the raw node clock:
+ * those read fine today, and moving them is not justified by this evidence.
+ * Revisit if a chapter is ever heard landing early too.
  */
-export const LYRIC_STARTUP_OFFSET_MS = 0;
+export const LYRIC_STARTUP_OFFSET_MS = 8700;
