@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { parseLrc, selectSynced, lyricWindowAt } from '@bot/services/music/syncedLyrics';
+import { parseLrc, selectSynced, lyricWindowAt, isLivePerformance, LIVE_DURATION_TOLERANCE_MS } from '@bot/services/music/syncedLyrics';
 
 const LRC = [
   '[00:00.15] Is this the real life?',
@@ -52,6 +52,30 @@ describe('selectSynced', () => {
 
   it('allows unknown durations through', () => {
     expect(selectSynced({ syncedLyrics: '[00:01.00] Hello' }, 99999)).not.toBeNull();
+  });
+
+  it('a custom tolerance rejects what the default accepts', () => {
+    const candidate = { syncedLyrics: '[00:01.00] Hello', instrumental: false, durationMs: 200000 };
+    // 8s apart: inside the 15s default, outside a 5s live gate.
+    expect(selectSynced(candidate, 208000)).not.toBeNull();
+    expect(selectSynced(candidate, 208000, LIVE_DURATION_TOLERANCE_MS)).toBeNull();
+    // 3s apart passes both gates.
+    expect(selectSynced(candidate, 203000, LIVE_DURATION_TOLERANCE_MS)).not.toBeNull();
+  });
+});
+
+describe('isLivePerformance', () => {
+  it('flags live-tagged titles and albums', () => {
+    expect(isLivePerformance('Off-Season - Audiotree Live Version')).toBe(true);
+    expect(isLivePerformance('Song', 'Live at Leeds')).toBe(true);
+    expect(isLivePerformance('Unplugged in New York')).toBe(true);
+  });
+
+  it('leaves studio titles alone', () => {
+    expect(isLivePerformance('Geronimo')).toBe(false);
+    expect(isLivePerformance('Alive')).toBe(false);
+    // An album literally titled Live IS a live record.
+    expect(isLivePerformance('Song', 'Live')).toBe(true);
   });
 });
 

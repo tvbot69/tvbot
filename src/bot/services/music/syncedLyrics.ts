@@ -28,6 +28,27 @@ const LRC_LINE_RE = /^\[(\d+):(\d+(?:\.\d+)?)\]\s?(.*)$/;
 export const DURATION_TOLERANCE_MS = 15000;
 
 /**
+ * Pressing gate for LIVE performances. A live arrangement re-times lines
+ * (intros, banter, tempo shifts) far beyond its duration delta, so a studio
+ * clock 8s away in length can sit seconds off all song. Live-tagged tracks
+ * get 5s; anything farther apart is doubt, and doubt shows no lyrics
+ * rather than wrong ones.
+ */
+export const LIVE_DURATION_TOLERANCE_MS = 5000;
+
+const LIVE_RE = /\b(live|unplugged|acoustic|audiotree|kexp|tiny desk|mahogany|sessions?|concert|on tour|live version|live at|vevo live)\b/i;
+
+/**
+ * Whether the RAW provider-facing title/album names a live performance.
+ * Runs pre-clean: the query sanitizer strips bracketed tags like
+ * "(Live Version)", so the cleaned title no longer says live.
+ * Artist is deliberately excluded (a band named Live is not a concert).
+ */
+export function isLivePerformance(title: string, album?: string): boolean {
+  return LIVE_RE.test(title) || (typeof album === 'string' && LIVE_RE.test(album));
+}
+
+/**
  * Parses LRC text (`[mm:ss.xx] lyric` per line) into timestamped lines.
  * Empty-text lines are kept (they mark instrumental gaps for the window
  * logic to hold on). Malformed lines are dropped.
@@ -57,6 +78,7 @@ export function parseLrc(text: string | undefined | null): SyncedLine[] {
 export function selectSynced(
   candidate: SyncedCandidate | null | undefined,
   expectedDurationMs?: number,
+  toleranceMs: number = DURATION_TOLERANCE_MS,
 ): SyncedLine[] | null {
   if (!candidate || candidate.instrumental) return null;
   const lines = parseLrc(candidate.syncedLyrics);
@@ -66,7 +88,7 @@ export function selectSynced(
     expectedDurationMs > 0 &&
     candidate.durationMs !== undefined &&
     candidate.durationMs > 0 &&
-    Math.abs(candidate.durationMs - expectedDurationMs) > DURATION_TOLERANCE_MS
+    Math.abs(candidate.durationMs - expectedDurationMs) > toleranceMs
   ) {
     return null;
   }

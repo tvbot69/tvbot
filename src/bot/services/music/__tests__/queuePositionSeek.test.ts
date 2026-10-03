@@ -26,6 +26,7 @@ const makePlayer = (opts: {
   time: number;
   seekAt?: number;
   seekPos?: number;
+  startedAt?: number;
   playing?: boolean;
   paused?: boolean;
   duration?: number;
@@ -33,6 +34,7 @@ const makePlayer = (opts: {
   const store: Record<string, unknown> = {};
   if (opts.seekAt !== undefined) store.lastUserSeekAt = opts.seekAt;
   if (opts.seekPos !== undefined) store.lastUserSeekPos = opts.seekPos;
+  if (opts.startedAt !== undefined) store.trackStartedAt = opts.startedAt;
   return {
     playing: opts.playing ?? true,
     paused: opts.paused ?? false,
@@ -105,5 +107,24 @@ describe('QueueService.calculatePosition — seek awareness', () => {
     const now = Date.now();
     const player = makePlayer({ position: 0, time: now, seekAt: now, seekPos: 9_999_999, duration: 180_000 });
     expect(service().calculatePosition(player)).toBe(180_000);
+  });
+
+  it('a node clock older than track start measures from the event, not the connection', () => {
+    // Measured 2026-10-03: voice-connect state time 10s old, track 0.5s in.
+    // The old code returned base + 10s of pre-track wall time and fired the
+    // first lyric boundary ~1s early; without the clamp this reads ~10_000.
+    const now = Date.now();
+    const player = makePlayer({ position: 0, time: now - 10_000, startedAt: now - 500 });
+    const ms = service().calculatePosition(player);
+    expect(ms).toBeGreaterThanOrEqual(0);
+    expect(ms).toBeLessThan(3000);
+  });
+
+  it('a node clock newer than track start behaves exactly as before', () => {
+    const now = Date.now();
+    const player = makePlayer({ position: 5000, time: now - 1000, startedAt: now - 8000 });
+    const ms = service().calculatePosition(player);
+    expect(ms).toBeGreaterThanOrEqual(5900);
+    expect(ms).toBeLessThan(7000);
   });
 });

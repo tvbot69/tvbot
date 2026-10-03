@@ -126,16 +126,20 @@ export class KaraokeController {
       const timer = setTimeout(() => {
         this.karaokeTimers.delete(player.guildId);
         try {
-          // Boundary diagnostic: clock position vs the line about to show.
-          // Pair with what you HEAR to measure the real offset — the log
-          // alone only proves internal consistency, not audibility.
+          // Boundary diagnostic. `nodeLead` is the audibility question: how
+          // far the node's own clock runs AHEAD of real elapsed time since
+          // the track started. A steady positive lead is exactly the "lyrics
+          // early" symptom, and it separates a node-side lead from a bad
+          // LRC clock (which shows as `clockAheadBy` alone).
           const atFire = this.host.queueService.calculatePosition(player);
+          const startedAt = typeof player.get === 'function' ? player.get<number>('trackStartedAt') : undefined;
+          const elapsed = typeof startedAt === 'number' && startedAt > 0 ? Date.now() - startedAt : -1;
           const title =
             typeof player.current === 'object' && player.current !== null
               ? String((player.current as { title?: unknown }).title ?? '').slice(0, 60)
               : '';
           Logger.debug(
-            `[Music] Karaoke boundary { track: '${title}', pos: ${atFire}, lineMs: ${next.ms}, clockAheadBy: ${atFire - next.ms} }`,
+            `[Music] Karaoke boundary { track: '${title}', pos: ${atFire}, lineMs: ${next.ms}, clockAheadBy: ${atFire - next.ms}, elapsed: ${elapsed}, nodeLead: ${elapsed >= 0 ? atFire - elapsed : 'n/a'} }`,
           );
           void this.host.publishProgress(player);
         } catch {

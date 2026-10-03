@@ -1,6 +1,6 @@
 import { singleton } from 'tsyringe';
 import { Logger } from '@domain/logging/logger';
-import { selectSynced, DURATION_TOLERANCE_MS, type SyncedLine } from '@bot/services/music/syncedLyrics';
+import { selectSynced, DURATION_TOLERANCE_MS, LIVE_DURATION_TOLERANCE_MS, isLivePerformance, type SyncedLine } from '@bot/services/music/syncedLyrics';
 
 export interface LyricsResult {
   title: string;
@@ -75,7 +75,7 @@ export class LyricsService {
    * Search for lyrics given a track title and optional artist name.
    * Multi-tier: LRCLIB (synced + plain) -> Genius fallback (full coverage for rap, underground & new releases).
    */
-  public async getLyrics(title: string, artist?: string, expectedDurationMs?: number): Promise<LyricsResult | null> {
+  public async getLyrics(title: string, artist?: string, expectedDurationMs?: number, toleranceMs: number = DURATION_TOLERANCE_MS): Promise<LyricsResult | null> {
     const { cleanTitle, cleanArtist, combined } = this.cleanSearchQuery(title, artist);
     const cacheKey = `${cleanArtist.toLowerCase()}:${cleanTitle.toLowerCase()}`;
 
@@ -89,7 +89,7 @@ export class LyricsService {
     try {
       // 1. Try LRCLIB exact match
       if (cleanArtist) {
-        const exactResult = await this.fetchLrclibExact(cleanTitle, cleanArtist, probe, expectedDurationMs);
+        const exactResult = await this.fetchLrclibExact(cleanTitle, cleanArtist, probe, expectedDurationMs, toleranceMs);
         if (exactResult) {
           this.setCache(cacheKey, exactResult);
           return exactResult;
@@ -146,6 +146,7 @@ export class LyricsService {
     artist: string,
     probe?: ProviderProbe,
     expectedDurationMs?: number,
+    toleranceMs: number = DURATION_TOLERANCE_MS,
   ): Promise<LyricsResult | null> {
     try {
       const url = new URL(`${LyricsService.LRCLIB_BASE_URL}/get`);
@@ -182,7 +183,7 @@ export class LyricsService {
         expectedDurationMs > 0 &&
         mapped.durationMs !== undefined &&
         mapped.durationMs > 0 &&
-        Math.abs(mapped.durationMs - expectedDurationMs) > DURATION_TOLERANCE_MS
+        Math.abs(mapped.durationMs - expectedDurationMs) > toleranceMs
       ) {
         return null;
       }
@@ -353,11 +354,14 @@ export class LyricsService {
    * Timed lyric lines for the live karaoke card. Reuses the shared lyrics
    * cache; applies the instrumental + wrong-version guards. Returns null
    * when nothing singable exists — callers show the standard card instead.
+   * Live performances get the tighter pressing gate: a studio clock near a
+   * live arrangement in length still sits seconds off all song.
    */
   public async getSyncedLyrics(title: string, artist: string, expectedDurationMs?: number): Promise<SyncedLine[] | null> {
     try {
-      const result = await this.getLyrics(title, artist, expectedDurationMs);
-      return selectSynced(result, expectedDurationMs);
+      const toleranceMs = isLivePerformance(title) ? LIVE_DURATION_TOLERANCE_MS : DURATION_TOLERANCE_MS;
+      const result = await this.getLyrics(title, artist, expectedDurationMs, toleranceMs);
+      return selectSynced(result, expectedDurationMs, toleranceMs);
     } catch (err) {
       Logger.debug({ err, title, artist }, 'Synced lyrics lookup failed');
       return null;

@@ -151,7 +151,22 @@ export class QueueService {
     };
 
     const trackStartedAt = typeof player.get === 'function' ? player.get<number>('trackStartedAt') : undefined;
-    const updateTime = rawTrack.time || trackStartedAt;
+    // A node clock older than the track start describes the PRE-track era
+    // (voice-connect state, the previous song): adding wall time since it to
+    // this track's base inflates the first seconds — measured 2026-10-03, a
+    // 10s-old state time put a fresh track at ~10s and fired the first lyric
+    // boundary a second early. Clamp the clock to the track start; the
+    // wall-clock fallback below then measures from the event, not the
+    // connection.
+    let updateTime = rawTrack.time || trackStartedAt;
+    if (
+      typeof trackStartedAt === 'number' &&
+      trackStartedAt > 0 &&
+      typeof updateTime === 'number' &&
+      updateTime < trackStartedAt
+    ) {
+      updateTime = trackStartedAt;
+    }
     if (typeof updateTime === 'number' && updateTime > 0) {
       const elapsed = Date.now() - updateTime;
       // Small negative elapsed is node/bot clock skew (the Home node is a
