@@ -1,6 +1,6 @@
 import { singleton } from 'tsyringe';
 import { Logger } from '@domain/logging/logger';
-import { selectSynced, type SyncedLine } from '@bot/services/music/syncedLyrics';
+import { selectSynced, DURATION_TOLERANCE_MS, type SyncedLine } from '@bot/services/music/syncedLyrics';
 
 export interface LyricsResult {
   title: string;
@@ -89,7 +89,7 @@ export class LyricsService {
     try {
       // 1. Try LRCLIB exact match
       if (cleanArtist) {
-        const exactResult = await this.fetchLrclibExact(cleanTitle, cleanArtist, probe);
+        const exactResult = await this.fetchLrclibExact(cleanTitle, cleanArtist, probe, expectedDurationMs);
         if (exactResult) {
           this.setCache(cacheKey, exactResult);
           return exactResult;
@@ -141,11 +141,25 @@ export class LyricsService {
     this.cache.set(key, { result, expiresAt: Date.now() + LyricsService.CACHE_TTL_MS });
   }
 
-  private async fetchLrclibExact(title: string, artist: string, probe?: ProviderProbe): Promise<LyricsResult | null> {
+  private async fetchLrclibExact(
+    title: string,
+    artist: string,
+    probe?: ProviderProbe,
+    expectedDurationMs?: number,
+  ): Promise<LyricsResult | null> {
     try {
       const url = new URL(`${LyricsService.LRCLIB_BASE_URL}/get`);
       url.searchParams.set('track_name', title);
       url.searchParams.set('artist_name', artist);
+      // Measured live: /get honors `duration` (seconds) and returns the
+      // pressing near it — without it, a 241s live take gets the 288s studio
+      // clock. Callers without a duration (plain-lyrics displays) omit it
+      // and behave exactly as before.
+      const expectedSec =
+        expectedDurationMs !== undefined && expectedDurationMs > 0
+          ? Math.round(expectedDurationMs / 1000)
+          : undefined;
+      if (expectedSec !== undefined) url.searchParams.set('duration', String(expectedSec));
 
       const res = await fetch(url.toString(), {
         signal: AbortSignal.timeout(LyricsService.TIMEOUT_MS),
@@ -155,7 +169,24 @@ export class LyricsService {
 
       if (!res.ok) return null;
       const data = (await res.json()) as Record<string, unknown>;
-      return this.mapToLyricsResult(data, 'lrclib');
+      const mapped = this.mapToLyricsResult(data, 'lrclib');
+      // The duration-closest search leg below never runs when exact hits, so
+      // a wrong-pressing exact (same words, different clock, within the
+      // guard) would drift for the whole track. When the caller knows the
+      // track length and exact's own duration disagrees past tolerance, treat
+      // it as no match: the search leg picks the pressing actually playing,
+      // and `selectSynced` would have nulled this row anyway.
+      if (
+        mapped &&
+        expectedDurationMs !== undefined &&
+        expectedDurationMs > 0 &&
+        mapped.durationMs !== undefined &&
+        mapped.durationMs > 0 &&
+        Math.abs(mapped.durationMs - expectedDurationMs) > DURATION_TOLERANCE_MS
+      ) {
+        return null;
+      }
+      return mapped;
     } catch {
       // Transport failure, not "no such song" — the leg is inconclusive and
       // the probe stays false so the caller does not cache a negative.

@@ -187,36 +187,33 @@ describe('Now Playing card text limits (58 + ...)', () => {
     }
   });
 
-  it('clamps lyric current and next lines independently', () => {
-    const longCur = 'C'.repeat(100);
-    const longNext = 'N'.repeat(100);
-    expect(MusicBuilders.buildLyricSection({ current: longCur, next: longNext })).toBe(
-      `**${'C'.repeat(58)}...**\n${'N'.repeat(58)}...`,
+  it('wraps long lyric lines at word boundaries, never ...', () => {
+    const longCur = `C ${'word '.repeat(30).trim()}`;
+    const wrapped = MusicBuilders.buildLyricSection({ current: longCur, next: longCur });
+    expect(wrapped).not.toContain('...');
+    // Every visual line fits the 58 budget.
+    for (const line of String(wrapped).replaceAll('*', '').split('\n')) {
+      expect(line.length).toBeLessThanOrEqual(58);
+    }
+    // No-space run hard-splits at the budget.
+    expect(MusicBuilders.buildLyricSection({ current: 'C'.repeat(100), next: null })).toBe(
+      `**${'C'.repeat(58)}\n${'C'.repeat(42)}**`,
     );
-    expect(MusicBuilders.buildLyricSection({ current: longCur, next: longNext }, false)).toBe(
-      `**${'C'.repeat(58)}...**\n*${'N'.repeat(58)}...*`,
+    expect(MusicBuilders.buildLyricSection({ current: 'C'.repeat(100), next: null }, false)).toBe(
+      `**${'C'.repeat(58)}\n${'C'.repeat(42)}**`,
     );
-    // Long current, short next: only the current clamps.
-    expect(MusicBuilders.buildLyricSection({ current: longCur, next: 'hi' })).toBe(
-      `**${'C'.repeat(58)}...**\nhi`,
+    // Without the wrap the 100-char run stays on one line; its absence is the mutation check.
+    expect(MusicBuilders.buildLyricSection({ current: 'C'.repeat(100), next: null })).not.toContain(
+      'C'.repeat(59),
     );
-    // The card carries the same clamped strings in V2 and fallback (single source).
-    const res = MusicBuilders.buildNowPlayingResponse(
-      npQueue,
-      0xff0000,
-      { current: longCur, next: longNext },
-      null,
-    );
-    expect(embedDesc(res).includes(`**${'C'.repeat(58)}...**`)).toBe(true);
-    expect(textsOf(res).some((t) => t.includes(`**${'C'.repeat(58)}...**`))).toBe(true);
   });
 
-  it('clamps the 58-char lyric example only past the budget', () => {
+  it('wraps the 59-char lyric example onto two lines, 58 untouched', () => {
     const line58 = "Tell me what's the price to pay the motherfuckin' preacher";
     expect(line58).toHaveLength(58);
     expect(MusicBuilders.buildLyricSection({ current: line58, next: null })).toBe(`**${line58}**`);
     expect(MusicBuilders.buildLyricSection({ current: `${line58}!`, next: null })).toBe(
-      `**${line58}...**`,
+      "**Tell me what's the price to pay the motherfuckin'\npreacher!**",
     );
   });
 

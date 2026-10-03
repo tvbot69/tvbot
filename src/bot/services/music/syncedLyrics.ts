@@ -24,7 +24,8 @@ export interface SyncedCandidate {
 }
 
 const LRC_LINE_RE = /^\[(\d+):(\d+(?:\.\d+)?)\]\s?(.*)$/;
-const DURATION_TOLERANCE_MS = 15000;
+/** Pressings farther apart than this never share a clock; nearer ones still can. */
+export const DURATION_TOLERANCE_MS = 15000;
 
 /**
  * Parses LRC text (`[mm:ss.xx] lyric` per line) into timestamped lines.

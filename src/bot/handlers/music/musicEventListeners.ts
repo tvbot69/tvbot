@@ -11,7 +11,7 @@ import type { ColorService } from '@bot/services/system/colorService';
 import type { VoiceChannelStatusService } from '@bot/services/music/voiceChannelStatusService';
 import type { BotScrobblingService } from '@bot/services/music/botScrobblingService';
 import { chapterKeyFor, clientFailuresText, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
-import type { LyricWindow } from '@bot/services/music/syncedLyrics';
+import type { LyricWindow, SyncedLine } from '@bot/services/music/syncedLyrics';
 import type { ChapterCard } from '@bot/services/music/videoChapters';
 import {
   artTimingNumber,
@@ -301,6 +301,21 @@ export class MusicEventListeners {
     // Position jumped — boundary timers armed to the old clock are wrong.
     this.host.armKaraokeTimer(player);
     this.host.armChapterTimer(player);
+    // A seek also moves the LYRIC window, but only a publish shows it: on a
+    // chapterless track swapChapterOnSeek early-returns without scheduling,
+    // so without this the card keeps the pre-seek line until the NEXT
+    // boundary — or forever when the seek lands past the last line and no
+    // timer is armed. Gated on resolved lines so a seek that changes nothing
+    // visible (same chapter, no karaoke) stays silent — the node-initiated
+    // twin below always schedules because a remote jump is never known-clean.
+    const lines = player.get<SyncedLine[] | null>('karaokeLines');
+    if (
+      lines &&
+      lines.length > 0 &&
+      this.queueService.isKaraokeEnabled(player.guildId)
+    ) {
+      this.host.scheduleImmediateProgress(player);
+    }
   }
 
   /**

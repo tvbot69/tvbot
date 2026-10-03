@@ -208,19 +208,58 @@ export class MusicBuilders {
   /**
    * Karaoke section for the Now Playing card: the line being sung plus the
    * next line, compact and text-only. Returns null when nothing singable.
+   * Long lines WRAP at word boundaries (never `...`): a cut lyric reads
+   * like a wrong lyric, a wrapped one just continues on the next line.
    */
   public static buildLyricSection(
     lyricWindow?: { current: string | null; next: string | null } | null,
     v2: boolean = true,
   ): string | null {
     if (!lyricWindow || (lyricWindow.current === null && lyricWindow.next === null)) return null;
-    // Single source for V2 + fallback: both read these clamped strings.
-    const current = lyricWindow.current ? MusicBuilders.clampDisplay(lyricWindow.current) : null;
-    const next = lyricWindow.next ? MusicBuilders.clampDisplay(lyricWindow.next) : null;
+    // Single source for V2 + fallback: both read these wrapped strings.
+    const current = lyricWindow.current ? MusicBuilders.wrapLyricLine(lyricWindow.current) : null;
+    const next = lyricWindow.next ? MusicBuilders.wrapLyricLine(lyricWindow.next) : null;
     const head = current ? `**${current}**` : null;
-    const tail = next ? (v2 ? next : `*${next}*`) : null;
+    // A lone upcoming line stays italic (pre-first-line styling); beside a
+    // current line the V2 next line is plain, the legacy one italic.
+    const tail = next ? (v2 && head ? next : `*${next}*`) : null;
     if (head && tail) return `${head}\n${tail}`;
-    return head ?? (next ? `*${next}*` : null);
+    return head ?? tail;
+  };
+
+  /**
+   * Word-boundary wrap for lyric lines: chunks of at most
+   * NOW_PLAYING_TEXT_LIMIT chars, at most two lines, no ellipsis. A single
+   * word longer than the limit is hard-split. Anything past the second
+   * line is dropped (LRC lines past 116 chars are vanishingly rare, and a
+   * third line would push the card rather than the lyric).
+   */
+  private static wrapLyricLine(text: string): string {
+    const max = MusicBuilders.NOW_PLAYING_TEXT_LIMIT;
+    const maxLines = 2;
+    const out: string[] = [];
+    let line = '';
+    const push = (l: string): void => {
+      if (l && out.length < maxLines) out.push(l);
+    };
+    for (const rawWord of text.replace(/[\r\n]+/g, ' ').split(' ')) {
+      let word = rawWord;
+      if (!word) continue;
+      while (word.length > max) {
+        push(line);
+        line = '';
+        push(word.slice(0, max));
+        word = word.slice(max);
+      }
+      if ((line + (line ? ' ' : '') + word).length > max) {
+        push(line);
+        line = word;
+      } else {
+        line = line ? `${line} ${word}` : word;
+      }
+    }
+    push(line);
+    return out.join('\n');
   }
 
   /**

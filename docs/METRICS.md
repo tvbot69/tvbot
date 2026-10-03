@@ -4,10 +4,10 @@
 | Metric | Count |
 |---|---|
 | Production files | 395 |
-| Production lines | 84486 |
+| Production lines | 84572 |
 | Slash top-level commands | 76 |
 | Text commands | 158 |
 | Text triggers + aliases | 575 |
-| Test files | 444 |
+| Test files | 446 |
 | Repositories | 19 |
 <!-- metrics:end -->
