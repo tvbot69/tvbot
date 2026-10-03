@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { Logger } from '@domain/logging/logger';
 import { MoonlinkManager } from '@bot/services/music/moonlinkManager';
 
 const SAVED_ENV = { ...process.env };
@@ -48,6 +49,37 @@ describe('MoonlinkManager enablement', () => {
     delete process.env.ENABLE_LAVALINK;
     const manager = new MoonlinkManager();
     expect(manager.hasHealthyNode()).toBe(false);
+  });
+
+  // Moonlink compares PERCENT-scale cpu (systemLoad * 100, default 80) against
+  // maxCpuLoad. A fraction here marks every node over 0.85% system unhealthy:
+  // measured 2026-10-03, Home at 26.5% system was excluded from every
+  // findNode while MilloHost at 0% took all players.
+  it.each([{ flag: 'false' }, { flag: undefined }])(
+    'passes percent-scale maxCpuLoad to Moonlink (flag=$flag)',
+    ({ flag }) => {
+      process.env.ENVIRONMENT = 'production';
+      if (flag === undefined) delete process.env.ENABLE_LAVALINK;
+      else process.env.ENABLE_LAVALINK = flag;
+      const manager = new MoonlinkManager();
+      liveManagers.push(manager);
+      const nodeOpts = (manager.getManager() as unknown as { options: { node: { maxCpuLoad: number } } })
+        .options.node;
+      expect(nodeOpts.maxCpuLoad).toBe(85);
+    },
+  );
+
+  it('forwards Moonlink debug lines (node-selection decisions) to Logger.debug', () => {
+    process.env.ENVIRONMENT = 'production';
+    delete process.env.ENABLE_LAVALINK;
+    const debug = vi.spyOn(Logger, 'debug').mockImplementation(() => undefined);
+    const manager = new MoonlinkManager();
+    liveManagers.push(manager);
+    (manager.getManager() as unknown as { emit: (event: string, message: string) => void }).emit(
+      'debug',
+      'Moonlink.js > NodeManager#findNode: Node Home is unhealthy. CPU: 26.50%',
+    );
+    expect(debug.mock.calls.some((c) => String(c[0]).includes('Moonlink:'))).toBe(true);
   });
 });
 

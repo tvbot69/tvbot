@@ -158,9 +158,10 @@ afterEach(() => {
 });
 
 describe('registerNodeEvents — every Moonlink event the failover depends on', () => {
-  it('registers all six handlers, so none can be lost to a rename', () => {
+  it('registers all seven handlers, so none can be lost to a rename', () => {
     const h = build();
     expect([...h.handlers.keys()].sort()).toEqual([
+      'debug',
       'nodeConnected',
       'nodeDisconnect',
       'nodeError',
@@ -176,6 +177,13 @@ describe('registerNodeEvents — every Moonlink event the failover depends on', 
     a.inner.nodeCooldownUntil.set('Home', Date.now() + 60_000);
     expect(b.manager.isNodeCoolingDown('Home')).toBe(false);
     expect(a.manager.isNodeCoolingDown('Home')).toBe(true);
+  });
+
+  it('forwards Moonlink debug lines (node-selection decisions) to Logger.debug', () => {
+    const debug = vi.spyOn(Logger, 'debug').mockImplementation(() => undefined);
+    const h = build();
+    fire(h, 'debug', 'Moonlink.js > NodeManager#findNode: Node Home is unhealthy. CPU: 26.50%');
+    expect(said(debug, 'Moonlink:')).toBe(true);
   });
 });
 
@@ -683,6 +691,28 @@ describe('the health loop — a 10s sweep that never polls the card', () => {
     expect(line).toBeDefined();
     // 97.0%, read off the vendor's own fraction rather than a guess.
     expect(String(line?.[0])).toContain('97.0%');
+  });
+
+  it('a system-CPU trip prints both loads, so the tripper is never mistaken for Lavalink', () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    const h = build();
+    (h.manager as unknown as { manager: unknown }).manager = {
+      nodes: {
+        nodes: new Map([
+          ['Home', fakeNode('Home', { stats: { cpu: { lavalinkLoad: 0.001, systemLoad: 0.97 } } })],
+        ]),
+      },
+      players: { all: [] },
+    };
+
+    sweep(h);
+
+    const line = warn.mock.calls.find((c) => String(c[0]).includes('extreme load'));
+    expect(line).toBeDefined();
+    // The old line printed only the lavalink figure: "extreme load (CPU: 0.1%)".
+    expect(String(line?.[0])).toContain('system 97.0%');
+    expect(String(line?.[0])).toContain('lavalink 0.1%');
   });
 
   it('a healthy node produces no load warning at all', () => {

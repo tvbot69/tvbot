@@ -68,12 +68,16 @@ export class MoonlinkManager {
     if (!this.lavalinkEnabled) {
       Logger.info(`[Lavalink] Disabled (ENVIRONMENT=${env}, ENABLE_LAVALINK=${flag}) — skipping node connections.`);
       // Moonlink.js validates nodes array non-empty, so use a dummy that we never init()
+      // maxCpuLoad is PERCENT-scale in Moonlink (cpuLoad = systemLoad * 100,
+      // default 80). A fraction here (0.85) marks every node reporting over
+      // 0.85% system CPU unhealthy — measured 2026-10-03: Home at 26.5% was
+      // excluded from every findNode while MilloHost at 0% took everything.
       this.manager = new Manager({
         nodes: [{ identifier: 'dummy-disabled', host: '127.0.0.1', port: 2333, password: 'dummy', secure: false, retryAmount: 0, retryDelay: 60000 }],
         options: {
           clientName: 'tvbot/1.0.0 (Moonlink v5)',
           resume: false,
-          node: { autoMovePlayers: true, avoidUnhealthyNodes: true, retryAmount: 0, retryDelay: 60000, maxCpuLoad: 0.85 },
+          node: { autoMovePlayers: true, avoidUnhealthyNodes: true, retryAmount: 0, retryDelay: 60000, maxCpuLoad: 85 },
           search: { defaultPlatform: 'youtube', resultLimit: 15 },
           voiceConnection: { timeout: 15000, autoReconnect: true },
         },
@@ -112,7 +116,8 @@ export class MoonlinkManager {
           avoidUnhealthyNodes: true,
           retryAmount: 0,
           retryDelay: 60000,
-          maxCpuLoad: 0.85,
+          // PERCENT-scale (see the dummy-block note): 85, not 0.85.
+          maxCpuLoad: 85,
         },
         search: {
           defaultPlatform: 'youtube',
@@ -345,6 +350,14 @@ export class MoonlinkManager {
   }
 
   private registerNodeEvents(): void {
+    // Moonlink reports node-selection decisions here ("Node X is unhealthy.
+    // CPU: …%", "No healthy nodes available, falling back…"). Without this
+    // listener those lines vanish — which is how a wrong maxCpuLoad scale
+    // excluded Home from every pick for weeks with nothing in the logs.
+    this.manager.on('debug', (message: string) => {
+      Logger.debug(`[Lavalink] Moonlink: ${message}`);
+    });
+
     this.manager.on('nodeConnected', (node: Node) => {
       Logger.info(`[Lavalink] Node "${node.identifier}" connected (${node.host}:${node.port})`);
       this.nodeCooldownUntil.delete(node.identifier);
@@ -463,9 +476,13 @@ export class MoonlinkManager {
         const lavalinkCpu = stats.cpu?.lavalinkLoad ?? 0;
         const systemCpu = stats.cpu?.systemLoad ?? 0;
 
+        // Print BOTH loads: the tripper used to be invisible because only the
+        // lavalink figure was logged while a system-CPU spike armed the warn
+        // (a Windows desktop idles far from 0% system while Lavalink sits at
+        // 0.1% — the old line read "extreme load (CPU: 0.1%)").
         if (lavalinkCpu > 0.9 || systemCpu > 0.95) {
           Logger.warn(
-            `[Lavalink] Node "${node.identifier}" is under extreme load (CPU: ${(lavalinkCpu * 100).toFixed(1)}%). Evaluating rebalance...`,
+            `[Lavalink] Node "${node.identifier}" is under extreme load (lavalink ${(lavalinkCpu * 100).toFixed(1)}%, system ${(systemCpu * 100).toFixed(1)}%). Evaluating rebalance...`,
           );
         }
       }
