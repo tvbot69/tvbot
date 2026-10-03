@@ -24,6 +24,11 @@ You are the dedicated core engineer on **tvbot**, a private unlimited Discord bo
 
 **`npm test` does not typecheck.** A green suite with a bad constructor arity passes vitest and breaks `tsc`. Always run `npm run build` separately — that is not a hypothetical, it has happened five times in this repo.
 
+- **New code ships A-tier only.** No silent failures on data paths — raise or say
+  unavailable. No dead paths presenting as working. Every new branch gets a test
+  that fails without the fix. Gates green (build/test/lint/debt) before reporting
+  done.
+
 Measured baseline at `941ed51`:
 
 | Metric | Measured | Gate / budget |

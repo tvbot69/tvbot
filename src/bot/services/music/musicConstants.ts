@@ -51,3 +51,11 @@ export const LOAD_TRACKS_TIMEOUT_MS = 8_000;
 
 /** Bound on a user seek's REST round-trip; recovery is event-driven after. */
 export const SEEK_REST_TIMEOUT_MS = 8_000;
+
+/**
+ * Floor for the karaoke boundary timer. Lyric lines sit seconds apart, so the
+ * 1500ms floor the chapter timer uses would hold every dense line late by up
+ * to a second and a half. 250ms stays above Node timer slack while keeping
+ * the visible error under one beat.
+ */
+export const KARAOKE_TIMER_MIN_MS = 250;

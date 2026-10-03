@@ -123,6 +123,120 @@ describe('buildNowPlayingResponse chapters', () => {
   });
 });
 
+describe('Now Playing card text limits (58 + ...)', () => {
+  const textsOf = (res: { toMessagePayload: () => unknown }): string[] => {
+    const json = JSON.parse(JSON.stringify(res.toMessagePayload())) as {
+      components?: Array<{ components?: Array<{ content?: string }> }>;
+    };
+    const out: string[] = [];
+    for (const row of json.components ?? []) {
+      for (const c of row.components ?? []) {
+        if (typeof c.content === 'string') out.push(c.content);
+      }
+    }
+    return out;
+  };
+  const embedDesc = (res: unknown): string =>
+    String((res as { embed: { data: { description?: string } } }).embed.data.description ?? '');
+  const queueWith = (over: Record<string, unknown>) => {
+    const base = JSON.parse(JSON.stringify(npQueue)) as { current: Record<string, unknown> };
+    Object.assign(base.current, over);
+    return base as never;
+  };
+
+  it('clamps a long title to 58 chars plus ... in V2 and fallback', () => {
+    const long = 'T'.repeat(100);
+    const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title: long }), 0xff0000, null, null);
+    const want = `${'T'.repeat(58)}...`;
+    expect(textsOf(res).some((t) => t.includes(want))).toBe(true);
+    expect(embedDesc(res).includes(want)).toBe(true);
+    // Without the clamp the full 100-char run survives; its absence is the mutation check.
+    expect(embedDesc(res).includes('T'.repeat(59 + 3))).toBe(false);
+  });
+
+  it('passes an exact-58 title through untouched', () => {
+    const exact = 'E'.repeat(58);
+    const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title: exact }), 0xff0000, null, null);
+    expect(embedDesc(res).includes(`[${exact}]`)).toBe(true);
+    expect(embedDesc(res).includes('...')).toBe(false);
+  });
+
+  it('leaves a short title untouched', () => {
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({ title: 'Short Song' }),
+      0xff0000,
+      null,
+      null,
+    );
+    expect(embedDesc(res).includes('[Short Song]')).toBe(true);
+    expect(embedDesc(res).includes('...')).toBe(false);
+  });
+
+  it('still renders empty and whitespace titles without throwing', () => {
+    for (const title of ['', '   ']) {
+      let res: unknown = null;
+      expect(() => {
+        res = MusicBuilders.buildNowPlayingResponse(queueWith({ title }), 0xff0000, null, null);
+      }).not.toThrow();
+      // setTitle('') throws, but this card only uses setDescription/setContent,
+      // so the artist and badge keep the card sendable.
+      expect(embedDesc(res).includes('EsDeeKid')).toBe(true);
+      expect(textsOf(res as { toMessagePayload: () => unknown }).join('\n').includes('EsDeeKid')).toBe(
+        true,
+      );
+    }
+  });
+
+  it('clamps lyric current and next lines independently', () => {
+    const longCur = 'C'.repeat(100);
+    const longNext = 'N'.repeat(100);
+    expect(MusicBuilders.buildLyricSection({ current: longCur, next: longNext })).toBe(
+      `**${'C'.repeat(58)}...**\n${'N'.repeat(58)}...`,
+    );
+    expect(MusicBuilders.buildLyricSection({ current: longCur, next: longNext }, false)).toBe(
+      `**${'C'.repeat(58)}...**\n*${'N'.repeat(58)}...*`,
+    );
+    // Long current, short next: only the current clamps.
+    expect(MusicBuilders.buildLyricSection({ current: longCur, next: 'hi' })).toBe(
+      `**${'C'.repeat(58)}...**\nhi`,
+    );
+    // The card carries the same clamped strings in V2 and fallback (single source).
+    const res = MusicBuilders.buildNowPlayingResponse(
+      npQueue,
+      0xff0000,
+      { current: longCur, next: longNext },
+      null,
+    );
+    expect(embedDesc(res).includes(`**${'C'.repeat(58)}...**`)).toBe(true);
+    expect(textsOf(res).some((t) => t.includes(`**${'C'.repeat(58)}...**`))).toBe(true);
+  });
+
+  it('clamps the 58-char lyric example only past the budget', () => {
+    const line58 = "Tell me what's the price to pay the motherfuckin' preacher";
+    expect(line58).toHaveLength(58);
+    expect(MusicBuilders.buildLyricSection({ current: line58, next: null })).toBe(`**${line58}**`);
+    expect(MusicBuilders.buildLyricSection({ current: `${line58}!`, next: null })).toBe(
+      `**${line58}...**`,
+    );
+  });
+
+  it('returns null when the lyric window is null', () => {
+    expect(MusicBuilders.buildLyricSection(null)).toBeNull();
+    expect(MusicBuilders.buildLyricSection({ current: null, next: null })).toBeNull();
+  });
+
+  it('clamps long album and artist parts of the header', () => {
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({ album: 'A'.repeat(100), author: 'B'.repeat(100) }),
+      0xff0000,
+      null,
+      null,
+    );
+    expect(embedDesc(res).includes(`${'A'.repeat(58)}...`)).toBe(true);
+    expect(embedDesc(res).includes(`${'B'.repeat(58)}...`)).toBe(true);
+  });
+});
+
 describe('fallbackRow helper', () => {
   it('carries button components into a fallback-compatible row', () => {
     const row = fallbackRow(

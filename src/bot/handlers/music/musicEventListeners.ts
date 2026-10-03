@@ -204,8 +204,9 @@ export class MusicEventListeners {
       this.host.resolveVideoChapters(player, player.current ?? track);
       // The REAL position, not a hardcoded 0: a track that starts part-way
       // through (fallback resume, a restored session) must render the chapter
-      // it is actually on.
-      const chapter = this.host.chapterCardFor(player, this.queueService.calculatePosition(player));
+      // it is actually on — and the lyric line it is actually singing.
+      const atTrackStart = this.queueService.calculatePosition(player);
+      const chapter = this.host.chapterCardFor(player, atTrackStart);
       // Same cover resolution the publisher uses, so the first post and
       // every later edit agree on what is on screen (and on the key).
       const postedCover = chapter?.artworkUrl ?? queue.current?.artworkUrl ?? null;
@@ -214,7 +215,7 @@ export class MusicEventListeners {
       const accentColor = this.colorService
         ? await this.colorService.getAccentColorAsync(player.guildId, postedCover)
         : undefined;
-      const postedLyric = this.host.lyricWindowFor(player, 0);
+      const postedLyric = this.host.lyricWindowFor(player, atTrackStart);
       const response = MusicBuilders.buildNowPlayingResponse(queue, accentColor, postedLyric, chapter);
 
       // Timing triangulation (artwork flash diagnosis): lookup start is

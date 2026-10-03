@@ -49,11 +49,11 @@ plausible falsehood. Concretely, three properties:
 | Metric | Count |
 |---|---|
 | Production files | 395 |
-| Production lines | 84422 |
+| Production lines | 84486 |
 | Slash top-level commands | 76 |
 | Text commands | 158 |
 | Text triggers + aliases | 575 |
-| Test files | 442 |
+| Test files | 444 |
 | Repositories | 19 |
 <!-- metrics:end --> See [docs/METRICS.md](docs/METRICS.md) for current counts.
 
@@ -71,11 +71,11 @@ plausible falsehood. Concretely, three properties:
 | Metric | Count |
 |---|---|
 | Production files | 395 |
-| Production lines | 84422 |
+| Production lines | 84486 |
 | Slash top-level commands | 76 |
 | Text commands | 158 |
 | Text triggers + aliases | 575 |
-| Test files | 442 |
+| Test files | 444 |
 | Repositories | 19 |
 <!-- metrics:end -->
 See [docs/METRICS.md](docs/METRICS.md) for current counts. `npm run debt` reads `explicit-any 0`,
@@ -120,6 +120,10 @@ exists because breaking it shipped a real bug.
   `src/bot/startup.ts`. Do not introduce a second way of resolving a service.
 - **Never commit secrets** — and in this public repo, never an infrastructure detail either (see
   the header). `.env` is never read, printed or copied into a test fixture.
+- **New code ships A-tier only.** No silent failures on data paths — raise or say
+  unavailable. No dead paths presenting as working. Every new branch gets a test
+  that fails without the fix. Gates green (build/test/lint/debt) before reporting
+  done.
 
 ---
 

@@ -75,7 +75,7 @@ export class LyricsService {
    * Search for lyrics given a track title and optional artist name.
    * Multi-tier: LRCLIB (synced + plain) -> Genius fallback (full coverage for rap, underground & new releases).
    */
-  public async getLyrics(title: string, artist?: string): Promise<LyricsResult | null> {
+  public async getLyrics(title: string, artist?: string, expectedDurationMs?: number): Promise<LyricsResult | null> {
     const { cleanTitle, cleanArtist, combined } = this.cleanSearchQuery(title, artist);
     const cacheKey = `${cleanArtist.toLowerCase()}:${cleanTitle.toLowerCase()}`;
 
@@ -97,7 +97,7 @@ export class LyricsService {
       }
 
       // 2. Try LRCLIB search query
-      const lrclibSearch = await this.fetchLrclibSearch(combined, probe);
+      const lrclibSearch = await this.fetchLrclibSearch(combined, probe, expectedDurationMs);
       if (lrclibSearch) {
         this.setCache(cacheKey, lrclibSearch);
         return lrclibSearch;
@@ -163,7 +163,11 @@ export class LyricsService {
     }
   }
 
-  private async fetchLrclibSearch(query: string, probe?: ProviderProbe): Promise<LyricsResult | null> {
+  private async fetchLrclibSearch(
+    query: string,
+    probe?: ProviderProbe,
+    expectedDurationMs?: number,
+  ): Promise<LyricsResult | null> {
     try {
       const url = new URL(`${LyricsService.LRCLIB_BASE_URL}/search`);
       url.searchParams.set('q', query);
@@ -178,9 +182,32 @@ export class LyricsService {
       const results = (await res.json()) as Array<Record<string, unknown>>;
       if (!Array.isArray(results) || results.length === 0) return null;
 
-      const match = results.find(
-        (r) => (typeof r.plainLyrics === 'string' && r.plainLyrics.trim().length > 0) || r.instrumental === true,
-      ) ?? results[0];
+      const hasLyrics = (r: Record<string, unknown>): boolean =>
+        (typeof r.plainLyrics === 'string' && r.plainLyrics.trim().length > 0) || r.instrumental === true;
+      const lyricRows = results.filter(hasLyrics);
+      // Duration-aware pick: LRCLIB search returns closest-text-match first,
+      // which is routinely a cover or pressing with the same words but a
+      // different clock. When the caller knows the track length, the row
+      // closest to it is the recording actually playing — a first-row pick
+      // with near-but-wrong timings reads as permanent lyric drift.
+      let match: Record<string, unknown> | undefined;
+      if (
+        expectedDurationMs !== undefined &&
+        expectedDurationMs > 0 &&
+        lyricRows.length > 1
+      ) {
+        let bestDiff = Number.POSITIVE_INFINITY;
+        for (const row of lyricRows) {
+          const d = typeof row.duration === 'number' && row.duration > 0 ? row.duration * 1000 : undefined;
+          if (d === undefined) continue;
+          const diff = Math.abs(d - expectedDurationMs);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            match = row;
+          }
+        }
+      }
+      match ??= lyricRows[0] ?? results[0];
 
       if (!match) return null;
       return this.mapToLyricsResult(match, 'lrclib');
@@ -298,7 +325,7 @@ export class LyricsService {
    */
   public async getSyncedLyrics(title: string, artist: string, expectedDurationMs?: number): Promise<SyncedLine[] | null> {
     try {
-      const result = await this.getLyrics(title, artist);
+      const result = await this.getLyrics(title, artist, expectedDurationMs);
       return selectSynced(result, expectedDurationMs);
     } catch (err) {
       Logger.debug({ err, title, artist }, 'Synced lyrics lookup failed');

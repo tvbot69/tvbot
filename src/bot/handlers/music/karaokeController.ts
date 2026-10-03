@@ -1,5 +1,6 @@
 import type { Player } from 'moonlink.js';
 import { lyricWindowAt, type SyncedLine, type LyricWindow } from '@bot/services/music/syncedLyrics';
+import { KARAOKE_TIMER_MIN_MS } from '@bot/services/music/musicConstants';
 import type { LyricsService } from '@bot/services/music/lyricsService';
 import type { QueueService } from '@bot/services/music/queueService';
 
@@ -109,7 +110,12 @@ export class KaraokeController {
       const next = lines.find((l) => l.ms > position);
       if (!next) return;
       let delay = next.ms - position;
-      if (player.paused || delay < 0) delay = 15000;
+      // Paused clocks are frozen: recheck cheaply instead of hot-looping.
+      // An overshoot (delay < 0, the clock moved past the boundary while the
+      // lines resolved) is the opposite — the new line is ALREADY singing,
+      // so publish on the floor instead of parking it for 15s.
+      if (player.paused) delay = 15000;
+      else if (delay < 0) delay = KARAOKE_TIMER_MIN_MS;
       const timer = setTimeout(() => {
         this.karaokeTimers.delete(player.guildId);
         try {
@@ -121,7 +127,7 @@ export class KaraokeController {
         // chain to the next lyric line must survive, or the card freezes on
         // one line for the rest of the track.
         this.host.armKaraokeTimer(player);
-      }, Math.max(delay, 1500));
+      }, Math.max(delay, KARAOKE_TIMER_MIN_MS));
       timer.unref?.();
       this.karaokeTimers.set(player.guildId, timer);
     } catch {

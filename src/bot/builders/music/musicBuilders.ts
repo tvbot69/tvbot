@@ -20,7 +20,7 @@ import { formatDuration, type MusicTrack } from '@domain/models/music/musicTrack
 import { ALL_FILTERS, type FilterName, type MusicQueueInfo } from '@domain/models/music/musicQueue';
 import type { LavalinkNodeStats } from '@bot/services/music/moonlinkManager';
 import type { VideoChapter } from '@bot/services/music/videoChapters';
-import { escapeInline, escapeLinkLabel } from '@domain/text/markdown';
+import { escapeInline, escapeLinkLabel, escapeMarkdown } from '@domain/text/markdown';
 import { pluralise } from '@bot/builders/common/pluralise';
 
 export type FallbackRow = ActionRowBuilder<MessageActionRowComponentBuilder>;
@@ -214,10 +214,27 @@ export class MusicBuilders {
     v2: boolean = true,
   ): string | null {
     if (!lyricWindow || (lyricWindow.current === null && lyricWindow.next === null)) return null;
-    const head = lyricWindow.current ? `**${lyricWindow.current}**` : null;
-    const tail = lyricWindow.next ? (v2 ? lyricWindow.next : `*${lyricWindow.next}*`) : null;
+    // Single source for V2 + fallback: both read these clamped strings.
+    const current = lyricWindow.current ? MusicBuilders.clampDisplay(lyricWindow.current) : null;
+    const next = lyricWindow.next ? MusicBuilders.clampDisplay(lyricWindow.next) : null;
+    const head = current ? `**${current}**` : null;
+    const tail = next ? (v2 ? next : `*${next}*`) : null;
     if (head && tail) return `${head}\n${tail}`;
-    return head ?? (tail ? `*${lyricWindow.next}*` : null);
+    return head ?? (next ? `*${next}*` : null);
+  }
+
+  /**
+   * Card-text budget for the Now Playing card: 58 chars, then `...`.
+   * Existing `clamp` is TOTAL (slice to max-3); this one keeps the full
+   * budget and appends, so a 58-char line passes through untouched.
+   * Applied AFTER trim/escape; a slice that lands on a lone `\` would
+   * re-arm the next char, so trailing backslashes are stripped.
+   */
+  private static readonly NOW_PLAYING_TEXT_LIMIT = 58;
+
+  private static clampDisplay(text: string, max: number = MusicBuilders.NOW_PLAYING_TEXT_LIMIT): string {
+    if (text.length <= max) return text;
+    return `${text.slice(0, max).replace(/\\+$/, '')}...`;
   }
 
   /**
@@ -272,11 +289,16 @@ export class MusicBuilders {
     // Titles/artists/albums are user-supplied, so they are escaped: a release
     // named "**FREE** [click](https://x)" used to restyle the whole card and
     // render a fake link.
-    const headerParts = [
-      `[${escapeLinkLabel(MusicBuilders.trimDisplayTitle(current.title))}](${current.uri})`,
-    ];
-    if (current.album?.trim()) headerParts.push(escapeInline(current.album.trim(), 80));
-    headerParts.push(escapeInline(current.author, 80), sourceIcon);
+    const displayTitle = MusicBuilders.clampDisplay(
+      escapeLinkLabel(MusicBuilders.trimDisplayTitle(current.title)),
+    );
+    const headerParts = [`[${displayTitle}](${current.uri})`];
+    if (current.album?.trim()) {
+      const albumOneLine = escapeMarkdown(current.album.trim()).replace(/[\r\n]+/g, ' ');
+      headerParts.push(MusicBuilders.clampDisplay(albumOneLine));
+    }
+    const artistOneLine = escapeMarkdown(current.author).replace(/[\r\n]+/g, ' ');
+    headerParts.push(MusicBuilders.clampDisplay(artistOneLine), sourceIcon);
     const header = headerParts.join(' • ');
     const chapterLine = chapter ? `Live — **${escapeInline(chapter.title, 100)}**` : null;
     const lyricSection = MusicBuilders.buildLyricSection(lyricWindow, true);
