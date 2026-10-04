@@ -48,6 +48,7 @@ const build = (over: { recents?: RecentTrack[]; html?: string } = {}) => {
     transport as never,
     prefixService as never,
     lastFmRepository as never,
+    { getTrackCoverUrl: vi.fn(async () => 'https://img/cover.jpg'), getAlbumCoverUrl: vi.fn(async () => 'https://img/album.jpg'), getArtistImageUrl: vi.fn(async () => 'https://img/artist.jpg') } as never,
   );
   return { commands, transport, lastFmRepository };
 };

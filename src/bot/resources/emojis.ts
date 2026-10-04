@@ -51,6 +51,11 @@ export const EMOJI = {
 
   /** Playback and misc. */
   playPreview: { id: '1305607890941378672', name: 'fmbot_playpreview' },
+
+  /** Rating stars, matched to the RYM 1-5 scale. */
+  starFull: { id: '1556308224917905498', name: 'fullstar' },
+  starHalf: { id: '1556308385333383179', name: 'halfstar' },
+  starQuarter: { id: '1556308489838526584', name: 'quarterstar' },
   add: { id: '1483232894318149692', name: 'plus' },
   appleMusicServices: { id: '1218182727149420544', name: 'services_apple_music' },
   cross: { id: '1499324577786892308', name: 'x_' },

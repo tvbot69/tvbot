@@ -5,6 +5,7 @@ import { ResponseModel } from '@bot/models/responseModel';
 import { UserService } from '@bot/services/user/userService';
 import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import {
   RymTransport,
@@ -58,6 +59,7 @@ export class RateMyCommands implements ITextCommandModule {
     @inject(RymTransport) private readonly rymTransport: RymTransport,
     @inject(PrefixService) private readonly prefixService: PrefixService,
     @inject('ILastfmRepository') private readonly lastFmRepository: ILastfmRepository,
+    @inject(ArtworkService) private readonly artworkService: ArtworkService,
     @inject(ColorService) private readonly colorService?: ColorService,
   ) {
     this.commands = [
@@ -153,7 +155,8 @@ export class RateMyCommands implements ITextCommandModule {
     }
     try {
       const release = await getRelease(this.rymTransport, slug, 'album');
-      return RymBuilders.buildReleaseResponse(release, accentColor);
+      const coverUrl = release.coverUrl || (await this.artworkService.getAlbumCoverUrl(release.title, release.artist));
+      return RymBuilders.buildReleaseResponse(release, accentColor, coverUrl);
     } catch (err) {
       return this.rymError(err);
     }
@@ -184,7 +187,8 @@ export class RateMyCommands implements ITextCommandModule {
     }
     try {
       const song = await getSong(this.rymTransport, slug);
-      return RymBuilders.buildSongResponse(song, accentColor);
+      const coverUrl = await this.artworkService.getTrackCoverUrl(song.title, song.artist);
+      return RymBuilders.buildSongResponse(song, accentColor, coverUrl);
     } catch (err) {
       return this.rymError(err);
     }
@@ -211,7 +215,8 @@ export class RateMyCommands implements ITextCommandModule {
     }
     try {
       const artist = await getArtist(this.rymTransport, slug);
-      return RymBuilders.buildArtistResponse(artist, accentColor);
+      const coverUrl = await this.artworkService.getArtistImageUrl(artist.name);
+      return RymBuilders.buildArtistResponse(artist, accentColor, coverUrl);
     } catch (err) {
       return this.rymError(err);
     }

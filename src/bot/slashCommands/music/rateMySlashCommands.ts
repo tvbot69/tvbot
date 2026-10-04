@@ -4,6 +4,7 @@ import type { ISlashCommandModule, SlashCommandDefinition } from '@bot/models/co
 import { UserService } from '@bot/services/user/userService';
 import { PrefixService } from '@bot/services/user/prefixService';
 import { ColorService } from '@bot/services/system/colorService';
+import { ArtworkService } from '@bot/services/media/artworkService';
 import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
 import { RymTransport } from '@rateyourmusic/api/rymClient';
 import { RateMyCommands } from '@bot/textCommands/thirdParty/rateMyCommands';
@@ -17,9 +18,10 @@ export class RateMySlashCommands implements ISlashCommandModule {
     @inject(RymTransport) private readonly rymTransport: RymTransport,
     @inject(PrefixService) private readonly prefixService: PrefixService,
     @inject('ILastfmRepository') private readonly lastFmRepository: ILastfmRepository,
+    @inject(ArtworkService) private readonly artworkService: ArtworkService,
     @inject(ColorService) private readonly colorService?: ColorService,
   ) {
-    const text = new RateMyCommands(userService, rymTransport, prefixService, lastFmRepository, colorService);
+    const text = new RateMyCommands(userService, rymTransport, prefixService, lastFmRepository, artworkService, colorService);
     this.commands = [
       {
         data: new SlashCommandBuilder()

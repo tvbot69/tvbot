@@ -4,11 +4,39 @@ import {
   ContainerBuilder,
   MediaGalleryBuilder,
   MediaGalleryItemBuilder,
+  SectionBuilder,
+  ThumbnailBuilder,
   TextDisplayBuilder,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
+import { EMOJI } from '@bot/resources/emojis';
 import type { RymArtist, RymRelease, RymReleaseStub, RymSong } from '@rateyourmusic/models/rymModels';
+
+const star = (e: { id: string; name: string }): string => `<:${e.name}:${e.id}>`;
+
+/** A 0-5 RYM rating rendered on five stars: full per whole star, half for the
+ *  .5 band and quarter for the .25 band; '·' fills the remainder so the width
+ *  of the row is stable. */
+export const starsFor = (rating: number | null): string => {
+  if (rating === null) {
+    return '· · · · ·';
+  }
+  const clamped = Math.max(0, Math.min(5, rating));
+  const out: string[] = [];
+  for (let slot = 0; slot < 5; slot += 1) {
+    if (clamped >= slot + 1) {
+      out.push(star(EMOJI.starFull));
+    } else if (clamped >= slot + 0.5) {
+      out.push(star(EMOJI.starHalf));
+    } else if (clamped >= slot + 0.25) {
+      out.push(star(EMOJI.starQuarter));
+    } else {
+      out.push('·');
+    }
+  }
+  return out.join('');
+};
 
 const fmtRating = (rating: number | null): string =>
   rating === null ? '—' : `${rating.toFixed(2)}/5`;
@@ -62,16 +90,21 @@ export class RymBuilders {
     return response;
   }
 
-  public static buildArtistResponse(artist: RymArtist, accentColor?: number): ResponseModel {
+  public static buildArtistResponse(artist: RymArtist, accentColor?: number, coverUrl?: string | null): ResponseModel {
     const container = new ContainerBuilder();
     if (accentColor) {
       container.setAccentColor(accentColor);
     }
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `### [${artist.name}](${artist.url})\n-# Formed: ${artist.formed || '—'} • Located: ${artist.located || '—'}`,
-      ),
-    );
+    const headerText = `### [${artist.name}](${artist.url})\n-# Formed: ${artist.formed || '—'} • Located: ${artist.located || '—'}`;
+    if (coverUrl) {
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText))
+          .setThumbnailAccessory(new ThumbnailBuilder().setURL(coverUrl)),
+      );
+    } else {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText));
+    }
     if (artist.genres.length > 0) {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`-# Genres: ${artist.genres.slice(0, 8).join(', ')}`),
@@ -108,19 +141,24 @@ export class RymBuilders {
     return response;
   }
 
-  public static buildSongResponse(song: RymSong, accentColor?: number): ResponseModel {
+  public static buildSongResponse(song: RymSong, accentColor?: number, coverUrl?: string | null): ResponseModel {
     const container = new ContainerBuilder();
     if (accentColor) {
       container.setAccentColor(accentColor);
     }
+    const headerText = `### [${song.title}](${song.url})\n-# **${song.artist}** • Released ${song.released || '—'}`;
+    if (coverUrl) {
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText))
+          .setThumbnailAccessory(new ThumbnailBuilder().setURL(coverUrl)),
+      );
+    } else {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText));
+    }
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `### [${song.title}](${song.url})\n-# **${song.artist}** • Released ${song.released || '—'}`,
-      ),
-    );
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `**Rating:** ${fmtRating(song.rating)} • ${fmtCount(song.nRatings)} ratings`,
+        `${starsFor(song.rating)}  ${fmtRating(song.rating)} • ${fmtCount(song.nRatings)} ratings`,
       ),
     );
     if (song.appearsOn.length > 0) {
@@ -128,9 +166,9 @@ export class RymBuilders {
         new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
       );
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**Appears on** (${song.appearsOn.length})`),
+        new TextDisplayBuilder().setContent(`**Appears on** (${Math.min(song.appearsOn.length, 5)} of ${song.appearsOn.length})`),
       );
-      for (const release of song.appearsOn.slice(0, 10)) {
+      for (const release of song.appearsOn.slice(0, 5)) {
         container.addTextDisplayComponents(
           new TextDisplayBuilder().setContent(`- [${release.title}](${release.url}) • ${release.releaseType}`),
         );
@@ -142,7 +180,7 @@ export class RymBuilders {
     return response;
   }
 
-  public static buildReleaseResponse(release: RymRelease, accentColor?: number): ResponseModel {
+  public static buildReleaseResponse(release: RymRelease, accentColor?: number, coverUrl?: string | null): ResponseModel {
     const container = new ContainerBuilder();
     if (accentColor) {
       container.setAccentColor(accentColor);
@@ -152,13 +190,13 @@ export class RymBuilders {
         `### [${release.title}](${release.url})\n-# **${release.artist}** • ${release.releaseType} • ${release.date || (release.year ?? '?')}`,
       ),
     );
-    const gallery = coverGallery(release.coverUrl);
+    const gallery = coverGallery(coverUrl || release.coverUrl);
     if (gallery) {
       container.addMediaGalleryComponents(gallery);
     }
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `**Rating:** ${fmtRating(release.rating)} • ${fmtCount(release.nRatings)} ratings • ${fmtCount(release.nReviews)} reviews`,
+        `${starsFor(release.rating)}  ${fmtRating(release.rating)} • ${fmtCount(release.nRatings)} ratings • ${fmtCount(release.nReviews)} reviews`,
       ),
     );
     if (release.primaryGenres.length + release.secondaryGenres.length > 0) {

@@ -1056,8 +1056,8 @@ export const configureContainer = (): void => {
   const appleMusicService = new AppleMusicService();
   const rymTransport = new RymTransport();
 
-  const rateMyCommands = new RateMyCommands(userService, rymTransport, prefixService, lastFmRepository, colorService);
-  const rateMySlashCommands = new RateMySlashCommands(userService, rymTransport, prefixService, lastFmRepository, colorService);
+  const rateMyCommands = new RateMyCommands(userService, rymTransport, prefixService, lastFmRepository, artworkService, colorService);
+  const rateMySlashCommands = new RateMySlashCommands(userService, rymTransport, prefixService, lastFmRepository, artworkService, colorService);
 
   const importCommands = new ImportCommands(userService, importService, prefixService, colorService);
   const importSlashCommands = new ImportSlashCommands(userService, importService, prefixService, colorService);

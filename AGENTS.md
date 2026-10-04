@@ -49,11 +49,11 @@ plausible falsehood. Concretely, three properties:
 | Metric | Count |
 |---|---|
 | Production files | 403 |
-| Production lines | 86177 |
+| Production lines | 86227 |
 | Slash top-level commands | 79 |
 | Text commands | 161 |
 | Text triggers + aliases | 575 |
-| Test files | 450 |
+| Test files | 451 |
 | Repositories | 19 |
 <!-- metrics:end --> See [docs/METRICS.md](docs/METRICS.md) for current counts.
 
@@ -71,11 +71,11 @@ plausible falsehood. Concretely, three properties:
 | Metric | Count |
 |---|---|
 | Production files | 403 |
-| Production lines | 86177 |
+| Production lines | 86227 |
 | Slash top-level commands | 79 |
 | Text commands | 161 |
 | Text triggers + aliases | 575 |
-| Test files | 450 |
+| Test files | 451 |
 | Repositories | 19 |
 <!-- metrics:end -->
 See [docs/METRICS.md](docs/METRICS.md) for current counts. `npm run debt` reads `explicit-any 0`,

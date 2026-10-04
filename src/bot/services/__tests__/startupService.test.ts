@@ -679,15 +679,15 @@ const PINS: readonly Pin[] = [
     ['appleMusicService', AppleMusicService], ['prefixService', PrefixService],
     ['lastFmRepository', LastFmRepository], ['colorService', ColorService],
   ] },
-  { ctor: RateMyCommands, arity: 5, slots: [
+  { ctor: RateMyCommands, arity: 6, slots: [
     ['userService', UserService], ['rymTransport', RymTransport],
     ['prefixService', PrefixService], ['lastFmRepository', LastFmRepository],
-    ['colorService', ColorService],
+    ['artworkService', ArtworkService], ['colorService', ColorService],
   ] },
-  { ctor: RateMySlashCommands, arity: 5, slots: [
+  { ctor: RateMySlashCommands, arity: 6, slots: [
     ['userService', UserService], ['rymTransport', RymTransport],
     ['prefixService', PrefixService], ['lastFmRepository', LastFmRepository],
-    ['colorService', ColorService],
+    ['artworkService', ArtworkService], ['colorService', ColorService],
   ] },
   { ctor: BotScrobblingService, arity: 3, slots: [
     ['lastFmRepository', LastFmRepository], ['userRepository', UserRepository],
