@@ -2,8 +2,6 @@ import {
   SeparatorBuilder,
   SeparatorSpacingSize,
   ContainerBuilder,
-  MediaGalleryBuilder,
-  MediaGalleryItemBuilder,
   SectionBuilder,
   ThumbnailBuilder,
   TextDisplayBuilder,
@@ -52,13 +50,6 @@ const genresLine = (primary: string[], secondary: string[]): string => {
   return all.length === 0 ? '—' : all.slice(0, 6).join(', ');
 };
 
-const coverGallery = (url: string): MediaGalleryBuilder | null => {
-  if (!url) {
-    return null;
-  }
-  return new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(url));
-};
-
 export class RymBuilders {
   public static buildChartResponse(
     label: string,
@@ -70,22 +61,25 @@ export class RymBuilders {
       container.setAccentColor(accentColor);
     }
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`### Rate Your Music — ${label}`),
+      new TextDisplayBuilder().setContent(
+        `## Top albums — ${label}\n-# ${stubs.length} releases, ranked by rateyourmusic.com`,
+      ),
     );
     if (stubs.length === 0) {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent('No entries found.'),
       );
     }
-    for (const stub of stubs.slice(0, 25)) {
-      container.addSeparatorComponents(
-        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
-      );
-      const line = `**${stub.position ?? '-'}. [${stub.title}](${stub.url})** by **${stub.artist}** (${stub.year ?? '?'})`;
-      const detail = `-# ${stub.releaseType} • ${fmtRating(stub.rating)} • ${fmtCount(stub.nRatings)} ratings • ${fmtCount(stub.nReviews)} reviews • ${genresLine(stub.primaryGenres, stub.secondaryGenres)}`;
+    for (const stub of stubs.slice(0, 15)) {
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`${line}\n${detail}`),
+        new TextDisplayBuilder().setContent(`**${stub.position ?? '-'}. [${stub.title}](${stub.url})** — ${stub.artist} • ${stub.year ?? '?'}`),
       );
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`-# ${starsFor(stub.rating)}  ${fmtRating(stub.rating)} • ${fmtCount(stub.nRatings)} ratings`),
+      );
+    }
+    if (stubs.length > 15) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# …and ${stubs.length - 15} more`));
     }
     const response = new ResponseModel(accentColor);
     response.commandResponse = CommandResponse.Ok;
@@ -98,7 +92,11 @@ export class RymBuilders {
     if (accentColor) {
       container.setAccentColor(accentColor);
     }
-    const headerText = `### [${artist.name}](${artist.url})\n-# Formed: ${artist.formed || '—'} • Located: ${artist.located || '—'}`;
+    const bits: string[] = [];
+    if (artist.formed) bits.push(`Formed ${artist.formed}`);
+    if (artist.located) bits.push(artist.located);
+    if (artist.genres.length > 0) bits.push(artist.genres.slice(0, 4).join(', '));
+    const headerText = `### [${artist.name}](${artist.url})${bits.length ? `\n-# ${bits.join(' • ')}` : ''}`;
     if (coverUrl) {
       container.addSectionComponents(
         new SectionBuilder()
@@ -108,35 +106,31 @@ export class RymBuilders {
     } else {
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText));
     }
-    if (artist.genres.length > 0) {
+    const detail: string[] = [];
+    if (artist.members.length > 0) detail.push(`Members: ${artist.members.slice(0, 8).join(', ')}`);
+    if (artist.aliases.length > 0) detail.push(`Aliases: ${artist.aliases.slice(0, 4).join(', ')}`);
+    if (artist.notes) detail.push(artist.notes.slice(0, 300));
+    if (detail.length > 0) {
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`-# Genres: ${artist.genres.slice(0, 8).join(', ')}`),
-      );
-    }
-    if (artist.members.length > 0) {
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`-# Members: ${artist.members.slice(0, 10).join(', ')}`),
-      );
-    }
-    if (artist.aliases.length > 0) {
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`-# Aliases: ${artist.aliases.slice(0, 6).join(', ')}`),
-      );
-    }
-    if (artist.notes) {
-      container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`-# ${artist.notes.slice(0, 400)}`),
+        new TextDisplayBuilder().setContent(`-# ${detail.join(' • ')}`),
       );
     }
     container.addSeparatorComponents(
       new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
     );
     container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(`**Discography** (${artist.discography.length} releases)`),
+      new TextDisplayBuilder().setContent(`## Discography\n-# ${artist.discography.length} releases`),
     );
-    for (const stub of artist.discography.slice(0, 15)) {
-      const line = `**[${stub.title}](${stub.url})** (${stub.year ?? '?'}) — ${fmtRating(stub.rating)} • ${fmtCount(stub.nRatings)} ratings • ${stub.releaseType}`;
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`- ${line}`));
+    for (const stub of artist.discography.slice(0, 10)) {
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`**[${stub.title}](${stub.url})** — ${stub.year ?? '?'}`),
+      );
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`-# ${starsFor(stub.rating)}  ${fmtRating(stub.rating)} • ${fmtCount(stub.nRatings)} ratings • ${stub.releaseType}`),
+      );
+    }
+    if (artist.discography.length > 10) {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# …and ${artist.discography.length - 10} more`));
     }
     const response = new ResponseModel(accentColor);
     response.commandResponse = CommandResponse.Ok;
@@ -182,14 +176,16 @@ export class RymBuilders {
     if (accentColor) {
       container.setAccentColor(accentColor);
     }
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `### [${release.title}](${release.url})\n-# **${release.artist}** • ${release.releaseType} • ${release.date || (release.year ?? '?')}\n## ${starsFor(release.rating)}  ${fmtRating(release.rating)}\n-# ${fmtCount(release.nRatings)} ratings • ${fmtCount(release.nReviews)} reviews`,
-      ),
-    );
-    const gallery = coverGallery(coverUrl || release.coverUrl);
-    if (gallery) {
-      container.addMediaGalleryComponents(gallery);
+    const headerText = `### [${release.title}](${release.url})\n-# **${release.artist}** • ${release.releaseType} • ${release.date || (release.year ?? '?')}\n## ${starsFor(release.rating)}  ${fmtRating(release.rating)}\n-# ${fmtCount(release.nRatings)} ratings • ${fmtCount(release.nReviews)} reviews`;
+    const cover = coverUrl || release.coverUrl;
+    if (cover) {
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText))
+          .setThumbnailAccessory(new ThumbnailBuilder().setURL(cover)),
+      );
+    } else {
+      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText));
     }
     if (release.primaryGenres.length + release.secondaryGenres.length > 0) {
       container.addTextDisplayComponents(
@@ -212,15 +208,15 @@ export class RymBuilders {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`**Tracklist** (${release.tracklist.length})`),
       );
-      for (const track of release.tracklist.slice(0, 15)) {
+      for (const track of release.tracklist.slice(0, 12)) {
         const dur = track.duration ? ` (${track.duration})` : '';
         container.addTextDisplayComponents(
           new TextDisplayBuilder().setContent(`- ${track.position}. ${track.title}${dur}`),
         );
       }
-      if (release.tracklist.length > 15) {
+      if (release.tracklist.length > 12) {
         container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`-# …and ${release.tracklist.length - 15} more`),
+          new TextDisplayBuilder().setContent(`-# …and ${release.tracklist.length - 12} more`),
         );
       }
     }

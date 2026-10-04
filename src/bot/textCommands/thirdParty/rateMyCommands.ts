@@ -13,6 +13,7 @@ import {
   getArtist,
   getRelease,
   getSong,
+  getChart,
 } from '@rateyourmusic/api/rymClient';
 import { RymNotFoundError } from '@rateyourmusic/api/rymParsers';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
@@ -31,6 +32,8 @@ interface NowPlayingTriple {
  *  dash: `Yes I'm Changing` -> `yes-im-changing`, `Guns N' Roses` -> `guns-n-roses`. */
 export const slugify = (name: string): string =>
   name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .trim()
     .replace(/&/g, 'and')
@@ -82,6 +85,11 @@ export class RateMyCommands implements ITextCommandModule {
         name: 'rm',
         aliases: [],
         executeAsync: (ctx, args) => this.artistAsync(ctx, args.join(' ').trim()),
+      },
+      {
+        name: 'rmc',
+        aliases: [],
+        executeAsync: (ctx, args) => this.chartAsync(ctx, args.join(' ').trim()),
       },
     ];
   }
@@ -209,8 +217,7 @@ export class RateMyCommands implements ITextCommandModule {
     }
   }
 
-  public async artistAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {
-    let slug: string;
+  public async artistAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {    let slug: string;
     if (query) {
       slug = slugify(query);
       if (query.includes('/artist/')) {
@@ -232,6 +239,17 @@ export class RateMyCommands implements ITextCommandModule {
       const coverUrl = await this.artworkService.getArtistImageUrl(artist.name);
       const accentColor = await this.getAccentColor(ctx, coverUrl);
       return RymBuilders.buildArtistResponse(artist, accentColor, coverUrl);
+    } catch (err) {
+      return this.rymError(err);
+    }
+  }
+
+  public async chartAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {
+    const period = query.length > 0 ? query : 'all-time';
+    try {
+      const stubs = await getChart(this.rymTransport, `/charts/top/album/${period}/`);
+      const accentColor = await this.getAccentColor(ctx);
+      return RymBuilders.buildChartResponse(period, stubs, accentColor);
     } catch (err) {
       return this.rymError(err);
     }

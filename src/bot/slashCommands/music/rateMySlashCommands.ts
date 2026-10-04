@@ -50,6 +50,15 @@ export class RateMySlashCommands implements ISlashCommandModule {
           ),
         executeAsync: async (ctx) => text.artistAsync(ctx, ctx.interaction?.options.getString('query') ?? ''),
       },
+      {
+        data: new SlashCommandBuilder()
+          .setName('rmc')
+          .setDescription('Top Rate Your Music album chart by period (all-time, 2025, 1990s, ...)')
+          .addStringOption((opt) =>
+            opt.setName('period').setDescription('Chart period, e.g. 2025 or 1990s').setRequired(false),
+          ),
+        executeAsync: async (ctx) => text.chartAsync(ctx, ctx.interaction?.options.getString('period') ?? ''),
+      },
     ];
   }
 }

@@ -68,6 +68,10 @@ describe('releaseSlugFromTriple', () => {
     expect(slugify('Live in Minneapolis, MN, 04.13.04')).toBe('live-in-minneapolis-mn-04_13_04');
   });
 
+  it('strips diacritics like The Marías', () => {
+    expect(slugify('The Marías')).toBe('the-marias');
+  });
+
   it('strips periods in plain titles', () => {
     expect(slugify('Mr. Brightside')).toBe('mr-brightside');
   });
@@ -106,6 +110,14 @@ describe('RateMyCommands', () => {
     const { commands, lastFmRepository } = build();
     const res = await commands.albumAsync(ctx(), 'pixies/surfer-rosa');
     expect(res.commandResponse).toBe(CommandResponse.Ok);
+    expect(lastFmRepository.getUserRecentTracks).not.toHaveBeenCalled();
+  });
+
+  it('rmc renders a chart without touching Last.fm', async () => {
+    const { commands, lastFmRepository } = build({ html: fixture('charts_all_time.html') });
+    const res = await commands.chartAsync(ctx(), '2025');
+    expect(res.commandResponse).toBe(CommandResponse.Ok);
+    expect(res.isComponentsV2).toBe(true);
     expect(lastFmRepository.getUserRecentTracks).not.toHaveBeenCalled();
   });
 
