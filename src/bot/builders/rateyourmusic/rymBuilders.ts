@@ -163,8 +163,8 @@ export class RymBuilders {
       container.addSeparatorComponents(
         new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
       );
-      const shown = song.appearsOn.slice(0, 5);
-      const suffix = song.appearsOn.length > 5 ? `, +${song.appearsOn.length - 5} more` : '';
+      const shown = song.appearsOn.slice(0, 3);
+      const suffix = song.appearsOn.length > 3 ? `, +${song.appearsOn.length - 3} more` : '';
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(
           `-# **Appears on:** ${shown.map((r) => `[${r.title}](${r.url})`).join(' • ')}${suffix}`,

@@ -8,8 +8,8 @@ describe('starsFor', () => {
   });
 
   it('renders half and quarter for fractions', () => {
-    expect(starsFor(3.5)).toContain('<:halfstar:1556308385333383179>');
-    expect(starsFor(1.3)).toContain('<:quarterstar:1556308489838526584>');
+    expect(starsFor(3.5)).toContain('<:halfstar:1556326419439550474>');
+    expect(starsFor(1.3)).toContain('<:quarterstar:1556326514696392925>');
   });
 
   it('null rating renders a dashed row', () => {
