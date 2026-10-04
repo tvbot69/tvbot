@@ -14,6 +14,23 @@ import {
 
 const abs = (url: string | undefined): string => absoluteUrl(url ?? '');
 
+/** RYM serves a styled "ERROR 404: NOT FOUND" page with a 200 status for
+ *  slugs it does not know, which would otherwise parse into a confidently
+ *  empty card. Treat that page as what it is. */
+export class RymNotFoundError extends Error {
+  public constructor(slug: string) {
+    super(`Rate Your Music has no page for '${slug}'.`);
+    this.name = 'RymNotFoundError';
+  }
+}
+
+const guardNotFound = ($: CheerioAPI, slug: string): void => {
+  const heading = cleanText($('h1').first().text());
+  if (/404|NOT FOUND/i.test(heading) && /ERROR/i.test(heading)) {
+    throw new RymNotFoundError(slug);
+  }
+};
+
 const uniqueClean = (values: Array<string | null | undefined>): string[] => {
   const out: string[] = [];
   for (const value of values) {
@@ -385,6 +402,7 @@ const parseReleaseInfo = ($: CheerioAPI): ReleaseInfo => {
 
 export const parseSongPage = (html: string, slug: string): RymSong => {
   const $ = load(html);
+  guardNotFound($, slug);
   const title =
     cleanText($('h1 .ui_name_locale_original').first().text()) ||
     cleanText($('h1').first().text());
@@ -439,6 +457,7 @@ export const parseSongPage = (html: string, slug: string): RymSong => {
 
 export const parseReleasePage = (html: string, rymId: string): RymRelease => {
   const $ = load(html);
+  guardNotFound($, rymId);
 
   const titleEl = $('.album_title').first();
   let artist = '';

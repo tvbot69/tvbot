@@ -14,6 +14,7 @@ import {
   getRelease,
   getSong,
 } from '@rateyourmusic/api/rymClient';
+import { RymNotFoundError } from '@rateyourmusic/api/rymParsers';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { RymBuilders } from '@bot/builders/rateyourmusic/rymBuilders';
 import { CommandResponse } from '@domain/enums/commandResponse';
@@ -26,12 +27,17 @@ interface NowPlayingTriple {
   track: string;
 }
 
-const slugify = (name: string): string =>
+/** RYM slugs drop apostrophes/periods and collapse punctuation runs into one
+ *  dash: `Yes I'm Changing` -> `yes-im-changing`, `Guns N' Roses` -> `guns-n-roses`. */
+export const slugify = (name: string): string =>
   name
     .toLowerCase()
     .trim()
     .replace(/&/g, 'and')
-    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/[''’`]/g, '')
+    .replace(/(\d)\.(\d)/g, '$1_$2')
+    .replace(/\./g, '')
+    .replace(/[^a-z0-9_]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
 export const releaseSlugFromTriple = (triple: NowPlayingTriple): string =>
@@ -125,6 +131,12 @@ export class RateMyCommands implements ITextCommandModule {
   }
 
   private rymError(err: unknown): ResponseModel {
+    if (err instanceof RymNotFoundError) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.NotFound,
+        `Rate Your Music has no page for that. Check the slug — RYM titles can differ from Last.fm (e.g. apostrophes are dropped, not dashed).`,
+      );
+    }
     return GenericEmbedService.buildCommandErrorResponse(
       CommandResponse.Error,
       err instanceof RymOriginBlockError

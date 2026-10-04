@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { RateMyCommands, releaseSlugFromTriple } from '@bot/textCommands/thirdParty/rateMyCommands';
+import { RateMyCommands, releaseSlugFromTriple, slugify } from '@bot/textCommands/thirdParty/rateMyCommands';
 import { RymTransport } from '@rateyourmusic/api/rymTransport';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import type { ContextModel } from '@bot/models/contextModel';
@@ -58,6 +58,18 @@ describe('releaseSlugFromTriple', () => {
     expect(releaseSlugFromTriple({ artist: 'Guns N\' Roses', album: 'Use Your Illusion I', track: 'x' })).toBe(
       'guns-n-roses/use-your-illusion-i',
     );
+  });
+
+  it('drops apostrophes so Yes I\'m Changing resolves', () => {
+    expect(slugify("Yes I'm Changing")).toBe('yes-im-changing');
+  });
+
+  it('keeps digit-separated dates underscored', () => {
+    expect(slugify('Live in Minneapolis, MN, 04.13.04')).toBe('live-in-minneapolis-mn-04_13_04');
+  });
+
+  it('strips periods in plain titles', () => {
+    expect(slugify('Mr. Brightside')).toBe('mr-brightside');
   });
 });
 
