@@ -6,6 +6,7 @@ export interface RymTransportConfig {
   minDelayMs: number;
   maxTimeoutMs: number;
   maxRetries: number;
+  cacheTtlMs: number;
 }
 
 export interface RymPage {
@@ -37,6 +38,7 @@ const DEFAULTS = {
   minDelayMs: 5000,
   maxTimeoutMs: 120000,
   maxRetries: 3,
+  cacheTtlMs: 600000,
 } satisfies RymTransportConfig;
 
 const OBSERVED_UA =
@@ -58,19 +60,26 @@ export class RymTransport {
   private readonly minDelayMs: number;
   private readonly maxTimeoutMs: number;
   private readonly maxRetries: number;
+  private readonly cacheTtlMs: number;
   private lastRequestAt = 0;
   private sessionId: string | null = null;
   private sessionUserAgent = OBSERVED_UA;
+  private readonly cache = new Map<string, { page: RymPage; at: number }>();
 
   public constructor(config?: Partial<RymTransportConfig>) {
     this.solverUrl = config?.solverUrl ?? rymFlaresolverrUrl() ?? DEFAULTS.solverUrl;
     this.minDelayMs = config?.minDelayMs ?? rymRequestDelayMs() ?? DEFAULTS.minDelayMs;
     this.maxTimeoutMs = config?.maxTimeoutMs ?? rymMaxTimeoutMs() ?? DEFAULTS.maxTimeoutMs;
     this.maxRetries = config?.maxRetries ?? DEFAULTS.maxRetries;
+    this.cacheTtlMs = config?.cacheTtlMs ?? DEFAULTS.cacheTtlMs;
   }
 
   public async getHtml(path: string): Promise<RymPage> {
     const url = path.startsWith('http') ? path : `https://rateyourmusic.com${path}`;
+    const hit = this.cache.get(url);
+    if (hit && Date.now() - hit.at < this.cacheTtlMs) {
+      return hit.page;
+    }
     let attempt = 0;
     for (;;) {
       attempt += 1;
@@ -79,6 +88,11 @@ export class RymTransport {
         const page = await this.fetchViaSolver(url);
         if (this.isOriginBlock(page)) {
           throw new RymOriginBlockError(url);
+        }
+        this.cache.set(url, { page, at: Date.now() });
+        if (this.cache.size > 200) {
+          const oldest = this.cache.keys().next().value;
+          if (oldest) this.cache.delete(oldest);
         }
         return page;
       } catch (err) {

@@ -16,7 +16,6 @@ import {
 } from '@rateyourmusic/api/rymClient';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { RymBuilders } from '@bot/builders/rateyourmusic/rymBuilders';
-import { DiscordConstants } from '@bot/resources/discordConstants';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { errorMessage } from '@domain/errors/discordErrors';
 import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
@@ -81,12 +80,16 @@ export class RateMyCommands implements ITextCommandModule {
     ];
   }
 
-  private async getAccentColor(ctx: ContextModel): Promise<number> {
-    if (this.colorService) {
-      const color = await this.colorService.getAccentColorAsync(ctx.guildId);
-      if (color) return color;
+  private async getAccentColor(ctx: ContextModel, coverUrl?: string | null): Promise<number | undefined> {
+    if (this.colorService && coverUrl) {
+      const fromCover = await this.colorService.getColorFromImageUrl(coverUrl);
+      if (fromCover) return fromCover;
     }
-    return DiscordConstants.SuccessColorGreen;
+    if (this.colorService) {
+      const fallback = await this.colorService.getAccentColorAsync(ctx.guildId);
+      if (fallback) return fallback;
+    }
+    return undefined;
   }
 
   private async resolveFromLastfm(ctx: ContextModel, cmd: string): Promise<NowPlayingTriple | ResponseModel> {
@@ -131,7 +134,6 @@ export class RateMyCommands implements ITextCommandModule {
   }
 
   public async albumAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {
-    const accentColor = await this.getAccentColor(ctx);
     let slug: string;
     if (query) {
       const parsed = parseSlugOrTitle(query);
@@ -156,6 +158,7 @@ export class RateMyCommands implements ITextCommandModule {
     try {
       const release = await getRelease(this.rymTransport, slug, 'album');
       const coverUrl = release.coverUrl || (await this.artworkService.getAlbumCoverUrl(release.title, release.artist));
+      const accentColor = await this.getAccentColor(ctx, coverUrl);
       return RymBuilders.buildReleaseResponse(release, accentColor, coverUrl);
     } catch (err) {
       return this.rymError(err);
@@ -163,7 +166,6 @@ export class RateMyCommands implements ITextCommandModule {
   }
 
   public async trackAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {
-    const accentColor = await this.getAccentColor(ctx);
     let slug: string;
     if (query) {
       const parsed = parseSlugOrTitle(query);
@@ -188,6 +190,7 @@ export class RateMyCommands implements ITextCommandModule {
     try {
       const song = await getSong(this.rymTransport, slug);
       const coverUrl = await this.artworkService.getTrackCoverUrl(song.title, song.artist);
+      const accentColor = await this.getAccentColor(ctx, coverUrl);
       return RymBuilders.buildSongResponse(song, accentColor, coverUrl);
     } catch (err) {
       return this.rymError(err);
@@ -195,7 +198,6 @@ export class RateMyCommands implements ITextCommandModule {
   }
 
   public async artistAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {
-    const accentColor = await this.getAccentColor(ctx);
     let slug: string;
     if (query) {
       slug = slugify(query);
@@ -216,6 +218,7 @@ export class RateMyCommands implements ITextCommandModule {
     try {
       const artist = await getArtist(this.rymTransport, slug);
       const coverUrl = await this.artworkService.getArtistImageUrl(artist.name);
+      const accentColor = await this.getAccentColor(ctx, coverUrl);
       return RymBuilders.buildArtistResponse(artist, accentColor, coverUrl);
     } catch (err) {
       return this.rymError(err);

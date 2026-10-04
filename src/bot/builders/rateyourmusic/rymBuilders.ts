@@ -27,12 +27,15 @@ export const starsFor = (rating: number | null): string => {
   for (let slot = 0; slot < 5; slot += 1) {
     if (clamped >= slot + 1) {
       out.push(star(EMOJI.starFull));
-    } else if (clamped >= slot + 0.5) {
-      out.push(star(EMOJI.starHalf));
-    } else if (clamped >= slot + 0.25) {
-      out.push(star(EMOJI.starQuarter));
     } else {
-      out.push('·');
+      const frac = clamped - slot;
+      if (frac >= 0.5) {
+        out.push(star(EMOJI.starHalf));
+      } else if (frac >= 0.1) {
+        out.push(star(EMOJI.starQuarter));
+      } else {
+        out.push('·');
+      }
     }
   }
   return out.join('');
@@ -146,7 +149,7 @@ export class RymBuilders {
     if (accentColor) {
       container.setAccentColor(accentColor);
     }
-    const headerText = `### [${song.title}](${song.url})\n-# **${song.artist}** • Released ${song.released || '—'}`;
+    const headerText = `### [${song.title}](${song.url})\n-# **${song.artist}** • Released ${song.released || '—'}\n## ${starsFor(song.rating)}  ${fmtRating(song.rating)}\n-# ${fmtCount(song.nRatings)} ratings`;
     if (coverUrl) {
       container.addSectionComponents(
         new SectionBuilder()
@@ -156,23 +159,17 @@ export class RymBuilders {
     } else {
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(headerText));
     }
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `${starsFor(song.rating)}  ${fmtRating(song.rating)} • ${fmtCount(song.nRatings)} ratings`,
-      ),
-    );
     if (song.appearsOn.length > 0) {
       container.addSeparatorComponents(
         new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
       );
+      const shown = song.appearsOn.slice(0, 5);
+      const suffix = song.appearsOn.length > 5 ? `, +${song.appearsOn.length - 5} more` : '';
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`**Appears on** (${Math.min(song.appearsOn.length, 5)} of ${song.appearsOn.length})`),
+        new TextDisplayBuilder().setContent(
+          `-# **Appears on:** ${shown.map((r) => `[${r.title}](${r.url})`).join(' • ')}${suffix}`,
+        ),
       );
-      for (const release of song.appearsOn.slice(0, 5)) {
-        container.addTextDisplayComponents(
-          new TextDisplayBuilder().setContent(`- [${release.title}](${release.url}) • ${release.releaseType}`),
-        );
-      }
     }
     const response = new ResponseModel(accentColor);
     response.commandResponse = CommandResponse.Ok;
@@ -187,18 +184,13 @@ export class RymBuilders {
     }
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(
-        `### [${release.title}](${release.url})\n-# **${release.artist}** • ${release.releaseType} • ${release.date || (release.year ?? '?')}`,
+        `### [${release.title}](${release.url})\n-# **${release.artist}** • ${release.releaseType} • ${release.date || (release.year ?? '?')}\n## ${starsFor(release.rating)}  ${fmtRating(release.rating)}\n-# ${fmtCount(release.nRatings)} ratings • ${fmtCount(release.nReviews)} reviews`,
       ),
     );
     const gallery = coverGallery(coverUrl || release.coverUrl);
     if (gallery) {
       container.addMediaGalleryComponents(gallery);
     }
-    container.addTextDisplayComponents(
-      new TextDisplayBuilder().setContent(
-        `${starsFor(release.rating)}  ${fmtRating(release.rating)} • ${fmtCount(release.nRatings)} ratings • ${fmtCount(release.nReviews)} reviews`,
-      ),
-    );
     if (release.primaryGenres.length + release.secondaryGenres.length > 0) {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(

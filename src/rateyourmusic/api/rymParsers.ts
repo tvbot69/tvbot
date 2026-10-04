@@ -410,8 +410,14 @@ export const parseSongPage = (html: string, slug: string): RymSong => {
     }
     const url = abs(href);
     const path = url.replace(/^https?:\/\/[^/]+/, '').split('/').filter(Boolean);
+    const rawTitle = cleanText(img.attr('alt') ?? '');
+    let title = rawTitle.replace(/,\s*Cover art$/i, '');
+    const dash = title.indexOf(' - ');
+    if (dash > 0) {
+      title = title.slice(dash + 3);
+    }
     appearsOn.push({
-      title: cleanText(img.attr('alt') ?? ''),
+      title,
       url,
       coverUrl: abs(img.attr('src')),
       releaseType: path[1] ?? 'album',
