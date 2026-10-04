@@ -1,0 +1,218 @@
+import { inject, injectable } from 'tsyringe';
+import type { ITextCommandModule, TextCommandDefinition } from '@bot/models/commandModels';
+import type { ContextModel } from '@bot/models/contextModel';
+import { ResponseModel } from '@bot/models/responseModel';
+import { UserService } from '@bot/services/user/userService';
+import { PrefixService } from '@bot/services/user/prefixService';
+import { ColorService } from '@bot/services/system/colorService';
+import type { ILastfmRepository } from '@domain/interfaces/ports/ilastfmRepository';
+import {
+  RymTransport,
+  RymOriginBlockError,
+  getArtist,
+  getRelease,
+} from '@rateyourmusic/api/rymClient';
+import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
+import { RymBuilders } from '@bot/builders/rateyourmusic/rymBuilders';
+import { DiscordConstants } from '@bot/resources/discordConstants';
+import { CommandResponse } from '@domain/enums/commandResponse';
+import { errorMessage } from '@domain/errors/discordErrors';
+import { ensureLinkedUser } from '@bot/handlers/commands/commandGuards';
+
+interface NowPlayingTriple {
+  artist: string;
+  album: string;
+  track: string;
+}
+
+const slugify = (name: string): string =>
+  name
+    .toLowerCase()
+    .trim()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+export const releaseSlugFromTriple = (triple: NowPlayingTriple): string =>
+  `${slugify(triple.artist)}/${slugify(triple.album)}`;
+
+const parseSlugOrTitle = (input: string): { slug?: string; title?: string } => {
+  const trimmed = input.trim();
+  if (/^[^\s]+\/[^\s]+$/.test(trimmed)) {
+    return { slug: trimmed.replace(/\/+$/, '') };
+  }
+  if (trimmed.includes(' - ')) {
+    const [artist, ...rest] = trimmed.split(' - ');
+    return { slug: `${slugify(artist ?? '')}/${slugify(rest.join(' - '))}` };
+  }
+  return { title: trimmed };
+};
+
+@injectable()
+export class RateMyCommands implements ITextCommandModule {
+  public commands: TextCommandDefinition[];
+
+  constructor(
+    @inject(UserService) private readonly userService: UserService,
+    @inject(RymTransport) private readonly rymTransport: RymTransport,
+    @inject(PrefixService) private readonly prefixService: PrefixService,
+    @inject('ILastfmRepository') private readonly lastFmRepository: ILastfmRepository,
+    @inject(ColorService) private readonly colorService?: ColorService,
+  ) {
+    this.commands = [
+      {
+        name: 'rma',
+        aliases: [],
+        executeAsync: (ctx, args) => this.albumAsync(ctx, args.join(' ').trim()),
+      },
+      {
+        name: 'rmt',
+        aliases: [],
+        executeAsync: (ctx, args) => this.trackAsync(ctx, args.join(' ').trim()),
+      },
+      {
+        name: 'rm',
+        aliases: [],
+        executeAsync: (ctx, args) => this.artistAsync(ctx, args.join(' ').trim()),
+      },
+    ];
+  }
+
+  private async getAccentColor(ctx: ContextModel): Promise<number> {
+    if (this.colorService) {
+      const color = await this.colorService.getAccentColorAsync(ctx.guildId);
+      if (color) return color;
+    }
+    return DiscordConstants.SuccessColorGreen;
+  }
+
+  private async resolveFromLastfm(ctx: ContextModel, cmd: string): Promise<NowPlayingTriple | ResponseModel> {
+    const user = await ensureLinkedUser(this.userService, ctx.discordUserId, { prefix: ctx.prefix });
+    if ('commandResponse' in user) return user;
+
+    try {
+      const recents = await this.lastFmRepository.getUserRecentTracks(
+        user.userNameLastFm,
+        2,
+        1,
+        undefined,
+        user.sessionKey ?? undefined,
+      );
+      const track = recents?.find((t) => t.nowPlaying) ?? recents?.[0];
+      if (!track || (!track.artistName && !track.name && !track.albumName)) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `No recent tracks found for **${user.userNameLastFm}**. Pass a query (e.g. \`${ctx.prefix}${cmd} Artist - Album\`).`,
+        );
+      }
+      return {
+        artist: track.artistName ?? '',
+        album: track.albumName ?? '',
+        track: track.name ?? '',
+      };
+    } catch (err) {
+      return GenericEmbedService.buildCommandErrorResponse(
+        CommandResponse.Error,
+        `Failed to read your Last.fm recents: ${errorMessage(err) || 'Unknown error'}.`,
+      );
+    }
+  }
+
+  private rymError(err: unknown): ResponseModel {
+    return GenericEmbedService.buildCommandErrorResponse(
+      CommandResponse.Error,
+      err instanceof RymOriginBlockError
+        ? 'Rate Your Music origin-blocked this page (503). Try again later.'
+        : `Rate Your Music request failed: ${errorMessage(err) || 'Unknown error'}`,
+    );
+  }
+
+  public async albumAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {
+    const accentColor = await this.getAccentColor(ctx);
+    let slug: string;
+    if (query) {
+      const parsed = parseSlugOrTitle(query);
+      if (!parsed.slug) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `Pass \`artist/title\` or \`Artist - Album\` (e.g. \`${ctx.prefix}rma pixies/surfer-rosa\`).`,
+        );
+      }
+      slug = parsed.slug;
+    } else {
+      const triple = await this.resolveFromLastfm(ctx, 'rma');
+      if (triple instanceof ResponseModel) return triple;
+      if (!triple.album) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          'Your last scrobble has no album name. Pass `Artist - Album` explicitly.',
+        );
+      }
+      slug = releaseSlugFromTriple(triple);
+    }
+    try {
+      const release = await getRelease(this.rymTransport, slug, 'album');
+      return RymBuilders.buildReleaseResponse(release, accentColor);
+    } catch (err) {
+      return this.rymError(err);
+    }
+  }
+
+  public async trackAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {
+    const accentColor = await this.getAccentColor(ctx);
+    let slug: string;
+    if (query) {
+      const parsed = parseSlugOrTitle(query);
+      if (!parsed.slug) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          `Pass \`artist/title\` or \`Artist - Album\` (e.g. \`${ctx.prefix}rmt pixies/surfer-rosa\`).`,
+        );
+      }
+      slug = parsed.slug;
+    } else {
+      const triple = await this.resolveFromLastfm(ctx, 'rmt');
+      if (triple instanceof ResponseModel) return triple;
+      if (!triple.album) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          'Your last scrobble has no album name. Pass `Artist - Album` explicitly.',
+        );
+      }
+      slug = releaseSlugFromTriple(triple);
+    }
+    try {
+      const release = await getRelease(this.rymTransport, slug, 'album');
+      return RymBuilders.buildReleaseResponse(release, accentColor);
+    } catch (err) {
+      return this.rymError(err);
+    }
+  }
+
+  public async artistAsync(ctx: ContextModel, query: string): Promise<ResponseModel> {
+    const accentColor = await this.getAccentColor(ctx);
+    let slug: string;
+    if (query) {
+      slug = slugify(query);
+      if (query.includes('/artist/')) {
+        slug = query.split('/artist/')[1]?.split('/')[0] ?? slug;
+      }
+    } else {
+      const triple = await this.resolveFromLastfm(ctx, 'rm');
+      if (triple instanceof ResponseModel) return triple;
+      if (!triple.artist) {
+        return GenericEmbedService.buildCommandErrorResponse(
+          CommandResponse.NotFound,
+          'Your last scrobble has no artist. Pass an artist name.',
+        );
+      }
+      slug = slugify(triple.artist);
+    }
+    try {
+      const artist = await getArtist(this.rymTransport, slug);
+      return RymBuilders.buildArtistResponse(artist, accentColor);
+    } catch (err) {
+      return this.rymError(err);
+    }
+  }
+}

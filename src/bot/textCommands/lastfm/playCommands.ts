@@ -59,7 +59,7 @@ export class PlayCommands implements ITextCommandModule {
     this.commands = [
       {
         name: 'fm',
-        aliases: ['np','qm','wm','em','rm','tm','ym','om','pm','gm','sm','hm','jm','km','lm','zm','xm','cm','vm','bm','nm','mm','nowplaying','ɯɟ'],
+        aliases: ['np','qm','wm','em','tm','ym','om','pm','gm','sm','hm','jm','km','lm','zm','xm','cm','vm','bm','nm','mm','nowplaying','ɯɟ'],
         executeAsync: (context, args) => this.fmAsync(context, args?.join(' ') ?? ''),
       },
       {

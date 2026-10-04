@@ -32,7 +32,7 @@ import { GuildAdminSlashCommands } from '@bot/slashCommands/guild/guildAdminSlas
 import { UserHubSlashCommands } from '@bot/slashCommands/user/userHubSlashCommands';
 import { ImportSlashCommands } from '@bot/slashCommands/imports/importSlashCommands';
 import { StreamingSlashCommands } from '@bot/slashCommands/music/streamingSlashCommands';
-import { RymSlashCommands } from '@bot/slashCommands/music/rymSlashCommands';
+import { RateMySlashCommands } from '@bot/slashCommands/music/rateMySlashCommands';
 import { HelpSlashCommands } from '@bot/slashCommands/meta/helpSlashCommands';
 import { ExposedSlashCommands } from '@bot/slashCommands/social/exposedSlashCommands';
 
@@ -57,7 +57,7 @@ const buildCommands = (): Map<string, SlashCommandDefinition> => {
     container.resolve(UserHubSlashCommands),
     container.resolve(ImportSlashCommands),
     container.resolve(StreamingSlashCommands),
-    container.resolve(RymSlashCommands),
+    container.resolve(RateMySlashCommands),
     container.resolve(StaticSlashCommands),
     container.resolve(ChartSlashCommands),
     container.resolve(LoginSlashCommands),

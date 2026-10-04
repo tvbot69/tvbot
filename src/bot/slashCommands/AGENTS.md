@@ -108,10 +108,11 @@ it — `src/__tests__/commandRegistryInvariants.test.ts:13-16` and the regressio
 
 Collision handling is also a **two-sided** decision, and both halves are pinned exactly:
 
-- Aliases shared by two different commands: `['np: fm vs nowplaying', 'rm: fm vs remove']`
-  (`:193`). `PlayCommands` sits 3rd and `MusicCommands` far later, so **the Last.fm
-  `fm` command answers `.np` and `.rm` today**, not queue-remove and now-playing
-  (`:170-181`).
+- Aliases shared by two different commands: `['np: fm vs nowplaying']` (`:193`).
+  `PlayCommands` sits 3rd and `MusicCommands` far later, so **the Last.fm
+  `fm` command answers `.np` today**, not now-playing (`:170-181`). The other
+  historic entry, `rm: fm vs remove`, is retired: `RateMyCommands` owns
+  canonical `.rm` and both old `rm` aliases were removed.
 - Aliases shadowed by another command's canonical name — the alias stays inert, and
   activates silently if the owner is ever renamed: `history`, `nowplaying`, `prefix`
   (`:211-215`).

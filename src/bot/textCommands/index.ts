@@ -31,7 +31,7 @@ import { GuildAdminCommands } from '@bot/textCommands/guild/guildAdminCommands';
 import { UserHubCommands } from '@bot/textCommands/user/userHubCommands';
 import { ImportCommands } from '@bot/textCommands/thirdParty/importCommands';
 import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
-import { RymCommands } from '@bot/textCommands/thirdParty/rymCommands';
+import { RateMyCommands } from '@bot/textCommands/thirdParty/rateMyCommands';
 import { AutopostCommands } from '@bot/textCommands/guild/autopostCommands';
 import { HelpCommands } from '@bot/textCommands/meta/helpCommands';
 import { ExposedCommands } from '@bot/textCommands/lastfm/exposedCommands';
@@ -56,7 +56,7 @@ const buildCommands = (): Map<string, TextCommandDefinition> => {
     container.resolve(UserHubCommands),
     container.resolve(ImportCommands),
     container.resolve(StreamingCommands),
-    container.resolve(RymCommands),
+    container.resolve(RateMyCommands),
     container.resolve(StaticCommands),
     container.resolve(ChartCommands),
     container.resolve(LoginCommands),

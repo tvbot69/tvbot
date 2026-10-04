@@ -260,8 +260,8 @@ import { GuildAdminCommands } from '@bot/textCommands/guild/guildAdminCommands';
 import { UserHubCommands } from '@bot/textCommands/user/userHubCommands';
 import { ImportCommands } from '@bot/textCommands/thirdParty/importCommands';
 import { StreamingCommands } from '@bot/textCommands/thirdParty/streamingCommands';
-import { RymCommands } from '@bot/textCommands/thirdParty/rymCommands';
-import { RymSlashCommands } from '@bot/slashCommands/music/rymSlashCommands';
+import { RateMyCommands } from '@bot/textCommands/thirdParty/rateMyCommands';
+import { RateMySlashCommands } from '@bot/slashCommands/music/rateMySlashCommands';
 import { RymTransport } from '@rateyourmusic/api/rymTransport';
 import { ExposedCommands } from '@bot/textCommands/lastfm/exposedCommands';
 import { MusicCommands } from '@bot/textCommands/music/musicCommands';
@@ -679,12 +679,14 @@ const PINS: readonly Pin[] = [
     ['appleMusicService', AppleMusicService], ['prefixService', PrefixService],
     ['lastFmRepository', LastFmRepository], ['colorService', ColorService],
   ] },
-  { ctor: RymCommands, arity: 3, slots: [
-    ['rymTransport', RymTransport], ['prefixService', PrefixService],
+  { ctor: RateMyCommands, arity: 5, slots: [
+    ['userService', UserService], ['rymTransport', RymTransport],
+    ['prefixService', PrefixService], ['lastFmRepository', LastFmRepository],
     ['colorService', ColorService],
   ] },
-  { ctor: RymSlashCommands, arity: 3, slots: [
-    ['rymTransport', RymTransport], ['prefixService', PrefixService],
+  { ctor: RateMySlashCommands, arity: 5, slots: [
+    ['userService', UserService], ['rymTransport', RymTransport],
+    ['prefixService', PrefixService], ['lastFmRepository', LastFmRepository],
     ['colorService', ColorService],
   ] },
   { ctor: BotScrobblingService, arity: 3, slots: [
@@ -1012,9 +1014,9 @@ describe('composition root — the registered token set', () => {
       'PaginationService', 'PlayCommands', 'PlayHistoryService', 'PlayRepository',
       'PlaycountCommands', 'PlaycountInteractions', 'PlaycountSlashCommands', 'PrefixService',
       'PreviewResolverService', 'ProfileCommands', 'ProfileInteractions', 'ProfileService',
-      'ProfileSlashCommands', 'PuppeteerService', 'QueueService', 'RateLimitService',
-      'ReceiptGenerator', 'RecentInteractions', 'ReconcileService', 'RymCommands',
-      'RymSlashCommands', 'RymTransport', 'ServerCommands',
+      'ProfileSlashCommands',       'PuppeteerService', 'QueueService', 'RateLimitService', 'RateMyCommands',
+      'RateMySlashCommands', 'ReceiptGenerator', 'RecentInteractions', 'ReconcileService', 'RymTransport',
+      'ServerCommands',
       'ServerInteractions', 'ServerSlashCommands', 'SettingService', 'SettingsCommands',
       'SettingsInteractions', 'SettingsSlashCommands', 'ShortcutService', 'SpotifyResolver',
       'SpotifySearchApi', 'SpotifyTokenManager', 'StartupService', 'StaticCommands',

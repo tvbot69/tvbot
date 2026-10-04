@@ -66,8 +66,10 @@ claimed (`:105-114`). Every remaining collision is logged as
 
 Three facts the gate pins, each of which is a live behaviour rather than an accident:
 
-- `.np` and `.rm` answer as the Last.fm `fm` command, not as now-playing and
-  queue-remove (`src/__tests__/commandRegistryInvariants.test.ts:170-181`).
+- `.np` answers as the Last.fm `fm` command, not as now-playing
+  (`src/__tests__/commandRegistryInvariants.test.ts:170-181`). The historic
+  second overlap (`.rm` shared by fm and queue-remove) is retired: canonical
+  `.rm` is now `RateMyCommands`, and both old `rm` aliases were deleted.
 - `history`, `nowplaying` and `prefix` are aliases shadowed by another command's
   canonical name. They are inert **and latent**: rename the owner and one activates
   silently with different behaviour (`:211-215`).

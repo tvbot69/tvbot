@@ -152,7 +152,7 @@ export class MusicCommands implements ITextCommandModule {
       },
       {
         name: 'remove',
-        aliases: ['rm'],
+        aliases: [],
         executeAsync: (ctx, args) => this.removeAsync(ctx, args),
       },
       {

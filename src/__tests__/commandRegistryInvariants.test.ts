@@ -169,14 +169,16 @@ describe('text command registry invariants', () => {
   });
 
   it('the two known alias overlaps are pinned, not drifting', () => {
-    // `np` and `rm` are each an alias of TWO different commands: the Last.fm
-    // `fm` command and the music `nowplaying` / `remove` commands.
+    // `np` is an alias of TWO different commands: the Last.fm `fm` command and
+    // the music `nowplaying` command. `rm` used to be the second case (fm vs
+    // remove) until RateMyCommands took the canonical `rm` and both old aliases
+    // were retired.
     //
     // Resolution is by registration order, not intent: names are registered in
     // pass 1, and pass 2 only fills names nobody claimed. PlayCommands is 3rd in
     // the module array and MusicCommands is far later, so PLAY COMMANDS claims
-    // `np` and `rm` first. That means `.rm` and `.np` currently answer as the
-    // Last.fm `fm` command, not as queue-remove and now-playing.
+    // `np` first. That means `.np` currently answers as the Last.fm `fm`
+    // command, not as now-playing.
     //
     // Pinned so the set cannot grow unnoticed. Resolving it is a behaviour
     // decision for the maintainer, not something a test should silently choose.
@@ -191,7 +193,7 @@ describe('text command registry invariants', () => {
       .filter(([, group]) => new Set(group.map((x) => x.name.toLowerCase())).size > 1)
       .map(([alias, g]) => `${alias}: ${[...new Set(g.map((x) => x.name))].sort().join(' vs ')}`)
       .sort();
-    expect(overlaps).toEqual(['np: fm vs nowplaying', 'rm: fm vs remove']);
+    expect(overlaps).toEqual(['np: fm vs nowplaying']);
   });
 
   it('alias-vs-name shadowing is exactly the known, accepted set', () => {
@@ -284,7 +286,7 @@ describe('slash command registry invariants', () => {
   });
 
   it('found a plausible number of top-level slash registrations', () => {
-    // 77 distinct names via the direct fluent chain, as walked by the
+    // 79 distinct names via the direct fluent chain, as walked by the
     // extractor immediately above this test (same walk, same literal() helper):
     // `new SlashCommandBuilder()` rooted chains, taking the single `setName()`
     // literal off each. Reproduce with a standalone AST walk over
@@ -300,7 +302,7 @@ describe('slash command registry invariants', () => {
     // The true top-level count is AT LEAST this, since a builder assembled
     // through a helper rather than `new SlashCommandBuilder().setName(...)` is
     // not matched.
-    expect(names.size).toBe(77);
+    expect(names.size).toBe(79);
     expect(names.size).toBeGreaterThan(60);
   });
 });
