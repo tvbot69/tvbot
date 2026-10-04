@@ -13,12 +13,12 @@ import type { RymArtist, RymRelease, RymReleaseStub, RymSong } from '@rateyourmu
 
 const star = (e: { id: string; name: string }): string => `<:${e.name}:${e.id}>`;
 
-/** A 0-5 RYM rating rendered on five stars: full per whole star, half for the
- *  .5 band and quarter for the .25 band; '·' fills the remainder so the width
- *  of the row is stable. */
+/** A 0-5 RYM rating rendered as filled stars only: full per whole star,
+ *  half for the .5 band and quarter for the .1 band. No placeholders — a 3.1
+ *  rating is three stars and a quarter, never three stars and two dots. */
 export const starsFor = (rating: number | null): string => {
   if (rating === null) {
-    return '· · · · ·';
+    return '';
   }
   const clamped = Math.max(0, Math.min(5, rating));
   const out: string[] = [];
@@ -31,12 +31,17 @@ export const starsFor = (rating: number | null): string => {
         out.push(star(EMOJI.starHalf));
       } else if (frac >= 0.1) {
         out.push(star(EMOJI.starQuarter));
-      } else {
-        out.push('·');
       }
     }
   }
   return out.join('');
+};
+
+/** Stars followed by the numeric score, collapsing the gap when the card has
+ *  no score to show. */
+const starsRow = (rating: number | null): string => {
+  const stars = starsFor(rating);
+  return stars ? `${stars}  ${fmtRating(rating)}` : fmtRating(rating);
 };
 
 const fmtRating = (rating: number | null): string =>
@@ -75,7 +80,7 @@ export class RymBuilders {
         new TextDisplayBuilder().setContent(`**${stub.position ?? '-'}. [${stub.title}](${stub.url})** — ${stub.artist} • ${stub.year ?? '?'}`),
       );
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`-# ${starsFor(stub.rating)}  ${fmtRating(stub.rating)} • ${fmtCount(stub.nRatings)} ratings`),
+        new TextDisplayBuilder().setContent(`-# ${starsRow(stub.rating)} • ${fmtCount(stub.nRatings)} ratings`),
       );
     }
     if (stubs.length > 15) {
@@ -95,8 +100,12 @@ export class RymBuilders {
     const bits: string[] = [];
     if (artist.formed) bits.push(`Formed ${artist.formed}`);
     if (artist.located) bits.push(artist.located);
-    if (artist.genres.length > 0) bits.push(artist.genres.slice(0, 4).join(', '));
-    const headerText = `### [${artist.name}](${artist.url})${bits.length ? `\n-# ${bits.join(' • ')}` : ''}`;
+    if (artist.genres.length > 0) bits.push(...artist.genres.slice(0, 4));
+    const subLines: string[] = [];
+    for (const chunk of [bits.slice(0, 3), bits.slice(3, 6)]) {
+      if (chunk.length > 0) subLines.push(`-# ${chunk.join(' • ')}`);
+    }
+    const headerText = `### [${artist.name}](${artist.url})${subLines.length ? `\n${subLines.join('\n')}` : ''}`;
     if (coverUrl) {
       container.addSectionComponents(
         new SectionBuilder()
@@ -126,7 +135,7 @@ export class RymBuilders {
         new TextDisplayBuilder().setContent(`**[${stub.title}](${stub.url})** — ${stub.year ?? '?'}`),
       );
       container.addTextDisplayComponents(
-        new TextDisplayBuilder().setContent(`-# ${starsFor(stub.rating)}  ${fmtRating(stub.rating)} • ${fmtCount(stub.nRatings)} ratings • ${stub.releaseType}`),
+        new TextDisplayBuilder().setContent(`-# ${starsRow(stub.rating)} • ${fmtCount(stub.nRatings)} ratings • ${stub.releaseType}`),
       );
     }
     if (artist.discography.length > 10) {
@@ -143,7 +152,7 @@ export class RymBuilders {
     if (accentColor) {
       container.setAccentColor(accentColor);
     }
-    const headerText = `### [${song.title}](${song.url})\n-# **${song.artist}** • Released ${song.released || '—'}\n## ${starsFor(song.rating)}  ${fmtRating(song.rating)}\n-# ${fmtCount(song.nRatings)} ratings`;
+    const headerText = `### [${song.title}](${song.url})\n-# **${song.artist}** • Released ${song.released || '—'}\n## ${starsRow(song.rating)}\n-# ${fmtCount(song.nRatings)} ratings`;
     if (coverUrl) {
       container.addSectionComponents(
         new SectionBuilder()
@@ -176,7 +185,7 @@ export class RymBuilders {
     if (accentColor) {
       container.setAccentColor(accentColor);
     }
-    const headerText = `### [${release.title}](${release.url})\n-# **${release.artist}** • ${release.releaseType} • ${release.date || (release.year ?? '?')}\n## ${starsFor(release.rating)}  ${fmtRating(release.rating)}\n-# ${fmtCount(release.nRatings)} ratings • ${fmtCount(release.nReviews)} reviews`;
+    const headerText = `### [${release.title}](${release.url})\n-# **${release.artist}** • ${release.releaseType} • ${release.date || (release.year ?? '?')}\n## ${starsRow(release.rating)}\n-# ${fmtCount(release.nRatings)} ratings • ${fmtCount(release.nReviews)} reviews`;
     const cover = coverUrl || release.coverUrl;
     if (cover) {
       container.addSectionComponents(
