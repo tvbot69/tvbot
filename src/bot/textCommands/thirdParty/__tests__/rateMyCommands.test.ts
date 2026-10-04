@@ -83,7 +83,7 @@ describe('RateMyCommands', () => {
   });
 
   it('rmt resolves through the same recent scrobble', async () => {
-    const { commands, lastFmRepository } = build();
+    const { commands, lastFmRepository } = build({ html: fixture('song_bone_machine.html') });
     const res = await commands.trackAsync(ctx(), '');
     expect(res.commandResponse).toBe(CommandResponse.Ok);
     expect(lastFmRepository.getUserRecentTracks).toHaveBeenCalled();

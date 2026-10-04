@@ -1,6 +1,6 @@
 import { load, type Cheerio, type CheerioAPI } from 'cheerio';
 import type { Element } from 'domhandler';
-import type { RymArtist, RymRelease, RymReleaseStub, RymTrack } from '../models/rymModels';
+import type { RymArtist, RymRelease, RymReleaseStub, RymSong, RymTrack } from '../models/rymModels';
 import {
   absoluteUrl,
   artistSlugFromUrl,
@@ -381,6 +381,54 @@ const parseReleaseInfo = ($: CheerioAPI): ReleaseInfo => {
     info.nRatings = parseCount(num.text());
   }
   return info;
+};
+
+export const parseSongPage = (html: string, slug: string): RymSong => {
+  const $ = load(html);
+  const title =
+    cleanText($('h1 .ui_name_locale_original').first().text()) ||
+    cleanText($('h1').first().text());
+  const artist = cleanText($('.page_song_header_info_artist a.artist').first().text());
+
+  let released = '';
+  $('.page_song_header_info_rest span.pipe_separated').each((_, el) => {
+    const text = cleanText($(el).text());
+    if (/^Released\b/i.test(text)) {
+      released = text.replace(/^Released\s*/i, '');
+    }
+  });
+
+  const ratingText = cleanText($('.page_section_main_info_music_rating_value_rating').first().text());
+  const countText = cleanText($('.page_section_main_info_music_rating_value_number').first().text());
+
+  const appearsOn: RymSong['appearsOn'] = [];
+  $('a.page_song_section_appears_on_image').each((_, el) => {
+    const href = $(el).attr('href');
+    const img = $(el).find('img').first();
+    if (!href) {
+      return;
+    }
+    const url = abs(href);
+    const path = url.replace(/^https?:\/\/[^/]+/, '').split('/').filter(Boolean);
+    appearsOn.push({
+      title: cleanText(img.attr('alt') ?? ''),
+      url,
+      coverUrl: abs(img.attr('src')),
+      releaseType: path[1] ?? 'album',
+    });
+  });
+
+  return {
+    slug,
+    title,
+    artist,
+    url: `https://rateyourmusic.com/song/${slug}/`,
+    released,
+    year: parseYear(released),
+    rating: ratingText ? parseRating(ratingText) : null,
+    nRatings: countText ? parseCount(countText) : null,
+    appearsOn,
+  };
 };
 
 export const parseReleasePage = (html: string, rymId: string): RymRelease => {

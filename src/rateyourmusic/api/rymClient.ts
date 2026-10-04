@@ -1,7 +1,7 @@
 import { Logger } from '@domain/logging/logger';
 import { fetchWithTimeout } from '@domain/http/fetchWithTimeout';
-import type { RymArtist, RymRelease, RymReleaseStub } from '../models/rymModels';
-import { parseArtistPage, parseChartPage, parseReleasePage } from './rymParsers';
+import type { RymArtist, RymRelease, RymReleaseStub, RymSong } from '../models/rymModels';
+import { parseArtistPage, parseChartPage, parseReleasePage, parseSongPage } from './rymParsers';
 import { RymOriginBlockError, RymTransport, type RymTransportConfig } from './rymTransport';
 
 export { RymOriginBlockError, RymTransport };
@@ -38,6 +38,27 @@ const waybackUrlFor = async (url: string): Promise<string | null> => {
   } catch (err) {
     Logger.debug(`Wayback availability check failed for ${url}: ${String(err).slice(0, 120)}`);
     return null;
+  }
+};
+
+export const getSong = async (transport: RymTransport, slug: string): Promise<RymSong> => {
+  const path = `/song/${slug}/`;
+  try {
+    const page = await transport.getHtml(path);
+    return parseSongPage(page.html, slug);
+  } catch (err) {
+    if (err instanceof RymOriginBlockError) {
+      Logger.debug(`RYM song blocked, trying Wayback for https://rateyourmusic.com${path}`);
+      const waybackUrl = await waybackUrlFor(`https://rateyourmusic.com${path}`);
+      if (waybackUrl) {
+        const snapshot = await fetchWithTimeout(waybackUrl, {}, 30000);
+        if (snapshot.ok) {
+          Logger.debug(`Serving song ${slug} from Wayback Machine`);
+          return parseSongPage(await snapshot.text(), slug);
+        }
+      }
+    }
+    throw err;
   }
 };
 

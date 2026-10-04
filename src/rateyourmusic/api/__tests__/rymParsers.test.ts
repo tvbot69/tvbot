@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseArtistPage, parseChartPage, parseReleasePage } from '../rymParsers';
+import { parseSongPage, parseArtistPage, parseChartPage, parseReleasePage } from '../rymParsers';
 
 const fixture = (name: string): string =>
   fs.readFileSync(path.join(__dirname, '..', 'fixtures', name), 'utf8');
@@ -66,6 +66,28 @@ describe('parseArtistPage', () => {
     expect(empty.name).toBe('X');
     expect(empty.discography).toEqual([]);
     expect(empty.members).toEqual([]);
+  });
+});
+
+describe('parseSongPage', () => {
+  const song = parseSongPage(fixture('song_bone_machine.html'), 'pixies/bone-machine');
+
+  it('reads identity and release info', () => {
+    expect(song).toMatchObject({
+      title: 'Bone Machine',
+      artist: 'Pixies',
+      released: 'September 1989',
+      year: 1989,
+      rating: 3.9,
+      nRatings: 11,
+      slug: 'pixies/bone-machine',
+    });
+  });
+
+  it('reads the appears-on list with covers', () => {
+    expect(song.appearsOn.length).toBeGreaterThan(0);
+    expect(song.appearsOn[0]?.url).toMatch(/^https:\/\/rateyourmusic\.com\/release\//);
+    expect(song.appearsOn[0]?.coverUrl).toMatch(/^\/\/|^https?:\/\//);
   });
 });
 

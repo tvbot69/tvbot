@@ -11,6 +11,7 @@ import {
   RymOriginBlockError,
   getArtist,
   getRelease,
+  getSong,
 } from '@rateyourmusic/api/rymClient';
 import { GenericEmbedService } from '@bot/services/system/genericEmbedService';
 import { RymBuilders } from '@bot/builders/rateyourmusic/rymBuilders';
@@ -166,24 +167,24 @@ export class RateMyCommands implements ITextCommandModule {
       if (!parsed.slug) {
         return GenericEmbedService.buildCommandErrorResponse(
           CommandResponse.NotFound,
-          `Pass \`artist/title\` or \`Artist - Album\` (e.g. \`${ctx.prefix}rmt pixies/surfer-rosa\`).`,
+          `Pass \`artist/title\` or \`Artist - Track\` (e.g. \`${ctx.prefix}rmt pixies/bone-machine\`).`,
         );
       }
       slug = parsed.slug;
     } else {
       const triple = await this.resolveFromLastfm(ctx, 'rmt');
       if (triple instanceof ResponseModel) return triple;
-      if (!triple.album) {
+      if (!triple.track) {
         return GenericEmbedService.buildCommandErrorResponse(
           CommandResponse.NotFound,
-          'Your last scrobble has no album name. Pass `Artist - Album` explicitly.',
+          'Your last scrobble has no track name. Pass `Artist - Track` explicitly.',
         );
       }
-      slug = releaseSlugFromTriple(triple);
+      slug = `${slugify(triple.artist)}/${slugify(triple.track)}`;
     }
     try {
-      const release = await getRelease(this.rymTransport, slug, 'album');
-      return RymBuilders.buildReleaseResponse(release, accentColor);
+      const song = await getSong(this.rymTransport, slug);
+      return RymBuilders.buildSongResponse(song, accentColor);
     } catch (err) {
       return this.rymError(err);
     }

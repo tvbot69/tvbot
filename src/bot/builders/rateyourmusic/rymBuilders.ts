@@ -8,7 +8,7 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
-import type { RymArtist, RymRelease, RymReleaseStub } from '@rateyourmusic/models/rymModels';
+import type { RymArtist, RymRelease, RymReleaseStub, RymSong } from '@rateyourmusic/models/rymModels';
 
 const fmtRating = (rating: number | null): string =>
   rating === null ? '—' : `${rating.toFixed(2)}/5`;
@@ -101,6 +101,40 @@ export class RymBuilders {
     for (const stub of artist.discography.slice(0, 15)) {
       const line = `**[${stub.title}](${stub.url})** (${stub.year ?? '?'}) — ${fmtRating(stub.rating)} • ${fmtCount(stub.nRatings)} ratings • ${stub.releaseType}`;
       container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`- ${line}`));
+    }
+    const response = new ResponseModel(accentColor);
+    response.commandResponse = CommandResponse.Ok;
+    response.setComponentsV2Container(container);
+    return response;
+  }
+
+  public static buildSongResponse(song: RymSong, accentColor?: number): ResponseModel {
+    const container = new ContainerBuilder();
+    if (accentColor) {
+      container.setAccentColor(accentColor);
+    }
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `### [${song.title}](${song.url})\n-# **${song.artist}** • Released ${song.released || '—'}`,
+      ),
+    );
+    container.addTextDisplayComponents(
+      new TextDisplayBuilder().setContent(
+        `**Rating:** ${fmtRating(song.rating)} • ${fmtCount(song.nRatings)} ratings`,
+      ),
+    );
+    if (song.appearsOn.length > 0) {
+      container.addSeparatorComponents(
+        new SeparatorBuilder().setDivider(true).setSpacing(SeparatorSpacingSize.Small),
+      );
+      container.addTextDisplayComponents(
+        new TextDisplayBuilder().setContent(`**Appears on** (${song.appearsOn.length})`),
+      );
+      for (const release of song.appearsOn.slice(0, 10)) {
+        container.addTextDisplayComponents(
+          new TextDisplayBuilder().setContent(`- [${release.title}](${release.url}) • ${release.releaseType}`),
+        );
+      }
     }
     const response = new ResponseModel(accentColor);
     response.commandResponse = CommandResponse.Ok;
