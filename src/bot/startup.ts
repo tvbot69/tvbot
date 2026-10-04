@@ -149,6 +149,7 @@ import { CountryService } from '@bot/services/library/countryService';
 import { TasteService } from '@bot/services/library/tasteService';
 import { TasteInteractions } from '@bot/interactions/library/tasteInteractions';
 import { RecentInteractions } from '@bot/interactions/library/recentInteractions';
+import { RymInteractions } from '@bot/interactions/library/rymInteractions';
 import { TasteCommands } from '@bot/textCommands/lastfm/tasteCommands';
 import { TasteSlashCommands } from '@bot/slashCommands/social/tasteSlashCommands';
 
@@ -1058,6 +1059,7 @@ export const configureContainer = (): void => {
 
   const rateMyCommands = new RateMyCommands(userService, rymTransport, prefixService, lastFmRepository, artworkService, colorService);
   const rateMySlashCommands = new RateMySlashCommands(userService, rymTransport, prefixService, lastFmRepository, artworkService, colorService);
+  const rymInteractions = new RymInteractions(rymTransport, colorService, artworkService);
 
   const importCommands = new ImportCommands(userService, importService, prefixService, colorService);
   const importSlashCommands = new ImportSlashCommands(userService, importService, prefixService, colorService);
@@ -1073,6 +1075,7 @@ export const configureContainer = (): void => {
   container.registerInstance(StreamingSlashCommands, streamingSlashCommands);
   container.registerInstance(RateMyCommands, rateMyCommands);
   container.registerInstance(RateMySlashCommands, rateMySlashCommands);
+  container.registerInstance(RymInteractions, rymInteractions);
 
   const exposedService = new ExposedService(genreService, playRepository, prisma);
   const exposedCommands = new ExposedCommands(userService, exposedService);

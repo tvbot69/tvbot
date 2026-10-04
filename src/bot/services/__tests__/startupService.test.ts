@@ -280,6 +280,7 @@ import { ArtistInteractions } from '@bot/interactions/library/artistInteractions
 import { CountryInteractions } from '@bot/interactions/library/countryInteractions';
 import { TasteInteractions } from '@bot/interactions/library/tasteInteractions';
 import { RecentInteractions } from '@bot/interactions/library/recentInteractions';
+import { RymInteractions } from '@bot/interactions/library/rymInteractions';
 import { CrownInteractions } from '@bot/interactions/crown/crownInteractions';
 import { PlaycountInteractions } from '@bot/interactions/library/playcountInteractions';
 import { ProfileInteractions } from '@bot/interactions/user/profileInteractions';
@@ -927,7 +928,10 @@ const PINS: readonly Pin[] = [
     ['client', Client], ['timerService', TimerService], ['puppeteerService', PuppeteerService],
     ['guildService', GuildService], ['moonlinkManager', MoonlinkManager], ['healthServer', HealthServer],
   ] },
-  { ctor: InteractionHandler, arity: 36, slots: [
+  { ctor: RymInteractions, arity: 3, slots: [
+    ['rymTransport', RymTransport], ['colorService', ColorService], ['artworkService', ArtworkService],
+  ] },
+  { ctor: InteractionHandler, arity: 37, slots: [
     ['client', Client], ['helpInteractions', HelpInteractions],
     ['nowPlayingInteractions', NowPlayingInteractions], ['userSettingsInteractions', UserSettingsInteractions],
     ['guildService', GuildService], ['disabledChannelService', DisabledChannelService],
@@ -940,7 +944,8 @@ const PINS: readonly Pin[] = [
     ['musicInteractions', MusicInteractions], ['trackPreviewInteractions', TrackPreviewInteractions],
     ['topInteractions', TopInteractions], ['artistTrackInteractions', ArtistTrackInteractions],
     ['artistInteractions', ArtistInteractions], ['tasteInteractions', TasteInteractions],
-    ['recentInteractions', RecentInteractions], ['crownInteractions', CrownInteractions],
+    ['recentInteractions', RecentInteractions], ['rymInteractions', RymInteractions],
+    ['crownInteractions', CrownInteractions],
     ['playcountInteractions', PlaycountInteractions], ['profileInteractions', ProfileInteractions],
     ['librarySearchInteractions', LibrarySearchInteractions], ['serverInteractions', ServerInteractions],
     ['genreInteractions', GenreInteractions], ['countryInteractions', CountryInteractions],
@@ -1015,7 +1020,8 @@ describe('composition root — the registered token set', () => {
       'PlaycountCommands', 'PlaycountInteractions', 'PlaycountSlashCommands', 'PrefixService',
       'PreviewResolverService', 'ProfileCommands', 'ProfileInteractions', 'ProfileService',
       'ProfileSlashCommands',       'PuppeteerService', 'QueueService', 'RateLimitService', 'RateMyCommands',
-      'RateMySlashCommands', 'ReceiptGenerator', 'RecentInteractions', 'ReconcileService', 'RymTransport',
+      'RateMySlashCommands', 'ReceiptGenerator', 'RecentInteractions', 'ReconcileService',
+      'RymInteractions', 'RymTransport',
       'ServerCommands',
       'ServerInteractions', 'ServerSlashCommands', 'SettingService', 'SettingsCommands',
       'SettingsInteractions', 'SettingsSlashCommands', 'ShortcutService', 'SpotifyResolver',

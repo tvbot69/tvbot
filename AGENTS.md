@@ -48,12 +48,12 @@ plausible falsehood. Concretely, three properties:
 - **Scale**: <!-- metrics:start -->
 | Metric | Count |
 |---|---|
-| Production files | 403 |
-| Production lines | 86305 |
+| Production files | 404 |
+| Production lines | 86549 |
 | Slash top-level commands | 80 |
 | Text commands | 162 |
 | Text triggers + aliases | 576 |
-| Test files | 451 |
+| Test files | 452 |
 | Repositories | 19 |
 <!-- metrics:end --> See [docs/METRICS.md](docs/METRICS.md) for current counts.
 
@@ -70,12 +70,12 @@ plausible falsehood. Concretely, three properties:
 <!-- metrics:start -->
 | Metric | Count |
 |---|---|
-| Production files | 403 |
-| Production lines | 86305 |
+| Production files | 404 |
+| Production lines | 86549 |
 | Slash top-level commands | 80 |
 | Text commands | 162 |
 | Text triggers + aliases | 576 |
-| Test files | 451 |
+| Test files | 452 |
 | Repositories | 19 |
 <!-- metrics:end -->
 See [docs/METRICS.md](docs/METRICS.md) for current counts. `npm run debt` reads `explicit-any 0`,

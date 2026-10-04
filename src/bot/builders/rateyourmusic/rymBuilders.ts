@@ -5,11 +5,27 @@ import {
   SectionBuilder,
   ThumbnailBuilder,
   TextDisplayBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { CommandResponse } from '@domain/enums/commandResponse';
 import { EMOJI } from '@bot/resources/emojis';
 import type { RymArtist, RymRelease, RymReleaseStub, RymSong } from '@rateyourmusic/models/rymModels';
+
+function buildPaginatorRow(customIdPrefix: string, page: number, totalPages: number, safeSlug: string): ActionRowBuilder<ButtonBuilder> {
+  const isOnePage = totalPages <= 1;
+  const row = new ActionRowBuilder<ButtonBuilder>();
+  row.addComponents(
+    new ButtonBuilder().setCustomId(`${customIdPrefix}:first:${page}:${safeSlug}`).setEmoji(EMOJI.pageFirst).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage || page === 0),
+    new ButtonBuilder().setCustomId(`${customIdPrefix}:prev:${page}:${safeSlug}`).setEmoji(EMOJI.pagePrevious).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage || page === 0),
+    new ButtonBuilder().setCustomId(`${customIdPrefix}:next:${page}:${safeSlug}`).setEmoji(EMOJI.pageNext).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage || page >= totalPages - 1),
+    new ButtonBuilder().setCustomId(`${customIdPrefix}:last:${page}:${safeSlug}`).setEmoji(EMOJI.pageLast).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage || page >= totalPages - 1),
+    new ButtonBuilder().setCustomId(`${customIdPrefix}:jump:${page}:${safeSlug}`).setEmoji(EMOJI.pageGoto).setStyle(ButtonStyle.Secondary).setDisabled(isOnePage),
+  );
+  return row;
+}
 
 const star = (e: { id: string; name: string }): string => `<:${e.name}:${e.id}>`;
 
@@ -60,6 +76,7 @@ export class RymBuilders {
     label: string,
     stubs: RymReleaseStub[],
     accentColor?: number,
+    page = 1,
   ): ResponseModel {
     const container = new ContainerBuilder();
     if (accentColor) {
@@ -75,7 +92,10 @@ export class RymBuilders {
         new TextDisplayBuilder().setContent('No entries found.'),
       );
     }
-    for (const stub of stubs.slice(0, 15)) {
+    const perPage = 15;
+    const totalPages = Math.max(1, Math.ceil(stubs.length / perPage));
+    const safePage = Math.min(Math.max(page, 1), totalPages);
+    for (const stub of stubs.slice((safePage - 1) * perPage, safePage * perPage)) {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`**${stub.position ?? '-'}. [${stub.title}](${stub.url})** — ${stub.artist} • ${stub.year ?? '?'}`),
       );
@@ -83,8 +103,10 @@ export class RymBuilders {
         new TextDisplayBuilder().setContent(`-# ${starsRow(stub.rating)} • ${fmtCount(stub.nRatings)} ratings`),
       );
     }
-    if (stubs.length > 15) {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# …and ${stubs.length - 15} more`));
+    if (totalPages > 1) {
+      container.addActionRowComponents(
+        buildPaginatorRow('rymchart', safePage - 1, totalPages, encodeURIComponent(label)),
+      );
     }
     const response = new ResponseModel(accentColor);
     response.commandResponse = CommandResponse.Ok;
@@ -92,14 +114,19 @@ export class RymBuilders {
     return response;
   }
 
-  public static buildArtistResponse(artist: RymArtist, accentColor?: number, coverUrl?: string | null): ResponseModel {
+  public static buildArtistResponse(artist: RymArtist, accentColor?: number, coverUrl?: string | null, page = 1): ResponseModel {
     const container = new ContainerBuilder();
     if (accentColor) {
       container.setAccentColor(accentColor);
     }
+    // RYM lists several locations in ONE info-table cell, separated by a bullet,
+    // so the raw value is split here. Left joined it became a single "item" that
+    // held two locations and pushed the row past three.
     const bits: string[] = [];
     if (artist.formed) bits.push(`Formed ${artist.formed}`);
-    if (artist.located) bits.push(artist.located);
+    for (const place of artist.located.split('•').map((p) => p.trim()).filter(Boolean)) {
+      bits.push(place);
+    }
     if (artist.genres.length > 0) bits.push(...artist.genres.slice(0, 4));
     const subLines: string[] = [];
     for (const chunk of [bits.slice(0, 3), bits.slice(3, 6)]) {
@@ -130,7 +157,10 @@ export class RymBuilders {
     container.addTextDisplayComponents(
       new TextDisplayBuilder().setContent(`## Discography\n-# ${artist.discography.length} releases`),
     );
-    for (const stub of artist.discography.slice(0, 10)) {
+    const discoPerPage = 10;
+    const totalPages = Math.max(1, Math.ceil(artist.discography.length / discoPerPage));
+    const safePage = Math.min(Math.max(page, 1), totalPages);
+    for (const stub of artist.discography.slice((safePage - 1) * discoPerPage, safePage * discoPerPage)) {
       container.addTextDisplayComponents(
         new TextDisplayBuilder().setContent(`**[${stub.title}](${stub.url})** — ${stub.year ?? '?'}`),
       );
@@ -138,8 +168,10 @@ export class RymBuilders {
         new TextDisplayBuilder().setContent(`-# ${starsRow(stub.rating)} • ${fmtCount(stub.nRatings)} ratings • ${stub.releaseType}`),
       );
     }
-    if (artist.discography.length > 10) {
-      container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# …and ${artist.discography.length - 10} more`));
+    if (totalPages > 1) {
+      container.addActionRowComponents(
+        buildPaginatorRow('rymartist', safePage - 1, totalPages, encodeURIComponent(artist.rymId)),
+      );
     }
     const response = new ResponseModel(accentColor);
     response.commandResponse = CommandResponse.Ok;

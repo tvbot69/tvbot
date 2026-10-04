@@ -94,6 +94,7 @@ const CONSTRUCTOR_ORDER = [
   'artistInteractions',
   'tasteInteractions',
   'recentInteractions',
+  'rymInteractions',
   'crownInteractions',
   'playcountInteractions',
   'profileInteractions',
@@ -127,6 +128,7 @@ const ROUTABLE_DEPS = [
   'artistInteractions',
   'tasteInteractions',
   'recentInteractions',
+  'rymInteractions',
   'crownInteractions',
   'playcountInteractions',
   'profileInteractions',
@@ -192,6 +194,7 @@ const makeDeps = () => ({
   artistInteractions: { handle: vi.fn(async () => undefined) },
   tasteInteractions: { handleButton: vi.fn(async () => undefined) },
   recentInteractions: { handleButton: vi.fn(async () => undefined) },
+  rymInteractions: { handleButton: vi.fn(async () => undefined) },
   crownInteractions: {
     handleSelectMenu: vi.fn(async () => undefined),
     handleButton: vi.fn(async () => undefined),
@@ -381,8 +384,8 @@ describe('InteractionHandler constructor wiring', () => {
   it('takes 36 parameters', () => {
     // A guard, not a tautology: it makes adding a parameter a visible decision
     // rather than an accident, and this file must be updated alongside it.
-    expect(InteractionHandler.length).toBe(36);
-    expect(CONSTRUCTOR_ORDER).toHaveLength(36);
+    expect(InteractionHandler.length).toBe(37);
+    expect(CONSTRUCTOR_ORDER).toHaveLength(37);
   });
 
   it('lands every positional parameter on the field it names', () => {
@@ -447,6 +450,8 @@ describe('InteractionHandler component routing', () => {
     [`${FRIEND_BUTTON_PREFIXES[3] as string}x`, 'friendInteractions.handleButton'],
     ['taste-tab:likes', 'tasteInteractions.handleButton'],
     ['recent:1', 'recentInteractions.handleButton'],
+    ['rymchart:next:0:2025', 'rymInteractions.handleButton'],
+    ['rymartist:next:0:radiohead', 'rymInteractions.handleButton'],
     ['crowns-page:1', 'crownInteractions.handleButton'],
     ['artist-whoknows:x', 'crownInteractions.handleButton'],
     ['artist-crown:x', 'crownInteractions.handleButton'],

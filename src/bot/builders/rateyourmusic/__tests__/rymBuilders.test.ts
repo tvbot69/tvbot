@@ -41,6 +41,57 @@ describe('RymBuilders.buildSongResponse', () => {
   });
 });
 
+describe('RymBuilders pagination', () => {
+  const stub = (i: number) => ({
+    rymId: `a/b-${i}`,
+    title: `Album ${i}`,
+    artist: 'A',
+    url: `https://rateyourmusic.com/release/album/a/b-${i}/`,
+    artistId: 'a',
+    releaseType: 'album',
+    year: 2000 + i,
+    date: '',
+    rating: 4,
+    nRatings: 100,
+    nReviews: null,
+    primaryGenres: [],
+    secondaryGenres: [],
+    descriptors: [],
+    coverUrl: '',
+    position: i,
+  });
+
+  it('chart renders only the page slice and a paginator row', () => {
+    const res = RymBuilders.buildChartResponse('2025', Array.from({ length: 30 }, (_, i) => stub(i + 1)), 0x112233, 2);
+    const json = JSON.stringify(res.componentsV2Container?.toJSON());
+    expect(json).toContain('Album 16');
+    expect(json).not.toContain('Album 15');
+    expect(json).toContain('rymchart:next:1:2025');
+    expect(json).toContain('rymchart:first:1:2025');
+  });
+
+  it('artist card pages the discography ten at a time', () => {
+    const artist = {
+      rymId: 'radiohead',
+      name: 'Radiohead',
+      url: 'https://rateyourmusic.com/artist/radiohead/',
+      formed: '1985',
+      located: 'Oxford, England',
+      members: [],
+      aliases: [],
+      genres: [],
+      related: [],
+      notes: '',
+      discography: Array.from({ length: 25 }, (_, i) => stub(i + 1)),
+    };
+    const res = RymBuilders.buildArtistResponse(artist, 0x112233, null, 2);
+    const json = JSON.stringify(res.componentsV2Container?.toJSON());
+    expect(json).toContain('rymartist:next:1:radiohead');
+    expect(json).toContain('Album 11');
+    expect(json).not.toContain('Album 10');
+  });
+});
+
 describe('RymBuilders.buildArtistResponse', () => {
   it('chunks the header subline at three items per line', () => {
     const res = RymBuilders.buildArtistResponse(

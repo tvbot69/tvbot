@@ -37,6 +37,7 @@ import { ArtistTrackInteractions } from '@bot/interactions/library/artistTrackIn
 import { ArtistInteractions } from '@bot/interactions/library/artistInteractions';
 import { TasteInteractions } from '@bot/interactions/library/tasteInteractions';
 import { RecentInteractions } from '@bot/interactions/library/recentInteractions';
+import { RymInteractions } from '@bot/interactions/library/rymInteractions';
 import { CrownInteractions } from '@bot/interactions/crown/crownInteractions';
 import { PlaycountInteractions } from '@bot/interactions/library/playcountInteractions';
 import { ProfileInteractions } from '@bot/interactions/user/profileInteractions';
@@ -109,6 +110,8 @@ export class InteractionHandler {
     private readonly tasteInteractions: TasteInteractions,
     @inject(RecentInteractions)
     private readonly recentInteractions: RecentInteractions,
+    @inject(RymInteractions)
+    private readonly rymInteractions: RymInteractions,
     @inject(CrownInteractions)
     private readonly crownInteractions: CrownInteractions,
     @inject(PlaycountInteractions)
@@ -272,6 +275,13 @@ export class InteractionHandler {
         }
         if (interaction.customId.startsWith('recent:')) {
           await this.recentInteractions.handleButton(interaction);
+          return;
+        }
+        if (
+          interaction.customId.startsWith('rymchart:') ||
+          interaction.customId.startsWith('rymartist:')
+        ) {
+          await this.rymInteractions.handleButton(interaction);
           return;
         }
         if (
