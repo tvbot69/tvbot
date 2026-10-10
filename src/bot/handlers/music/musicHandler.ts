@@ -116,6 +116,7 @@ export class MusicHandler implements
       this.progressFingerprints,
       this.publishRetries,
       this.pendingPublish,
+      this.editLatency,
     );
     this.voice = new VoiceLifecycle(
       this,
@@ -226,6 +227,12 @@ export class MusicHandler implements
    */
   private readonly pendingPublish = new Set<string>();
   /**
+   * Measured Discord edit round-trip per guild, and the lag the lyric clock
+   * runs behind by. Owned here and passed to the publisher by reference so
+   * `forgetGuild` sweeps it with every other per-guild map.
+   */
+  private readonly editLatency = new Map<string, number>();
+  /**
    * Chapter part of the visible fingerprint. The COVER URL is part of the
    * key, not just its presence: a chapter whose art lands late (or replaces
    * the held cover from the previous song) is a visible change, and keying
@@ -272,6 +279,15 @@ export class MusicHandler implements
 
   public get progressNudgeTimersView(): Map<string, NodeJS.Timeout> {
     return this.progressNudgeTimers;
+  }
+
+  /** Measured edit latency per guild, and the lag the clock reads from it. */
+  public editLatencyFor(guildId: string): number {
+    return this.cards.editLatencyFor(guildId);
+  }
+
+  public get editLatencyView(): Map<string, number> {
+    return this.editLatency;
   }
 
   public get okTimersView(): Map<string, NodeJS.Timeout> {
@@ -599,6 +615,9 @@ export class MusicHandler implements
     this.progressPublishing.delete(guildId);
     this.publishRetries.delete(guildId);
     this.pendingPublish.delete(guildId);
+    // A stale latency would silently keep the next track's lyrics behind by
+    // however long a DELETED guild's gateway was slow.
+    this.editLatency.delete(guildId);
     this.inFlightFallbacks.delete(guildId);
     this.lastChapterStatus.delete(guildId);
     this.guildFallbackBudget.delete(guildId);

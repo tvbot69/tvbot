@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MusicHandler } from '@bot/handlers/music/musicHandler';
 import { QueueService } from '@bot/services/music/queueService';
-import { EDIT_LATENCY_FLOOR_MS } from '@bot/services/music/syncedLyrics';
+import { EDIT_LATENCY_FLOOR_MS, LYRIC_LEAD_WINDOW_MS } from '@bot/services/music/syncedLyrics';
 
 
 /**
@@ -210,7 +210,144 @@ describe('lyric sync system: wall time is the audio clock', () => {
     const steady = gaps.slice(1);
     expect(Math.min(...steady)).toBeGreaterThan(6500);
     expect(Math.max(...steady)).toBeLessThan(7000);
-    expect(Math.max(...steady) - Math.min(...steady)).toBeLessThan(400);
+expect(Math.max(...steady) - Math.min(...steady)).toBeLessThan(400);
+  });
+});
+
+describe('lyric sync system: the lead proves itself on three samples', () => {
+  // `measureLead` is private, so it is driven the way production drives it:
+  // through `lyricWindowFor`, which calls it on every read and refuses to
+  // claim a singing line until the lead is frozen. The observable contract is
+  // "current is null until proven", plus the persisted state the boundary
+  // diagnostic reads.
+  const START = new Date('2026-10-10T13:29:04Z').getTime();
+
+  const leadPlayer = (guildId: string) => {
+    const store = new Map<string, unknown>([['karaokeLines', LINES]]);
+    return {
+      store,
+      player: {
+        guildId,
+        playing: true,
+        paused: false,
+        textChannelId: 'tc-1',
+        get: <T>(k: string): T | undefined => store.get(k) as T | undefined,
+        set: (k: string, v: unknown) => void store.set(k, v),
+      },
+    };
+  };
+
+  const buildLeadHandler = () =>
+    new MusicHandler(
+      { on: vi.fn(), channels: { cache: new Map() } } as never,
+      { getManager: () => ({ on: vi.fn(), players: { get: () => undefined } }) } as never,
+      {
+        getQueueInfo: () => null,
+        is247: () => false,
+        isKaraokeEnabled: () => true,
+        calculatePosition: () => 0,
+      } as never,
+      undefined,
+      undefined,
+      undefined,
+      {} as never,
+    ) as unknown as {
+      lyricWindowFor: (p: unknown, pos: number) => { current: string | null; next: string | null } | null;
+    };
+
+  it('claims nothing until three samples agree, then freezes and persists it', () => {
+    vi.useFakeTimers();
+    const handler = buildLeadHandler();
+    const { store, player } = leadPlayer('g-stable');
+    store.set('trackStartedAt', START);
+
+    // A constant 11700ms lead, matching the production node. Each read moves
+    // wall time by 1s and the position by 1s + 11700ms.
+    let elapsed = 1000;
+    const read = () => {
+      vi.setSystemTime(START + elapsed);
+      const w = handler.lyricWindowFor(player, elapsed + 11700);
+      elapsed += 1000;
+      return w;
+    };
+
+// Reads 1-3: unproven, so the card claims nothing is singing even though
+    // the clock would nominally already be past line one.
+    expect(read()?.current).toBeNull();
+    expect(read()?.current).toBeNull();
+    expect(read()?.current).toBeNull();
+    expect(store.get('lyricLeadFrozen')).toBe(false);
+    // Three agreeing samples on the fourth read prove it. The card still
+    // shows nothing singing here because the first line is at 15s and the
+    // clock has only reached ~10s — the point of the read is the flag, and
+    // the lead that was stored alongside it.
+    expect(read()?.current).toBeNull();
+    expect(store.get('lyricLeadFrozen')).toBe(true);
+    // PERSISTED, not merely returned: the boundary diagnostic reads the
+    // stored flag, so a value that is only returned leaves two consumers
+    // disagreeing about the same fact.
+    expect(store.get('lyricLeadMs')).toBe(11700);
+
+    // Proven, the card now resolves a real window instead of holding.
+    vi.setSystemTime(START + 20000);
+    expect(handler.lyricWindowFor(player, 20000 + 11700)?.current).toBe('One');
+  });
+
+  it('a lead that keeps climbing never settles', () => {
+    vi.useFakeTimers();
+    const handler = buildLeadHandler();
+    const { store, player } = leadPlayer('g-climb');
+    store.set('trackStartedAt', START);
+    // No two samples agree, so the run counter resets every time and the card
+    // never claims a line. Freezing here is the production bug: the lead froze
+    // at 3820ms while the true value was 11713ms and still rising.
+    for (let i = 1; i <= 6; i++) {
+      const elapsed = i * 1000;
+      vi.setSystemTime(START + elapsed);
+      const w = handler.lyricWindowFor(player, elapsed + 8000 + i * 3000);
+      expect(store.get('lyricLeadFrozen')).toBe(false);
+      expect(store.get('lyricLeadStableRuns')).toBe(0);
+      expect(w?.current).toBeNull();
+    }
+  });
+
+  it('a recent seek stops the measurement instead of learning the seek', () => {
+    vi.useFakeTimers();
+    const handler = buildLeadHandler();
+    const { store, player } = leadPlayer('g-seek-lead');
+    store.set('trackStartedAt', START);
+    // One honest sample, then the user seeks.
+    vi.setSystemTime(START + 1000);
+    handler.lyricWindowFor(player, 12700);
+    store.set('lastUserSeekAt', START + 1000);
+
+    // Across the seek the position base moves but wall time barely does, so
+    // measuring would read the seek target as a lead of many seconds. The
+    // seek is trusted instead, and no new sample is taken.
+    vi.setSystemTime(START + 1100);
+    handler.lyricWindowFor(player, 240000);
+    expect(store.get('lyricLeadMs')).toBe(11700);
+    expect(store.get('lyricLeadStableRuns')).toBe(0);
+  });
+
+  it('past the measurement window the lead is frozen AND written down', () => {
+    vi.useFakeTimers();
+    const handler = buildLeadHandler();
+    const { store, player } = leadPlayer('g-window');
+    store.set('trackStartedAt', START);
+    // Never three agreeing samples, but the window expires: the lead is
+    // settled by then. The flag must be PERSISTED, not just returned.
+    vi.setSystemTime(START + LYRIC_LEAD_WINDOW_MS + 5000);
+    handler.lyricWindowFor(player, LYRIC_LEAD_WINDOW_MS + 5000 + 11700);
+    expect(store.get('lyricLeadFrozen')).toBe(true);
+  });
+
+  it('a player with no get() still renders, rather than throwing', () => {
+    const handler = buildLeadHandler();
+    // A read of player state is a pure read, so a player that cannot answer
+    // must leave the card unchanged instead of rejecting into publish.
+    const bare = { guildId: 'g-bare', playing: true, paused: false, textChannelId: 'tc-1' };
+    expect(handler.lyricWindowFor(bare, 0)).toBeNull();
   });
 });
 

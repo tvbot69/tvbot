@@ -45,6 +45,73 @@ const karaokePlayer = {
   get: (key: string) => (key === 'karaokeLines' ? LINES : undefined),
 };
 
+/**
+ * A handler wired to a real channel/message so `publishProgress` reaches the
+ * `msg.edit` it is meant to measure. The edit double decides how long the
+ * gateway "takes", which is the only input the measurement has.
+ */
+const buildPublishingHandler = async (edit: (data: unknown) => Promise<unknown>) => {
+  const msg = { edit };
+  const channel = {
+    isTextBased: () => true,
+    messages: { cache: { get: () => null }, fetch: async () => msg },
+  };
+  const client = { on: vi.fn(), channels: { cache: new Map(), fetch: async () => channel } };
+  const manager = { on: vi.fn(), players: { get: () => undefined } };
+  // Mutable so a test can change something VISIBLE between publishes: the
+  // publisher skips an edit whose fingerprint is unchanged, so two identical
+  // publishes measure nothing and every assertion below would be vacuous.
+  const queue: Record<string, unknown> = {
+    current: {
+      identifier: 't-lat-1',
+      title: 'Latency Song',
+      author: 'Band',
+      uri: 'https://youtube.com/watch?v=t-lat-1',
+      duration: 200000,
+      isSeekable: true,
+      isStream: false,
+      source: 'youtube',
+    },
+    tracks: [],
+    totalTracks: 1,
+    totalDuration: 200000,
+    remainingDuration: 200000,
+    loopMode: 'off',
+    volume: 100,
+    isPaused: false,
+    isPlaying: true,
+    is247: false,
+    autoplay: false,
+    position: 5000,
+  };
+  const handler = new (await import('@bot/handlers/music/musicHandler')).MusicHandler(
+    client as never,
+    { getManager: () => manager } as never,
+    {
+      getQueueInfo: () => queue,
+      is247: () => false,
+      isKaraokeEnabled: () => true,
+      calculatePosition: () => 5000,
+    } as never,
+  ) as unknown as {
+    publishProgress: (player: unknown) => Promise<void>;
+    clearCardTimers: (guildId: string) => void;
+    editLatencyFor: (guildId: string) => number;
+    editLatencyView: Map<string, number>;
+    forgetGuild: (guildId: string) => void;
+  };
+  return { handler, queue };
+};
+
+const playingPlayer = (guildId: string) => ({
+  guildId,
+  playing: true,
+  paused: false,
+  textChannelId: 'tc-1',
+  get: (k: string) => (k === 'nowPlayingMessageId' ? 'msg-1' : undefined),
+  set: () => undefined,
+});
+
 describe('MusicHandler progress card', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -67,6 +134,131 @@ describe('MusicHandler progress card', () => {
   it('the unmeasured lag starts at the floor, not a guessed 1200ms', () => {
     expect(EDIT_LATENCY_FLOOR_MS).toBe(150);
     expect(EDIT_LATENCY_CAP_MS).toBe(3000);
+  });
+
+  it('measures the edit round-trip instead of assuming one', async () => {
+    // The whole reason the lag is not a constant: the card only shows a line
+    // once Discord ACCEPTS the edit, so the clock must lead by however long
+    // the gateway actually took. Driven through a real publish so this is the
+    // production path, not a call to a helper. 500ms is well clear of the
+    // 150ms floor, so a hardcoded 0 cannot pass this.
+    vi.useFakeTimers();
+    try {
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        return {};
+      });
+      const { handler } = await buildPublishingHandler(edit);
+      expect(handler.editLatencyFor('g-lat-1')).toBe(EDIT_LATENCY_FLOOR_MS);
+
+      await handler.publishProgress(playingPlayer('g-lat-1'));
+      expect(edit).toHaveBeenCalledTimes(1);
+      // The 500ms reply is believed, not averaged down to nothing.
+      expect(handler.editLatencyFor('g-lat-1')).toBe(500);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a faster reply blends instead of snapping the lag back', async () => {
+    // One fast sample must not reset the clock to near-zero, or the next line
+    // goes early against a gateway that is still slow.
+    vi.useFakeTimers();
+    try {
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        return {};
+      });
+      const { handler, queue } = await buildPublishingHandler(edit);
+      await handler.publishProgress(playingPlayer('g-lat-2'));
+      expect(handler.editLatencyFor('g-lat-2')).toBe(500);
+
+      edit.mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+        return {};
+      });
+      // Volume is part of the visible fingerprint, so this really is a second
+      // edit rather than a skipped duplicate.
+      queue.volume = 55;
+      await handler.publishProgress(playingPlayer('g-lat-2'));
+      expect(edit).toHaveBeenCalledTimes(2);
+      // EWMA at 0.4: 500 + 0.4 * (100 - 500) = 340. Exact, because this is
+      // what distinguishes BLENDING from the two plausible wrong rules: a
+      // replace-on-fast rule gives 100 (floored to 150), and a snap-to-floor
+      // rule gives 150. Only the blend lands at 340.
+      expect(handler.editLatencyFor('g-lat-2')).toBe(340);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never reports a lag outside the measured bounds', async () => {
+    const edit = vi.fn().mockResolvedValue({});
+    const { handler } = await buildPublishingHandler(edit);
+    const stored = handler.editLatencyView as Map<string, number>;
+    // Unmeasured: the floor, never zero (zero would show every line early).
+    expect(handler.editLatencyFor('g-lat-3')).toBe(EDIT_LATENCY_FLOOR_MS);
+    // A nonsense reading is refused in favour of the floor.
+    stored.set('g-lat-3', Number.NaN);
+    expect(handler.editLatencyFor('g-lat-3')).toBe(EDIT_LATENCY_FLOOR_MS);
+    // Absurdly slow and absurdly fast both clamp to the bounds.
+    stored.set('g-lat-3', 999999);
+    expect(handler.editLatencyFor('g-lat-3')).toBe(EDIT_LATENCY_CAP_MS);
+    stored.set('g-lat-3', 0);
+    expect(handler.editLatencyFor('g-lat-3')).toBe(EDIT_LATENCY_FLOOR_MS);
+  });
+
+  it('a slow reply cannot drag the stored sample past the cap', async () => {
+    vi.useFakeTimers();
+    try {
+      // Slow, but still inside EDIT_TIMEOUT_MS, so the edit genuinely succeeds
+      // and a sample is genuinely taken. A reply slower than the timeout is
+      // the editor's own race, and correctly records nothing.
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+        return {};
+      });
+      const { handler } = await buildPublishingHandler(edit);
+      await handler.publishProgress(playingPlayer('g-lat-4'));
+      expect(handler.editLatencyFor('g-lat-4')).toBe(2500);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a hung edit records no sample, rather than a giant lag', async () => {
+    vi.useFakeTimers();
+    try {
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(60_000);
+        return {};
+      });
+      const { handler } = await buildPublishingHandler(edit);
+      await handler.publishProgress(playingPlayer('g-lat-6'));
+      // The edit raced out, so nothing was learned: the lag stays at the
+      // floor instead of jumping to a minute and freezing every lyric.
+      expect(handler.editLatencyFor('g-lat-6')).toBe(EDIT_LATENCY_FLOOR_MS);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('forgets the measurement when the guild leaves', async () => {
+    vi.useFakeTimers();
+    try {
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(500);
+        return {};
+      });
+      const { handler } = await buildPublishingHandler(edit);
+      await handler.publishProgress(playingPlayer('g-lat-5'));
+      expect(handler.editLatencyFor('g-lat-5')).toBe(500);
+      handler.forgetGuild('g-lat-5');
+      // Otherwise a deleted guild's slow gateway keeps the next track late.
+      expect(handler.editLatencyFor('g-lat-5')).toBe(EDIT_LATENCY_FLOOR_MS);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('an explicit lag runs the lookup behind the clock', () => {

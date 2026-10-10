@@ -4,7 +4,7 @@
 | Metric | Count |
 |---|---|
 | Production files | 404 |
-| Production lines | 87093 |
+| Production lines | 87114 |
 | Slash top-level commands | 80 |
 | Text commands | 162 |
 | Text triggers + aliases | 576 |

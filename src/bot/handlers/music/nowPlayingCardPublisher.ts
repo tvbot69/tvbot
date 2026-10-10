@@ -61,9 +61,10 @@ export class NowPlayingCardPublisher {
    * boundary, so the lyric clock leads by it. A fixed safety lag cannot model
    * this: the same node sees 200ms edits and 2s edits when Discord throttles,
    * and a wrong constant is either early or late every time.
+   *
+   * Owned by the host and passed in by reference like every other per-guild
+   * map here, so `forgetGuild` sweeps it and a test can read it directly.
    */
-  private readonly editLatency = new Map<string, number>();
-
   public constructor(
     private readonly host: CardPublisherHost,
     private readonly progressNudgeTimers: Map<string, NodeJS.Timeout>,
@@ -71,6 +72,7 @@ export class NowPlayingCardPublisher {
     private readonly progressFingerprints: Map<string, string>,
     private readonly publishRetries: Map<string, number>,
     private readonly pendingPublish: Set<string>,
+    private readonly editLatency: Map<string, number>,
   ) {}
 
   /**
