@@ -125,6 +125,24 @@ describe('LyricsService', () => {
       expect(result).toBeNull();
     });
 
+    it('aligns synced lines forward when the playing audio runs longer than the LRC pressing', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          name: 'Geronimo',
+          artistName: 'Don Toliver',
+          plainLyrics: 'Yeah yeah',
+          syncedLyrics: '[00:15.00] First line\n[00:25.00] Second line',
+          instrumental: false,
+          duration: 115,
+        }),
+      } as unknown as Response);
+      // Playing audio 123s, LRC pressing 115s: 8s shift, lines move 15s->23s.
+      const lines = await lyricsService.getSyncedLyrics('Geronimo', 'Don Toliver', 123000);
+      expect(lines?.map((l) => l.ms)).toEqual([23000, 33000]);
+    });
+
     it('does NOT cache a negative verdict when every provider failed to answer', async () => {
       // A 404 IS an answer and is cached (see above). A thrown fetch is not:
       // caching "no lyrics" from a run where all four legs timed out froze

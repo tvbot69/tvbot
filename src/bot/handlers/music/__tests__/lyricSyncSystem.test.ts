@@ -1,0 +1,162 @@
+import 'reflect-metadata';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { MusicHandler } from '@bot/handlers/music/musicHandler';
+import { QueueService } from '@bot/services/music/queueService';
+import { LYRIC_SAFETY_LAG_MS } from '@bot/services/music/musicConstants';
+
+/**
+ * Lyric sync full system: timer/display unity, monotonic hold, year-gap
+ * survival and pause repair. Each case is a production shape that showed
+ * lyrics early, froze them, or teleported them to the finale.
+ */
+
+const LINES = [
+  { ms: 15000, text: 'One' },
+  { ms: 25000, text: 'Two' },
+  { ms: 35000, text: 'Three' },
+];
+
+const buildHandler = (position: number) => {
+  const client = { on: vi.fn(), channels: { cache: new Map() } };
+  const mgmt = { on: vi.fn(), players: { get: () => undefined } };
+  const queueService = {
+    getQueueInfo: () => null,
+    is247: () => false,
+    isKaraokeEnabled: () => true,
+    calculatePosition: () => position,
+  };
+  const handler = new MusicHandler(
+    client as never,
+    { getManager: () => mgmt } as never,
+    queueService as never,
+    undefined,
+    undefined,
+    undefined,
+    {} as never,
+  ) as unknown as {
+    lyricWindowFor: (player: unknown, pos: number) => { current: string | null; next: string | null } | null;
+    armKaraokeTimer: (player: unknown) => void;
+    clearCardTimers: (guildId: string) => void;
+    karaokeTimersView: Map<string, NodeJS.Timeout>;
+  };
+  return handler;
+};
+
+const lyricPlayer = (guildId: string, extra?: Record<string, unknown>) => {
+  const store = new Map<string, unknown>([['karaokeLines', LINES]]);
+  if (extra) for (const [k, v] of Object.entries(extra)) store.set(k, v);
+  return {
+    guildId,
+    playing: true,
+    paused: false,
+    textChannelId: 'tc-1',
+    get: <T>(k: string): T | undefined => store.get(k) as T | undefined,
+    set: (k: string, v: unknown) => void store.set(k, v),
+  };
+};
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe('lyric sync system: timer and display share one effective', () => {
+  it('the window lags the clock by the safety lag, never leads it', () => {
+    const handler = buildHandler(0);
+    // Raw 15s, effective 13.8s: still before the 15s line. Showing the line
+    // at raw 15s would be 1.2s early (timer slack + edit round-trip).
+    expect(handler.lyricWindowFor(lyricPlayer('g-unity-1'), 15000)).toEqual({
+      current: null,
+      next: 'One',
+    });
+    // Raw 16.2s, effective 15s: line one is singing.
+    expect(handler.lyricWindowFor(lyricPlayer('g-unity-2'), 16200)).toEqual({
+      current: 'One',
+      next: 'Two',
+    });
+    expect(LYRIC_SAFETY_LAG_MS).toBe(1200);
+  });
+
+  it('the timer arms to next-minus-effective, so it fires when the card flips', () => {
+    const handler = buildHandler(9200);
+    const delays: number[] = [];
+    const orig = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: (...a: unknown[]) => void, ms: number, ...rest: unknown[]) => {
+        delays.push(ms);
+        return orig(fn, ms, ...rest);
+      }) as typeof setTimeout,
+    );
+    // Lines fixture here is 15s/25s/35s; position 9.2s, effective 8s:
+    // 15000 - 8000 = 7000. Raw-clock arming gave 5800 and fired early.
+    handler.armKaraokeTimer(lyricPlayer('g-unity-3'));
+    handler.clearCardTimers('g-unity-3');
+    expect(delays).toHaveLength(1);
+    expect(delays[0]).toBe(7000);
+  });
+});
+
+describe('lyric sync system: monotonic hold across stale reads', () => {
+  it('a backwards position with no seek intent holds the last window', () => {
+    const handler = buildHandler(26000);
+    const player = lyricPlayer('g-mono-1');
+    // First read at 26s (effective 24.8s): line one singing... actually
+    // 24.8s sits between 15s and 25s, so current is One... wait 24.8 < 25:
+    // current One, next Two. Then the node reports a stale 10s.
+    const first = handler.lyricWindowFor(player, 26000);
+    expect(first?.current).toBe('One');
+    const stale = handler.lyricWindowFor(player, 10000);
+    // Stale read refused: still One, not a rewind to pre-first-line.
+    expect(stale).toEqual(first);
+  });
+
+  it('a backwards seek with intent is allowed through', () => {
+    const handler = buildHandler(10000);
+    // Prime the memo forward first: raw 37s, effective 35.8s -> Three singing.
+    const shared = lyricPlayer('g-mono-2c');
+    expect(handler.lyricWindowFor(shared, 37000)?.current).toBe('Three');
+    shared.set('lastUserSeekAt', Date.now());
+    shared.set('lastUserSeekPos', 10000);
+    // Deliberate backward seek: the intro window returns, no hold.
+    expect(handler.lyricWindowFor(shared, 10000)).toEqual({ current: null, next: 'One' });
+  });
+});
+
+describe('lyric sync system: year-gap survival', () => {
+  const queueSvc = () => new QueueService({ get: () => null } as never, {} as never);
+
+  it('a wall clock claiming the track ended an hour ago freezes at base, not finale', () => {
+    const now = Date.now();
+    const svc = queueSvc();
+    const player = {
+      playing: true,
+      paused: false,
+      lastPosition: 0,
+      current: { duration: 180000, position: 5000, time: now - 120000 },
+      get: (k: string) => (k === 'trackStartedAt' ? now - 3600000 : undefined),
+      set: () => undefined,
+    } as never;
+    // Node clock stale (2min old), wall elapsed 1h on a 3min track: the old
+    // code clamped to duration (180s, finale lyrics). The guard holds base.
+    expect(svc.calculatePosition(player)).toBeLessThan(60000);
+  });
+
+  it('a year-old seek never teleports the position to the end', () => {
+    const now = Date.now();
+    const svc = queueSvc();
+    const player = {
+      playing: true,
+      paused: false,
+      lastPosition: 4000,
+      current: { duration: 180000, position: 4000, time: now - 120000 },
+      get: (k: string) => {
+        if (k === 'trackStartedAt') return now - 37000000;
+        if (k === 'lastUserSeekAt') return now - 37000000;
+        if (k === 'lastUserSeekPos') return 10000;
+        return undefined;
+      },
+      set: () => undefined,
+    } as never;
+    expect(svc.calculatePosition(player)).toBeLessThan(60000);
+  });
+});

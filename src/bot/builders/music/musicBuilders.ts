@@ -16,7 +16,7 @@ import {
 } from 'discord.js';
 import { ResponseModel } from '@bot/models/responseModel';
 import { DiscordConstants } from '@bot/resources/discordConstants';
-import { formatDuration, type MusicTrack } from '@domain/models/music/musicTrack';
+import { formatDuration, singleArtistName, cleanArtistName, type MusicTrack } from '@domain/models/music/musicTrack';
 import { ALL_FILTERS, type FilterName, type MusicQueueInfo } from '@domain/models/music/musicQueue';
 import type { LavalinkNodeStats } from '@bot/services/music/moonlinkManager';
 import type { VideoChapter } from '@bot/services/music/videoChapters';
@@ -307,48 +307,31 @@ export class MusicBuilders {
   }
 
   /**
-   * The Now Playing header, as parts joined by ' • '.
+   * The Now Playing header, as parts joined by ' • ': title • single artist
+   * • source badge. No album: the album is the least identifying field and
+   * the header budget is tight, so it is never rendered. Artist is exactly
+   * one name via `singleArtistName` (no feat/with/and/collaborators).
    *
-   * The budget is on the JOINED LINE, not per field. Clamping each field
-   * separately bounds nothing: "WHAT TO DO? • JACKBOYS" (22) plus
-   * "JACKBOYS, Travis Scott, Don Toliver" (32) is 57 rendered characters,
-   * both fields comfortably under any per-field cap, and the line still
-   * dominated the card. Measured 2026-10-03.
-   *
-   * The title is the identity, so it is never dropped and always gets the
-   * full budget; the album is the least identifying and is dropped first
-   * when the line cannot hold it. Whatever remains goes to the artist.
-   * `fillToBudget` cuts at a word boundary, because a header ending
-   * mid-word ("Travis Sco|") reads worse than one ending in '..'.
+   * The budget is on the JOINED LINE, not per field. The title is the
+   * identity, so it is never dropped and always gets the full budget;
+   * whatever remains goes to the single artist. `fillToBudget` cuts at a
+   * word boundary, because a header ending mid-word reads worse than '..'.
    */
   private static buildHeaderParts(current: MusicTrack, sourceIcon: string): string[] {
     const budget = MusicBuilders.NOW_PLAYING_TITLE_LIMIT;
     const sep = ' • ';
     const title = escapeLinkLabel(MusicBuilders.trimDisplayTitle(current.title));
-    const albumRaw = current.album?.trim() ? escapeMarkdown(current.album.trim()).replace(/[\r\n]+/g, ' ') : '';
-    const artist = escapeMarkdown(current.author).replace(/[\r\n]+/g, ' ');
+    const artist = escapeMarkdown(singleArtistName(current.author) || cleanArtistName(current.author)).replace(/[\r\n]+/g, ' ');
     const linked = `[${title}](${current.uri})`;
 
     // A title that cannot fit even alone is truncated by its own budget and
-    // nothing else is shown — there is no room, and a stub album reads worse
-    // than no album.
+    // nothing else is shown — there is no room for an artist stub.
     if (title.length + MusicBuilders.TITLE_ELLIPSIS.length >= budget) {
       return [`[${MusicBuilders.clampDisplay(title, budget - MusicBuilders.TITLE_ELLIPSIS.length, MusicBuilders.TITLE_ELLIPSIS)}](${current.uri})`, sourceIcon];
     }
 
     const parts = [linked];
-    let used = title.length;
-
-    if (albumRaw) {
-      const room = budget - used - sep.length;
-      if (room > MusicBuilders.TITLE_ELLIPSIS.length + 2) {
-        const filled = MusicBuilders.fillToBudget(albumRaw, room);
-        parts.push(filled);
-        used += sep.length + filled.length;
-      }
-      // No else: a room too small for an album leaves it out entirely rather
-      // than rendering two characters of it.
-    }
+    const used = title.length;
 
     const artistRoom = budget - used - sep.length;
     if (artistRoom > MusicBuilders.TITLE_ELLIPSIS.length) {
@@ -404,12 +387,12 @@ export class MusicBuilders {
     const current = queue.current;
     const sourceIcon = getSourceBadge(current.source);
 
-    // One-line header: title • album (when known) • artist • source badge.
+    // One-line header: title • single artist • source badge. No album.
     // Then live-show chapter, lyrics, and a static remaining-time meta line.
     // No live position anywhere: the card is event-driven, never polled, so
     // every line must stay true without ticks. Text-only, no emojis. The
     // header is body-size on purpose — ### rendered oversized next to badges.
-    // Titles/artists/albums are user-supplied, so they are escaped: a release
+    // Titles/artists are user-supplied, so they are escaped: a release
     // named "**FREE** [click](https://x)" used to restyle the whole card and
     // render a fake link.
     const headerParts = MusicBuilders.buildHeaderParts(current, sourceIcon);

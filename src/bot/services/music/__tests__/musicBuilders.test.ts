@@ -116,15 +116,16 @@ describe('MusicBuilders', () => {
       expect(response.embed.data.description).toContain('Nothing is currently playing');
     });
 
-    it('inserts the album into the one-line header when known', () => {
+    it('never inserts the album into the one-line header, even when known', () => {
       const withAlbum: MusicQueueInfo = {
         ...sampleQueue,
         current: { ...sampleTrack, album: 'After Hours' },
       };
       const response = MusicBuilders.buildNowPlayingResponse(withAlbum, 0xff0000);
       expect(response.embed.data.description).toContain(
-        '[Starboy](https://open.spotify.com/track/abc12345) • After Hours • The Weeknd •',
+        '[Starboy](https://open.spotify.com/track/abc12345) • The Weeknd •',
       );
+      expect(response.embed.data.description).not.toContain('After Hours');
     });
   });
 

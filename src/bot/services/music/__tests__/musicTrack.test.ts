@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   cleanTrackTitle,
   cleanArtistName,
+  singleArtistName,
   mapMoonlinkTrack,
   isSpotifyMatchValid,
   spotifyUriToUrl,
@@ -84,6 +85,46 @@ describe('cleanArtistName', () => {
 
   it('handles undefined artist gracefully', () => {
     expect(cleanArtistName(undefined)).toBe('Unknown Artist');
+  });
+});
+
+describe('singleArtistName (one artist, no collaborators)', () => {
+  it('takes the first billed name from comma/ampersand lists', () => {
+    expect(singleArtistName('JACKBOYS, Travis Scott, Don Toliver')).toBe('JACKBOYS');
+    expect(singleArtistName('A & B')).toBe('A');
+    expect(singleArtistName('A / B')).toBe('A');
+  });
+
+  it('strips feat/ft/featuring/with/and/x/vs collaborators', () => {
+    expect(singleArtistName('Don Toliver feat. Travis Scott')).toBe('Don Toliver');
+    expect(singleArtistName('Don Toliver ft. Travis Scott')).toBe('Don Toliver');
+    expect(singleArtistName('Don Toliver featuring Travis Scott')).toBe('Don Toliver');
+    expect(singleArtistName('Don Toliver with Travis Scott')).toBe('Don Toliver');
+    expect(singleArtistName('Travis Scott and Don Toliver')).toBe('Travis Scott');
+    expect(singleArtistName('Artist1 x Artist2')).toBe('Artist1');
+    expect(singleArtistName('Artist1 vs Artist2')).toBe('Artist1');
+  });
+
+  it('strips channel suffixes and bracketed credits', () => {
+    expect(singleArtistName('Don Toliver - Topic')).toBe('Don Toliver');
+    expect(singleArtistName('Don Toliver VEVO')).toBe('Don Toliver');
+  });
+
+  it('handles undefined and empty input', () => {
+    expect(singleArtistName(undefined)).toBe('Unknown Artist');
+    // Empty or separator-only has no usable lead: '' so artwork/fallback
+    // skip instead of searching garbage (matches the old leadArtist contract).
+    expect(singleArtistName('')).toBe('');
+    expect(singleArtistName(' & ')).toBe('');
+  });
+
+  it('strips a channel suffix from the first chunk before returning it', () => {
+    expect(singleArtistName('ZAF - Topic, Omar Taa\'i')).toBe('ZAF');
+  });
+
+  it('leaves a clean single name untouched', () => {
+    expect(singleArtistName('Don Toliver')).toBe('Don Toliver');
+    expect(singleArtistName('EsDeeKid')).toBe('EsDeeKid');
   });
 });
 

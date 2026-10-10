@@ -92,6 +92,43 @@ export const cleanArtistName = (author?: string): string => {
 };
 
 /**
+ * Single lead artist for display and queries: exactly one name, no feat,
+ * no with, no and, no collaborators.
+ *
+ * "JACKBOYS, Travis Scott, Don Toliver" -> "JACKBOYS".
+ * "Travis Scott and Don Toliver" -> "Travis Scott".
+ * "Don Toliver feat. Travis Scott" -> "Don Toliver".
+ * Channel suffixes ("X - Topic", "X VEVO") are stripped first.
+ * Single definition: card header, fallback queries and artwork all use this.
+ */
+export const singleArtistName = (author?: string): string => {
+  if (author === undefined || author === null) return 'Unknown Artist';
+  const raw = String(author).trim();
+  // Empty or separator-only ("", " & ") has no usable lead name: return ''
+  // so artwork/fallback callers skip the lookup instead of searching garbage.
+  // Display callers fall back to 'Unknown Artist' themselves; the mapped
+  // track author is never empty in practice (cleanArtistName guarantees it).
+  if (!raw) return '';
+  if (/^[,&;/+\s×x]+$/i.test(raw)) return '';
+  const stripChannel = (s: string): string =>
+    s.replace(/\s*-\s*Topic$/i, '').replace(/\s*VEVO$/i, '').trim();
+  const cleaned = stripChannel(raw);
+  if (!cleaned || /^[,&;/+\s×x]+$/i.test(cleaned)) return '';
+  // Split collaborators first, then strip the channel suffix from the chunk
+  // itself: "ZAF - Topic, Omar" splits to "ZAF - Topic" which is still ZAF.
+  const firstChunk = stripChannel((cleaned.split(/[,/;&+]/)[0] ?? cleaned).trim());
+  const base = firstChunk || '';
+  if (!base || /^[,&;/+\s×x]+$/i.test(base)) return '';
+  const noBracket = base.replace(/\s*[([].*?(feat\.?|ft\.?|featuring|with).*?[)\]]/gi, '').trim();
+  const candidate = noBracket || base;
+  const single = (candidate.split(/\s+(?:feat\.?|ft\.?|featuring|with|and|&|x|vs\.?|versus)\s+/i)[0] ?? candidate).trim();
+  const stripped = single.replace(/\s+(feat\.?|ft\.?|featuring|with|and|x|vs\.?|versus)\s+.*$/i, '').trim();
+  const result = stripChannel(stripped || single || candidate);
+  if (!result || /^[,&;/+\s×x]+$/i.test(result)) return '';
+  return result;
+};
+
+/**
  * Converts spotify: URIs (track/album/playlist/artist) to open.spotify.com
  * URLs. Discord does not hyperlink spotify: URIs, so embeds linking them
  * render dead text. Passes everything else (including empty) through.

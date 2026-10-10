@@ -224,19 +224,20 @@ describe('armKaraokeTimer fires at the line, not up to 1.5s after it', () => {
     },
   });
 
-  it('dense lines arm near-exact instead of parking 700ms late', () => {
-    // Position 9.2s, next line at 10s: delay 800. Old floor gave 1500.
+  it('dense lines arm to the effective boundary (safety lag included)', () => {
+    // Position 9.2s, safety lag 1.2s -> effective 8.0s, next line at 10s:
+    // delay 2000. Timer and display share the effective, so the timer fires
+    // when the card actually flips — arming on the raw clock fired 1200ms early.
     const handler = buildHandler();
     const delays = captureDelays();
     handler.armKaraokeTimer(linePlayer('g-dense-1'));
     handler.clearCardTimers('g-dense-1');
 
     expect(delays).toHaveLength(1);
-    expect(delays[0]).toBe(800);
+    expect(delays[0]).toBe(2000);
   });
 
-  it('sparse lines arm unchanged at the far boundary', () => {
-    // The unchanged direction: a 50s-away line arms at 50s before and after.
+  it('sparse lines arm to the effective boundary at the far line', () => {
     const handler = buildHandler();
     const delays = captureDelays();
     const player = {
@@ -249,13 +250,13 @@ describe('armKaraokeTimer fires at the line, not up to 1.5s after it', () => {
         return undefined;
       },
     };
-    // calculatePosition stub says 9200; override per-player via queue position
-    // is fixed, so expect 60000 - 9200 = 50800 either way.
+    // calculatePosition stub says 9200, effective 8000:
+    // 60000 - 8000 = 52000.
     handler.armKaraokeTimer(player);
     handler.clearCardTimers('g-sparse-1');
 
     expect(delays).toHaveLength(1);
-    expect(delays[0]).toBe(50_800);
+    expect(delays[0]).toBe(52_000);
   });
 
   it('a paused clock still gets the cheap 15s recheck, not a hot loop', () => {

@@ -184,7 +184,14 @@ export class QueueService {
     // a song from the start of the show. When the user has seeked since the
     // track began, extrapolate from the seek target instead — same "keep
     // moving" guarantee, but seek-relative.
+    //
+    // Year-gap guard: a wall clock that claims the track ended minutes ago
+    // (paused for a year, process hibernated, stale trackStartedAt after a
+    // resume that never re-stamped) must not teleport the card and lyrics to
+    // the finale. Freezing at the last reported base is honest; claiming the
+    // end is a confident wrong answer. The same holds for a year-old seek.
     const now = Date.now();
+    const pastEndGraceMs = 300000;
     if (
       typeof seekAt === 'number' &&
       seekAt > 0 &&
@@ -193,11 +200,18 @@ export class QueueService {
       (typeof trackStartedAt !== 'number' || seekAt > trackStartedAt)
     ) {
       const since = now - seekAt;
-      if (since >= -2000) return clamp(seekPos + Math.max(0, since));
+      if (since >= -2000) {
+        const remaining = totalDuration > 0 ? totalDuration - seekPos : Number.POSITIVE_INFINITY;
+        if (Number.isFinite(remaining) && since > remaining + pastEndGraceMs) return basePos;
+        return clamp(seekPos + Math.max(0, since));
+      }
     }
     if (typeof trackStartedAt === 'number' && trackStartedAt > 0) {
       const elapsed = now - trackStartedAt;
-      if (elapsed >= 0) return clamp(elapsed);
+      if (elapsed >= 0) {
+        if (totalDuration > 0 && elapsed > totalDuration + pastEndGraceMs) return basePos;
+        return clamp(elapsed);
+      }
     }
 
     return basePos;

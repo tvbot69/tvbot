@@ -1,6 +1,17 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
-import { parseLrc, selectSynced, lyricWindowAt, isLivePerformance, LIVE_DURATION_TOLERANCE_MS } from '@bot/services/music/syncedLyrics';
+import {
+  parseLrc,
+  selectSynced,
+  lyricWindowAt,
+  alignSyncedLines,
+  lyricEffectiveAt,
+  nextLyricBoundary,
+  LYRIC_SAFETY_LAG_MS,
+  MAX_LYRIC_ALIGN_SHIFT_MS,
+  isLivePerformance,
+  LIVE_DURATION_TOLERANCE_MS,
+} from '@bot/services/music/syncedLyrics';
 
 const LRC = [
   '[00:00.15] Is this the real life?',
@@ -124,5 +135,70 @@ describe('lyricWindowAt', () => {
   it('returns null without lines', () => {
     expect(lyricWindowAt([], 5000)).toBeNull();
     expect(lyricWindowAt(null, 5000)).toBeNull();
+  });
+});
+
+describe('alignSyncedLines (per-track arrangement correction)', () => {
+  const base = [
+    { ms: 15000, text: 'One' },
+    { ms: 25000, text: 'Two' },
+  ];
+
+  it('shifts forward by the duration delta so YouTube intros stop showing early', () => {
+    // LRC pressing 115s, playing audio 123s: 8s extra intro. Without the
+    // shift the 15s line shows 8s before it is heard.
+    const { lines, shiftMs } = alignSyncedLines(base, 115000, 123000);
+    expect(shiftMs).toBe(8000);
+    expect(lines.map((l) => l.ms)).toEqual([23000, 33000]);
+    // Without the shift the old clock would already sing at 15s.
+    expect(lines[0]?.ms).not.toBe(15000);
+  });
+
+  it('never shifts backwards: a shorter playing track leaves the clock untouched', () => {
+    // Shifting backwards would show lines BEFORE they are sung — the exact
+    // "lyrics early" symptom. Doubt holds the clock instead.
+    const { lines, shiftMs } = alignSyncedLines(base, 200000, 190000);
+    expect(shiftMs).toBe(0);
+    expect(lines.map((l) => l.ms)).toEqual([15000, 25000]);
+  });
+
+  it('caps the shift so a bad duration cannot teleport the clock', () => {
+    const { lines, shiftMs } = alignSyncedLines(base, 100000, 200000);
+    expect(shiftMs).toBe(MAX_LYRIC_ALIGN_SHIFT_MS);
+    expect(lines[0]?.ms).toBe(15000 + MAX_LYRIC_ALIGN_SHIFT_MS);
+    expect(shiftMs).toBeLessThanOrEqual(10000);
+  });
+
+  it('returns zero shift when either duration is unknown', () => {
+    expect(alignSyncedLines(base, undefined, 123000).shiftMs).toBe(0);
+    expect(alignSyncedLines(base, 115000, undefined).shiftMs).toBe(0);
+    expect(alignSyncedLines(base, 0, 123000).shiftMs).toBe(0);
+    expect(alignSyncedLines([], 115000, 123000).shiftMs).toBe(0);
+  });
+});
+
+describe('lyricEffectiveAt + nextLyricBoundary (timer/display unity)', () => {
+  const lines = [
+    { ms: 2000, text: 'One' },
+    { ms: 10000, text: 'Two' },
+  ];
+
+  it('effective is raw minus the safety lag, clamped at zero', () => {
+    expect(lyricEffectiveAt(9200, 1200)).toBe(8000);
+    expect(lyricEffectiveAt(500, 1200)).toBe(0);
+    expect(LYRIC_SAFETY_LAG_MS).toBe(1200);
+  });
+
+  it('timer and display agree on the next boundary', () => {
+    // Display derives from effective 8000 (shows line one), timer arms to
+    // next 10000 - 8000 = 2000. Arming on raw 9200 gave 800 and fired early.
+    const effective = lyricEffectiveAt(9200, LYRIC_SAFETY_LAG_MS);
+    expect(nextLyricBoundary(lines, effective)?.ms).toBe(10000);
+    expect(10000 - effective).toBe(2000);
+  });
+
+  it('returns null past the last line (no timer armed)', () => {
+    expect(nextLyricBoundary(lines, 20000)).toBeNull();
+    expect(nextLyricBoundary([], 0)).toBeNull();
   });
 });

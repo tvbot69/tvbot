@@ -1,6 +1,6 @@
 import type { Track } from 'moonlink.js';
 import { Logger } from '@domain/logging/logger';
-import { isYoutubeThumbUrl } from '@domain/models/music/musicTrack';
+import { isYoutubeThumbUrl, singleArtistName } from '@domain/models/music/musicTrack';
 import type { ArtworkService } from '@bot/services/media/artworkService';
 import { extractArtistFromTitle } from '@bot/services/music/videoChapters';
 import { SpotifySearchApi } from '@spotify/api/spotifySearchApi';
@@ -56,18 +56,11 @@ export const sanitizeOverride = <T extends { artworkUrl?: string } | undefined>(
 
 /**
  * First billed artist for profile-picture fallback ("A, B & C feat. D" →
- * "A"). Channel suffixes ("X - Topic", "X VEVO") are stripped — uploads
- * come from auto-generated topic channels as often as from the artist.
- * Mirrors the fallback-query artist logic.
+ * "A"). Single definition lives in domain `singleArtistName` so the card
+ * header, fallback queries and artwork cannot drift apart; this stays as
+ * the music-module alias the existing call sites use.
  */
-export const leadArtist = (artist: string): string => {
-  const first = artist.split(/[,/&]/)[0] ?? '';
-  return first
-    .replace(/\s*-\s*Topic$/i, '')
-    .replace(/\s*VEVO$/i, '')
-    .replace(/\s+(feat\.?|ft\.?|featuring|with|x)\s+.*$/i, '')
-    .trim();
-};
+export const leadArtist = (artist: string): string => singleArtistName(artist);
 
 /**
  * Artwork backfill, cascade lookup and upcoming-track warmup.

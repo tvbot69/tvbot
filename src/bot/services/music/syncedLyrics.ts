@@ -28,6 +28,23 @@ const LRC_LINE_RE = /^\[(\d+):(\d+(?:\.\d+)?)\]\s?(.*)$/;
 export const DURATION_TOLERANCE_MS = 15000;
 
 /**
+ * Lyric sync system tuning. Three numbers, each with one job:
+ *
+ * - SAFETY_LAG: the card and the boundary timer both run BEHIND the node
+ *   clock by this much, so a line is never shown before it is heard. Covers
+ *   timer slack (250ms floor), Discord edit round-trip and voice jitter.
+ *   Late by a beat reads as karaoke; early by a beat reads as broken.
+ * - ALIGN_SHIFT cap: per-track arrangement correction (YouTube intro vs LRC
+ *   pressing) is measured from the duration delta, never guessed, and capped
+ *   here so a bad duration cannot teleport the whole clock.
+ * - MONOTONIC tolerance: a position that moves backwards past this with no
+ *   recorded seek intent is stale node data, not a rewind — the window holds.
+ */
+export const LYRIC_SAFETY_LAG_MS = 1200;
+export const MAX_LYRIC_ALIGN_SHIFT_MS = 10000;
+export const LYRIC_MONOTONIC_TOLERANCE_MS = 2000;
+
+/**
  * Pressing gate for LIVE performances. A live arrangement re-times lines
  * (intros, banter, tempo shifts) far beyond its duration delta, so a studio
  * clock 8s away in length can sit seconds off all song. Live-tagged tracks
@@ -97,22 +114,81 @@ export function selectSynced(
 }
 
 /**
+ * Per-track arrangement alignment: when the audio actually playing runs
+ * longer than the LRC pressing (extra YouTube intro, longer silence), every
+ * LRC timestamp sits early relative to what is heard by roughly the duration
+ * delta. Shift the whole clock forward by that delta so the shown line
+ * matches the heard line. Only ever shifts FORWARD (never shows earlier)
+ * and caps at MAX_LYRIC_ALIGN_SHIFT_MS so a bad duration cannot teleport
+ * the clock. A shorter playing track leaves the clock untouched: shifting
+ * backwards would show lines before they are sung.
+ */
+export function alignSyncedLines(
+  lines: SyncedLine[],
+  candidateDurationMs?: number,
+  expectedDurationMs?: number,
+): { lines: SyncedLine[]; shiftMs: number } {
+  if (!lines || lines.length === 0) return { lines, shiftMs: 0 };
+  if (
+    candidateDurationMs === undefined ||
+    expectedDurationMs === undefined ||
+    !Number.isFinite(candidateDurationMs) ||
+    !Number.isFinite(expectedDurationMs) ||
+    candidateDurationMs <= 0 ||
+    expectedDurationMs <= 0
+  ) {
+    return { lines, shiftMs: 0 };
+  }
+  const delta = expectedDurationMs - candidateDurationMs;
+  const shift = Math.max(0, Math.min(delta, MAX_LYRIC_ALIGN_SHIFT_MS));
+  if (shift <= 0) return { lines, shiftMs: 0 };
+  return { lines: lines.map((l) => ({ ms: l.ms + Math.round(shift), text: l.text })), shiftMs: Math.round(shift) };
+}
+
+/**
+ * Next lyric boundary after an effective position, or null when the track
+ * has sung its last line. Timer and display share this: the timer arms to
+ * `next.ms - effective`, the display derives from the same effective, so
+ * the two can never disagree about which line is next.
+ */
+export function nextLyricBoundary(
+  lines: SyncedLine[] | null | undefined,
+  effectiveMs: number,
+): SyncedLine | null {
+  if (!lines || lines.length === 0) return null;
+  for (const line of lines) {
+    if (line.ms > effectiveMs) return line;
+  }
+  return null;
+}
+
+/**
+ * Effective lyric position: node clock minus the safety lag. One function so
+ * the window lookup and the boundary timer compute the same value from the
+ * same inputs — a timer armed on raw position while the display reads lagged
+ * fires a full lag early and shows the wrong line.
+ */
+export function lyricEffectiveAt(positionMs: number, safetyLagMs: number = LYRIC_SAFETY_LAG_MS): number {
+  return Math.max(0, positionMs - Math.max(0, safetyLagMs));
+}
+
+/**
  * Karaoke window at a playback position: the last started line (current)
  * plus the next non-empty line. Holds the last pair through instrumental
  * gaps instead of blanking; before the first line, current is null.
  *
- * `startupOffsetMs` compensates the node startup gap (card/clock starts at
- * the trackStart event, audible audio follows seconds later while the
- * stream connects). The lookup runs behind the clock by that amount so the
- * shown line matches what is actually heard.
+ * `safetyLagMs` runs the lookup behind the node clock so the shown line
+ * matches what is actually heard (timer slack, edit round-trip, voice
+ * jitter). Lines themselves are pre-aligned per track by
+ * `alignSyncedLines`; this lag is the never-early guarantee on top.
  */
 export function lyricWindowAt(
   lines: SyncedLine[] | null | undefined,
   positionMs: number,
-  startupOffsetMs: number = 0,
+  safetyLagMs: number = 0,
 ): LyricWindow | null {
   if (!lines || lines.length === 0) return null;
-  const effective = Math.max(0, positionMs - Math.max(0, startupOffsetMs));
+  const effective = lyricEffectiveAt(positionMs, safetyLagMs);
   let idx = -1;
   for (let i = 0; i < lines.length; i++) {
     if ((lines[i]?.ms ?? Number.MAX_SAFE_INTEGER) <= effective) idx = i;

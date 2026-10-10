@@ -19,6 +19,8 @@ import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 export class MusicPlaybackControls {
   /** Wired at startup — refreshes the event-driven card on karaoke toggle. */
   private karaokeToggleNotifier: ((guildId: string) => void) | null = null;
+  /** Wired at startup — re-arms lyric/chapter timers and republishes on resume. */
+  private resumeNotifier: ((guildId: string) => void) | null = null;
 
   public constructor(
     private readonly registry: PlayerRegistry,
@@ -35,10 +37,17 @@ export class MusicPlaybackControls {
     const player = this.getPlayer(guildId);
     if (!player) return false;
     if (player.paused) return true;
+    const now = Date.now();
     if (player.current) {
       const currentPos = this.queueService.calculatePosition(player);
       player.current.position = currentPos;
-      player.current.time = Date.now();
+      player.current.time = now;
+    }
+    try {
+      player.set('pausedAt', now);
+    } catch (err) {
+      // Pause memo is decoration; the stamped clock above is what matters.
+      Logger.debug({ err, guildId }, '[Music] Pause memo write failed');
     }
     try {
       await player.pause();
@@ -52,14 +61,47 @@ export class MusicPlaybackControls {
   public async resume(guildId: string): Promise<boolean> {
     const player = this.getPlayer(guildId);
     if (!player) return false;
+    const now = Date.now();
+    // Year-gap repair: wall-clock fallbacks measure from trackStartedAt and
+    // lastUserSeekAt. A year-long pause would otherwise teleport the card
+    // and lyrics to the finale on resume. Shift both forward by the paused
+    // duration so they stay seek-relative. A seek recorded DURING the pause
+    // is already relative to now and must not be shifted into the future.
+    try {
+      const pausedAt = typeof player.get === 'function' ? player.get<number>('pausedAt') : undefined;
+      if (typeof pausedAt === 'number' && pausedAt > 0) {
+        const pausedMs = Math.max(0, now - pausedAt);
+        if (pausedMs > 0) {
+          const startedAt = typeof player.get === 'function' ? player.get<number>('trackStartedAt') : undefined;
+          if (typeof startedAt === 'number' && startedAt > 0) player.set('trackStartedAt', startedAt + pausedMs);
+          const seekAt = typeof player.get === 'function' ? player.get<number>('lastUserSeekAt') : undefined;
+          if (typeof seekAt === 'number' && seekAt > 0 && seekAt < pausedAt) {
+            player.set('lastUserSeekAt', seekAt + pausedMs);
+          }
+        }
+        player.set('pausedAt', null);
+      }
+    } catch (err) {
+      // Memo repair is decoration; the re-stamped clock below still unfreezes.
+      Logger.debug({ err, guildId }, '[Music] Resume memo repair failed');
+    }
     if (player.current) {
-      player.current.time = Date.now();
+      player.current.time = now;
     }
     try {
       await player.resume();
     } catch (err) {
       Logger.warn({ err, guildId }, '[Music] Resume failed');
       return false;
+    }
+    // Event-driven card: a resume moves the lyric window and invalidates
+    // boundary timers armed to the frozen clock. Re-arm and republish
+    // immediately instead of waiting for the 15s paused recheck.
+    try {
+      this.resumeNotifier?.(guildId);
+    } catch (err) {
+      // A notice must never break the resume.
+      Logger.debug({ err, guildId }, '[Music] Resume card refresh failed');
     }
     return true;
   }
@@ -261,6 +303,11 @@ export class MusicPlaybackControls {
   /** Wired at startup — refreshes the card when karaoke is toggled. */
   public setKaraokeToggleNotifier(notifier: (guildId: string) => void): void {
     this.karaokeToggleNotifier = notifier;
+  }
+
+  /** Wired at startup — re-arms timers and republishes on resume. */
+  public setResumeNotifier(notifier: (guildId: string) => void): void {
+    this.resumeNotifier = notifier;
   }
 
   public setLoop(guildId: string, mode: LoopMode): LoopMode | null {

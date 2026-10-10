@@ -1177,6 +1177,11 @@ export class MusicService {
     this.controls.setKaraokeToggleNotifier(notifier);
   }
 
+  /** Wired at startup — re-arms timers and republishes on resume. */
+  public setResumeNotifier(notifier: (guildId: string) => void): void {
+    this.controls.setResumeNotifier(notifier);
+  }
+
   /** Wired at startup — repaints the event-driven card when backfill lands art. */
   public setCardRefreshNotifier(notifier: (guildId: string) => void): void {
     this.artwork.setCardRefreshNotifier(notifier);

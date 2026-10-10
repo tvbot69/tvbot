@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MusicHandler } from '@bot/handlers/music/musicHandler';
-import { LYRIC_STARTUP_OFFSET_MS } from '@bot/services/music/musicConstants';
+import { LYRIC_SAFETY_LAG_MS } from '@bot/services/music/musicConstants';
 
 const LINES = [
   { ms: 2000, text: 'Line one' },
@@ -50,29 +50,26 @@ describe('MusicHandler progress card', () => {
     vi.restoreAllMocks();
   });
 
-  it('lyric window subtracts the measured node lead from the node clock', () => {
+  it('lyric window runs behind the node clock by the safety lag (never early)', () => {
     const handler = buildHandler();
-    // The node clock runs ~8.7s ahead of audible playback (measured
-    // 2026-10-03, `nodeLead` +8704..+8733 across a whole track). At a node
-    // clock of 4s only ~0s of audio has actually played, so nothing is
-    // singing yet; by 9s the first line is. Before the offset existed both
-    // read 8.7s ahead of the audio.
-    // Effective position = node clock - 8700.
-    expect(handler.lyricWindowFor(karaokePlayer, 4000)).toEqual({ current: null, next: 'Line one' });
+    // Effective position = node clock - SAFETY_LAG (1200ms). Per-track
+    // arrangement shift lives in the stored lines themselves
+    // (`alignSyncedLines`); this lag is the never-early guarantee on top
+    // (timer slack, edit round-trip, voice jitter). Lines at 2s/8s.
     expect(handler.lyricWindowFor(karaokePlayer, 0)).toEqual({ current: null, next: 'Line one' });
-    // 9000 -> 300ms effective: still before line one at 2000.
-    expect(handler.lyricWindowFor(karaokePlayer, 9000)).toEqual({ current: null, next: 'Line one' });
-    // 10800 -> 2100ms: line one is singing.
-    expect(handler.lyricWindowFor(karaokePlayer, 10800)).toEqual({ current: 'Line one', next: 'Line two' });
-    // 16800 -> 8100ms: line two.
-    expect(handler.lyricWindowFor(karaokePlayer, 16800)).toEqual({ current: 'Line two', next: null });
+    // 3000 -> 1800ms effective: still before line one at 2000.
+    expect(handler.lyricWindowFor(karaokePlayer, 3000)).toEqual({ current: null, next: 'Line one' });
+    // 3200 -> 2000ms: line one is singing.
+    expect(handler.lyricWindowFor(karaokePlayer, 3200)).toEqual({ current: 'Line one', next: 'Line two' });
+    // 9200 -> 8000ms: line two.
+    expect(handler.lyricWindowFor(karaokePlayer, 9200)).toEqual({ current: 'Line two', next: null });
   });
 
-  it('the applied offset is the measured lead, not a stale zero', () => {
-    expect(LYRIC_STARTUP_OFFSET_MS).toBe(8700);
+  it('the applied lag is the safety value, not a stale zero', () => {
+    expect(LYRIC_SAFETY_LAG_MS).toBe(1200);
   });
 
-  it('an explicit startup offset runs the lookup behind the clock', () => {
+  it('an explicit safety lag runs the lookup behind the clock', () => {
     const handler = buildHandler() as unknown as {
       lyricWindowFor: (player: unknown, positionMs: number, offsetMs?: number) => unknown;
     };

@@ -171,11 +171,11 @@ describe('Now Playing card text limits (58 + ...)', () => {
   });
 
   it('budgets the JOINED header line, not each field alone', () => {
-    // The 2026-10-03 card that kept overflowing: title 22 chars, artist 32.
-    // Both fit any per-field cap, so a per-field clamp could never shorten
-    // this — the 57-char joined line is what dominated the card.
+    // Long single artist still overflows the joined line. Both fields fit
+    // any per-field cap, so only a joined budget shortens this. Truncated
+    // on a word boundary with '..' (uppercase tail proves no mid-word slice).
     const res = MusicBuilders.buildNowPlayingResponse(
-      queueWith({ title: 'WHAT TO DO? • JACKBOYS', author: 'JACKBOYS, Travis Scott, Don Toliver' }),
+      queueWith({ title: 'WHAT TO DO? • JACKBOYS', author: 'JACKBOYS ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF' }),
       0xff0000,
       null,
       null,
@@ -183,13 +183,12 @@ describe('Now Playing card text limits (58 + ...)', () => {
     const visible = visibleHeaderOf(res);
     expect(visible.length).toBeLessThanOrEqual(52);
     expect(visible).toContain('WHAT TO DO?');
-    // Truncated on a word boundary, marked with the two-dot suffix.
     expect(visible.endsWith('..')).toBe(true);
     expect(visible).not.toMatch(/[a-z]\.\.$/);
-    expect(visible).not.toContain('Toliver');
+    expect(visible).not.toContain('FOXTROT');
   });
 
-  it('keeps the title whole and spends what is left on the artist', () => {
+  it('shows exactly one artist: no feat, no collaborators, no album', () => {
     const res = MusicBuilders.buildNowPlayingResponse(
       queueWith({ title: 'WHAT TO DO? • JACKBOYS', author: 'JACKBOYS, Travis Scott, Don Toliver' }),
       0xff0000,
@@ -197,10 +196,24 @@ describe('Now Playing card text limits (58 + ...)', () => {
       null,
     );
     const visible = visibleHeaderOf(res);
-    expect(visible.startsWith('WHAT TO DO? • JACKBOYS • JACKBOYS,')).toBe(true);
+    expect(visible).toBe('WHAT TO DO? • JACKBOYS • JACKBOYS');
+    expect(visible).not.toContain('Toliver');
+    expect(visible).not.toContain('Travis');
+    expect(visible).not.toContain(',');
   });
 
-  it('keeps the line inside budget with all three fields present', () => {
+  it('keeps the title whole and spends what is left on the single artist', () => {
+    const res = MusicBuilders.buildNowPlayingResponse(
+      queueWith({ title: 'WHAT TO DO? • JACKBOYS', author: 'JACKBOYS, Travis Scott, Don Toliver' }),
+      0xff0000,
+      null,
+      null,
+    );
+    const visible = visibleHeaderOf(res);
+    expect(visible.startsWith('WHAT TO DO? • JACKBOYS • JACKBOYS')).toBe(true);
+  });
+
+  it('never renders the album, even when the provider reports one', () => {
     const res = MusicBuilders.buildNowPlayingResponse(
       queueWith({
         title: 'WHAT TO DO? • JACKBOYS',
@@ -213,12 +226,11 @@ describe('Now Playing card text limits (58 + ...)', () => {
     );
     const visible = visibleHeaderOf(res);
     expect(visible.length).toBeLessThanOrEqual(52);
-    expect(visible.startsWith('WHAT TO DO? • JACKBOYS • Love Sick •')).toBe(true);
-    // The artist is what gets cut, and it is cut on a word boundary.
-    expect(visible.endsWith('..')).toBe(true);
+    expect(visible).not.toContain('Love Sick');
+    expect(visible).toBe('WHAT TO DO? • JACKBOYS • JACKBOYS');
   });
 
-  it('drops the album when its own room is too small to be worth rendering', () => {
+  it('drops nothing when the header fits: title plus single artist only', () => {
     const res = MusicBuilders.buildNowPlayingResponse(
       queueWith({
         title: 'WHAT TO DO? • JACKBOYS • JACKBOYS, Travis Scott',
@@ -232,9 +244,10 @@ describe('Now Playing card text limits (58 + ...)', () => {
     const visible = visibleHeaderOf(res);
     expect(visible.length).toBeLessThanOrEqual(52);
     expect(visible).not.toContain('Deluxe Edition');
+    expect(visible).not.toContain('Love Sick');
   });
 
-  it('a short header still renders every field in full', () => {
+  it('a short header renders title plus single artist in full, no album', () => {
     const res = MusicBuilders.buildNowPlayingResponse(
       queueWith({ title: 'Geronimo', album: 'Love Sick', author: 'Don Toliver' }),
       0xff0000,
@@ -242,7 +255,7 @@ describe('Now Playing card text limits (58 + ...)', () => {
       null,
     );
     const visible = visibleHeaderOf(res);
-    expect(visible).toBe('Geronimo • Love Sick • Don Toliver');
+    expect(visible).toBe('Geronimo • Don Toliver');
   });
 
   it('passes a title that fits the budget through untouched', () => {
@@ -313,26 +326,49 @@ describe('Now Playing card text limits (58 + ...)', () => {
     expect(MusicBuilders.buildLyricSection({ current: null, next: null })).toBeNull();
   });
 
-  it('keeps long album and artist parts inside the same budget', () => {
+  it('keeps a long single artist inside the same budget, album ignored', () => {
     const res = MusicBuilders.buildNowPlayingResponse(
-      queueWith({ album: 'Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India', author: 'Juliet Kilo Lima Mike November Oscar Papa Quebec' }),
+      queueWith({ album: 'Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India', author: 'JULIET KILO LIMA MIKE NOVEMBER OSCAR PAPA QUEBEC' }),
       0xff0000,
       null,
       null,
     );
     const visible = visibleHeaderOf(res);
     expect(visible.length).toBeLessThanOrEqual(52);
-    expect(visible.startsWith('Eseekid Live • Alpha')).toBe(true);
-    // Word-boundary cuts: no half-words, and the tails are gone.
+    expect(visible.startsWith('Eseekid Live • JULIET')).toBe(true);
+    // Album never renders, even when it is the longest field.
+    expect(visible).not.toContain('Alpha');
     expect(visible).not.toContain('Foxtrot');
-    expect(visible).not.toContain('Papa Quebec');
+    // Word-boundary cut on the artist: tail gone.
+    expect(visible).not.toContain('PAPA QUEBEC');
+  });
+
+  it('strips feat/with/and collaborators down to one artist name', () => {
+    for (const [author, want] of [
+      ['Don Toliver feat. Travis Scott', 'Don Toliver'],
+      ['Don Toliver ft. Travis Scott', 'Don Toliver'],
+      ['Don Toliver featuring Travis Scott', 'Don Toliver'],
+      ['Don Toliver with Travis Scott', 'Don Toliver'],
+      ['Travis Scott and Don Toliver', 'Travis Scott'],
+      ['JACKBOYS, Travis Scott, Don Toliver', 'JACKBOYS'],
+      ['JACKBOYS & Travis Scott', 'JACKBOYS'],
+      ['Artist1 x Artist2', 'Artist1'],
+      ['Artist1 vs Artist2', 'Artist1'],
+      ['Don Toliver - Topic', 'Don Toliver'],
+      ['Don Toliver VEVO', 'Don Toliver'],
+    ] as Array<[string, string]>) {
+      const res = MusicBuilders.buildNowPlayingResponse(queueWith({ title: 'T', author }), 0xff0000, null, null);
+      const visible = visibleHeaderOf(res);
+      expect(visible).toBe(`T • ${want}`);
+    }
   });
 
   it('hard-splits an unbreakable run rather than exceeding the budget', () => {
     // A 100-char single "word" has no boundary to cut at, so it is sliced.
-    // The budget still holds — that is the invariant that matters.
+    // The budget still holds — that is the invariant that matters. Album is
+    // ignored entirely, so only the artist run can overflow here.
     const res = MusicBuilders.buildNowPlayingResponse(
-      queueWith({ album: 'A'.repeat(100), author: 'B '.repeat(60) }),
+      queueWith({ album: 'A'.repeat(100), author: 'B'.repeat(100) }),
       0xff0000,
       null,
       null,
@@ -340,7 +376,7 @@ describe('Now Playing card text limits (58 + ...)', () => {
     const visible = visibleHeaderOf(res);
     expect(visible.length).toBeLessThanOrEqual(52);
     expect(visible.endsWith('..')).toBe(true);
-    expect(visible).not.toContain('A'.repeat(60));
+    expect(visible).not.toContain('A'.repeat(10));
   });
 });
 

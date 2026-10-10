@@ -238,6 +238,56 @@ describe('resume', () => {
     });
     await expect(ctl.resume('g-1')).resolves.toBe(false);
   });
+
+  it('shifts trackStartedAt forward by the pause so a year-long pause does not teleport to the finale', async () => {
+    const { ctl, player } = build();
+    player.current = { identifier: 't1', position: 5_000 };
+    const start = Date.now() - 3600000;
+    player.data.set('trackStartedAt', start);
+    player.data.set('pausedAt', start + 1000);
+    // Simulate a year-long pause by moving pausedAt a year back.
+    player.data.set('pausedAt', Date.now() - 365 * 24 * 3600 * 1000);
+    player.data.set('trackStartedAt', Date.now() - 365 * 24 * 3600 * 1000 - 5000);
+    await expect(ctl.resume('g-1')).resolves.toBe(true);
+    const shifted = player.data.get('trackStartedAt') as number;
+    // Shifted to within seconds of now, not a year ago.
+    expect(Date.now() - shifted).toBeLessThan(10000);
+    expect(player.data.get('pausedAt')).toBeNull();
+  });
+
+  it('does not shift a seek recorded during the pause into the future', async () => {
+    const { ctl, player } = build();
+    player.current = { identifier: 't1', position: 5_000 };
+    const now = Date.now();
+    const pausedAt = now - 60000;
+    player.data.set('pausedAt', pausedAt);
+    player.data.set('trackStartedAt', pausedAt - 120000);
+    player.data.set('lastUserSeekAt', pausedAt + 10000);
+    player.data.set('lastUserSeekPos', 90000);
+    await expect(ctl.resume('g-1')).resolves.toBe(true);
+    // Seek during pause stays where the user put it.
+    expect(player.data.get('lastUserSeekAt')).toBe(pausedAt + 10000);
+    // Track start still shifts (seek was after pause start, start was before).
+    expect((player.data.get('trackStartedAt') as number)).toBeGreaterThan(pausedAt - 120000);
+  });
+
+  it('a resume re-arms timers and republishes via the notifier', async () => {
+    const notify = vi.fn();
+    const { ctl, player } = build();
+    player.current = { identifier: 't1', position: 5_000 };
+    ctl.setResumeNotifier(notify);
+    await expect(ctl.resume('g-1')).resolves.toBe(true);
+    expect(notify).toHaveBeenCalledWith('g-1');
+  });
+
+  it('a throwing resume notifier does not fail the resume', async () => {
+    const { ctl, player } = build();
+    player.current = { identifier: 't1', position: 5_000 };
+    ctl.setResumeNotifier(() => {
+      throw new Error('card blew up');
+    });
+    await expect(ctl.resume('g-1')).resolves.toBe(true);
+  });
 });
 
 describe('seek', () => {

@@ -1,5 +1,5 @@
 import type { Track } from 'moonlink.js';
-import { cleanTrackTitle } from '@domain/models/music/musicTrack';
+import { cleanTrackTitle, singleArtistName } from '@domain/models/music/musicTrack';
 import type { MusicQueueInfo } from '@domain/models/music/musicQueue';
 
 /**
@@ -53,11 +53,7 @@ export const fingerprintFor = (queue: MusicQueueInfo, lyricKey: string, chapterK
  */
 export const buildFallbackQuery = (track: Track | null | undefined): string | null => {
   if (!track?.title || !track?.author) return null;
-  const firstArtist =
-    track.author
-      .split(/[,/&]/)[0]
-      ?.replace(/\s+(feat\.?|ft\.?|featuring|with|x)\s+.*$/i, '')
-      .trim() || track.author;
+  const firstArtist = singleArtistName(track.author) || track.author;
   const strippedTitle =
     cleanTrackTitle(track.title, track.author)
       .replace(/\s*[([{\u3010].*?[)\]}\u3011]\s*/g, ' ')

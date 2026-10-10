@@ -1,6 +1,6 @@
 import { singleton } from 'tsyringe';
 import { Logger } from '@domain/logging/logger';
-import { selectSynced, DURATION_TOLERANCE_MS, LIVE_DURATION_TOLERANCE_MS, isLivePerformance, type SyncedLine } from '@bot/services/music/syncedLyrics';
+import { selectSynced, alignSyncedLines, DURATION_TOLERANCE_MS, LIVE_DURATION_TOLERANCE_MS, isLivePerformance, type SyncedLine } from '@bot/services/music/syncedLyrics';
 
 export interface LyricsResult {
   title: string;
@@ -352,16 +352,24 @@ export class LyricsService {
 
   /**
    * Timed lyric lines for the live karaoke card. Reuses the shared lyrics
-   * cache; applies the instrumental + wrong-version guards. Returns null
-   * when nothing singable exists — callers show the standard card instead.
-   * Live performances get the tighter pressing gate: a studio clock near a
-   * live arrangement in length still sits seconds off all song.
+   * cache; applies the instrumental + wrong-version guards, then aligns the
+   * surviving clock to the audio actually playing (duration-delta shift,
+   * forward-only, capped). Returns null when nothing singable exists —
+   * callers show the standard card instead. Live performances get the
+   * tighter pressing gate: a studio clock near a live arrangement in length
+   * still sits seconds off all song.
    */
   public async getSyncedLyrics(title: string, artist: string, expectedDurationMs?: number): Promise<SyncedLine[] | null> {
     try {
       const toleranceMs = isLivePerformance(title) ? LIVE_DURATION_TOLERANCE_MS : DURATION_TOLERANCE_MS;
       const result = await this.getLyrics(title, artist, expectedDurationMs, toleranceMs);
-      return selectSynced(result, expectedDurationMs, toleranceMs);
+      const lines = selectSynced(result, expectedDurationMs, toleranceMs);
+      if (!lines) return null;
+      const { lines: aligned, shiftMs } = alignSyncedLines(lines, result?.durationMs, expectedDurationMs);
+      if (shiftMs > 0) {
+        Logger.debug({ title, artist, shiftMs, expectedDurationMs, candidateDurationMs: result?.durationMs }, '[Music] Lyric clock aligned to playing audio');
+      }
+      return aligned;
     } catch (err) {
       Logger.debug({ err, title, artist }, 'Synced lyrics lookup failed');
       return null;
