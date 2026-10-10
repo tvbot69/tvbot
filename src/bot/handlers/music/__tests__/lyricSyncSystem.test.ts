@@ -2,7 +2,8 @@ import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MusicHandler } from '@bot/handlers/music/musicHandler';
 import { QueueService } from '@bot/services/music/queueService';
-import { EDIT_LATENCY_FLOOR_MS } from '@bot/handlers/music/nowPlayingCardPublisher';
+import { EDIT_LATENCY_FLOOR_MS } from '@bot/services/music/syncedLyrics';
+
 
 /**
  * Lyric sync full system: timer/display unity, monotonic hold, year-gap
@@ -212,3 +213,4 @@ describe('lyric sync system: wall time is the audio clock', () => {
     expect(Math.max(...steady) - Math.min(...steady)).toBeLessThan(400);
   });
 });
+

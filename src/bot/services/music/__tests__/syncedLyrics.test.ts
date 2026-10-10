@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { EDIT_LATENCY_FLOOR_MS } from '@bot/handlers/music/nowPlayingCardPublisher';
+
 import { describe, it, expect } from 'vitest';
 import {
   parseLrc,
@@ -10,9 +10,10 @@ import {
   lyricClockFor,
   measureLyricLead,
   nextLyricBoundary,
-  LYRIC_SAFETY_LAG_MS,
+LYRIC_SAFETY_LAG_MS,
   LYRIC_LEAD_MAX_MS,
   MAX_LYRIC_ALIGN_SHIFT_MS,
+  EDIT_LATENCY_FLOOR_MS,
   isLivePerformance,
   LIVE_DURATION_TOLERANCE_MS,
 } from '@bot/services/music/syncedLyrics';
@@ -262,4 +263,5 @@ describe('lyricClockFor', () => {
     expect(22740 - clock).toBe(7630);
   });
 });
+
 

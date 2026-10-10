@@ -76,11 +76,4 @@ export const KARAOKE_TIMER_MIN_MS = 250;
  * capped) plus a small never-early safety lag, and timer and display share
  * the same effective position.
  */
-/**
- * Edit-latency bounds for the lyric clock. Re-exported from
- * `nowPlayingCardPublisher.ts`, which owns the measurement, so there is one
- * definition rather than a constant here and a constant there.
- */
-export { EDIT_LATENCY_FLOOR_MS, EDIT_LATENCY_CAP_MS } from '@bot/handlers/music/nowPlayingCardPublisher';
-
-export { LYRIC_SAFETY_LAG_MS, MAX_LYRIC_ALIGN_SHIFT_MS, LYRIC_MONOTONIC_TOLERANCE_MS, LYRIC_LEAD_WINDOW_MS, LYRIC_LEAD_MAX_MS } from '@bot/services/music/syncedLyrics';
+export { LYRIC_SAFETY_LAG_MS, MAX_LYRIC_ALIGN_SHIFT_MS, LYRIC_MONOTONIC_TOLERANCE_MS, LYRIC_LEAD_WINDOW_MS, LYRIC_LEAD_MAX_MS, EDIT_LATENCY_FLOOR_MS, EDIT_LATENCY_CAP_MS } from '@bot/services/music/syncedLyrics';

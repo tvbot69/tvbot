@@ -47,6 +47,22 @@ export const MAX_LYRIC_ALIGN_SHIFT_MS = 10000;
 export const LYRIC_MONOTONIC_TOLERANCE_MS = 2000;
 
 /**
+ * EDIT-LATENCY BOUNDS — the measurement `NowPlayingCardPublisher` takes, and
+ * the floor LYRIC_SAFETY_LAG_MS stands on.
+ *
+ * These live here, in the leaf the lyric clock is built from, rather than in
+ * the publisher that measures them. Re-exporting them back out of
+ * `nowPlayingCardPublisher` while `musicConstants` also exported them put a
+ * runtime cycle in the graph (constants -> publisher -> constants), which the
+ * import-cycle ratchet rejected. A bound that the clock needs is clock state;
+ * the publisher consumes it, it does not own it.
+ */
+/** Above this the gateway is throttling us and the sample is noise. */
+export const EDIT_LATENCY_CAP_MS = 3000;
+/** Below this the measurement is timer resolution, not the API. */
+export const EDIT_LATENCY_FLOOR_MS = 150;
+
+/**
  * STARTUP LEAD: how far ahead of audible audio a Lavalink node's reported
  * position runs. Measured 2026-10-10 on the Home node ("Next Exit", 201s,
  * boundary diagnostic `nodeLead`): 8680ms at the first boundary, then a jump

@@ -7,6 +7,7 @@ import { BORROWED_COVER_MS } from '@bot/services/music/musicConstants';
 import { chapterKeyFor, fingerprintFor } from '@bot/handlers/music/cardFingerprint';
 import { asMessageChannel } from '@bot/services/music/moonlinkTypes';
 import type { LyricWindow } from '@bot/services/music/syncedLyrics';
+import { EDIT_LATENCY_CAP_MS, EDIT_LATENCY_FLOOR_MS } from '@bot/services/music/syncedLyrics';
 
 import {
   discordRetryAfterMs,
@@ -17,10 +18,6 @@ import {
 
 /** A hung edit settles nothing and would wedge the in-flight guard. */
 const EDIT_TIMEOUT_MS = 10000;
-/** Above this, the gateway is throttling us and the sample is noise. */
-export const EDIT_LATENCY_CAP_MS = 3000;
-/** Below this the measurement is dominated by timer resolution, not the API. */
-export const EDIT_LATENCY_FLOOR_MS = 150;
 /** Blend weight for the EWMA, so one throttled reply does not skew the track. */
 const EDIT_LATENCY_EWMA = 0.4;
 /** Bounded retries so a chapter attach isn't lost to one bad call. */
