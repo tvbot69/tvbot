@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { MusicHandler } from '@bot/handlers/music/musicHandler';
-import { LYRIC_SAFETY_LAG_MS } from '@bot/services/music/musicConstants';
+import { EDIT_LATENCY_FLOOR_MS, EDIT_LATENCY_CAP_MS } from '@bot/services/music/musicConstants';
 
 const LINES = [
   { ms: 2000, text: 'Line one' },
@@ -50,26 +50,26 @@ describe('MusicHandler progress card', () => {
     vi.restoreAllMocks();
   });
 
-  it('lyric window runs behind the node clock by the safety lag (never early)', () => {
+  it('lyric window runs behind the clock by the measured edit latency', () => {
     const handler = buildHandler();
-    // Effective position = node clock - SAFETY_LAG (1200ms). Per-track
-    // arrangement shift lives in the stored lines themselves
-    // (`alignSyncedLines`); this lag is the never-early guarantee on top
-    // (timer slack, edit round-trip, voice jitter). Lines at 2s/8s.
+    // Before any edit has been timed the publisher reports its floor (150ms).
+    // Lines at 2s/8s. The lag used to be a hardcoded 1200ms that matched
+    // nothing; it is now the measured Discord edit round-trip.
     expect(handler.lyricWindowFor(karaokePlayer, 0)).toEqual({ current: null, next: 'Line one' });
-    // 3000 -> 1800ms effective: still before line one at 2000.
-    expect(handler.lyricWindowFor(karaokePlayer, 3000)).toEqual({ current: null, next: 'Line one' });
-    // 3200 -> 2000ms: line one is singing.
-    expect(handler.lyricWindowFor(karaokePlayer, 3200)).toEqual({ current: 'Line one', next: 'Line two' });
-    // 9200 -> 8000ms: line two.
-    expect(handler.lyricWindowFor(karaokePlayer, 9200)).toEqual({ current: 'Line two', next: null });
+    // 2100 -> 1950ms effective: before line one at 2000.
+    expect(handler.lyricWindowFor(karaokePlayer, 2100)).toEqual({ current: null, next: 'Line one' });
+    // 2200 -> 2050ms: line one is singing.
+    expect(handler.lyricWindowFor(karaokePlayer, 2200)).toEqual({ current: 'Line one', next: 'Line two' });
+    // 8200 -> 8050ms: line two.
+    expect(handler.lyricWindowFor(karaokePlayer, 8200)).toEqual({ current: 'Line two', next: null });
   });
 
-  it('the applied lag is the safety value, not a stale zero', () => {
-    expect(LYRIC_SAFETY_LAG_MS).toBe(1200);
+  it('the unmeasured lag starts at the floor, not a guessed 1200ms', () => {
+    expect(EDIT_LATENCY_FLOOR_MS).toBe(150);
+    expect(EDIT_LATENCY_CAP_MS).toBe(3000);
   });
 
-  it('an explicit safety lag runs the lookup behind the clock', () => {
+  it('an explicit lag runs the lookup behind the clock', () => {
     const handler = buildHandler() as unknown as {
       lyricWindowFor: (player: unknown, positionMs: number, offsetMs?: number) => unknown;
     };

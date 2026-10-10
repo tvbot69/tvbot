@@ -224,17 +224,17 @@ describe('armKaraokeTimer fires at the line, not up to 1.5s after it', () => {
     },
   });
 
-  it('dense lines arm to the effective boundary (safety lag included)', () => {
-    // Position 9.2s, safety lag 1.2s -> effective 8.0s, next line at 10s:
-    // delay 2000. Timer and display share the effective, so the timer fires
-    // when the card actually flips — arming on the raw clock fired 1200ms early.
+  it('dense lines arm to the effective boundary (edit latency included)', () => {
+    // Position 9.2s, edit latency 150ms -> clock 9.05s, next line at 10s:
+    // delay 950. Timer and display share the effective, so the timer fires
+    // when the card actually flips.
     const handler = buildHandler();
     const delays = captureDelays();
     handler.armKaraokeTimer(linePlayer('g-dense-1'));
     handler.clearCardTimers('g-dense-1');
 
     expect(delays).toHaveLength(1);
-    expect(delays[0]).toBe(2000);
+    expect(delays[0]).toBe(950);
   });
 
   it('sparse lines arm to the effective boundary at the far line', () => {
@@ -250,13 +250,12 @@ describe('armKaraokeTimer fires at the line, not up to 1.5s after it', () => {
         return undefined;
       },
     };
-    // calculatePosition stub says 9200, effective 8000:
-    // 60000 - 8000 = 52000.
+    // calculatePosition stub says 9200, clock 9050: 60000 - 9050 = 50950.
     handler.armKaraokeTimer(player);
     handler.clearCardTimers('g-sparse-1');
 
     expect(delays).toHaveLength(1);
-    expect(delays[0]).toBe(52_000);
+    expect(delays[0]).toBe(50_950);
   });
 
   it('a paused clock still gets the cheap 15s recheck, not a hot loop', () => {

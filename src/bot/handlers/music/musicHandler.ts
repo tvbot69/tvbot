@@ -300,9 +300,8 @@ export class MusicHandler implements
   private readonly karaoke: KaraokeController;
 
   public lyricWindowFor(player: Player, positionMs: number, safetyLagMs?: number): LyricWindow | null {
-    return safetyLagMs === undefined
-      ? this.karaoke.lyricWindowFor(player, positionMs)
-      : this.karaoke.lyricWindowFor(player, positionMs, safetyLagMs);
+    const lag = safetyLagMs ?? this.cards.editLatencyFor(player.guildId);
+    return this.karaoke.lyricWindowFor(player, positionMs, lag);
   }
 
   public async resolveKaraokeLines(
@@ -319,7 +318,7 @@ export class MusicHandler implements
   }
 
   public armKaraokeTimer(player: Player): void {
-    this.karaoke.armKaraokeTimer(player);
+    this.karaoke.armKaraokeTimer(player, this.cards.editLatencyFor(player.guildId));
   }
 
   private clearChapterTimer(guildId: string): void {

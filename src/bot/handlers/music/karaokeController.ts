@@ -56,6 +56,8 @@ export class KaraokeController {
   private static readonly LEAD_KEY = 'lyricLeadMs';
   private static readonly LEAD_FROZEN_KEY = 'lyricLeadFrozen';
   private static readonly LEAD_CANDIDATE_KEY = 'lyricLeadCandidateMs';
+  private static readonly LEAD_STABLE_RUNS_KEY = 'lyricLeadStableRuns';
+  
 
   private readPlayer<T>(player: Player, key: string): T | undefined {
     if (typeof player.get !== 'function') return undefined;
@@ -105,19 +107,39 @@ export class KaraokeController {
     const seekAt = this.readPlayer<number>(player, 'lastUserSeekAt');
     const recentSeek =
       typeof seekAt === 'number' && seekAt > 0 && Date.now() - seekAt < USER_SEEK_INTENT_WINDOW_MS;
-    if (frozen || elapsedMs < 0 || elapsedMs > LYRIC_LEAD_WINDOW_MS || recentSeek) {
+    if (frozen || elapsedMs < 0 || recentSeek) {
+      return { leadMs, frozen: true, elapsedMs };
+    }
+    // Past the measurement window the lead is settled by definition. It MUST
+    // be persisted: an earlier version returned `frozen: true` here without
+    // writing the flag, so the runtime believed the clock was proven while
+    // the stored state (and the boundary diagnostic that reads it) still said
+    // otherwise — two consumers disagreeing about the same fact.
+    if (elapsedMs > LYRIC_LEAD_WINDOW_MS) {
+      this.writePlayer(player, KaraokeController.LEAD_FROZEN_KEY, true);
       return { leadMs, frozen: true, elapsedMs };
     }
 
     const candidate = measureLyricLead(positionMs, elapsedMs, leadMs);
+    // Stability is judged against the PREVIOUS SAMPLE, not against the value
+    // this read just wrote. An earlier version stored the same value in both
+    // slots, so every second read compared a number with itself, called it
+    // stable and froze the lead — measured 2026-10-10: it froze at 3820ms while
+    // `nodeLead` (pos - elapsed) was 11713ms and still climbing, and every
+    // lyric after that was ~7.9s out.
     const lastCandidate = this.readPlayer<number>(player, KaraokeController.LEAD_CANDIDATE_KEY);
-    const grew = typeof lastCandidate === 'number' && Number.isFinite(lastCandidate)
-      ? Math.abs(candidate - lastCandidate) > LYRIC_LEAD_STABLE_TOLERANCE_MS
-      : true;
-    const settled = !grew && candidate > 0;
+    const stableRead =
+      typeof lastCandidate === 'number' && Number.isFinite(lastCandidate)
+        ? Math.abs(candidate - lastCandidate) <= LYRIC_LEAD_STABLE_TOLERANCE_MS
+        : false;
+    const stableRuns = stableRead ? (this.readPlayer<number>(player, KaraokeController.LEAD_STABLE_RUNS_KEY) ?? 0) + 1 : 0;
+    // Three consecutive agreeing samples, not two: a single quiet read while
+    // the node is still buffering is exactly what a wrong freeze looks like.
+    const settled = stableRuns >= 3 && candidate > 0;
     const nowFrozen = settled || elapsedMs >= LYRIC_LEAD_WINDOW_MS;
     this.writePlayer(player, KaraokeController.LEAD_KEY, candidate);
     this.writePlayer(player, KaraokeController.LEAD_CANDIDATE_KEY, candidate);
+    this.writePlayer(player, KaraokeController.LEAD_STABLE_RUNS_KEY, stableRuns);
     this.writePlayer(player, KaraokeController.LEAD_FROZEN_KEY, nowFrozen);
     return { leadMs: candidate, frozen: nowFrozen, elapsedMs };
   }
@@ -126,11 +148,18 @@ export class KaraokeController {
    * The single lyric clock. Card display and boundary timer both read it,
    * so they can never disagree about which line is singing.
    *
-   * - Startup lead (measured, running max) — the node's clock runs ahead of
-   *   audible audio by a constant this proves per track.
-   * - Safety lag — timer slack, edit round-trip, voice jitter.
+   * The clock is WALL TIME since the track started, anchored on the node
+   * position only to survive seeks. Measured 2026-10-10 on "Young"
+   * (VACATIONS) across 20 boundaries: `nodeLead` (pos - elapsed) sat at
+   * 11684..11713ms for the whole track — a constant, not a drift. So
+   * audible position IS wall time, and the node position is a fixed ~11.7s
+   * ahead of it on this node. Deriving the clock as `pos - measuredLead`
+   * reproduces that only if the lead is measured right, and the lead is a
+   * lagging estimate; deriving it as `elapsed` uses the exact quantity.
    *
-   * `leadState` is what the measurement thinks; see `measureLead`.
+   * After a user seek (or a resume) wall time since track start is no longer
+   * the audio clock, so the node position minus the last measured lead is
+   * used instead — the only case where an estimate is better than nothing.
    */
   public lyricClockFor(
     player: Player,
@@ -139,9 +168,19 @@ export class KaraokeController {
   ): { clock: number; lead: LyricLeadState } {
     const pos = Math.max(0, positionMs);
     const lead = this.measureLead(player, pos);
-    const clock = lyricClockFor(pos, lead.leadMs, safetyLagMs);
-    return { clock, lead };
+    const seekAt = this.readPlayer<number>(player, 'lastUserSeekAt');
+    const seeked =
+      typeof seekAt === 'number' && seekAt > 0 && Date.now() - seekAt < USER_SEEK_INTENT_WINDOW_MS;
+    const startedAt = this.readPlayer<number>(player, 'trackStartedAt');
+    const elapsedMs = typeof startedAt === 'number' && startedAt > 0 ? Date.now() - startedAt : -1;
+    // Either branch yields the AUDIBLE position. The edit lag is applied once,
+    // below — `lyricClockFor` already subtracts the lag it is given, so
+    // passing one here would double-count it.
+    const audibleMs = !seeked && elapsedMs >= 0 ? elapsedMs : lyricClockFor(pos, lead.leadMs, 0);
+    return { clock: Math.max(0, audibleMs - Math.max(0, safetyLagMs)), lead };
   }
+
+  
 
   /**
    * Lyric window for a position, or null when lyrics are off, unsynced or

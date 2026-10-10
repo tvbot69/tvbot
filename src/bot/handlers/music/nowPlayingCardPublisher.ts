@@ -17,6 +17,12 @@ import {
 
 /** A hung edit settles nothing and would wedge the in-flight guard. */
 const EDIT_TIMEOUT_MS = 10000;
+/** Above this, the gateway is throttling us and the sample is noise. */
+export const EDIT_LATENCY_CAP_MS = 3000;
+/** Below this the measurement is dominated by timer resolution, not the API. */
+export const EDIT_LATENCY_FLOOR_MS = 150;
+/** Blend weight for the EWMA, so one throttled reply does not skew the track. */
+const EDIT_LATENCY_EWMA = 0.4;
 /** Bounded retries so a chapter attach isn't lost to one bad call. */
 const MAX_PUBLISH_RETRIES = 3;
 /** In-flight guard window: a slower edit than this is treated as stalled. */
@@ -52,6 +58,15 @@ export interface CardPublisherHost {
 }
 
 export class NowPlayingCardPublisher {
+  /**
+   * Last measured Discord edit round-trip per guild, in ms. This is how long
+   * the card stays showing the PREVIOUS line after the clock crosses a
+   * boundary, so the lyric clock leads by it. A fixed safety lag cannot model
+   * this: the same node sees 200ms edits and 2s edits when Discord throttles,
+   * and a wrong constant is either early or late every time.
+   */
+  private readonly editLatency = new Map<string, number>();
+
   public constructor(
     private readonly host: CardPublisherHost,
     private readonly progressNudgeTimers: Map<string, NodeJS.Timeout>,
@@ -60,6 +75,17 @@ export class NowPlayingCardPublisher {
     private readonly publishRetries: Map<string, number>,
     private readonly pendingPublish: Set<string>,
   ) {}
+
+  /**
+   * How far the lyric clock must lead by, for this guild. The EWMA keeps a
+   * single slow gateway response from dominating, and a low floor means the
+   * very first edits of a track are not treated as instant.
+   */
+  public editLatencyFor(guildId: string): number {
+    const last = this.editLatency.get(guildId);
+    if (typeof last !== 'number' || !Number.isFinite(last)) return EDIT_LATENCY_FLOOR_MS;
+    return Math.max(EDIT_LATENCY_FLOOR_MS, Math.min(last, EDIT_LATENCY_CAP_MS));
+  }
 
   /**
    * Publishes the now-playing card when its visible fingerprint changed.
@@ -157,6 +183,7 @@ export class NowPlayingCardPublisher {
       // it so the publish always settles and the next trigger retries.
       // Successful publishes stay silent by design (no per-edit INFO spam).
       let editTimer: NodeJS.Timeout | undefined;
+      const editStartedAt = Date.now();
       try {
         await Promise.race([
           msg.edit(response.toMessagePayload()),
@@ -167,6 +194,18 @@ export class NowPlayingCardPublisher {
           .then(() => {
             this.progressFingerprints.set(guildId, fingerprint);
             this.publishRetries.delete(guildId);
+            // Edit round-trip, MEASURED rather than guessed: the card only
+            // shows the line once Discord accepts the edit, so the clock must
+            // lead by this much or every line lands late by it. An EWMA over
+            // the last few edits tracks a throttled or distant gateway, which
+            // a fixed number never could.
+            const tookMs = Date.now() - editStartedAt;
+            const prior = this.editLatency.get(guildId);
+            const blended =
+              typeof prior === 'number' && Number.isFinite(prior)
+                ? prior + EDIT_LATENCY_EWMA * (Math.min(tookMs, EDIT_LATENCY_CAP_MS) - prior)
+                : Math.min(tookMs, EDIT_LATENCY_CAP_MS);
+            this.editLatency.set(guildId, Math.max(0, blended));
             // Status follows successful edits only — updating it before the
             // edit permanently diverged room status from the card whenever
             // the edit failed (no tick retries it anymore).

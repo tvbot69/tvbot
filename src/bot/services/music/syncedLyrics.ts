@@ -28,19 +28,21 @@ const LRC_LINE_RE = /^\[(\d+):(\d+(?:\.\d+)?)\]\s?(.*)$/;
 export const DURATION_TOLERANCE_MS = 15000;
 
 /**
- * Lyric sync system tuning. Three numbers, each with one job:
+ * Lyric sync tuning.
  *
- * - SAFETY_LAG: the card and the boundary timer both run BEHIND the node
- *   clock by this much, so a line is never shown before it is heard. Covers
- *   timer slack (250ms floor), Discord edit round-trip and voice jitter.
- *   Late by a beat reads as karaoke; early by a beat reads as broken.
- * - ALIGN_SHIFT cap: per-track arrangement correction (YouTube intro vs LRC
- *   pressing) is measured from the duration delta, never guessed, and capped
- *   here so a bad duration cannot teleport the whole clock.
- * - MONOTONIC tolerance: a position that moves backwards past this with no
- *   recorded seek intent is stale node data, not a rewind — the window holds.
+ * LYRIC_SAFETY_LAG_MS is no longer a guess: it is the floor under the
+ * MEASURED Discord edit round-trip (see NowPlayingCardPublisher.editLatencyFor),
+ * which is what actually stands between a boundary firing and a line being
+ * visible. It only applies as a minimum until the first edit is timed.
+ *
+ * MAX_LYRIC_ALIGN_SHIFT_MS caps the duration-delta alignment so a bad
+ * provider duration cannot teleport the clock. The per-pressing offset — a
+ * different reason, with the measurement that would fix it, in the note below.
+ *
+ * LYRIC_MONOTONIC_TOLERANCE_MS: a position that moves backwards past this
+ * with no recorded seek intent is stale node data, not a rewind.
  */
-export const LYRIC_SAFETY_LAG_MS = 1200;
+export const LYRIC_SAFETY_LAG_MS = 150;
 export const MAX_LYRIC_ALIGN_SHIFT_MS = 10000;
 export const LYRIC_MONOTONIC_TOLERANCE_MS = 2000;
 
@@ -102,6 +104,29 @@ export function lyricClockFor(positionMs: number, leadMs: number, safetyLagMs: n
   const clock = positionMs - Math.max(0, leadMs) - Math.max(0, safetyLagMs);
   return Number.isFinite(clock) ? Math.max(0, clock) : 0;
 }
+
+/**
+ * NOTE ON PER-PRESSING OFFSET — read before adding one.
+ *
+ * The provider's LRC is often a different edit of the song, so its timestamps
+ * sit a constant distance from the audio (measured 2026-10-10 on "Young": the
+ * audio reaches each line ~6.7s before the pressing says, stable to 40ms over
+ * 88s of playback).
+ *
+ * That offset is real and it is the "I hear the vocal before the lyric"
+ * symptom. It is NOT corrected here, because nothing available to the bot
+ * measures it: the boundary timer fires when the CLOCK says a line is due, so
+ * its residual reflects the clock we chose, not when the audio was audible.
+ * An earlier revision fed those residuals back as if they were errors. Run
+ * against the real trace it overshot to 18.4s of offset — a twelve-second
+ * wrong window — before drifting back, because it was integrating its own
+ * timer, not measuring the audio.
+ *
+ * A correct correction needs an INDEPENDENT reference: the duration delta
+ * between the provider's edit and the played edit (`alignSyncedLines`), or
+ * actual onset detection. Neither is wired up, so the clock is deliberately
+ * left alone rather than tuned into a coincidence.
+ */
 
 /**
  * Pressing gate for LIVE performances. A live arrangement re-times lines

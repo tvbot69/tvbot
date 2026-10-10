@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { EDIT_LATENCY_FLOOR_MS } from '@bot/handlers/music/nowPlayingCardPublisher';
 import { describe, it, expect } from 'vitest';
 import {
   parseLrc,
@@ -189,15 +190,19 @@ describe('lyricEffectiveAt + nextLyricBoundary (timer/display unity)', () => {
   it('effective is raw minus the safety lag, clamped at zero', () => {
     expect(lyricEffectiveAt(9200, 1200)).toBe(8000);
     expect(lyricEffectiveAt(500, 1200)).toBe(0);
-    expect(LYRIC_SAFETY_LAG_MS).toBe(1200);
+    // The default is no longer the invented 1200ms: it is the floor under the
+    // MEASURED Discord edit round-trip, so an untimed first edit is never
+    // held back by a beat that was never observed.
+    expect(LYRIC_SAFETY_LAG_MS).toBe(EDIT_LATENCY_FLOOR_MS);
+    expect(LYRIC_SAFETY_LAG_MS).toBe(150);
   });
 
   it('timer and display agree on the next boundary', () => {
-    // Display derives from effective 8000 (shows line one), timer arms to
-    // next 10000 - 8000 = 2000. Arming on raw 9200 gave 800 and fired early.
+// Display and timer both read 9050 (9200 - the 150ms default lag), so the
+    // timer arms 950ms out. Arming on raw 9200 gave 800 and fired early.
     const effective = lyricEffectiveAt(9200, LYRIC_SAFETY_LAG_MS);
     expect(nextLyricBoundary(lines, effective)?.ms).toBe(10000);
-    expect(10000 - effective).toBe(2000);
+    expect(10000 - effective).toBe(950);
   });
 
   it('returns null past the last line (no timer armed)', () => {
@@ -250,6 +255,11 @@ describe('lyricClockFor', () => {
       clock,
     );
     expect(next?.ms).toBe(22740);
-    expect(22740 - clock).toBe(8680);
+    // The delay is whatever the shared clock says it is — here 26866 - 11606
+    // lead - 150 lag = 15110, so 7630ms until the line. Pinned as arithmetic
+    // on the constants, not as a remembered magic number.
+    expect(22740 - clock).toBe(22740 - (26866 - 11606 - LYRIC_SAFETY_LAG_MS));
+    expect(22740 - clock).toBe(7630);
   });
 });
+
