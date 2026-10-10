@@ -193,12 +193,26 @@ export class NowPlayingCardPublisher {
           .then(() => {
             this.progressFingerprints.set(guildId, fingerprint);
             this.publishRetries.delete(guildId);
-            // Edit round-trip, MEASURED rather than guessed: the card only
-            // shows the line once Discord accepts the edit, so the clock must
-            // lead by this much or every line lands late by it. An EWMA over
-            // the last few edits tracks a throttled or distant gateway, which
-            // a fixed number never could.
-            const tookMs = Date.now() - editStartedAt;
+            // Edit round-trip, MEASURED rather than guessed. The card only shows the
+            // line once this edit lands, so the clock must lead by however long
+            // the whole publish takes. Measured from the BOUNDARY, not from the
+            // start of the edit call: between the two there is the timer floor,
+            // the channel and message fetches and the embed build, and timing
+            // only the edit captured a fraction of the real delay. An EWMA
+            // tracks a throttled or distant gateway, which a fixed number never
+            // could — and which, in this path, was ~1s short of the truth.
+            const finishedAt = Date.now();
+            const boundaryAt = player.get<number | null>('lyricBoundaryFiredAt');
+            const boundaryIsThisEdit =
+              typeof boundaryAt === 'number' &&
+              boundaryAt > 0 &&
+              boundaryAt <= editStartedAt &&
+              finishedAt - boundaryAt <= EDIT_LATENCY_CAP_MS;
+            // Only a boundary sets the stamp, so any other publish (a seek, a
+            // chapter landing) falls back to the edit's own round-trip rather
+            // than inheriting someone else's measurement.
+            const tookMs = boundaryIsThisEdit ? finishedAt - boundaryAt : finishedAt - editStartedAt;
+            player.set('lyricBoundaryFiredAt', null);
             const prior = this.editLatency.get(guildId);
             const blended =
               typeof prior === 'number' && Number.isFinite(prior)

@@ -103,14 +103,19 @@ const buildPublishingHandler = async (edit: (data: unknown) => Promise<unknown>)
   return { handler, queue };
 };
 
-const playingPlayer = (guildId: string) => ({
-  guildId,
-  playing: true,
-  paused: false,
-  textChannelId: 'tc-1',
-  get: (k: string) => (k === 'nowPlayingMessageId' ? 'msg-1' : undefined),
-  set: () => undefined,
-});
+// A real store, not a no-op `set`: the boundary stamp has to survive onto the
+// player so a test can place it in the past and measure from it.
+const playingPlayer = (guildId: string) => {
+  const store = new Map<string, unknown>([['nowPlayingMessageId', 'msg-1']]);
+  return {
+    guildId,
+    playing: true,
+    paused: false,
+    textChannelId: 'tc-1',
+    get: <T>(k: string): T | undefined => store.get(k) as T | undefined,
+    set: (k: string, v: unknown): void => void store.set(k, v),
+  };
+};
 
 describe('MusicHandler progress card', () => {
   afterEach(() => {
@@ -187,6 +192,102 @@ describe('MusicHandler progress card', () => {
       // replace-on-fast rule gives 100 (floored to 150), and a snap-to-floor
       // rule gives 150. Only the blend lands at 340.
       expect(handler.editLatencyFor('g-lat-2')).toBe(340);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('times from the BOUNDARY, not from the edit call', async () => {
+    // The ~1s regression: timing only `msg.edit` measured 300ms of a 1200ms
+    // journey, because the timer floor, the channel fetch, the message fetch
+    // and the embed build all sit between the line being due and the card
+    // showing it. Lines therefore switched about a second before the vocal.
+    vi.useFakeTimers();
+    try {
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+        return {};
+      });
+      const { handler } = await buildPublishingHandler(edit);
+      const player = playingPlayer('g-boundary');
+      // 900ms elapse BEFORE the edit even starts: the fetches, the build, and
+      // the timer slack. 300ms inside the edit itself.
+      player.set('lyricBoundaryFiredAt', Date.now());
+      await vi.advanceTimersByTimeAsync(900);
+      await handler.publishProgress(player);
+      // Measured from the boundary: 1200ms, the number the clock actually has
+      // to lag. Timing the edit alone would have reported 300ms and put every
+      // line a second early.
+      expect(handler.editLatencyFor('g-boundary')).toBe(1200);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a publish with no boundary measures only its own edit', async () => {
+    // A seek or a chapter landing is not a lyric boundary, so it must not
+    // inherit the previous line's measurement.
+    vi.useFakeTimers();
+    try {
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+        return {};
+      });
+      const { handler } = await buildPublishingHandler(edit);
+      await handler.publishProgress(playingPlayer('g-noboundary'));
+      expect(handler.editLatencyFor('g-noboundary')).toBe(300);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('consumes the stamp so the next boundary measures from itself', async () => {
+    vi.useFakeTimers();
+    try {
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+        return {};
+      });
+      const { handler, queue } = await buildPublishingHandler(edit);
+      const player = playingPlayer('g-consume');
+      player.set('lyricBoundaryFiredAt', Date.now());
+      await vi.advanceTimersByTimeAsync(900);
+      await handler.publishProgress(player);
+      expect(handler.editLatencyFor('g-consume')).toBe(1200);
+      // A stale stamp left behind would be timed against a later edit.
+      expect(player.get('lyricBoundaryFiredAt')).toBeNull();
+
+      // Second boundary: 1000ms before the edit, then 300ms inside it.
+      queue.volume = 55;
+      player.set('lyricBoundaryFiredAt', Date.now());
+      await vi.advanceTimersByTimeAsync(1000);
+      await handler.publishProgress(player);
+      // EWMA at 0.4: 1200 + 0.4 * (1300 - 1200) = 1240. A run-on from the
+      // previous stamp would have given 2200.
+      expect(handler.editLatencyFor('g-consume')).toBe(1240);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an implausible boundary span is refused rather than believed', async () => {
+    vi.useFakeTimers();
+    try {
+      const edit = vi.fn().mockImplementation(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+        return {};
+      });
+      const { handler } = await buildPublishingHandler(edit);
+      const player = playingPlayer('g-stale');
+      // A stamp from a long-paused track: far outside the cap, so the edit's
+      // own round-trip is used instead of a multi-second "latency".
+      player.set('lyricBoundaryFiredAt', Date.now() - 60_000);
+      await handler.publishProgress(player);
+      expect(handler.editLatencyFor('g-stale')).toBeLessThanOrEqual(EDIT_LATENCY_CAP_MS);
+      // The 100ms edit is under the floor, so it reads as 150 — the point is
+      // that it is nowhere near the 60s stamp, which was refused.
+      expect(handler.editLatencyFor('g-stale')).toBe(EDIT_LATENCY_FLOOR_MS);
+      expect(handler.editLatencyFor('g-stale')).not.toBeGreaterThan(200);
     } finally {
       vi.useRealTimers();
     }

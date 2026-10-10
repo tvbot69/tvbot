@@ -282,6 +282,9 @@ export class KaraokeController {
       // The startup lead is per-track state: a new song starts measuring again.
       player.set(KaraokeController.LEAD_KEY, null);
       player.set(KaraokeController.LEAD_FROZEN_KEY, null);
+      // So is the publish-latency stamp: a boundary belonging to the PREVIOUS
+      // track must never be timed against this one's first edit.
+      player.set('lyricBoundaryFiredAt', null);
     } catch (err) {
       // Memo reset is decoration; resolution continues.
       Logger.debug({ err, guildId: player.guildId }, '[Music] Lyric memo reset failed');
@@ -372,6 +375,13 @@ export class KaraokeController {
       const timer = setTimeout(() => {
         this.karaokeTimers.delete(player.guildId);
         try {
+          // Stamp the moment the boundary was due. The card cannot show this
+          // line until the whole publish chain lands — timer slack, the channel
+          // and message fetches, the embed build, and only then the edit — so
+          // that span is what the lyric clock has to lag by. Timing just the
+          // `msg.edit` call measured a fraction of it and ran the lines ~1s
+          // early against the vocal.
+          player.set('lyricBoundaryFiredAt', Date.now());
           // Boundary diagnostic. `clockAheadBy` is the audibility question:
           // how far the lyric clock sits past the boundary it fires for, so a
           // steady positive value is exactly the "lyrics early" symptom.
