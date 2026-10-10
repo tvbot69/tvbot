@@ -2,9 +2,13 @@ import type { Player } from 'moonlink.js';
 import { Logger } from '@domain/logging/logger';
 import {
   lyricWindowAt,
-  lyricEffectiveAt,
+  lyricClockFor,
+  measureLyricLead,
   nextLyricBoundary,
   LYRIC_SAFETY_LAG_MS,
+  LYRIC_LEAD_WINDOW_MS,
+  LYRIC_LEAD_STABLE_TOLERANCE_MS,
+  LYRIC_STARTUP_RECHECK_MS,
   LYRIC_MONOTONIC_TOLERANCE_MS,
   type SyncedLine,
   type LyricWindow,
@@ -32,11 +36,112 @@ export interface KaraokeHost {
   armKaraokeTimer(player: Player): void;
 }
 
+/** What the lead measurement currently believes. `frozen` means settled. */
+export interface LyricLeadState {
+  /** Measured (or proven-absent) startup lead in ms. */
+  leadMs: number;
+  /** True once the lead stopped moving, or the window closed. */
+  frozen: boolean;
+  /** Wall time since trackStart, or -1 when unknown. */
+  elapsedMs: number;
+}
+
 export class KaraokeController {
   public constructor(
     private readonly host: KaraokeHost,
     private readonly karaokeTimers: Map<string, NodeJS.Timeout>,
   ) {}
+
+  /** Player state keys. Read through the live object; tests may shadow them. */
+  private static readonly LEAD_KEY = 'lyricLeadMs';
+  private static readonly LEAD_FROZEN_KEY = 'lyricLeadFrozen';
+  private static readonly LEAD_CANDIDATE_KEY = 'lyricLeadCandidateMs';
+
+  private readPlayer<T>(player: Player, key: string): T | undefined {
+    if (typeof player.get !== 'function') return undefined;
+    try {
+      return player.get<T>(key);
+    } catch (err) {
+      // A player whose get throws has no memo; the caller uses its fallback.
+      Logger.debug({ err, key }, '[Music] Lyric player state read failed');
+      return undefined;
+    }
+  }
+
+  private writePlayer(player: Player, key: string, value: unknown): void {
+    if (typeof player.set !== 'function') return;
+    try {
+      player.set(key, value);
+    } catch (err) {
+      // Memo writes are decoration; the clock is recomputed next read.
+      Logger.debug({ err, key }, '[Music] Lyric player state write failed');
+    }
+  }
+
+  /**
+   * The startup lead: how far ahead of audible audio this node's reported
+   * position runs. Measured from the only two clocks the bot has — the node
+   * position and wall time since trackStart — because the value is per track
+   * and per node (8680ms and 11606ms on two tracks of the same session).
+   *
+   * Rules, each of which exists because the opposite shipped a bug:
+   * - Running MAX: the candidate rises as the node true-ups its clock. An
+   *   under-read shows a line LATE; an over-read shows it EARLY, so it may
+   *   never be lowered once seen.
+   * - FREEZE ON STABILITY, not on a wait: the lead is settled once the
+   *   candidate repeats within tolerance. Until then the caller shows no
+   *   singing line at all, because during that transient the node position
+   *   is known to lag truth and any derived clock can be early.
+   * - Window bound and seek guard: a seek moves the position base without
+   *   moving wall time, so measuring across one would swallow the seek
+   *   target. Measurements also stop at LYRIC_LEAD_WINDOW_MS.
+   */
+  private measureLead(player: Player, positionMs: number): LyricLeadState {
+    const previous = this.readPlayer<number>(player, KaraokeController.LEAD_KEY);
+    const leadMs = typeof previous === 'number' && Number.isFinite(previous) ? Math.max(0, previous) : 0;
+    const frozen = this.readPlayer<boolean>(player, KaraokeController.LEAD_FROZEN_KEY) === true;
+    const startedAt = this.readPlayer<number>(player, 'trackStartedAt');
+    const elapsedMs = typeof startedAt === 'number' && startedAt > 0 ? Date.now() - startedAt : -1;
+    const seekAt = this.readPlayer<number>(player, 'lastUserSeekAt');
+    const recentSeek =
+      typeof seekAt === 'number' && seekAt > 0 && Date.now() - seekAt < USER_SEEK_INTENT_WINDOW_MS;
+    if (frozen || elapsedMs < 0 || elapsedMs > LYRIC_LEAD_WINDOW_MS || recentSeek) {
+      return { leadMs, frozen: true, elapsedMs };
+    }
+
+    const candidate = measureLyricLead(positionMs, elapsedMs, leadMs);
+    const lastCandidate = this.readPlayer<number>(player, KaraokeController.LEAD_CANDIDATE_KEY);
+    const grew = typeof lastCandidate === 'number' && Number.isFinite(lastCandidate)
+      ? Math.abs(candidate - lastCandidate) > LYRIC_LEAD_STABLE_TOLERANCE_MS
+      : true;
+    const settled = !grew && candidate > 0;
+    const nowFrozen = settled || elapsedMs >= LYRIC_LEAD_WINDOW_MS;
+    this.writePlayer(player, KaraokeController.LEAD_KEY, candidate);
+    this.writePlayer(player, KaraokeController.LEAD_CANDIDATE_KEY, candidate);
+    this.writePlayer(player, KaraokeController.LEAD_FROZEN_KEY, nowFrozen);
+    return { leadMs: candidate, frozen: nowFrozen, elapsedMs };
+  }
+
+  /**
+   * The single lyric clock. Card display and boundary timer both read it,
+   * so they can never disagree about which line is singing.
+   *
+   * - Startup lead (measured, running max) — the node's clock runs ahead of
+   *   audible audio by a constant this proves per track.
+   * - Safety lag — timer slack, edit round-trip, voice jitter.
+   *
+   * `leadState` is what the measurement thinks; see `measureLead`.
+   */
+  public lyricClockFor(
+    player: Player,
+    positionMs: number,
+    safetyLagMs: number = LYRIC_SAFETY_LAG_MS,
+  ): { clock: number; lead: LyricLeadState } {
+    const pos = Math.max(0, positionMs);
+    const lead = this.measureLead(player, pos);
+    const clock = lyricClockFor(pos, lead.leadMs, safetyLagMs);
+    return { clock, lead };
+  }
 
   /**
    * Lyric window for a position, or null when lyrics are off, unsynced or
@@ -45,10 +150,11 @@ export class KaraokeController {
    * Full sync contract, in order:
    * 1. Single position authority: callers pass `calculatePosition` output;
    *    this never reads the node clock itself.
-   * 2. Safety lag: the lookup runs behind the clock by LYRIC_SAFETY_LAG_MS
-   *    so a line is never shown before it is heard (timer slack, edit
-   *    round-trip, voice jitter). Lines are pre-aligned per track by
-   *    `alignSyncedLines`; this lag is the never-early guarantee on top.
+   * 2. Startup lead + safety lag: the clock runs behind the node by the
+   *    measured lead and a fixed beat, so a line is never shown before it is
+   *    heard (lag covers timer slack, edit round-trip, voice jitter). Lines
+   *    are pre-aligned per track by `alignSyncedLines`; the lead and lag are
+   *    the never-early guarantee on top.
    * 3. Monotonic hold: a position that moves BACKWARDS past tolerance with
    *    no recorded seek intent is stale node data, not a rewind — the last
    *    window holds. A genuine backward seek always carries
@@ -67,9 +173,19 @@ export class KaraokeController {
       if (!this.host.queueService.isKaraokeEnabled(player.guildId)) return null;
       const lines = player.get<SyncedLine[] | null>('karaokeLines');
       if (!lines || lines.length === 0) return null;
-      const pos = Math.max(0, positionMs);
-      const effective = lyricEffectiveAt(pos, safetyLagMs);
-      const fresh = lyricWindowAt(lines, pos, safetyLagMs);
+      // One clock for the window lookup: lead-measured, then lagged.
+      const { clock, lead } = this.lyricClockFor(player, positionMs, safetyLagMs);
+      if (!lead.frozen) {
+        // The startup lead is still being proven. Any clock derived from a
+        // node position that has not true-upped yet can be early, so the
+        // card claims nothing is singing and only offers the first upcoming
+        // line. Late by a moment beats early by a groove.
+        const first = nextLyricBoundary(lines, 0);
+        if (!first) return null;
+        return { current: null, next: first.text.length > 0 ? first.text : null };
+      }
+      const effective = clock;
+      const fresh = lyricWindowAt(lines, effective);
       if (!fresh) return null;
       // Monotonic hold: refuse stale rewinds, allow deliberate seeks.
       try {
@@ -124,6 +240,9 @@ export class KaraokeController {
       player.set('lyricLastEffective', null);
       player.set('lyricLastWindow', null);
       player.set('lyricResolvedAt', null);
+      // The startup lead is per-track state: a new song starts measuring again.
+      player.set(KaraokeController.LEAD_KEY, null);
+      player.set(KaraokeController.LEAD_FROZEN_KEY, null);
     } catch (err) {
       // Memo reset is decoration; resolution continues.
       Logger.debug({ err, guildId: player.guildId }, '[Music] Lyric memo reset failed');
@@ -171,11 +290,13 @@ export class KaraokeController {
    * re-arm. Paused/frozen clocks get a cheap 15s recheck instead of a hot
    * loop; the silence between lines costs zero edits and zero work.
    *
-   * Timer and display share one effective position
-   * (`effective = position - SAFETY_LAG`): the timer arms to
-   * `next.ms - effective` and the window derives from the same effective,
-   * so the two can never disagree about which line is next. Arming on the
-   * raw clock while displaying lagged fired a full lag early.
+   * Timer and display share ONE clock (`lyricClockFor`): node position minus
+   * the measured startup lead minus the safety lag, clamped by wall time while
+   * the lead is still being measured. The timer arms to `next.ms - clock` and
+   * the window derives from the same clock, so the two can never disagree
+   * about which line is next. Arming on the raw position while displaying a
+   * lagged one fired a full lead early — the 2026-10-10 "lyrics 11.6s early"
+   * incident.
    *
    * Both callbacks go through the HOST, not through this object. A sibling
    * call would leave the handler's own methods un-spied, and a frozen card
@@ -188,27 +309,37 @@ export class KaraokeController {
       if (!this.host.queueService.isKaraokeEnabled(player.guildId)) return;
       const lines = player.get<SyncedLine[] | null>('karaokeLines');
       if (!lines || lines.length === 0) return;
-      const position = this.host.queueService.calculatePosition(player);
-      const effective = lyricEffectiveAt(Math.max(0, position), safetyLagMs);
-      const next = nextLyricBoundary(lines, effective);
-      if (!next) return;
-      let delay = next.ms - effective;
-      // Paused clocks are frozen: recheck cheaply instead of hot-looping.
-      // An overshoot (delay < 0, the clock moved past the boundary while the
-      // lines resolved) is the opposite — the new line is ALREADY singing,
-      // so publish on the floor instead of parking it for 15s.
-      if (player.paused) delay = 15000;
-      else if (delay < 0) delay = KARAOKE_TIMER_MIN_MS;
+      const positionMs = Math.max(0, this.host.queueService.calculatePosition(player));
+      const { clock, lead } = this.lyricClockFor(player, positionMs, safetyLagMs);
+      let delay: number;
+      let next: SyncedLine | null;
+      if (!lead.frozen) {
+        // Lead not proven yet: re-measure on a short recheck rather than
+        // arming to a boundary computed from a position that is known to be
+        // behind truth. No line is claimed while this is true.
+        next = null;
+        delay = LYRIC_STARTUP_RECHECK_MS;
+      } else {
+        next = nextLyricBoundary(lines, clock);
+        if (!next) return;
+        delay = next.ms - clock;
+        // Paused clocks are frozen: recheck cheaply instead of hot-looping.
+        // An overshoot (delay < 0, the clock moved past the boundary while the
+        // lines resolved) is the opposite — the new line is ALREADY singing,
+        // so publish on the floor instead of parking it for 15s.
+        if (player.paused) delay = 15000;
+        else if (delay < 0) delay = KARAOKE_TIMER_MIN_MS;
+      }
       const timer = setTimeout(() => {
         this.karaokeTimers.delete(player.guildId);
         try {
-          // Boundary diagnostic. `effectiveAheadBy` separates a node-side
-          // lead from a bad LRC clock: effective is what the card shows, so
-          // a steady positive lead here is exactly the "lyrics early"
-          // symptom. `elapsed`/`nodeLead` keep the wall-clock triangulation
-          // for year-gap and stale-clock cases.
-          const atFire = this.host.queueService.calculatePosition(player);
-          const atEffective = lyricEffectiveAt(Math.max(0, atFire), safetyLagMs);
+          // Boundary diagnostic. `clockAheadBy` is the audibility question:
+          // how far the lyric clock sits past the boundary it fires for, so a
+          // steady positive value is exactly the "lyrics early" symptom.
+          // `elapsed`/`nodeLead`/`lead` keep the wall-clock triangulation for
+          // year-gap, stale-clock and lead-measurement cases.
+          const atFire = Math.max(0, this.host.queueService.calculatePosition(player));
+          const at = this.lyricClockFor(player, atFire, safetyLagMs);
           const startedAt = typeof player.get === 'function' ? player.get<number>('trackStartedAt') : undefined;
           const elapsed = typeof startedAt === 'number' && startedAt > 0 ? Date.now() - startedAt : -1;
           const title =
@@ -216,7 +347,7 @@ export class KaraokeController {
               ? String((player.current as { title?: unknown }).title ?? '').slice(0, 60)
               : '';
           Logger.debug(
-            `[Music] Karaoke boundary { track: '${title}', pos: ${atFire}, effective: ${atEffective}, lineMs: ${next.ms}, effectiveAheadBy: ${atEffective - next.ms}, elapsed: ${elapsed}, nodeLead: ${elapsed >= 0 ? atFire - elapsed : 'n/a'} }`,
+            `[Music] Karaoke boundary { track: '${title}', pos: ${atFire}, clock: ${at.clock}, lead: ${at.lead.leadMs}, leadFrozen: ${at.lead.frozen}, lineMs: ${next?.ms ?? 'n/a'}, clockAheadBy: ${next ? at.clock - next.ms : 'n/a'}, elapsed: ${elapsed}, nodeLead: ${elapsed >= 0 ? atFire - elapsed : 'n/a'} }`,
           );
           void this.host.publishProgress(player);
         } catch {

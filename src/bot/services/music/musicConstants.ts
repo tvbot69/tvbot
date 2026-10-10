@@ -76,4 +76,4 @@ export const KARAOKE_TIMER_MIN_MS = 250;
  * capped) plus a small never-early safety lag, and timer and display share
  * the same effective position.
  */
-export { LYRIC_SAFETY_LAG_MS, MAX_LYRIC_ALIGN_SHIFT_MS, LYRIC_MONOTONIC_TOLERANCE_MS } from '@bot/services/music/syncedLyrics';
+export { LYRIC_SAFETY_LAG_MS, MAX_LYRIC_ALIGN_SHIFT_MS, LYRIC_MONOTONIC_TOLERANCE_MS, LYRIC_LEAD_WINDOW_MS, LYRIC_LEAD_MAX_MS } from '@bot/services/music/syncedLyrics';

@@ -45,6 +45,65 @@ export const MAX_LYRIC_ALIGN_SHIFT_MS = 10000;
 export const LYRIC_MONOTONIC_TOLERANCE_MS = 2000;
 
 /**
+ * STARTUP LEAD: how far ahead of audible audio a Lavalink node's reported
+ * position runs. Measured 2026-10-10 on the Home node ("Next Exit", 201s,
+ * boundary diagnostic `nodeLead`): 8680ms at the first boundary, then a jump
+ * to 11606ms, then steady 11577..11610 for the remaining minute of the track
+ * — the node counts decoded-ahead buffer from the play request, so its clock
+ * runs a constant ahead of what is heard. Earlier tracks measured 8700ms.
+ * It is per-track/per-node and was NOT a constant, which is why any fixed
+ * subtraction showed some songs early and others late.
+ *
+ * So it is MEASURED here from the only two clocks the bot has: the node's
+ * position (extrapolated by calculatePosition) and wall time since the
+ * trackStart event. `candidate = position - elapsed` converges upward to the
+ * true lead within about a second, so the measurement takes a running MAX
+ * inside a bounded window and then freezes for the track: an under-read
+ * shows a line LATE (safe), an over-read or a stale value would show it
+ * EARLY (the bug).
+ *
+ * The window is wall-time from trackStart and is skipped entirely while a
+ * recent user seek exists, because a seek moves the position base without
+ * moving wall time and would otherwise measure a lead the size of the seek.
+ */
+export const LYRIC_LEAD_WINDOW_MS = 30_000;
+export const LYRIC_LEAD_MAX_MS = 60_000;
+
+/**
+ * Two candidate readings this close together mean the node clock has settled,
+ * so the lead is proven and the lyrics may start claiming which line sings.
+ * Tight on purpose: the measured gap between the node's first true-up and
+ * stability was ~1ms across a whole track.
+ */
+export const LYRIC_LEAD_STABLE_TOLERANCE_MS = 250;
+
+/** Cheap recheck while the lead is still being proven. */
+export const LYRIC_STARTUP_RECHECK_MS = 500;
+
+/**
+ * Running-max update of the measured startup lead. The candidate is clamped
+ * at both ends: a negative one is node/bot clock skew (freeze at 0, which
+ * means "no measured lead"), and a huge one is a seek or a dead clock
+ * inflating the base, which must not be believed.
+ */
+export function measureLyricLead(positionMs: number, elapsedMs: number, previousLeadMs: number): number {
+  const candidate = positionMs - elapsedMs;
+  const clamped = Math.max(0, Math.min(candidate, LYRIC_LEAD_MAX_MS));
+  const previous = Number.isFinite(previousLeadMs) ? Math.max(0, previousLeadMs) : 0;
+  return Math.max(previous, clamped);
+}
+
+/**
+ * The lyric clock the card reads and the boundary timer arms to: the node
+ * position minus the measured lead and the safety lag. ONE function, so the
+ * display and the timer can never disagree about which line is next.
+ */
+export function lyricClockFor(positionMs: number, leadMs: number, safetyLagMs: number = LYRIC_SAFETY_LAG_MS): number {
+  const clock = positionMs - Math.max(0, leadMs) - Math.max(0, safetyLagMs);
+  return Number.isFinite(clock) ? Math.max(0, clock) : 0;
+}
+
+/**
  * Pressing gate for LIVE performances. A live arrangement re-times lines
  * (intros, banter, tempo shifts) far beyond its duration delta, so a studio
  * clock 8s away in length can sit seconds off all song. Live-tagged tracks

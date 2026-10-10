@@ -6,8 +6,11 @@ import {
   lyricWindowAt,
   alignSyncedLines,
   lyricEffectiveAt,
+  lyricClockFor,
+  measureLyricLead,
   nextLyricBoundary,
   LYRIC_SAFETY_LAG_MS,
+  LYRIC_LEAD_MAX_MS,
   MAX_LYRIC_ALIGN_SHIFT_MS,
   isLivePerformance,
   LIVE_DURATION_TOLERANCE_MS,
@@ -200,5 +203,53 @@ describe('lyricEffectiveAt + nextLyricBoundary (timer/display unity)', () => {
   it('returns null past the last line (no timer armed)', () => {
     expect(nextLyricBoundary(lines, 20000)).toBeNull();
     expect(nextLyricBoundary([], 0)).toBeNull();
+  });
+});
+
+describe('measureLyricLead (the node startup lead)', () => {
+  it('is the node position minus wall time since track start', () => {
+    // Log line: position 69127ms, elapsed 57532ms -> lead 11595ms.
+    expect(measureLyricLead(69127, 57532, 0)).toBe(11595);
+  });
+
+  it('is a running MAX: a node true-up may raise it, never lower it', () => {
+    // First boundary of the same track read 8680ms, then the clock true-upped.
+    expect(measureLyricLead(22941, 14261, 0)).toBe(8680);
+    expect(measureLyricLead(26866, 15260, 8680)).toBe(11606);
+    // A later jittery read must not walk it back down.
+    expect(measureLyricLead(27117, 15512, 11606)).toBe(11606);
+  });
+
+  it('clamps skew and nonsense at both ends', () => {
+    expect(measureLyricLead(5000, 12000, 0)).toBe(0);
+    expect(measureLyricLead(200000, 0, 0)).toBe(LYRIC_LEAD_MAX_MS);
+  });
+
+  it('ignores a non-finite previous value rather than poisoning the max', () => {
+    expect(measureLyricLead(69127, 57532, Number.NaN)).toBe(11595);
+  });
+});
+
+describe('lyricClockFor', () => {
+  it('subtracts the measured lead and the safety lag', () => {
+    expect(lyricClockFor(69127, 11595, 1200)).toBe(56332);
+  });
+
+  it('never returns a negative clock', () => {
+    expect(lyricClockFor(1000, 5000, 500)).toBe(0);
+  });
+
+  it('is the one value both the timer and the window derive from', () => {
+    // Timer delay and window lookup agree because they share the call.
+    const clock = lyricClockFor(26866, 11606, LYRIC_SAFETY_LAG_MS);
+    const next = nextLyricBoundary(
+      [
+        { ms: 13430, text: 'One' },
+        { ms: 22740, text: 'Two' },
+      ],
+      clock,
+    );
+    expect(next?.ms).toBe(22740);
+    expect(22740 - clock).toBe(8680);
   });
 });

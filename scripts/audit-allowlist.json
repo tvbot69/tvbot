@@ -6,5 +6,17 @@
   "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm": {
     "reason": "braces stack exhaustion via nested patterns, reachable only through tsc-alias/chokidar globs at build time over repo sources. No user pattern reaches a glob. No patched braces range exists; the only remediation is a tsc-alias downgrade to 1.0.11, which is rejected.",
     "revisitWhen": "a patched braces range is published, or tsc-alias is replaced"
+  },
+  "https://github.com/advisories/GHSA-5gmw-xhrv-c9v3": {
+    "reason": "Tinypool prototype pollution / RCE gadget in worker options. Dev-only transitive: `npm ls vitest --omit=dev` is empty and `npm audit --omit=dev` never reports it, so no production import path reaches a worker pool. Reached solely through vitest 3.2.7's own test workers on `npm test`, where the options come from vitest itself, never from repo or user input. Patched only in tinypool 2.x, which vitest 3 pins away (`tinypool ^1.1.1`).",
+    "revisitWhen": "vitest is upgraded past its tinypool 1.x pin (vitest 4/5), or the runner is replaced"
+  },
+  "https://github.com/advisories/GHSA-85c8-ppgw-ccpr": {
+    "reason": "Tinypool RCE gadget in run() options, same dev-only path as GHSA-5gmw-xhrv-c9v3: vitest's worker pool at test time on CI, no production import, options come from vitest itself. Same tinypool 2.x-only patch constraint.",
+    "revisitWhen": "vitest is upgraded past its tinypool 1.x pin (vitest 4/5), or the runner is replaced"
+  },
+  "https://github.com/advisories/GHSA-68fv-2mgg-jv7q": {
+    "reason": "source-map-js event-loop denial of service via indexed source-map section offsets. Dev-only transitive of vite/postcss under vitest, and of @vue/compiler-sfc under madge; neither is a production dependency (`npm audit --omit=dev` never reports it). Exploiting it requires attacker-supplied source maps, and the tree consumes maps produced by our own tsc/vite. Pinned at 1.2.1 by vitest 3's tree, so a fix to 1.2.2 would need an override into vite.",
+    "revisitWhen": "vitest/madge trees resolve source-map-js >=1.2.2 without an override, or the runner is upgraded"
   }
 }
